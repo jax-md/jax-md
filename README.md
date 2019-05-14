@@ -114,6 +114,6 @@ init, update = nvt_nose_hoover(energy, wrap_fn, dt, temperature)
 state = init(R)
 for _ in range(100):
   state = update(state)
-R = get_positions(state)
+R = state.positions
 ```
 
