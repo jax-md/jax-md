@@ -1,0 +1,11 @@
+*.pyc
+*.so
+*.egg-info
+.ipynb_checkpoints
+/bazel-*
+.bazelrc
+/tensorflow
+.DS_Store
+build/
+dist/
+.mypy_cache/
