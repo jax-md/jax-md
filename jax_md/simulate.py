@@ -41,7 +41,7 @@ from jax import random
 import jax.numpy as np
 
 from jax_md import quantity
-from jax_md import time_dependence
+from jax_md import interpolate
 
 from jax_md.util import register_pytree_namedtuple
 
@@ -197,7 +197,7 @@ def nvt_nose_hoover(
   dt_4 = dt_2 / 2.0
   dt_8 = dt_4 / 2.0
 
-  T_schedule = time_dependence.canonicalize(T_schedule)
+  T_schedule = interpolate.canonicalize(T_schedule)
 
   def init_fun(key, R, mass=1.0, T_initial=1.0):
     mass = quantity.canonicalize_mass(mass)
