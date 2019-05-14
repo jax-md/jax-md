@@ -13,7 +13,7 @@ of quantities to compute functions of interest (e.g. gradients of energies
 to compute forces).
 
 However, recent work in machine learning has led to significant software
-developments that might make it possible to write significantly more concise
+developments that might make it possible to write more concise
 molecular dynamics simulations that offer a range of benefits. Here we target
 JAX, which allows us to write python code that gets compiled to XLA and allows
 us to run on CPU, GPU, or TPU. Moreover, JAX allows us to take derivatives of
@@ -77,9 +77,9 @@ N = 1000
 spatial_dimension = 2
 key = random.PRNGKey(0)
 R = random.uniform(key, (N, spatial_dimension), minval=0.0, maxval=1.0)
-energy_fn = lennard_jones_pairwise(displacement)
+energy_fn = energy.lennard_jones_pairwise(displacement)
 print('E = {}'.format(energy(R)))
-force_fn = force(energy_fn)
+force_fn = quantity.force(energy_fn)
 print('Total Squared Force = {}'.format(np.sum(force_fn(R) ** 2)))
 ```
 
@@ -112,8 +112,8 @@ temperature = 1.0
 dt = 1e-3
 init, update = nvt_nose_hoover(energy, wrap_fn, dt, temperature)
 state = init(R)
-for i in range(100):
-  state = update(i, state)
+for _ in range(100):
+  state = update(state)
 R = get_positions(state)
 ```
 
