@@ -30,9 +30,9 @@ a broader set of simulations.
 To get started playing around with JAX, MD check out the following colab
 notebooks on Google Cloud without needing to install anything.
 
-- [Minimization] (https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/minimization.ipynb)
-- [NVE Simulation] (https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/nve_simulation.ipynb)
-- [NVT Simulation] (https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/nvt_simulation.ipynb)
+- [Minimization](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/minimization.ipynb)
+- [NVE Simulation](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/nve_simulation.ipynb)
+- [NVT Simulation](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/nvt_simulation.ipynb)
 
 Alternatively, you can install JAX, MD by first following the [JAX's](https://www.github.com/google/jax/)
 installation instructions. Then installing JAX, MD should be as easy as,
