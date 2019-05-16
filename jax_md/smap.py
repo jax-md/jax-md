@@ -427,7 +427,7 @@ def grid(
   if species is None:
     species_count = 1
   else:
-    species_count = np.max(species) + 1
+    species_count = int(np.max(species) + 1)
 
   cell_capacity = cell_capacity_or_example_positions
   if _is_variable_compatible_with_positions(cell_capacity):
