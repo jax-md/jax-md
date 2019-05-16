@@ -463,7 +463,7 @@ def grid(
     # we copy it to an array of shape [N + 1, output_dimension] and then
     # truncate it to an array of shape [N, output_dimension] which ignores the
     # halo particles.
-    mask_id = np.ones((N,), np.int64) * (N + 1)
+    mask_id = np.ones((N,), np.int64) * N
     cell_R = np.zeros((cell_count * cell_capacity, dim), dtype=R.dtype)
     # NOTE(schsam): empty_species_index is just supposed to be large enough that
     # we will never run into it. However, there might be a more robust way to do
