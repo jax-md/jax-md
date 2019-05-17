@@ -471,7 +471,7 @@ def grid(
     empty_species_index = 10000
     cell_species = empty_species_index * np.ones(
         (cell_count * cell_capacity, 1), dtype=_species.dtype)
-    cell_id = (N + 1) * np.ones((cell_count * cell_capacity, 1), dtype=np.int64)
+    cell_id = N * np.ones((cell_count * cell_capacity, 1), dtype=np.int64)
 
     indices = np.array(R / cell_size, dtype=np.int64)
 
