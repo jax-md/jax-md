@@ -295,6 +295,25 @@ class SMapTest(jtu.JaxTestCase):
     species = np.zeros((PARTICLE_COUNT,), dtype=np.int64)
     self.assertAllClose(force_fn(R, species, 1), grid_force_fn(R), True)
 
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}'.format(dim),
+          'spatial_dimension': dim
+      } for dim in SPATIAL_DIMENSION))
+  def test_pairwise_grid_force_incommensurate(self, spatial_dimension):
+    key = random.PRNGKey(1)
+
+    box_size = 12.1
+    cell_size = 3.0
+    displacement, _ = space.periodic(box_size)
+    energy_fn = smap.pairwise(
+        energy.soft_sphere, displacement, quantity.Dynamic)
+    force_fn = quantity.force(energy_fn)
+
+    R = box_size * random.uniform(key, (PARTICLE_COUNT, spatial_dimension))
+    grid_force_fn = jit(smap.grid(force_fn, box_size, cell_size, R))
+    species = np.zeros((PARTICLE_COUNT,), dtype=np.int64)
+    self.assertAllClose(force_fn(R, species, 1), grid_force_fn(R), True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {

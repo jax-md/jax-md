@@ -251,7 +251,7 @@ class Grid(namedtuple(
 register_pytree_namedtuple(Grid)
 
 
-def _cell_dimensions(spatial_dimension, box_size, cell_size):
+def _cell_dimensions(spatial_dimension, box_size, minimum_cell_size):
   """Compute the number of cells-per-side and total number of cells in a box."""
   if isinstance(box_size, int):
     box_size = float(box_size)
@@ -260,7 +260,9 @@ def _cell_dimensions(spatial_dimension, box_size, cell_size):
       (box_size.dtype == np.int32 or box_size.dtype == np.int64)):
     box_size = np.array(box_size, dtype=np.float32)
 
-  cells_per_side = np.array(np.ceil(box_size / cell_size), dtype=np.int64)
+  cells_per_side = np.floor(box_size / minimum_cell_size)
+  cell_size = box_size / cells_per_side
+  cells_per_side = np.array(cells_per_side, dtype=np.int64)
 
   if isinstance(box_size, np.ndarray):
     flat_cells_per_side = np.reshape(cells_per_side, (-1,))
@@ -274,14 +276,14 @@ def _cell_dimensions(spatial_dimension, box_size, cell_size):
   else:
     cell_count = cells_per_side ** spatial_dimension
 
-  return box_size, cells_per_side, int(cell_count)
+  return box_size, cell_size, cells_per_side, int(cell_count)
 
 
-def count_cell_filling(R, box_size, cell_size):
+def count_cell_filling(R, box_size, minimum_cell_size):
   """Counts the number of particles per-cell in a spatial partition."""
   dim = R.shape[1]
-  box_size, cells_per_side, cell_count = \
-      _cell_dimensions(dim, box_size, cell_size)
+  box_size, cell_size, cells_per_side, cell_count = \
+      _cell_dimensions(dim, box_size, minimum_cell_size)
 
   hash_multipliers = _compute_hash_constants(dim, cells_per_side)
 
@@ -346,7 +348,7 @@ def _estimate_cell_capacity(R, box_size, cell_size):
 
 
 def grid(
-    fn, box_size, cell_size, cell_capacity_or_example_positions, species=None,
+    fn, box_size, minimum_cell_size, cell_capacity_or_example_positions, species=None,
     separate_build_and_apply=False, cells_per_iter=-1):
   r"""Returns a function that evaluates a function sparsely on a grid.
 
@@ -431,7 +433,7 @@ def grid(
 
   cell_capacity = cell_capacity_or_example_positions
   if _is_variable_compatible_with_positions(cell_capacity):
-    cell_capacity = _estimate_cell_capacity(cell_capacity, box_size, cell_size)
+    cell_capacity = _estimate_cell_capacity(cell_capacity, box_size, minimum_cell_size)
   elif not isinstance(cell_capacity, int):
     msg = (
         'cell_capacity_or_example_positions must either be an integer '
@@ -445,8 +447,8 @@ def grid(
     dim = R.shape[1]
     neighborhood_tile_count = 3 ** dim
 
-    _, cells_per_side, cell_count = \
-        _cell_dimensions(dim, box_size, cell_size)
+    _, cell_size, cells_per_side, cell_count = \
+        _cell_dimensions(dim, box_size, minimum_cell_size)
 
     if species is None:
       _species = np.zeros((N,), dtype=np.int32)
@@ -459,7 +461,7 @@ def grid(
     particle_id = lax.iota(np.int64, N)
     # NOTE(schsam): We use the convention that particles that come from the
     # center cell have their true id copied, whereas particles that come from
-    # the halo have an id = N + 1. Then when we copy data back from the grid,
+    # the halo have an id = N. Then when we copy data back from the grid,
     # we copy it to an array of shape [N + 1, output_dimension] and then
     # truncate it to an array of shape [N, output_dimension] which ignores the
     # halo particles.
@@ -585,4 +587,3 @@ def grid(
     return build_cells, compute
   else:
     return lambda R, **kwargs: compute(build_cells(R), **kwargs)
-
