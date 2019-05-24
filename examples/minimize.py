@@ -73,12 +73,6 @@ def main(unused_argv):
       print('{:.2f}\t{:.2f}\t{:.2f}'.format(
           step, energy_fn(R), np.max(force_fn(R))))
 
-  R = opt_state.position
-  energy_fn = smap.pairwise(
-    energy.soft_sphere, displacement, quantity.Dynamic, sigma=sigma)
-  force_fn = quantity.force(energy_fn)
-  force_fn = smap.grid(force_fn, box_size, 1.4, R, species=species)
-  print(force_fn(R))
 
 if __name__ == '__main__':
   app.run(main)
