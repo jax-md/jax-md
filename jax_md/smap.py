@@ -472,12 +472,12 @@ def grid(
     # NOTE(schsam): empty_species_index is just supposed to be large enough that
     # we will never run into it. However, there might be a more robust way to do
     # this.
-    empty_species_index = 10000
+    empty_species_index = i16(1000)
     cell_species = empty_species_index * np.ones(
         (cell_count * cell_capacity, 1), dtype=_species.dtype)
-    cell_id = N * np.ones((cell_count * cell_capacity, 1), dtype=np.int64)
+    cell_id = N * np.ones((cell_count * cell_capacity, 1), dtype=i32)
 
-    indices = np.array(R / cell_size, dtype=np.int64)
+    indices = np.array(R / cell_size, dtype=i32)
 
     # Create a copy of particle data for each neighboring cell shifting the hash
     # appropriately.
@@ -487,8 +487,8 @@ def grid(
     for _ in range(neighborhood_tile_count - 1):
       tiled_R = np.concatenate((tiled_R, R), axis=0)
       tiled_species = np.concatenate((tiled_species, _species), axis=0)
-    tiled_hash = np.array([], dtype=np.int64)
-    tiled_id = np.array([], dtype=np.int64)
+    tiled_hash = np.array([], dtype=i32)
+    tiled_id = np.array([], dtype=i32)
 
     for dindex in _neighboring_cells(dim):
       tiled_indices = np.mod(indices + dindex, cells_per_side)

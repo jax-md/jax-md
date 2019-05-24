@@ -150,7 +150,7 @@ class SpaceTest(jtu.JaxTestCase):
         split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
       dR = space.pairwise_displacement(R, R)
 
-      dR_wrapped = space.periodic_displacement(1.0, dR)
+      dR_wrapped = space.periodic_displacement(f16(1.0), dR)
 
       dR_direct = dR
       dr_direct = space.distance(dR)
@@ -227,9 +227,9 @@ class SpaceTest(jtu.JaxTestCase):
     for _ in range(STOCHASTIC_SAMPLES):
       key, split1, split2, split3 = random.split(key, 4)
 
-      max_box_size = 10.0
+      max_box_size = f16(10.0)
       box_size = max_box_size * random.uniform(
-        split1, (spatial_dimension,), dtype)
+        split1, (spatial_dimension,), dtype=dtype)
       transform = np.diag(box_size)
 
       R = random.uniform(

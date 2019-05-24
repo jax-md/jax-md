@@ -267,8 +267,8 @@ class SMapTest(jtu.JaxTestCase):
   def test_pairwise_grid_energy(self, spatial_dimension, dtype):
     key = random.PRNGKey(1)
 
-    box_size = 9.0
-    cell_size = 2.0
+    box_size = f16(9.0)
+    cell_size = f16(2.0)
     displacement, _ = space.periodic(box_size)
     energy_fn = smap.pairwise(
         energy.soft_sphere, displacement, quantity.Dynamic,
@@ -291,8 +291,8 @@ class SMapTest(jtu.JaxTestCase):
   def test_pairwise_grid_force(self, spatial_dimension, dtype):
     key = random.PRNGKey(1)
 
-    box_size = 9.0
-    cell_size = 2.0
+    box_size = f16(9.0)
+    cell_size = f16(2.0)
     displacement, _ = space.periodic(box_size)
     energy_fn = smap.pairwise(
         energy.soft_sphere, displacement, quantity.Dynamic)
@@ -314,8 +314,8 @@ class SMapTest(jtu.JaxTestCase):
   def test_pairwise_grid_force_jit(self, spatial_dimension, dtype):
     key = random.PRNGKey(1)
 
-    box_size = 9.0
-    cell_size = 2.0
+    box_size = f16(9.0)
+    cell_size = f16(2.0)
     displacement, _ = space.periodic(box_size)
     energy_fn = smap.pairwise(
         energy.soft_sphere, displacement, quantity.Dynamic)

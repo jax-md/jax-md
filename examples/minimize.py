@@ -27,7 +27,7 @@ config.update("jax_enable_x64", True)
 import jax.numpy as np
 from jax import jit
 from jax_md import space, energy, minimize, quantity, smap
-from jax_md.util import f32
+from jax_md.util import f32, i32
 
 def main(unused_argv):
   key = random.PRNGKey(0)
@@ -48,7 +48,7 @@ def main(unused_argv):
   # large and one small.
   sigma = np.array([[1.0, 1.2], [1.2, 1.4]], dtype=f32)
   N_2 = int(N / 2)
-  species = np.array([0] * N_2 + [1] * N_2, dtype=np.int32)
+  species = np.array([0] * N_2 + [1] * N_2, dtype=i32)
 
   # Create an energy function.
   energy_fn = energy.soft_sphere_pairwise(displacement, species, sigma)
@@ -59,7 +59,7 @@ def main(unused_argv):
   opt_state = init_fn(R)
 
   # Minimize the system.
-  minimize_steps = 200
+  minimize_steps = 50
   print_every = 10
 
   print('Minimizing.')
@@ -73,6 +73,12 @@ def main(unused_argv):
       print('{:.2f}\t{:.2f}\t{:.2f}'.format(
           step, energy_fn(R), np.max(force_fn(R))))
 
+  R = opt_state.position
+  energy_fn = smap.pairwise(
+    energy.soft_sphere, displacement, quantity.Dynamic, sigma=sigma)
+  force_fn = quantity.force(energy_fn)
+  force_fn = smap.grid(force_fn, box_size, 1.4, R, species=species)
+  print(force_fn(R))
 
 if __name__ == '__main__':
   app.run(main)
