@@ -22,6 +22,7 @@ from absl.testing import absltest
 from absl.testing import parameterized
 
 from jax.config import config as jax_config
+
 from jax import random
 import jax.numpy as np
 
@@ -31,6 +32,7 @@ from jax import test_util as jtu
 from jax import jit
 
 from jax_md import smap, space, energy, quantity
+from jax_md.util import *
 
 jax_config.parse_flags_with_absl()
 FLAGS = jax_config.FLAGS
@@ -40,6 +42,10 @@ PARTICLE_COUNT = 100
 STOCHASTIC_SAMPLES = 10
 SPATIAL_DIMENSION = [2, 3]
 
+if FLAGS.jax_enable_x64:
+  POSITION_DTYPE = [f32, f64]
+else:
+  POSITION_DTYPE = [f32]
 
 class SMapTest(jtu.JaxTestCase):
 
@@ -75,10 +81,11 @@ class SMapTest(jtu.JaxTestCase):
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}'.format(dim),
-          'spatial_dimension': dim
-      } for dim in SPATIAL_DIMENSION))
-  def test_pairwise_no_species_scalar(self, spatial_dimension):
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_pairwise_no_species_scalar(self, spatial_dimension, dtype):
     square = lambda dr: dr ** 2
     displacement, _ = space.free()
     metric = lambda Ra, Rb, **kwargs: \
@@ -90,16 +97,19 @@ class SMapTest(jtu.JaxTestCase):
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split = random.split(key)
-      R = random.uniform(split, (PARTICLE_COUNT, spatial_dimension))
+      R = random.uniform(
+        split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
       self.assertAllClose(
-          mapped_square(R), 0.5 * np.sum(square(metric(R, R))), True)
+        mapped_square(R),
+        np.array(0.5 * np.sum(square(metric(R, R))), dtype=dtype), True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}'.format(dim),
-          'spatial_dimension': dim
-      } for dim in SPATIAL_DIMENSION))
-  def test_pairwise_no_species_vector(self, spatial_dimension):
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_pairwise_no_species_vector(self, spatial_dimension, dtype):
     square = lambda dr: np.sum(dr ** 2, axis=2)
     disp, _ = space.free()
 
@@ -109,20 +119,22 @@ class SMapTest(jtu.JaxTestCase):
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split = random.split(key)
-      R = random.uniform(split, (PARTICLE_COUNT, spatial_dimension))
-      self.assertAllClose(
-          mapped_square(R), 0.5 * np.sum(square(disp(R, R))), True)
+      R = random.uniform(
+        split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+      mapped_ref = np.array(0.5 * np.sum(square(disp(R, R))), dtype=dtype)
+      self.assertAllClose(mapped_square(R), mapped_ref, True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}'.format(dim),
-          'spatial_dimension': dim
-      } for dim in SPATIAL_DIMENSION))
-  def test_pairwise_static_species_scalar(self, spatial_dimension):
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_pairwise_static_species_scalar(self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 
     square = lambda dr, param=1.0: param * dr ** 2
-    params = np.array([[1.0, 2.0], [2.0, 3.0]])
+    params = f32(np.array([[1.0, 2.0], [2.0, 3.0]]))
 
     key, split = random.split(key)
     species = random.randint(split, (PARTICLE_COUNT,), 0, 2)
@@ -130,11 +142,13 @@ class SMapTest(jtu.JaxTestCase):
     metric = lambda Ra, Rb, **kwargs: \
         np.sum(displacement(Ra, Rb, **kwargs) ** 2, axis=-1)
 
-    mapped_square = smap.pairwise(square, metric, species=species, param=params)
+    mapped_square = smap.pairwise(
+      square, metric, species=species, param=params)
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split = random.split(key)
-      R = random.uniform(split, (PARTICLE_COUNT, spatial_dimension))
+      R = random.uniform(
+        split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
       total = 0.0
       for i in range(2):
         for j in range(2):
@@ -142,18 +156,19 @@ class SMapTest(jtu.JaxTestCase):
           R_1 = R[species == i]
           R_2 = R[species == j]
           total = total + 0.5 * np.sum(square(metric(R_1, R_2), param))
-      self.assertAllClose(mapped_square(R), total, True)
+      self.assertAllClose(mapped_square(R), np.array(total, dtype=dtype), True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}'.format(dim),
-          'spatial_dimension': dim
-      } for dim in SPATIAL_DIMENSION))
-  def test_pairwise_static_species_vector(self, spatial_dimension):
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_pairwise_static_species_vector(self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 
     square = lambda dr, param=1.0: param * np.sum(dr ** 2, axis=2)
-    params = np.array([[1.0, 2.0], [2.0, 3.0]])
+    params = f32(np.array([[1.0, 2.0], [2.0, 3.0]]))
 
     key, split = random.split(key)
     species = random.randint(split, (PARTICLE_COUNT,), 0, 2)
@@ -163,7 +178,8 @@ class SMapTest(jtu.JaxTestCase):
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split = random.split(key)
-      R = random.uniform(split, (PARTICLE_COUNT, spatial_dimension))
+      R = random.uniform(
+        split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
       total = 0.0
       for i in range(2):
         for j in range(2):
@@ -171,18 +187,19 @@ class SMapTest(jtu.JaxTestCase):
           R_1 = R[species == i]
           R_2 = R[species == j]
           total = total + 0.5 * np.sum(square(disp(R_1, R_2), param))
-      self.assertAllClose(mapped_square(R), total, True)
+      self.assertAllClose(mapped_square(R), np.array(total, dtype=dtype), True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}'.format(dim),
-          'spatial_dimension': dim
-      } for dim in SPATIAL_DIMENSION))
-  def test_pairwise_dynamic_species_scalar(self, spatial_dimension):
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_pairwise_dynamic_species_scalar(self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 
     square = lambda dr, param=1.0: param * dr ** 2
-    params = np.array([[1.0, 2.0], [2.0, 3.0]])
+    params = f32(np.array([[1.0, 2.0], [2.0, 3.0]]))
 
     key, split = random.split(key)
     species = random.randint(split, (PARTICLE_COUNT,), 0, 2)
@@ -195,7 +212,8 @@ class SMapTest(jtu.JaxTestCase):
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split = random.split(key)
-      R = random.uniform(split, (PARTICLE_COUNT, spatial_dimension))
+      R = random.uniform(
+        split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
       total = 0.0
       for i in range(2):
         for j in range(2):
@@ -203,18 +221,21 @@ class SMapTest(jtu.JaxTestCase):
           R_1 = R[species == i]
           R_2 = R[species == j]
           total = total + 0.5 * np.sum(square(metric(R_1, R_2), param))
-      self.assertAllClose(mapped_square(R, species, 2), total, True)
+      self.assertAllClose(
+        mapped_square(R, species, 2), np.array(total, dtype=dtype), True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
           'testcase_name': '_dim={}'.format(dim),
-          'spatial_dimension': dim
-      } for dim in SPATIAL_DIMENSION))
-  def disabled_test_pairwise_dynamic_species_vector(self, spatial_dimension):
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def disabled_test_pairwise_dynamic_species_vector(
+      self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 
     square = lambda dr, param=1.0: param * np.sum(dr ** 2, axis=2)
-    params = np.array([[1.0, 2.0], [2.0, 3.0]])
+    params = f32(np.array([[1.0, 2.0], [2.0, 3.0]]))
 
     key, split = random.split(key)
     species = random.randint(split, (PARTICLE_COUNT,), 0, 2)
@@ -225,7 +246,8 @@ class SMapTest(jtu.JaxTestCase):
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split = random.split(key)
-      R = random.uniform(split, (PARTICLE_COUNT, spatial_dimension))
+      R = random.uniform(
+        split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
       total = 0.0
       for i in range(2):
         for j in range(2):
@@ -233,14 +255,16 @@ class SMapTest(jtu.JaxTestCase):
           R_1 = R[species == i]
           R_2 = R[species == j]
           total = total + 0.5 * np.sum(square(disp(R_1, R_2), param))
-      self.assertAllClose(mapped_square(R, species, 2), total, True)
+      self.assertAllClose(
+        mapped_square(R, species, 2), np.array(total, dtype=dtype), True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}'.format(dim),
-          'spatial_dimension': dim
-      } for dim in SPATIAL_DIMENSION))
-  def test_pairwise_grid_energy(self, spatial_dimension):
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_pairwise_grid_energy(self, spatial_dimension, dtype):
     key = random.PRNGKey(1)
 
     box_size = 9.0
@@ -250,17 +274,21 @@ class SMapTest(jtu.JaxTestCase):
         energy.soft_sphere, displacement, quantity.Dynamic,
         reduce_axis=(1,), keepdims=True)
 
-    R = box_size * random.uniform(key, (PARTICLE_COUNT, spatial_dimension))
+    R = box_size * random.uniform(
+      key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
     grid_energy_fn = smap.grid(energy_fn, box_size, cell_size, R)
     species = np.zeros((PARTICLE_COUNT,), dtype=np.int64)
-    self.assertAllClose(energy_fn(R, species, 1), grid_energy_fn(R), True)
+    self.assertAllClose(
+      np.array(energy_fn(R, species, 1), dtype=dtype),
+      grid_energy_fn(R), True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}'.format(dim),
-          'spatial_dimension': dim
-      } for dim in SPATIAL_DIMENSION))
-  def test_pairwise_grid_force(self, spatial_dimension):
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_pairwise_grid_force(self, spatial_dimension, dtype):
     key = random.PRNGKey(1)
 
     box_size = 9.0
@@ -270,17 +298,20 @@ class SMapTest(jtu.JaxTestCase):
         energy.soft_sphere, displacement, quantity.Dynamic)
     force_fn = quantity.force(energy_fn)
 
-    R = box_size * random.uniform(key, (PARTICLE_COUNT, spatial_dimension))
+    R = box_size * random.uniform(
+      key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
     grid_force_fn = smap.grid(force_fn, box_size, cell_size, R)
     species = np.zeros((PARTICLE_COUNT,), dtype=np.int64)
-    self.assertAllClose(force_fn(R, species, 1), grid_force_fn(R), True)
+    self.assertAllClose(
+      np.array(force_fn(R, species, 1), dtype=dtype), grid_force_fn(R), True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}'.format(dim),
-          'spatial_dimension': dim
-      } for dim in SPATIAL_DIMENSION))
-  def test_pairwise_grid_force_jit(self, spatial_dimension):
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_pairwise_grid_force_jit(self, spatial_dimension, dtype):
     key = random.PRNGKey(1)
 
     box_size = 9.0
@@ -290,54 +321,62 @@ class SMapTest(jtu.JaxTestCase):
         energy.soft_sphere, displacement, quantity.Dynamic)
     force_fn = quantity.force(energy_fn)
 
-    R = box_size * random.uniform(key, (PARTICLE_COUNT, spatial_dimension))
+    R = box_size * random.uniform(
+      key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
     grid_force_fn = jit(smap.grid(force_fn, box_size, cell_size, R))
     species = np.zeros((PARTICLE_COUNT,), dtype=np.int64)
-    self.assertAllClose(force_fn(R, species, 1), grid_force_fn(R), True)
+    self.assertAllClose(
+      np.array(force_fn(R, species, 1), dtype=dtype), grid_force_fn(R), True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}'.format(dim),
-          'spatial_dimension': dim
-      } for dim in SPATIAL_DIMENSION))
-  def test_pairwise_grid_force_incommensurate(self, spatial_dimension):
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_pairwise_grid_force_incommensurate(self, spatial_dimension, dtype):
     key = random.PRNGKey(1)
 
-    box_size = 12.1
-    cell_size = 3.0
+    box_size = f32(12.1)
+    cell_size = f32(3.0)
     displacement, _ = space.periodic(box_size)
     energy_fn = smap.pairwise(
         energy.soft_sphere, displacement, quantity.Dynamic)
     force_fn = quantity.force(energy_fn)
 
-    R = box_size * random.uniform(key, (PARTICLE_COUNT, spatial_dimension))
+    R = box_size * random.uniform(
+      key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
     grid_force_fn = jit(smap.grid(force_fn, box_size, cell_size, R))
     species = np.zeros((PARTICLE_COUNT,), dtype=np.int64)
-    self.assertAllClose(force_fn(R, species, 1), grid_force_fn(R), True)
+    self.assertAllClose(
+      np.array(force_fn(R, species, 1), dtype=dtype), grid_force_fn(R), True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}'.format(dim),
-          'spatial_dimension': dim
-      } for dim in SPATIAL_DIMENSION))
-  def test_pairwise_grid_force_nonuniform(self, spatial_dimension):
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_pairwise_grid_force_nonuniform(self, spatial_dimension, dtype):
     key = random.PRNGKey(1)
 
     if spatial_dimension == 2:
-      box_size = np.array([[8.0, 10.0]])
+      box_size = f32(np.array([[8.0, 10.0]]))
     else:
-      box_size = np.array([[8.0, 10.0, 12.0]])
+      box_size = f32(np.array([[8.0, 10.0, 12.0]]))
 
-    cell_size = 2.0
+    cell_size = f32(2.0)
     displacement, _ = space.periodic(box_size)
     energy_fn = smap.pairwise(
         energy.soft_sphere, displacement, quantity.Dynamic)
     force_fn = quantity.force(energy_fn)
 
-    R = box_size * random.uniform(key, (PARTICLE_COUNT, spatial_dimension))
+    R = box_size * random.uniform(
+      key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
     grid_force_fn = smap.grid(force_fn, box_size, cell_size, R)
     species = np.zeros((PARTICLE_COUNT,), dtype=np.int64)
-    self.assertAllClose(force_fn(R, species, 1), grid_force_fn(R), True)
+    self.assertAllClose(
+      np.array(force_fn(R, species, 1), dtype=dtype), grid_force_fn(R), True)
 
 if __name__ == '__main__':
   absltest.main()

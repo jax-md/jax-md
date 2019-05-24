@@ -27,15 +27,15 @@ config.update("jax_enable_x64", True)
 import jax.numpy as np
 from jax import jit
 from jax_md import space, energy, minimize, quantity, smap
-
+from jax_md.util import f32
 
 def main(unused_argv):
   key = random.PRNGKey(0)
 
   # Setup some variables describing the system.
-  N = 5000
+  N = 500
   dimension = 2
-  box_size = 80.0
+  box_size = f32(25.0)
 
   # Create helper functions to define a periodic box of some size.
   displacement, shift = space.periodic(box_size)
@@ -46,7 +46,7 @@ def main(unused_argv):
 
   # The system ought to be a 50:50 mixture of two types of particles, one
   # large and one small.
-  sigma = np.array([[1.0, 1.2], [1.2, 1.4]])
+  sigma = np.array([[1.0, 1.2], [1.2, 1.4]], dtype=f32)
   N_2 = int(N / 2)
   species = np.array([0] * N_2 + [1] * N_2, dtype=np.int32)
 
@@ -73,19 +73,6 @@ def main(unused_argv):
       print('{:.2f}\t{:.2f}\t{:.2f}'.format(
           step, energy_fn(R), np.max(force_fn(R))))
 
-
-  unoptimized_energy_fn = energy.soft_sphere_pairwise(
-      displacement, species=species, sigma=sigma)
-  unoptimized_force_fn = jit(quantity.force(unoptimized_energy_fn))
-
-  energy_fn = smap.pairwise(
-      energy.soft_sphere, displacement, quantity.Dynamic, sigma=sigma)
-  force_fn = quantity.force(energy_fn)
-  force_fn = jit(smap.grid(force_fn, box_size, 1.5, R, species))
-
-  R = np.array(opt_state.position, dtype=np.float64)
-  dF = unoptimized_force_fn(R) - force_fn(R)
-  print(np.sort(np.sum(dF ** 2, axis=1)))
 
 if __name__ == '__main__':
   app.run(main)

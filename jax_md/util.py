@@ -19,6 +19,24 @@ from __future__ import division
 from __future__ import print_function
 
 from jax.tree_util import register_pytree_node
+import jax.numpy as np
+
+import numpy as onp
+
+
+i16 = np.int16
+i32 = np.int32
+i64 = np.int64
+
+f16 = np.float16
+f32 = np.float32
+f64 = np.float64
+
+
+def static_cast(*xs):
+  """Function to cast a value to the lowest dtype that can express it."""
+  # NOTE(schsam): static_cast is so named because it cannot be jit.
+  return (np.array(x, dtype=onp.min_scalar_type(x)) for x in xs)
 
 
 def register_pytree_namedtuple(cls):

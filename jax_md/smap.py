@@ -31,7 +31,7 @@ from jax.interpreters import partial_eval as pe
 import jax.numpy as np
 
 from jax_md import quantity
-from jax_md.util import register_pytree_namedtuple
+from jax_md.util import *
 
 
 # pylint: disable=invalid-name
@@ -92,7 +92,7 @@ def _diagonal_mask(X):
   # masking nans also doesn't seem to work. So it also seems necessary. At the
   # very least we should do some @ErrorChecking.
   X = np.nan_to_num(X)
-  mask = 1.0 - np.eye(N, dtype=X.dtype)
+  mask = f16(1.0) - np.eye(N, dtype=X.dtype)
   if len(X.shape) == 3:
     mask = np.reshape(mask, (N, N, 1))
   return mask * X
@@ -101,11 +101,11 @@ def _diagonal_mask(X):
 def _high_precision_sum(X, axis=None, keepdims=False):
   """Sums over axes at 64-bit precision then casts back to original dtype."""
   return np.array(
-      np.sum(X, axis=axis, dtype=np.float64, keepdims=keepdims), dtype=X.dtype)
+      np.sum(X, axis=axis, dtype=f64, keepdims=keepdims), dtype=X.dtype)
 
 
 def _check_species_dtype(species):
-  if species.dtype == np.int32 or species.dtype == np.int64:
+  if species.dtype == i32 or species.dtype == i64:
     return
   msg = 'Species has wrong dtype. Expected integer but found {}.'.format(
       species.dtype)
@@ -164,7 +164,7 @@ def pairwise(
       return _high_precision_sum(
           _diagonal_mask(fn(dr, **kwargs)),
           axis=reduce_axis,
-          keepdims=keepdims) * 0.5
+          keepdims=keepdims) * f16(0.5)
   elif isinstance(species, np.ndarray):
     _check_species_dtype(species)
     species_count = int(np.max(species))
@@ -172,7 +172,7 @@ def pairwise(
       # TODO(schsam): Support reduce_axis with static species.
       raise ValueError
     def fn_mapped(R, **dynamic_kwargs):
-      U = 0.0
+      U = f16(0.0)
       for i in range(species_count + 1):
         for j in range(i, species_count + 1):
           s_kwargs = _kwargs_to_parameters((i, j), **kwargs)
@@ -181,7 +181,7 @@ def pairwise(
           dr = metric(Ra, Rb, **dynamic_kwargs)
           if j == i:
             dU = _high_precision_sum(_diagonal_mask(fn(dr, **s_kwargs)))
-            U = U + 0.5 * dU
+            U = U + f16(0.5) * dU
           else:
             dU = _high_precision_sum(fn(dr, **s_kwargs))
             U = U + dU
@@ -189,7 +189,7 @@ def pairwise(
   elif species is quantity.Dynamic:
     def fn_mapped(R, species, species_count, **dynamic_kwargs):
       _check_species_dtype(species)
-      U = 0.0
+      U = f16(0.0)
       N = R.shape[0]
       dr = metric(R, R, **dynamic_kwargs)
       for i in range(species_count):
@@ -202,7 +202,7 @@ def pairwise(
             mask = mask * _diagonal_mask(mask)
           dU = mask * fn(dr, **s_kwargs)
           U = U + _high_precision_sum(dU, axis=reduce_axis, keepdims=keepdims)
-      return U / 2.0
+      return U / f16(2.0)
   else:
     raise ValueError(
         'Species must be None, an ndarray, or Dynamic. Found {}.'.format(
@@ -253,12 +253,14 @@ register_pytree_namedtuple(Grid)
 
 def _cell_dimensions(spatial_dimension, box_size, minimum_cell_size):
   """Compute the number of cells-per-side and total number of cells in a box."""
-  if isinstance(box_size, int):
-    box_size = float(box_size)
+  if isinstance(box_size, int) or isinstance(box_size, float):
+    box_size = f16(box_size)
 
+  # NOTE(schsam): Should we auto-cast based on box_size? I can't imagine a case in
+  # which the box_size would not be accurately represented by an f32. 
   if (isinstance(box_size, np.ndarray) and
       (box_size.dtype == np.int32 or box_size.dtype == np.int64)):
-    box_size = np.array(box_size, dtype=np.float32)
+    box_size = f16(box_size)
 
   cells_per_side = np.floor(box_size / minimum_cell_size)
   cell_size = box_size / cells_per_side
@@ -451,7 +453,7 @@ def grid(
         _cell_dimensions(dim, box_size, minimum_cell_size)
 
     if species is None:
-      _species = np.zeros((N,), dtype=np.int32)
+      _species = np.zeros((N,), dtype=i32)
     else:
       _species = species
 
