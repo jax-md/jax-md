@@ -40,9 +40,10 @@ def main(unused_argv):
   # Create helper functions to define a periodic box of some size.
   displacement, shift = space.periodic(box_size)
 
- # Use JAX's random number generator to generate random initial positions.
+  # Use JAX's random number generator to generate random initial positions.
   key, split = random.split(key)
-  R = random.uniform(split, (N, dimension), minval=0.0, maxval=box_size)
+  R = random.uniform(
+    split, (N, dimension), minval=0.0, maxval=box_size, dtype=f32)
 
   # The system ought to be a 50:50 mixture of two types of particles, one
   # large and one small.

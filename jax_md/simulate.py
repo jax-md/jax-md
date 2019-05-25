@@ -96,7 +96,7 @@ def nve(energy_or_force, shift_fn, dt, quant=quantity.Energy):
 
   dt, = static_cast(dt)
   dt_2, = static_cast(0.5 * dt ** 2)
-  def init_fun(key, R, velocity_scale=f16(1.0), mass=f16(1.0)):
+  def init_fun(key, R, velocity_scale=f32(1.0), mass=f32(1.0)):
     V = np.sqrt(velocity_scale) * random.normal(key, R.shape, dtype=R.dtype)
     mass = quantity.canonicalize_mass(mass)
     return NVEState(R, V, force(R) / mass, mass)
@@ -104,7 +104,7 @@ def nve(energy_or_force, shift_fn, dt, quant=quantity.Energy):
     R, V, A, mass = state
     R = shift_fn(R, V * dt + A * dt_2, t=t, **kwargs)
     A_prime = force(R, t=t, **kwargs) / mass
-    V = V + f16(0.5) * (A + A_prime) * dt
+    V = V + f32(0.5) * (A + A_prime) * dt
     return NVEState(R, V, A_prime, mass)
   return init_fun, apply_fun
 
@@ -200,7 +200,7 @@ def nvt_nose_hoover(
 
   T_schedule = interpolate.canonicalize(T_schedule)
 
-  def init_fun(key, R, mass=f16(1.0), T_initial=f16(1.0)):
+  def init_fun(key, R, mass=f32(1.0), T_initial=f32(1.0)):
     mass = quantity.canonicalize_mass(mass)
     V = np.sqrt(T_initial / mass) * random.normal(key, R.shape, dtype=R.dtype)
     V = V - np.mean(V, axis=0, keepdims=True)
@@ -213,7 +213,7 @@ def nvt_nose_hoover(
     # TODO(schsam): Really, it seems like Q should be set by the goal
     # temperature rather than the initial temperature.
     DOF, = static_cast(R.shape[0] * R.shape[1])
-    Q = T_initial * tau ** f16(2) * np.ones(chain_length, dtype=R.dtype)
+    Q = T_initial * tau ** f32(2) * np.ones(chain_length, dtype=R.dtype)
     Q = ops.index_update(Q, 0, Q[0] * DOF)
     
     return NVTNoseHooverState(R, V, mass, KE, xi, v_xi, Q)
@@ -225,28 +225,28 @@ def nvt_nose_hoover(
 
     # TODO(schsam): It is also probably the case that we could do a better job
     # of vectorizing this code.
-    G = (Q[M - 1] * v_xi[M - 1] ** f16(2) - T) / Q[M]
+    G = (Q[M - 1] * v_xi[M - 1] ** f32(2) - T) / Q[M]
     v_xi = ops.index_add(v_xi, M, dt_4 * G)
     for m in range(M - 1, 0, -1):
-      G = (Q[m - 1] * v_xi[m - 1] ** f16(2) - T) / Q[m]
+      G = (Q[m - 1] * v_xi[m - 1] ** f32(2) - T) / Q[m]
       scale = np.exp(-dt_8 * v_xi[m + 1])
       v_xi = ops.index_update(v_xi, m, scale * (scale * v_xi[m] + dt_4 * G))
 
-    G = (f16(2.0) * KE - DOF * T) / Q[0]
+    G = (f32(2.0) * KE - DOF * T) / Q[0]
     scale = np.exp(-dt_8 * v_xi[1])
     v_xi = ops.index_update(v_xi, 0, scale * (scale * v_xi[0] + dt_4 * G))
 
     scale = np.exp(-dt_2 * v_xi[0])
-    KE = KE * scale ** f16(2)
+    KE = KE * scale ** f32(2)
     V = V * scale
 
     xi = xi + dt_2 * v_xi
 
-    G = (f16(2) * KE - DOF * T) / Q[0]
+    G = (f32(2) * KE - DOF * T) / Q[0]
     for m in range(M):
       scale = np.exp(-dt_8 * v_xi[m + 1])
       v_xi = ops.index_update(v_xi, m, scale * (scale * v_xi[m] + dt_4 * G))
-      G = (Q[m] * v_xi[m] ** f16(2) - T) / Q[m + 1]
+      G = (Q[m] * v_xi[m] ** f32(2) - T) / Q[m + 1]
     v_xi = ops.index_add(v_xi, M, dt_4 * G)
 
     return KE, V, xi, v_xi
@@ -257,7 +257,7 @@ def nvt_nose_hoover(
 
     DOF, = static_cast(R.shape[0] * R.shape[1])
 
-    Q = T * tau ** f16(2) * np.ones(chain_length)
+    Q = T * tau ** f32(2) * np.ones(chain_length)
     Q = ops.index_update(Q, 0, Q[0] * DOF)
 
     KE, V, xi, v_xi = step_chain(KE, V, xi, v_xi, Q, DOF, T)

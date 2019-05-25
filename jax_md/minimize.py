@@ -133,27 +133,27 @@ def fire_descent(
   def init_fun(R, **kwargs):
     V = np.zeros_like(R)
     return FireDescentState(
-      R, V, force(R, **kwargs), dt_start, alpha_start, f16(0))
+      R, V, force(R, **kwargs), dt_start, alpha_start, f32(0))
   def apply_fun(state, **kwargs):
     R, V, F_old, dt, alpha, n_pos = state
 
-    R = shift_fn(R, dt * V + dt ** f16(2) * F_old, **kwargs)
+    R = shift_fn(R, dt * V + dt ** f32(2) * F_old, **kwargs)
 
     F = force(R, **kwargs)
 
-    V = V + dt * f16(0.5) * (F_old + F)
+    V = V + dt * f32(0.5) * (F_old + F)
 
     # NOTE(schsam): This will be wrong if F_norm ~< 1e-8.
     # TODO(schsam): We should check for forces below 1e-6. @ErrorChecking
-    F_norm = np.sqrt(np.sum(F ** f16(2)) + f32(1e-6))
-    V_norm = np.sqrt(np.sum(V ** f16(2)))
+    F_norm = np.sqrt(np.sum(F ** f32(2)) + f32(1e-6))
+    V_norm = np.sqrt(np.sum(V ** f32(2)))
 
     P = np.array(np.dot(np.reshape(F, (-1)), np.reshape(V, (-1))))
 
     V = V + alpha * (F * V_norm / F_norm - V)
 
     # NOTE(schsam): Can we clean this up at all?
-    n_pos = np.where(P > 0, n_pos + f16(1.0), n_pos)
+    n_pos = np.where(P > 0, n_pos + f32(1.0), n_pos)
     dt_choice = np.array([dt * f_inc, dt_max])
     dt = np.where(
         P > 0, np.where(n_pos > n_min, np.min(dt_choice), dt), dt)
