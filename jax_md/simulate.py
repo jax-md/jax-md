@@ -215,7 +215,7 @@ def nvt_nose_hoover(
     DOF, = static_cast(R.shape[0] * R.shape[1])
     Q = T_initial * tau ** f32(2) * np.ones(chain_length, dtype=R.dtype)
     Q = ops.index_update(Q, 0, Q[0] * DOF)
-    
+
     return NVTNoseHooverState(R, V, mass, KE, xi, v_xi, Q)
   def step_chain(KE, V, xi, v_xi, Q, DOF, T):
     """Applies a single update to the chain parameters and rescales velocity."""
