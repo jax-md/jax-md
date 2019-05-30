@@ -27,6 +27,7 @@ import jax.numpy as np
 
 from jax.api import grad
 from jax_md import space
+from jax_md.util import *
 
 from jax import test_util as jtu
 
@@ -41,60 +42,72 @@ SPATIAL_DIMENSION = [2, 3]
 
 SOFT_SPHERE_ALPHA = [2.0, 3.0]
 
+if FLAGS.jax_enable_x64:
+  POSITION_DTYPE = [f32, f64]
+else:
+  POSITION_DTYPE = [f32]
 
 class EnergyTest(jtu.JaxTestCase):
 
   # pylint: disable=g-complex-comprehension
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}_alpha={}'.format(dim, alpha),
+          'testcase_name': '_dim={}_alpha={}_dtype={}'.format(
+            dim, alpha, dtype.__name__),
           'spatial_dimension': dim,
           'alpha': alpha,
-      } for dim in SPATIAL_DIMENSION for alpha in SOFT_SPHERE_ALPHA))
-  def test_soft_sphere(self, spatial_dimension, alpha):
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION
+    for alpha in SOFT_SPHERE_ALPHA
+    for dtype in POSITION_DTYPE))
+  def test_soft_sphere(self, spatial_dimension, alpha, dtype):
     key = random.PRNGKey(0)
-
+    alpha = f32(alpha)
     for _ in range(STOCHASTIC_SAMPLES):
       key, split_dR, split_sigma, split_epsilon = random.split(key, 4)
       dR = random.normal(
-          split_dR, (spatial_dimension,), dtype=np.float64)
-      sigma = random.uniform(
-          split_sigma, (1,), dtype=np.float64, minval=0.0, maxval=3.0)[0]
+          split_dR, (spatial_dimension,), dtype=dtype)
+      sigma = np.array(random.uniform(
+          split_sigma, (1,), minval=0.0, maxval=3.0)[0], dtype=dtype)
       dR = dR * sigma / np.sqrt(np.sum(dR ** 2, axis=1, keepdims=True))
-      epsilon = random.uniform(
-          split_epsilon, (1,), dtype=np.float64, minval=0.0, maxval=4.0)[0]
+      epsilon = np.array(
+        random.uniform(split_epsilon, (1,), minval=0.0, maxval=4.0)[0],
+        dtype=dtype)
       self.assertAllClose(
           energy.soft_sphere(
-              0.0 * dR, sigma, epsilon, alpha), epsilon / alpha, True)
+              f32(0.0) * dR, sigma, epsilon, alpha), epsilon / alpha, True)
       self.assertAllClose(
-          energy.soft_sphere(dR, sigma, epsilon, alpha), 0.0, True)
+        energy.soft_sphere(dR, sigma, epsilon, alpha),
+        np.array(0.0, dtype=dtype), True)
 
       if alpha == 3.0:
         grad_energy = grad(energy.soft_sphere)
         g = grad_energy(dR, sigma, epsilon, alpha)
-        self.assertAllClose(g, np.zeros_like(g), True)
+        self.assertAllClose(g, np.zeros(g.shape, dtype=dtype), True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}'.format(dim),
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
-      } for dim in SPATIAL_DIMENSION))
-  def test_lennard_jones(self, spatial_dimension):
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_lennard_jones(self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split_dR, split_sigma, split_epsilon = random.split(key, 4)
       dR = random.normal(
-          split_dR, (spatial_dimension,), dtype=np.float64)
-      sigma = random.uniform(
-          split_sigma, (1,), dtype=np.float64, minval=0.5, maxval=3.0)[0]
+          split_dR, (spatial_dimension,), dtype=dtype)
+      sigma = f32(random.uniform(
+          split_sigma, (1,), minval=0.5, maxval=3.0)[0])
       dR = dR * sigma / np.sqrt(np.sum(dR ** 2, keepdims=True))
-      epsilon = random.uniform(
-          split_epsilon, (1,), dtype=np.float64, minval=0.0, maxval=4.0)[0]
+      epsilon = f32(random.uniform(
+          split_epsilon, (1,), minval=0.0, maxval=4.0)[0])
       self.assertAllClose(
-          energy.lennard_jones(dR, sigma, epsilon), -epsilon, True)
+        energy.lennard_jones(dR, sigma, epsilon),
+        np.array(-epsilon, dtype=dtype), True)
       g = grad(energy.lennard_jones)(dR, sigma, epsilon)
-      self.assertAllClose(g, np.zeros_like(g), True)
+      self.assertAllClose(g, np.zeros(g.shape, dtype=dtype), True)
 
 
 if __name__ == '__main__':

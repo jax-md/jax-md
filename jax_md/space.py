@@ -25,6 +25,8 @@ from jax.interpreters import ad
 
 import jax.numpy as np
 
+from jax_md.util import *
+
 # Primitive Spatial Transforms
 
 
@@ -54,7 +56,7 @@ def _small_inverse(T):
 
   if dim == 2:
     det = T[0, 0] * T[1, 1] - T[0, 1] * T[1, 0]
-    return np.array([[T[1, 1], -T[0, 1]], [-T[1, 0], T[0, 0]]]) / det
+    return np.array([[T[1, 1], -T[0, 1]], [-T[1, 0], T[0, 0]]], dtype=T.dtype) / det
 
   # TODO(schsam): Fill in the 3x3 case by hand.
 
@@ -210,18 +212,18 @@ def periodic_general(T):
   if callable(T):
     def displacement(Ra, Rb, t=None, **unused_kwargs):
       _check_time_dependence(t)
-      dR = periodic_displacement(1.0, pairwise_displacement(Ra, Rb))
+      dR = periodic_displacement(f32(1.0), pairwise_displacement(Ra, Rb))
       return transform(T(t), dR)
     # Can we cache the inverse? @Optimization
     def shift(R, dR, t=None, **unused_kwargs):
       _check_time_dependence(t)
-      return periodic_shift(1.0, R, transform(_small_inverse(T(t)), dR))
+      return periodic_shift(f32(1.0), R, transform(_small_inverse(T(t)), dR))
   else:
     T_inv = _small_inverse(T)
     def displacement(Ra, Rb, **unused_kwargs):
-      dR = periodic_displacement(1.0, pairwise_displacement(Ra, Rb))
+      dR = periodic_displacement(f32(1.0), pairwise_displacement(Ra, Rb))
       return transform(T, dR)
     def shift(R, dR, **unused_kwargs):
-      return periodic_shift(1.0, R, transform(T_inv, dR))
+      return periodic_shift(f32(1.0), R, transform(T_inv, dR))
   return displacement, shift
 

@@ -31,7 +31,7 @@ from jax.interpreters import partial_eval as pe
 import jax.numpy as np
 
 from jax_md import quantity
-from jax_md.util import register_pytree_namedtuple
+from jax_md.util import *
 
 
 # pylint: disable=invalid-name
@@ -92,7 +92,7 @@ def _diagonal_mask(X):
   # masking nans also doesn't seem to work. So it also seems necessary. At the
   # very least we should do some @ErrorChecking.
   X = np.nan_to_num(X)
-  mask = 1.0 - np.eye(N, dtype=X.dtype)
+  mask = f32(1.0) - np.eye(N, dtype=X.dtype)
   if len(X.shape) == 3:
     mask = np.reshape(mask, (N, N, 1))
   return mask * X
@@ -101,11 +101,11 @@ def _diagonal_mask(X):
 def _high_precision_sum(X, axis=None, keepdims=False):
   """Sums over axes at 64-bit precision then casts back to original dtype."""
   return np.array(
-      np.sum(X, axis=axis, dtype=np.float64, keepdims=keepdims), dtype=X.dtype)
+      np.sum(X, axis=axis, dtype=f64, keepdims=keepdims), dtype=X.dtype)
 
 
 def _check_species_dtype(species):
-  if species.dtype == np.int32 or species.dtype == np.int64:
+  if species.dtype == i32 or species.dtype == i64:
     return
   msg = 'Species has wrong dtype. Expected integer but found {}.'.format(
       species.dtype)
@@ -164,7 +164,7 @@ def pairwise(
       return _high_precision_sum(
           _diagonal_mask(fn(dr, **kwargs)),
           axis=reduce_axis,
-          keepdims=keepdims) * 0.5
+          keepdims=keepdims) * f32(0.5)
   elif isinstance(species, np.ndarray):
     _check_species_dtype(species)
     species_count = int(np.max(species))
@@ -172,7 +172,7 @@ def pairwise(
       # TODO(schsam): Support reduce_axis with static species.
       raise ValueError
     def fn_mapped(R, **dynamic_kwargs):
-      U = 0.0
+      U = f32(0.0)
       for i in range(species_count + 1):
         for j in range(i, species_count + 1):
           s_kwargs = _kwargs_to_parameters((i, j), **kwargs)
@@ -181,7 +181,7 @@ def pairwise(
           dr = metric(Ra, Rb, **dynamic_kwargs)
           if j == i:
             dU = _high_precision_sum(_diagonal_mask(fn(dr, **s_kwargs)))
-            U = U + 0.5 * dU
+            U = U + f32(0.5) * dU
           else:
             dU = _high_precision_sum(fn(dr, **s_kwargs))
             U = U + dU
@@ -189,7 +189,7 @@ def pairwise(
   elif species is quantity.Dynamic:
     def fn_mapped(R, species, species_count, **dynamic_kwargs):
       _check_species_dtype(species)
-      U = 0.0
+      U = f32(0.0)
       N = R.shape[0]
       dr = metric(R, R, **dynamic_kwargs)
       for i in range(species_count):
@@ -202,7 +202,7 @@ def pairwise(
             mask = mask * _diagonal_mask(mask)
           dU = mask * fn(dr, **s_kwargs)
           U = U + _high_precision_sum(dU, axis=reduce_axis, keepdims=keepdims)
-      return U / 2.0
+      return U / f32(2.0)
   else:
     raise ValueError(
         'Species must be None, an ndarray, or Dynamic. Found {}.'.format(
@@ -251,16 +251,20 @@ class Grid(namedtuple(
 register_pytree_namedtuple(Grid)
 
 
-def _cell_dimensions(spatial_dimension, box_size, cell_size):
+def _cell_dimensions(spatial_dimension, box_size, minimum_cell_size):
   """Compute the number of cells-per-side and total number of cells in a box."""
-  if isinstance(box_size, int):
-    box_size = float(box_size)
+  if isinstance(box_size, int) or isinstance(box_size, float):
+    box_size = f32(box_size)
 
+  # NOTE(schsam): Should we auto-cast based on box_size? I can't imagine a case
+  # in which the box_size would not be accurately represented by an f32. 
   if (isinstance(box_size, np.ndarray) and
       (box_size.dtype == np.int32 or box_size.dtype == np.int64)):
-    box_size = np.array(box_size, dtype=np.float32)
+    box_size = f32(box_size)
 
-  cells_per_side = np.array(np.ceil(box_size / cell_size), dtype=np.int64)
+  cells_per_side = np.floor(box_size / minimum_cell_size)
+  cell_size = box_size / cells_per_side
+  cells_per_side = np.array(cells_per_side, dtype=np.int64)
 
   if isinstance(box_size, np.ndarray):
     flat_cells_per_side = np.reshape(cells_per_side, (-1,))
@@ -274,14 +278,14 @@ def _cell_dimensions(spatial_dimension, box_size, cell_size):
   else:
     cell_count = cells_per_side ** spatial_dimension
 
-  return box_size, cells_per_side, int(cell_count)
+  return box_size, cell_size, cells_per_side, int(cell_count)
 
 
-def count_cell_filling(R, box_size, cell_size):
+def count_cell_filling(R, box_size, minimum_cell_size):
   """Counts the number of particles per-cell in a spatial partition."""
   dim = R.shape[1]
-  box_size, cells_per_side, cell_count = \
-      _cell_dimensions(dim, box_size, cell_size)
+  box_size, cell_size, cells_per_side, cell_count = \
+      _cell_dimensions(dim, box_size, minimum_cell_size)
 
   hash_multipliers = _compute_hash_constants(dim, cells_per_side)
 
@@ -346,7 +350,7 @@ def _estimate_cell_capacity(R, box_size, cell_size):
 
 
 def grid(
-    fn, box_size, cell_size, cell_capacity_or_example_positions, species=None,
+    fn, box_size, minimum_cell_size, cell_capacity_or_example_positions, species=None,
     separate_build_and_apply=False, cells_per_iter=-1):
   r"""Returns a function that evaluates a function sparsely on a grid.
 
@@ -427,11 +431,11 @@ def grid(
   if species is None:
     species_count = 1
   else:
-    species_count = np.max(species) + 1
+    species_count = int(np.max(species) + 1)
 
   cell_capacity = cell_capacity_or_example_positions
   if _is_variable_compatible_with_positions(cell_capacity):
-    cell_capacity = _estimate_cell_capacity(cell_capacity, box_size, cell_size)
+    cell_capacity = _estimate_cell_capacity(cell_capacity, box_size, minimum_cell_size)
   elif not isinstance(cell_capacity, int):
     msg = (
         'cell_capacity_or_example_positions must either be an integer '
@@ -445,11 +449,11 @@ def grid(
     dim = R.shape[1]
     neighborhood_tile_count = 3 ** dim
 
-    _, cells_per_side, cell_count = \
-        _cell_dimensions(dim, box_size, cell_size)
+    _, cell_size, cells_per_side, cell_count = \
+        _cell_dimensions(dim, box_size, minimum_cell_size)
 
     if species is None:
-      _species = np.zeros((N,), dtype=np.int32)
+      _species = np.zeros((N,), dtype=i32)
     else:
       _species = species
 
@@ -459,21 +463,21 @@ def grid(
     particle_id = lax.iota(np.int64, N)
     # NOTE(schsam): We use the convention that particles that come from the
     # center cell have their true id copied, whereas particles that come from
-    # the halo have an id = N + 1. Then when we copy data back from the grid,
+    # the halo have an id = N. Then when we copy data back from the grid,
     # we copy it to an array of shape [N + 1, output_dimension] and then
     # truncate it to an array of shape [N, output_dimension] which ignores the
     # halo particles.
-    mask_id = np.ones((N,), np.int64) * (N + 1)
+    mask_id = np.ones((N,), np.int64) * N
     cell_R = np.zeros((cell_count * cell_capacity, dim), dtype=R.dtype)
     # NOTE(schsam): empty_species_index is just supposed to be large enough that
     # we will never run into it. However, there might be a more robust way to do
     # this.
-    empty_species_index = 10000
+    empty_species_index = i16(1000)
     cell_species = empty_species_index * np.ones(
         (cell_count * cell_capacity, 1), dtype=_species.dtype)
-    cell_id = (N + 1) * np.ones((cell_count * cell_capacity, 1), dtype=np.int64)
+    cell_id = N * np.ones((cell_count * cell_capacity, 1), dtype=i32)
 
-    indices = np.array(R / cell_size, dtype=np.int64)
+    indices = np.array(R / cell_size, dtype=i32)
 
     # Create a copy of particle data for each neighboring cell shifting the hash
     # appropriately.
@@ -483,8 +487,8 @@ def grid(
     for _ in range(neighborhood_tile_count - 1):
       tiled_R = np.concatenate((tiled_R, R), axis=0)
       tiled_species = np.concatenate((tiled_species, _species), axis=0)
-    tiled_hash = np.array([], dtype=np.int64)
-    tiled_id = np.array([], dtype=np.int64)
+    tiled_hash = np.array([], dtype=i32)
+    tiled_id = np.array([], dtype=i32)
 
     for dindex in _neighboring_cells(dim):
       tiled_indices = np.mod(indices + dindex, cells_per_side)
@@ -585,4 +589,3 @@ def grid(
     return build_cells, compute
   else:
     return lambda R, **kwargs: compute(build_cells(R), **kwargs)
-
