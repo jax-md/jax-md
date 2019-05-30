@@ -79,7 +79,7 @@ def lennard_jones(dR, sigma, epsilon):
   dr = sigma ** f32(2) / dr
   idr6 = dr ** f32(3.0)
   idr12 = idr6 ** f32(2.0)
-  return epsilon * (idr12 - f32(2) * idr6)
+  return f32(4) * epsilon * (idr12 - idr6)
 
 
 def lennard_jones_pairwise(
