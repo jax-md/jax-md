@@ -101,6 +101,7 @@ class EnergyTest(jtu.JaxTestCase):
       sigma = f32(random.uniform(
           split_sigma, (1,), minval=0.5, maxval=3.0)[0])
       dR = dR * sigma / np.sqrt(np.sum(dR ** 2, keepdims=True))
+      dR = dR * f32(2 ** (1.0 / 6.0))
       epsilon = f32(random.uniform(
           split_epsilon, (1,), minval=0.0, maxval=4.0)[0])
       self.assertAllClose(
