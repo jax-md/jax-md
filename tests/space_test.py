@@ -40,6 +40,7 @@ FLAGS = jax_config.FLAGS
 
 PARTICLE_COUNT = 10
 STOCHASTIC_SAMPLES = 10
+SHIFT_STEPS = 10
 SPATIAL_DIMENSION = [2, 3]
 
 if FLAGS.jax_enable_x64:
@@ -292,6 +293,43 @@ class SpaceTest(jtu.JaxTestCase):
       self.assertAllClose(
         shift_fn(R, dR, t_g), np.array(true_shift_fn(R, dR), dtype=dtype), True)
 
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_periodic_general_wrapped_vs_unwrapped(
+      self, spatial_dimension, dtype):
+    key = random.PRNGKey(0)
+
+    eye = np.eye(spatial_dimension, dtype=dtype)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split_R, split_T = random.split(key, 3)
+
+      dT = random.normal(
+        split_T, (spatial_dimension, spatial_dimension), dtype=dtype)
+      T = eye + dT + np.transpose(dT)
+
+      R = random.uniform(
+        split_R, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+      R0 = R
+      unwrapped_R = R
+
+      displacement, shift = space.periodic_general(T)
+      _, unwrapped_shift = space.periodic_general(T, wrapped=False)
+
+      for _ in range(SHIFT_STEPS):
+        key, split = random.split(key)
+        dR = random.normal(
+          split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+        R = shift(R, dR)
+        unwrapped_R = unwrapped_shift(unwrapped_R, dR)
+        self.assertAllClose(
+          displacement(R, R0),
+          displacement(unwrapped_R, R0), True)
+      assert not (np.all(unwrapped_R > 0) and np.all(unwrapped_R < 1))
 
 if __name__ == '__main__':
   absltest.main()
