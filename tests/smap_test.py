@@ -270,8 +270,9 @@ class SMapTest(jtu.JaxTestCase):
     box_size = f16(9.0)
     cell_size = f16(2.0)
     displacement, _ = space.periodic(box_size)
+    metric = space.metric(displacement)
     energy_fn = smap.pairwise(
-        energy.soft_sphere, displacement, quantity.Dynamic,
+        energy.soft_sphere, metric, quantity.Dynamic,
         reduce_axis=(1,), keepdims=True)
 
     R = box_size * random.uniform(
@@ -294,8 +295,7 @@ class SMapTest(jtu.JaxTestCase):
     box_size = f16(9.0)
     cell_size = f16(2.0)
     displacement, _ = space.periodic(box_size)
-    energy_fn = smap.pairwise(
-        energy.soft_sphere, displacement, quantity.Dynamic)
+    energy_fn = energy.soft_sphere_pairwise(displacement, quantity.Dynamic)
     force_fn = quantity.force(energy_fn)
 
     R = box_size * random.uniform(
@@ -317,8 +317,7 @@ class SMapTest(jtu.JaxTestCase):
     box_size = f16(9.0)
     cell_size = f16(2.0)
     displacement, _ = space.periodic(box_size)
-    energy_fn = smap.pairwise(
-        energy.soft_sphere, displacement, quantity.Dynamic)
+    energy_fn = energy.soft_sphere_pairwise(displacement, quantity.Dynamic)
     force_fn = quantity.force(energy_fn)
 
     R = box_size * random.uniform(
@@ -340,8 +339,7 @@ class SMapTest(jtu.JaxTestCase):
     box_size = f32(12.1)
     cell_size = f32(3.0)
     displacement, _ = space.periodic(box_size)
-    energy_fn = smap.pairwise(
-        energy.soft_sphere, displacement, quantity.Dynamic)
+    energy_fn = energy.soft_sphere_pairwise(displacement, quantity.Dynamic)
     force_fn = quantity.force(energy_fn)
 
     R = box_size * random.uniform(
@@ -367,8 +365,7 @@ class SMapTest(jtu.JaxTestCase):
 
     cell_size = f32(2.0)
     displacement, _ = space.periodic(box_size)
-    energy_fn = smap.pairwise(
-        energy.soft_sphere, displacement, quantity.Dynamic)
+    energy_fn = energy.soft_sphere_pairwise(displacement, quantity.Dynamic)
     force_fn = quantity.force(energy_fn)
 
     R = box_size * random.uniform(

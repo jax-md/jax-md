@@ -64,26 +64,23 @@ class EnergyTest(jtu.JaxTestCase):
     key = random.PRNGKey(0)
     alpha = f32(alpha)
     for _ in range(STOCHASTIC_SAMPLES):
-      key, split_dR, split_sigma, split_epsilon = random.split(key, 4)
-      dR = random.normal(
-          split_dR, (spatial_dimension,), dtype=dtype)
+      key, split_sigma, split_epsilon = random.split(key, 3)
       sigma = np.array(random.uniform(
           split_sigma, (1,), minval=0.0, maxval=3.0)[0], dtype=dtype)
-      dR = dR * sigma / np.sqrt(np.sum(dR ** 2, axis=1, keepdims=True))
       epsilon = np.array(
         random.uniform(split_epsilon, (1,), minval=0.0, maxval=4.0)[0],
         dtype=dtype)
       self.assertAllClose(
           energy.soft_sphere(
-              f32(0.0) * dR, sigma, epsilon, alpha), epsilon / alpha, True)
+            dtype(0), sigma, epsilon, alpha), epsilon / alpha, True)
       self.assertAllClose(
-        energy.soft_sphere(dR, sigma, epsilon, alpha),
+        energy.soft_sphere(dtype(sigma), sigma, epsilon, alpha),
         np.array(0.0, dtype=dtype), True)
 
       if alpha == 3.0:
         grad_energy = grad(energy.soft_sphere)
-        g = grad_energy(dR, sigma, epsilon, alpha)
-        self.assertAllClose(g, np.zeros(g.shape, dtype=dtype), True)
+        g = grad_energy(dtype(sigma), sigma, epsilon, alpha)
+        self.assertAllClose(g, np.array(0, dtype=dtype), True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -95,20 +92,17 @@ class EnergyTest(jtu.JaxTestCase):
     key = random.PRNGKey(0)
 
     for _ in range(STOCHASTIC_SAMPLES):
-      key, split_dR, split_sigma, split_epsilon = random.split(key, 4)
-      dR = random.normal(
-          split_dR, (spatial_dimension,), dtype=dtype)
+      key, split_sigma, split_epsilon = random.split(key, 3)
       sigma = f32(random.uniform(
           split_sigma, (1,), minval=0.5, maxval=3.0)[0])
-      dR = dR * sigma / np.sqrt(np.sum(dR ** 2, keepdims=True))
-      dR = dR * f32(2 ** (1.0 / 6.0))
       epsilon = f32(random.uniform(
           split_epsilon, (1,), minval=0.0, maxval=4.0)[0])
+      dr = dtype(sigma * 2 ** (1.0 / 6.0))
       self.assertAllClose(
-        energy.lennard_jones(dR, sigma, epsilon),
+        energy.lennard_jones(dr, sigma, epsilon),
         np.array(-epsilon, dtype=dtype), True)
-      g = grad(energy.lennard_jones)(dR, sigma, epsilon)
-      self.assertAllClose(g, np.zeros(g.shape, dtype=dtype), True)
+      g = grad(energy.lennard_jones)(dr, sigma, epsilon)
+      self.assertAllClose(g, np.array(0, dtype=dtype), True)
 
 
 if __name__ == '__main__':

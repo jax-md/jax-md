@@ -350,8 +350,8 @@ def _estimate_cell_capacity(R, box_size, cell_size):
 
 
 def grid(
-    fn, box_size, minimum_cell_size, cell_capacity_or_example_positions, species=None,
-    separate_build_and_apply=False, cells_per_iter=-1):
+    fn, box_size, minimum_cell_size, cell_capacity_or_example_positions,
+    species=None, separate_build_and_apply=False, cells_per_iter=-1):
   r"""Returns a function that evaluates a function sparsely on a grid.
 
   Suppose f is a function of positions, f:R^{N\times D}\to R^{N\times M} such
