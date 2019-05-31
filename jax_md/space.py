@@ -177,6 +177,8 @@ def periodic(side, wrapped=True):
       the size of each side of the periodic box.
     wrapped: A boolean specifying whether or not particle positions are
       remapped back into the box after each step
+  Returns:
+    (displacement_fn, shift_fn) tuple.
   """
   def displacement_fn(Ra, Rb, **unused_kwargs):
     return periodic_displacement(side, pairwise_displacement(Ra, Rb))
@@ -219,7 +221,7 @@ def periodic_general(T, wrapped=True):
     wrapped: A boolean specifying whether or not particle positions are
       remapped back into the box after each step
   Returns:
-    (metric_fn, displacement_fn, shift_fn) tuple.
+    (displacement_fn, shift_fn) tuple.
   """
   if callable(T):
     def displacement(Ra, Rb, t=None, **unused_kwargs):
