@@ -111,7 +111,6 @@ def periodic_displacement(side, dR):
     Matrix of wrapped displacements; ndarray(shape=[..., spatial_dim]).
   """
   return np.mod(dR + side * f32(0.5), side) - f32(0.5) * side
-  return dR - np.where(np.abs(dR) < 0.5 * side, zero, np.sign(dR) * side)
 
 
 def square_distance(dR):
