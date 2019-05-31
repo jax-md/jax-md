@@ -36,11 +36,7 @@ from collections import namedtuple
 import jax.numpy as np
 
 from jax_md import quantity
-from jax_md.util import register_pytree_namedtuple
-
-
-GradientDescentState = namedtuple('GradientDescentState', ['position'])
-register_pytree_namedtuple(GradientDescentState)
+from jax_md.util import *
 
 
 # pylint: disable=invalid-name
@@ -67,11 +63,10 @@ def gradient_descent(
   """
   force = quantity.canonicalize_force(energy_or_force, quant)
   def init_fun(R, **unused_kwargs):
-    return GradientDescentState(R)
-  def apply_fun(state, **kwargs):
-    R, = state
+    return R
+  def apply_fun(R, **kwargs):
     R = shift_fn(R, step_size * force(R, **kwargs), **kwargs)
-    return GradientDescentState(R)
+    return R
   return init_fun, apply_fun
 
 
@@ -130,31 +125,35 @@ def fire_descent(
       and Peter Gumbsch. "Structural relaxation made simple."
       Physical review letters 97, no. 17 (2006): 170201.
   """
+
+  dt_start, dt_max, n_min, f_inc, f_dec, alpha_start, f_alpha = static_cast(
+    dt_start, dt_max, n_min, f_inc, f_dec, alpha_start, f_alpha)
+
   force = quantity.canonicalize_force(energy_or_force, quant)
   def init_fun(R, **kwargs):
     V = np.zeros_like(R)
     return FireDescentState(
-        R, V, force(R, **kwargs), np.array(dt_start), alpha_start, np.array(0))
+      R, V, force(R, **kwargs), dt_start, alpha_start, f32(0))
   def apply_fun(state, **kwargs):
     R, V, F_old, dt, alpha, n_pos = state
 
-    R = shift_fn(R, dt * V + dt ** 2 * F_old, **kwargs)
+    R = shift_fn(R, dt * V + dt ** f32(2) * F_old, **kwargs)
 
     F = force(R, **kwargs)
 
-    V = V + dt * 0.5 * (F_old + F)
+    V = V + dt * f32(0.5) * (F_old + F)
 
     # NOTE(schsam): This will be wrong if F_norm ~< 1e-8.
     # TODO(schsam): We should check for forces below 1e-6. @ErrorChecking
-    F_norm = np.sqrt(np.sum(F ** 2) + 1e-6)
-    V_norm = np.sqrt(np.sum(V ** 2))
+    F_norm = np.sqrt(np.sum(F ** f32(2)) + f32(1e-6))
+    V_norm = np.sqrt(np.sum(V ** f32(2)))
 
     P = np.array(np.dot(np.reshape(F, (-1)), np.reshape(V, (-1))))
 
     V = V + alpha * (F * V_norm / F_norm - V)
 
     # NOTE(schsam): Can we clean this up at all?
-    n_pos = np.where(P > 0, n_pos + 1.0, n_pos)
+    n_pos = np.where(P > 0, n_pos + f32(1.0), n_pos)
     dt_choice = np.array([dt * f_inc, dt_max])
     dt = np.where(
         P > 0, np.where(n_pos > n_min, np.min(dt_choice), dt), dt)

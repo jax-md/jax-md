@@ -21,6 +21,7 @@ from __future__ import print_function
 from jax import grad
 import jax.numpy as np
 
+from jax_md.util import *
 
 def force(energy):
   """Computes the force as the negative gradient of an energy."""
@@ -76,6 +77,10 @@ def canonicalize_mass(mass):
       return np.reshape(mass, (mass.shape[0], 1))
     elif len(mass.shape) == 0:
       return mass
+  elif (isinstance(mass, f16) or
+        isinstance(mass, f32) or
+        isinstance(mass, f64)):
+    return mass
   msg = (
       'Expected mass to be either a floating point number or a one-dimensional'
       'ndarray. Found {}.'.format(mass)

@@ -32,6 +32,7 @@ from jax.api import grad
 from jax import test_util as jtu
 
 from jax_md import space
+from jax_md.util import *
 
 jax_config.parse_flags_with_absl()
 FLAGS = jax_config.FLAGS
@@ -39,7 +40,13 @@ FLAGS = jax_config.FLAGS
 
 PARTICLE_COUNT = 10
 STOCHASTIC_SAMPLES = 10
+SHIFT_STEPS = 10
 SPATIAL_DIMENSION = [2, 3]
+
+if FLAGS.jax_enable_x64:
+  POSITION_DTYPE = [f32, f64]
+else:
+  POSITION_DTYPE = [f32]
 
 
 # pylint: disable=invalid-name
@@ -61,24 +68,26 @@ class SpaceTest(jtu.JaxTestCase):
   # pylint: disable=g-complex-comprehension
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}'.format(dim),
-          'spatial_dimension': dim
-      } for dim in SPATIAL_DIMENSION))
-  def test_transform(self, spatial_dimension):
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_transform(self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split1, split2 = random.split(key, 3)
 
-      R = random.normal(split1, (PARTICLE_COUNT, spatial_dimension))
-      T = random.normal(split2, (spatial_dimension, spatial_dimension))
+      R = random.normal(
+        split1, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+      T = random.normal(
+        split2, (spatial_dimension, spatial_dimension), dtype=dtype)
 
-      R_prime_exact = np.dot(R, T)
+      R_prime_exact = np.array(np.dot(R, T), dtype=dtype)
       R_prime = space.transform(T, R)
 
       self.assertAllClose(R_prime_exact, R_prime, True)
 
-  # pylint: disable=g-complex-comprehension
   @parameterized.named_parameters(jtu.cases_from_list(
       {
           'testcase_name': '_dim={}'.format(dim),
@@ -105,18 +114,21 @@ class SpaceTest(jtu.JaxTestCase):
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}'.format(dim),
-          'spatial_dimension': dim
-      } for dim in SPATIAL_DIMENSION))
-  def test_transform_inverse(self, spatial_dimension):
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_transform_inverse(self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split1, split2 = random.split(key, 3)
 
-      R = random.normal(split1, (PARTICLE_COUNT, spatial_dimension))
+      R = random.normal(
+        split1, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
 
-      T = random.normal(split2, (spatial_dimension, spatial_dimension))
+      T = random.normal(
+        split2, (spatial_dimension, spatial_dimension), dtype=dtype)
       T_inv = space._small_inverse(T)
 
       R_test = space.transform(T_inv, space.transform(T, R))
@@ -125,19 +137,21 @@ class SpaceTest(jtu.JaxTestCase):
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}'.format(dim),
-          'spatial_dimension': dim
-      } for dim in SPATIAL_DIMENSION))
-  def test_periodic_displacement(self, spatial_dimension):
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_periodic_displacement(self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split = random.split(key)
 
-      R = random.uniform(split, (PARTICLE_COUNT, spatial_dimension))
+      R = random.uniform(
+        split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
       dR = space.pairwise_displacement(R, R)
 
-      dR_wrapped = space.periodic_displacement(1.0, dR)
+      dR_wrapped = space.periodic_displacement(f16(1.0), dR)
 
       dR_direct = dR
       dr_direct = space.distance(dR)
@@ -146,7 +160,7 @@ class SpaceTest(jtu.JaxTestCase):
       if spatial_dimension == 2:
         for i in range(-1, 2):
           for j in range(-1, 2):
-            dR_shifted = dR + np.array([i, j], dtype=np.float64)
+            dR_shifted = dR + np.array([i, j], dtype=R.dtype)
 
             dr_shifted = space.distance(dR_shifted)
             dr_shifted = np.reshape(dr_shifted, dr_shifted.shape + (1,))
@@ -157,7 +171,7 @@ class SpaceTest(jtu.JaxTestCase):
         for i in range(-1, 2):
           for j in range(-1, 2):
             for k in range(-1, 2):
-              dR_shifted = dR + np.array([i, j, k], dtype=np.float64)
+              dR_shifted = dR + np.array([i, j, k], dtype=R.dtype)
 
               dr_shifted = space.distance(dR_shifted)
               dr_shifted = np.reshape(dr_shifted, dr_shifted.shape + (1,))
@@ -168,70 +182,81 @@ class SpaceTest(jtu.JaxTestCase):
                   dr_shifted < dr_direct, dr_shifted, dr_direct)
 
       dR_direct = np.array(dR_direct, dtype=dR.dtype)
+      assert dR_wrapped.dtype == dtype
       self.assertAllClose(dR_wrapped, dR_direct, True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}'.format(dim),
-          'spatial_dimension': dim
-      } for dim in SPATIAL_DIMENSION))
-  def test_periodic_shift(self, spatial_dimension):
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_periodic_shift(self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split1, split2 = random.split(key, 3)
 
-      R = random.uniform(split1, (PARTICLE_COUNT, spatial_dimension))
-      dR = np.sqrt(0.1) * random.normal(
-          split2, (PARTICLE_COUNT, spatial_dimension))
+      R = random.uniform(
+        split1, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+      dR = np.sqrt(f32(0.1)) * random.normal(
+          split2, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
 
-      dR = np.where(dR > 0.49, 0.49, dR)
-      dR = np.where(dR < -0.49, -0.49, dR)
+      dR = np.where(dR > 0.49, f32(0.49), dR)
+      dR = np.where(dR < -0.49, f32(-0.49), dR)
 
-      R_shift = space.periodic_shift(1.0, R, dR)
+      R_shift = space.periodic_shift(f32(1.0), R, dR)
 
+      assert R_shift.dtype == R.dtype
       assert np.all(R_shift < 1.0)
       assert np.all(R_shift > 0.0)
 
-      dR_after = space.periodic_displacement(1.0, R_shift - R)
+      dR_after = space.periodic_displacement(f32(1.0), R_shift - R)
 
+      assert dR_after.dtype == R.dtype
       self.assertAllClose(dR_after, dR, True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}'.format(dim),
-          'spatial_dimension': dim
-      } for dim in SPATIAL_DIMENSION))
-  def test_periodic_against_periodic_general(
-      self, spatial_dimension):
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_periodic_against_periodic_general(self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split1, split2, split3 = random.split(key, 4)
 
-      max_box_size = 10.0
-      box_size = max_box_size * random.uniform(split1, (spatial_dimension,))
+      max_box_size = f16(10.0)
+      box_size = max_box_size * random.uniform(
+        split1, (spatial_dimension,), dtype=dtype)
       transform = np.diag(box_size)
 
-      R = random.uniform(split2, (PARTICLE_COUNT, spatial_dimension))
+      R = random.uniform(
+        split2, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
       R_scaled = R * box_size
 
-      dR = random.normal(split3, (PARTICLE_COUNT, spatial_dimension))
+      dR = random.normal(
+        split3, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
 
       disp_fn, shift_fn = space.periodic(box_size)
       general_disp_fn, general_shift_fn = space.periodic_general(transform)
 
       self.assertAllClose(
           disp_fn(R_scaled, R_scaled), general_disp_fn(R, R), True)
+      assert disp_fn(R_scaled, R_scaled).dtype == dtype
       self.assertAllClose(
           shift_fn(R_scaled, dR), general_shift_fn(R, dR) * box_size, True)
+      assert shift_fn(R_scaled, dR).dtype == dtype
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}'.format(dim),
-          'spatial_dimension': dim
-      } for dim in SPATIAL_DIMENSION))
-  def test_periodic_general_time_dependence(self, spatial_dimension):
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_periodic_general_time_dependence(self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 
     eye = np.eye(spatial_dimension)
@@ -243,27 +268,68 @@ class SpaceTest(jtu.JaxTestCase):
 
       size_0 = 10.0 * random.uniform(split_T0_scale, ())
       dtransform_0 = 0.5 * random.normal(
-          split_T0_dT, (spatial_dimension, spatial_dimension))
-      T_0 = size_0 * (eye + dtransform_0)
+        split_T0_dT, (spatial_dimension, spatial_dimension))
+      T_0 = np.array(size_0 * (eye + dtransform_0), dtype=dtype)
 
-      size_1 = 10.0 * random.uniform(split_T1_scale, ())
+      size_1 = 10.0 * random.uniform(split_T1_scale, (), dtype=dtype)
       dtransform_1 = 0.5 * random.normal(
-          split_T1_dT, (spatial_dimension, spatial_dimension))
-      T_1 = size_1 * (eye + dtransform_1)
+          split_T1_dT, (spatial_dimension, spatial_dimension), dtype=dtype)
+      T_1 = np.array(size_1 * (eye + dtransform_1), dtype=dtype)
 
-      T = lambda t: t * T_0 + (1.0 - t) * T_1
+      T = lambda t: t * T_0 + (f32(1.0) - t) * T_1
 
-      t_g = random.uniform(split_t, ())
+      t_g = random.uniform(split_t, (), dtype=dtype)
 
       disp_fn, shift_fn = space.periodic_general(T)
       true_disp_fn, true_shift_fn = space.periodic_general(T(t_g))
 
-      R = random.uniform(split_R, (PARTICLE_COUNT, spatial_dimension))
-      dR = random.normal(split_dR, (PARTICLE_COUNT, spatial_dimension))
+      R = random.uniform(
+        split_R, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+      dR = random.normal(
+        split_dR, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
 
-      self.assertAllClose(disp_fn(R, R, t_g), true_disp_fn(R, R), True)
-      self.assertAllClose(shift_fn(R, dR, t_g), true_shift_fn(R, dR), True)
+      self.assertAllClose(
+        disp_fn(R, R, t_g), np.array(true_disp_fn(R, R), dtype=dtype), True)
+      self.assertAllClose(
+        shift_fn(R, dR, t_g), np.array(true_shift_fn(R, dR), dtype=dtype), True)
 
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_periodic_general_wrapped_vs_unwrapped(
+      self, spatial_dimension, dtype):
+    key = random.PRNGKey(0)
+
+    eye = np.eye(spatial_dimension, dtype=dtype)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split_R, split_T = random.split(key, 3)
+
+      dT = random.normal(
+        split_T, (spatial_dimension, spatial_dimension), dtype=dtype)
+      T = eye + dT + np.transpose(dT)
+
+      R = random.uniform(
+        split_R, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+      R0 = R
+      unwrapped_R = R
+
+      displacement, shift = space.periodic_general(T)
+      _, unwrapped_shift = space.periodic_general(T, wrapped=False)
+
+      for _ in range(SHIFT_STEPS):
+        key, split = random.split(key)
+        dR = random.normal(
+          split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+        R = shift(R, dR)
+        unwrapped_R = unwrapped_shift(unwrapped_R, dR)
+        self.assertAllClose(
+          displacement(R, R0),
+          displacement(unwrapped_R, R0), True)
+      assert not (np.all(unwrapped_R > 0) and np.all(unwrapped_R < 1))
 
 if __name__ == '__main__':
   absltest.main()

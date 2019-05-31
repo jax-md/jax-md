@@ -22,9 +22,11 @@ import jax.numpy as np
 
 from jax_md import space, smap
 from jax_md.interpolate import spline
+from jax_md.util import *
 
 
-def soft_sphere(dR, sigma=1.0, epsilon=1.0, alpha=2.0):
+
+def soft_sphere(dR, sigma=f32(1.0), epsilon=f32(1.0), alpha=f32(2.0)):
   """Finite ranged repulsive interaction between soft spheres.
 
   Args:
@@ -42,15 +44,17 @@ def soft_sphere(dR, sigma=1.0, epsilon=1.0, alpha=2.0):
   """
   dr = space.distance(dR)
   dr = dr / sigma
-  U = epsilon * np.where(dr < 1.0, 1.0 / alpha * (1.0 - dr) ** alpha, 0.0)
-  # NOTE(schsam): This seems a little bit janky. However, it seems possibly
-  # necessary because constants seemed to be upcast to float64.
-  return np.array(U, dtype=dr.dtype)
+  U = epsilon * np.where(
+    dr < 1.0, f32(1.0) / alpha * (f32(1.0) - dr) ** alpha, f32(0.0))
+  return U
 
 
 def soft_sphere_pairwise(
-    metric, species=None, sigma=1.0, epsilon=1.0, alpha=2.0):
+    metric, species=None, sigma=1.0, epsilon=1.0, alpha=2.0): 
   """Convenience wrapper to compute soft sphere energy over a system."""
+  sigma = np.array(sigma, dtype=f32)
+  epsilon = np.array(epsilon, dtype=f32)
+  alpha = np.array(alpha, dtype=f32)
   return smap.pairwise(
       soft_sphere,
       metric,
@@ -74,15 +78,17 @@ def lennard_jones(dR, sigma, epsilon):
     Matrix of energies of shape [n, m].
   """
   dr = space.square_distance(dR)
-  dr = sigma ** 2 / dr
-  idr6 = dr ** 3.0
-  idr12 = idr6 ** 2.0
-  return epsilon * (idr12 - 2 * idr6)
+  dr = sigma ** f32(2) / dr
+  idr6 = dr ** f32(3.0)
+  idr12 = idr6 ** f32(2.0)
+  return f32(4) * epsilon * (idr12 - idr6)
 
 
 def lennard_jones_pairwise(
     metric, species=None, sigma=1.0, epsilon=1.0):
   """Convenience wrapper to compute Lennard-Jones energy over a system."""
+  sigma = np.array(sigma, dtype=f32)
+  epsilon = np.array(epsilon, dtype=f32)
   return smap.pairwise(
       lennard_jones, metric, species=species, sigma=sigma, epsilon=epsilon)
 
