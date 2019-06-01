@@ -18,6 +18,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from functools import wraps
+
 import jax.numpy as np
 
 from jax.abstract_arrays import ShapedArray
@@ -28,7 +30,6 @@ from jax_md.interpolate import spline
 from jax_md.util import *
 
 
-<<<<<<< HEAD
 def _canonicalize_displacement_or_metric(displacement_or_metric):
   """Checks whether or not a displacement or metric was provided."""
   for dim in range(4):
@@ -47,10 +48,6 @@ def _canonicalize_displacement_or_metric(displacement_or_metric):
 
 
 def soft_sphere(dr, sigma=f32(1.0), epsilon=f32(1.0), alpha=f32(2.0)):
-=======
-
-def soft_sphere(dR, sigma=f32(1.0), epsilon=f32(1.0), alpha=f32(2.0)):
->>>>>>> master
   """Finite ranged repulsive interaction between soft spheres.
 
   Args:
@@ -101,36 +98,71 @@ def lennard_jones(dr, sigma, epsilon):
   dr = (sigma / dr) ** f32(2)
   idr6 = dr ** f32(3)
   idr12 = idr6 ** f32(2)
-  return f32(4) * epsilon * (idr12 - idr6)
+  return f32(4) * epsilon * (idr12 - idr6) 
 
 
 def lennard_jones_pairwise(
-    displacement_or_metric, species=None, sigma=1.0, epsilon=1.0):
+    displacement_or_metric,
+    species=None, sigma=1.0, epsilon=1.0, r_onset=2.0, r_cutoff=2.5):
   """Convenience wrapper to compute Lennard-Jones energy over a system."""
   sigma = np.array(sigma, dtype=f32)
   epsilon = np.array(epsilon, dtype=f32)
+  r_onset = f32(r_onset * np.max(sigma))
+  r_cutoff = f32(r_cutoff * np.max(sigma))
   return smap.pairwise(
-    lennard_jones,
+    multiplicative_isotropic_cutoff(lennard_jones, r_onset, r_cutoff),
     _canonicalize_displacement_or_metric(displacement_or_metric),
     species=species,
     sigma=sigma,
     epsilon=epsilon)
 
 
-def smooth_cutoff(dr, r_onset, r_cutoff):
-  f2 = f32(2)
-  f3 = f32(3)
-  return np.where(
-    dr < r_onset,
-    f32(1),
-    np.where(
-      dr < r_cutoff,
-      (r_cutoff ** f2 - r ** f2) ** f2 * (
-        r_cutoff ** f2 + f2 * r ** f2 - f3 * r_onset ** f2) / (
-          r_cutoff ** f2 - r_onset ** f2) ** f3,
-      f32(0)
+def multiplicative_isotropic_cutoff(fn, r_onset, r_cutoff):
+  """Takes an isotropic function and constructs a truncated function.
+
+  Given a function f:R -> R, we construct a new function f':R -> R such that
+  f'(r) = f(r) for r < r_onset, f'(r) = 0 for r > r_cutoff, and f(r) is C^1
+  everywhere. To do this, we follow the approach outlined in HOOMD Blue [1]
+  (thanks to Carl Goodrich for the pointer). We construct a function S(r) such
+  that S(r) = 1 for r < r_onset, S(r) = 0 for r > r_cutoff, and S(r) is C^1.
+  Then f'(r) = S(r)f(r).
+
+  Args:
+    fn: A function that takes an ndarray of distances of shape [n, m] as well
+      as varargs.
+    r_onset: A float specifying the onset radius of deformation.
+    r_cutoff: A float specifying the cutoff radius.
+
+  Returns:
+    A new function with the same signature as fn, with the properties outlined
+    above.
+
+  [1] HOOMD Blue documentation. Accessed on 05/31/2019.
+      https://hoomd-blue.readthedocs.io/en/stable/module-md-pair.html#hoomd.md.pair.pair
+  """
+
+  r_c = r_cutoff ** f32(2)
+  r_o = r_onset ** f32(2)
+
+  def smooth_fn(dr):
+    r = dr ** f32(2)
+
+    return np.where(
+      dr < r_onset,
+      f32(1),
+      np.where(
+        dr < r_cutoff,
+        (r_c - r) ** f32(2) * (r_c + f32(2) * r - f32(3) * r_o) / (
+          r_c - r_o) ** f32(3),
+        f32(0)
+      )
     )
-  )
+
+  @wraps(fn)
+  def cutoff_fn(dr, *args, **kwargs):
+    return smooth_fn(dr) * fn(dr, *args, **kwargs)
+
+  return cutoff_fn
 
 
 def load_lammps_eam_parameters(f):

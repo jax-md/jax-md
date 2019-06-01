@@ -159,6 +159,37 @@ class EnergyTest(jtu.JaxTestCase):
       g = grad(energy.lennard_jones)(dr, sigma, epsilon)
       self.assertAllClose(g, np.array(0, dtype=dtype), True)
 
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_isotropic_cutoff(self, spatial_dimension, dtype):
+    key = random.PRNGKey(0)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split_rs, split_rl, split_sigma, split_epsilon = random.split(key, 5)
+      sigma = f32(random.uniform(
+          split_sigma, (1,), minval=0.5, maxval=3.0)[0])
+      epsilon = f32(random.uniform(
+          split_epsilon, (1,), minval=0.0, maxval=4.0)[0])
+      r_small = random.uniform(
+          split_rs, (10,), minval=0.0, maxval=2.0 * sigma, dtype=dtype) 
+      r_large = random.uniform(
+          split_rl, (10,), minval=2.5 * sigma, maxval=3.0 * sigma, dtype=dtype) 
+
+      r_onset = f32(2.0 * sigma)
+      r_cutoff = f32(2.5 * sigma)
+
+      E = energy.multiplicative_isotropic_cutoff(
+        energy.lennard_jones, r_onset, r_cutoff)
+
+      self.assertAllClose(
+        E(r_small, sigma, epsilon),
+        energy.lennard_jones(r_small, sigma, epsilon), True)
+      self.assertAllClose(
+        E(r_large, sigma, epsilon), np.zeros_like(r_large, dtype=dtype), True) 
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
