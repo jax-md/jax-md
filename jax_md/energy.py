@@ -18,20 +18,40 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from functools import wraps
+
 import jax.numpy as np
+
+from jax.abstract_arrays import ShapedArray
+from jax.interpreters import partial_eval as pe
 
 from jax_md import space, smap
 from jax_md.interpolate import spline
 from jax_md.util import *
 
 
+def _canonicalize_displacement_or_metric(displacement_or_metric):
+  """Checks whether or not a displacement or metric was provided."""
+  for dim in range(4):
+    try:
+      R = ShapedArray((1, dim), f32)
+      dR_or_dr = pe.abstract_eval_fun(displacement_or_metric, R, R, t=0)
+      if len(dR_or_dr.shape) == 2:
+        return displacement_or_metric
+      else:
+        return space.metric(displacement_or_metric)
+    except ValueError:
+      continue
+  raise ValueError(
+    'Canonicalize displacement not implemented for spatial dimension larger'
+    'than 4.')
 
-def soft_sphere(dR, sigma=f32(1.0), epsilon=f32(1.0), alpha=f32(2.0)):
+
+def soft_sphere(dr, sigma=f32(1.0), epsilon=f32(1.0), alpha=f32(2.0)):
   """Finite ranged repulsive interaction between soft spheres.
 
   Args:
-    dR: An ndarray of shape [n, m, spatial_dimension] of displacement vectors
-      between particles.
+    dr: An ndarray of shape [n, m] of pairwise distances between particles.
     sigma: Particle radii. Should either be a floating point scalar or an
       ndarray whose shape is [n, m].
     epsilon: Interaction energy scale. Should either be a floating point scalar
@@ -42,7 +62,6 @@ def soft_sphere(dR, sigma=f32(1.0), epsilon=f32(1.0), alpha=f32(2.0)):
   Returns:
     Matrix of energies whose shape is [n, m].
   """
-  dr = space.distance(dR)
   dr = dr / sigma
   U = epsilon * np.where(
     dr < 1.0, f32(1.0) / alpha * (f32(1.0) - dr) ** alpha, f32(0.0))
@@ -50,26 +69,25 @@ def soft_sphere(dR, sigma=f32(1.0), epsilon=f32(1.0), alpha=f32(2.0)):
 
 
 def soft_sphere_pairwise(
-    metric, species=None, sigma=1.0, epsilon=1.0, alpha=2.0): 
+    displacement_or_metric, species=None, sigma=1.0, epsilon=1.0, alpha=2.0): 
   """Convenience wrapper to compute soft sphere energy over a system."""
   sigma = np.array(sigma, dtype=f32)
   epsilon = np.array(epsilon, dtype=f32)
   alpha = np.array(alpha, dtype=f32)
   return smap.pairwise(
       soft_sphere,
-      metric,
+      _canonicalize_displacement_or_metric(displacement_or_metric),
       species=species,
       sigma=sigma,
       epsilon=epsilon,
       alpha=alpha)
 
 
-def lennard_jones(dR, sigma, epsilon):
+def lennard_jones(dr, sigma, epsilon):
   """Lennard-Jones interaction between particles with a minimum at sigma.
 
   Args:
-    dR: An ndarray of shape [n, m, spatial_dimension] of displacement vectors
-      between particles.
+    dr: An ndarray of shape [n, m] of pairwise distances between particles.
     sigma: Distance between particles where the energy has a minimum. Should
       either be a floating point scalar or an ndarray whose shape is [n, m].
     epsilon: Interaction energy scale. Should either be a floating point scalar
@@ -77,20 +95,74 @@ def lennard_jones(dR, sigma, epsilon):
   Returns:
     Matrix of energies of shape [n, m].
   """
-  dr = space.square_distance(dR)
-  dr = sigma ** f32(2) / dr
-  idr6 = dr ** f32(3.0)
-  idr12 = idr6 ** f32(2.0)
-  return f32(4) * epsilon * (idr12 - idr6)
+  dr = (sigma / dr) ** f32(2)
+  idr6 = dr ** f32(3)
+  idr12 = idr6 ** f32(2)
+  return f32(4) * epsilon * (idr12 - idr6) 
 
 
 def lennard_jones_pairwise(
-    metric, species=None, sigma=1.0, epsilon=1.0):
+    displacement_or_metric,
+    species=None, sigma=1.0, epsilon=1.0, r_onset=2.0, r_cutoff=2.5):
   """Convenience wrapper to compute Lennard-Jones energy over a system."""
   sigma = np.array(sigma, dtype=f32)
   epsilon = np.array(epsilon, dtype=f32)
+  r_onset = f32(r_onset * np.max(sigma))
+  r_cutoff = f32(r_cutoff * np.max(sigma))
   return smap.pairwise(
-      lennard_jones, metric, species=species, sigma=sigma, epsilon=epsilon)
+    multiplicative_isotropic_cutoff(lennard_jones, r_onset, r_cutoff),
+    _canonicalize_displacement_or_metric(displacement_or_metric),
+    species=species,
+    sigma=sigma,
+    epsilon=epsilon)
+
+
+def multiplicative_isotropic_cutoff(fn, r_onset, r_cutoff):
+  """Takes an isotropic function and constructs a truncated function.
+
+  Given a function f:R -> R, we construct a new function f':R -> R such that
+  f'(r) = f(r) for r < r_onset, f'(r) = 0 for r > r_cutoff, and f(r) is C^1
+  everywhere. To do this, we follow the approach outlined in HOOMD Blue [1]
+  (thanks to Carl Goodrich for the pointer). We construct a function S(r) such
+  that S(r) = 1 for r < r_onset, S(r) = 0 for r > r_cutoff, and S(r) is C^1.
+  Then f'(r) = S(r)f(r).
+
+  Args:
+    fn: A function that takes an ndarray of distances of shape [n, m] as well
+      as varargs.
+    r_onset: A float specifying the onset radius of deformation.
+    r_cutoff: A float specifying the cutoff radius.
+
+  Returns:
+    A new function with the same signature as fn, with the properties outlined
+    above.
+
+  [1] HOOMD Blue documentation. Accessed on 05/31/2019.
+      https://hoomd-blue.readthedocs.io/en/stable/module-md-pair.html#hoomd.md.pair.pair
+  """
+
+  r_c = r_cutoff ** f32(2)
+  r_o = r_onset ** f32(2)
+
+  def smooth_fn(dr):
+    r = dr ** f32(2)
+
+    return np.where(
+      dr < r_onset,
+      f32(1),
+      np.where(
+        dr < r_cutoff,
+        (r_c - r) ** f32(2) * (r_c + f32(2) * r - f32(3) * r_o) / (
+          r_c - r_o) ** f32(3),
+        f32(0)
+      )
+    )
+
+  @wraps(fn)
+  def cutoff_fn(dr, *args, **kwargs):
+    return smooth_fn(dr) * fn(dr, *args, **kwargs)
+
+  return cutoff_fn
 
 
 def load_lammps_eam_parameters(f):

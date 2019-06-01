@@ -250,3 +250,7 @@ def periodic_general(T, wrapped=True):
         return R + transform(T_inv, dR)
   return displacement, shift
 
+
+def metric(displacement):
+  """Takes a displacement function and creates a metric."""
+  return lambda Ra, Rb, **kwargs: distance(displacement(Ra, Rb, **kwargs))
