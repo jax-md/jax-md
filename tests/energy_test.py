@@ -52,6 +52,7 @@ else:
   POSITION_DTYPE = [f32]
 
 def lattice_repeater(small_cell_pos, latvec, no_rep):
+  dtype = small_cell_pos.dtype
   pos = onp.copy(small_cell_pos).tolist()
   for atom in small_cell_pos:
     for i in range(no_rep):
@@ -60,13 +61,16 @@ def lattice_repeater(small_cell_pos, latvec, no_rep):
           if not i == j == k == 0:
             repeated_atom = atom + latvec[0] * i + latvec[1] * j + latvec[2] * k
             pos.append(onp.array(repeated_atom).tolist())
-  return np.array(pos), latvec*no_rep
+  return np.array(pos, dtype), f32(latvec*no_rep)
 
 CUTOFF = 6.28721
 
 NUM_SPLINE_POINTS = 21
 dr = np.arange(0, NUM_SPLINE_POINTS) * (CUTOFF / NUM_SPLINE_POINTS)
+dr = np.array(dr, f32)
+
 drho = np.arange(0, 2, 2. / NUM_SPLINE_POINTS)
+drho = np.array(drho, f32)
 
 DENSITY_DATA = np.array([2.78589606e-01, 2.02694937e-01, 1.45334053e-01,
                       1.06069912e-01, 8.42517168e-02, 7.65140344e-02,
@@ -83,6 +87,7 @@ EMBEDDING_DATA = np.array([1.04222211e-10, -1.04142633e+00, -1.60359806e+00,
                        -2.69287013e+00, -2.68464527e+00, -2.69204083e+00,
                        -2.68976209e+00, -2.66001244e+00, -2.60122024e+00,
                        -2.51338548e+00, -2.39650817e+00, -2.25058831e+00], np.float32)
+
 PAIRWISE_DATA = np.array([6.27032242e+01, 3.49638589e+01, 1.79007014e+01,
                   8.69001383e+00, 4.51545250e+00, 2.83260884e+00,
                   1.93216616e+00, 1.06795515e+00, 3.37740836e-01,
@@ -163,19 +168,22 @@ class EnergyTest(jtu.JaxTestCase):
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}'.format(num_repetitions),
+          'testcase_name': '_num_reps={}_dtype={}'.format(num_repetitions, dtype.__name__),
           'num_repetitions': num_repetitions,
           'dtype': dtype,
       } for num_repetitions in UNIT_CELL_SIZE for dtype in POSITION_DTYPE))
   def test_eam(self, num_repetitions, dtype):
-    latvec = np.array([[0, 1, 1], [1, 0, 1], [1, 1, 0]], dtype=dtype) * 4.05 / 2
+    latvec = np.array([[0, 1, 1], [1, 0, 1], [1, 1, 0]], dtype=dtype) * f32(4.05 / 2)
     atoms = np.array([[0, 0, 0]], dtype=dtype)
     atoms_repeated, latvec_repeated = lattice_repeater(atoms, latvec, num_repetitions)
     inv_latvec = np.array(onp.linalg.inv(onp.array(latvec_repeated)))
     displacement, shift = space.periodic_general(latvec_repeated)
+    assert charge_fn(dtype(1.0)).dtype == dtype
+    assert embedding_fn(dtype(1.0)).dtype == dtype
+    assert pairwise_fn(dtype(1.0)).dtype == dtype
     eam_energy = energy.eam(displacement, charge_fn, embedding_fn, pairwise_fn)
     self.assertAllClose(
-        eam_energy(np.dot(atoms_repeated, inv_latvec))/num_repetitions**3, dtype(-3.363), True)
+        eam_energy(np.dot(atoms_repeated, inv_latvec))/f32(num_repetitions**3), dtype(-3.363338), True)
 
 
 if __name__ == '__main__':

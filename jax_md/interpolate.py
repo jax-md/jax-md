@@ -24,6 +24,7 @@ from __future__ import print_function
 import jax.numpy as np
 from scipy.interpolate import splrep, PPoly
 
+from jax_md.util import *
 
 def constant(f):
   def schedule(unused_t):
@@ -53,7 +54,8 @@ def spline(y, dx, degree=3):
     A function that computes the spline function.
   """
   num_points = len(y)
-  x = np.arange(num_points) * dx
+  dx = f32(dx)
+  x = np.arange(num_points, dtype=f32) * dx
   # Create a spline fit using the scipy function.
   fn = splrep(x, y, s=0, k=degree)  # Turn off smoothing by setting s to zero.
   params = PPoly.from_spline(fn)
@@ -68,11 +70,11 @@ def spline(y, dx, degree=3):
         np.where(ind < num_points, ind, num_points - 1), np.int64)
     truncated_ind = np.array(
         np.where(truncated_ind >= 0, truncated_ind, 0), np.int64)
-    result = 0
-    dX = x - np.array(ind, np.float64) * dx
+    result = f32(0)
+    dX = x - np.array(ind, np.float32) * dx
     for i in range(degree + 1):  # sum over the polynomial terms up to degree.
-      result = result + coeffs[degree - i, truncated_ind + 2] * dX ** i
+      result = result + f32(coeffs[degree - i, truncated_ind + 2]) * dX ** f32(i)
     # For x values that are outside the domain of the spline fit, return zeros.
-    result = np.where(ind < num_points, result, 0.0)
+    result = np.where(ind < num_points, result, f32(0.0))
     return result
   return spline_fn
