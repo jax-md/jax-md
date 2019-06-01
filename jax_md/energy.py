@@ -109,3 +109,19 @@ def lennard_jones_pairwise(
     species=species,
     sigma=sigma,
     epsilon=epsilon)
+
+
+def smooth_cutoff(dr, r_onset, r_cutoff):
+  f2 = f32(2)
+  f3 = f32(3)
+  return np.where(
+    dr < r_onset,
+    f32(1),
+    np.where(
+      dr < r_cutoff,
+      (r_cutoff ** f2 - r ** f2) ** f2 * (
+        r_cutoff ** f2 + f2 * r ** f2 - f3 * r_onset ** f2) / (
+          r_cutoff ** f2 - r_onset ** f2) ** f3,
+      f32(0)
+    )
+  )
