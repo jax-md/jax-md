@@ -74,7 +74,7 @@ DENSITY_DATA = np.array([2.78589606e-01, 2.02694937e-01, 1.45334053e-01,
                       8.13915861e-02, 6.59095390e-02, 4.28915711e-02,
                       2.27910928e-02, 1.13713167e-02, 6.05020311e-03,
                       3.65836583e-03, 2.60587564e-03, 2.06750708e-03,
-                      1.48749693e-03, 7.40019174e-04, 6.21225205e-05])
+                      1.48749693e-03, 7.40019174e-04, 6.21225205e-05], np.float32)
 
 EMBEDDING_DATA = np.array([1.04222211e-10, -1.04142633e+00, -1.60359806e+00,
                        -1.89287637e+00, -2.09490167e+00, -2.26456628e+00,
@@ -82,14 +82,14 @@ EMBEDDING_DATA = np.array([1.04222211e-10, -1.04142633e+00, -1.60359806e+00,
                        -2.67744693e+00, -2.71053295e+00, -2.71110418e+00,
                        -2.69287013e+00, -2.68464527e+00, -2.69204083e+00,
                        -2.68976209e+00, -2.66001244e+00, -2.60122024e+00,
-                       -2.51338548e+00, -2.39650817e+00, -2.25058831e+00])
+                       -2.51338548e+00, -2.39650817e+00, -2.25058831e+00], np.float32)
 PAIRWISE_DATA = np.array([6.27032242e+01, 3.49638589e+01, 1.79007014e+01,
                   8.69001383e+00, 4.51545250e+00, 2.83260884e+00,
                   1.93216616e+00, 1.06795515e+00, 3.37740836e-01,
                   1.61087890e-02, -6.20816372e-02, -6.51314297e-02,
                   -5.35210341e-02, -5.20950200e-02, -5.51709524e-02,
                   -4.89093894e-02, -3.28051688e-02, -1.13738785e-02,
-                  2.33833655e-03, 4.19132033e-03, 1.68600692e-04])
+                  2.33833655e-03, 4.19132033e-03, 1.68600692e-04], np.float32)
 
 
 charge_fn = spline(DENSITY_DATA, dr[1] - dr[0])
@@ -165,16 +165,17 @@ class EnergyTest(jtu.JaxTestCase):
       {
           'testcase_name': '_dim={}'.format(num_repetitions),
           'num_repetitions': num_repetitions,
-      } for num_repetitions in UNIT_CELL_SIZE))
-  def test_eam(self, num_repetitions):
-    latvec = np.array([[0, 1, 1], [1, 0, 1], [1, 1, 0]]) * 4.05 / 2
-    atoms = np.array([[0, 0, 0]])
+          'dtype': dtype,
+      } for num_repetitions in UNIT_CELL_SIZE for dtype in POSITION_DTYPE))
+  def test_eam(self, num_repetitions, dtype):
+    latvec = np.array([[0, 1, 1], [1, 0, 1], [1, 1, 0]], dtype=dtype) * 4.05 / 2
+    atoms = np.array([[0, 0, 0]], dtype=dtype)
     atoms_repeated, latvec_repeated = lattice_repeater(atoms, latvec, num_repetitions)
     inv_latvec = np.array(onp.linalg.inv(onp.array(latvec_repeated)))
     displacement, shift = space.periodic_general(latvec_repeated)
     eam_energy = energy.eam(displacement, charge_fn, embedding_fn, pairwise_fn)
     self.assertAllClose(
-        eam_energy(np.dot(atoms_repeated, inv_latvec))/num_repetitions**3, -3.366, True)
+        eam_energy(np.dot(atoms_repeated, inv_latvec))/num_repetitions**3, dtype(-3.363), True)
 
 
 if __name__ == '__main__':

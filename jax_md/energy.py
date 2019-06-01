@@ -138,9 +138,9 @@ def load_lammps_eam_parameters(f):
   distances = np.arange(num_dr) * dr
   # Prevent dividing by zero at zero distance, which will not
   # affect the calculation
-  distances = np.where(distances == 0, 0.001, distances)
+  distances = np.where(distances == 0, f32(0.001), distances)
   pairwise_fn = spline(
-      data[num_dr + num_drho:num_drho + 2 * num_dr] / distances,
+      data[num_dr + num_drho:num_drho + f32(2) * num_dr] / distances,
       dr)
   return charge_fn, embedding_fn, pairwise_fn, cutoff
 
@@ -189,7 +189,7 @@ def eam(displacement, charge_fn, embedding_fn, pairwise_fn, axis=None):
     total_charge = smap._high_precision_sum(charge_fn(dr), axis=1)
     embedding_energy = embedding_fn(total_charge)
     pairwise_energy = smap._high_precision_sum(smap._diagonal_mask(
-        pairwise_fn(dr)), axis=1) / 2.0
+        pairwise_fn(dr)), axis=1) / f32(2.0)
     return smap._high_precision_sum(
         embedding_energy + pairwise_energy, axis=axis)
 
