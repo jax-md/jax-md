@@ -276,3 +276,117 @@ def nvt_nose_hoover(
     return NVTNoseHooverState(R, V, mass, KE, xi, v_xi, Q)
 
   return init_fun, apply_fun
+
+
+class NVTLangevinState(namedtuple(
+    'NVTLangevinState',
+    [
+        'position',
+        'velocity',
+        'force',
+        'mass',
+        'rng'
+    ])):
+  """A tuple containing state information for the Langevin thermostat.
+
+  Attributes:
+    position: The current position of the particles. An ndarray of floats with
+      shape [n, spatial_dimension].
+    velocity: The velocity of particles. An ndarray of floats with shape
+      [n, spatial_dimension].
+    force: The (non-stochistic) force on particles. An ndarray of floats with
+      shape [n, spatial_dimension].
+    mass: The mass of particles. Will either be a float or an ndarray of floats
+      with shape [n].
+    rng: The current state of the random number generator.
+  """
+  def __new__(cls, position, velocity, force, mass, rng):
+    return super(NVTLangevinState, cls).__new__(
+        cls, position, velocity, force, mass, rng)
+register_pytree_namedtuple(NVTLangevinState)
+
+
+def nvt_langevin(
+    energy_or_force,
+    shift,
+    dt,
+    T_schedule,
+    quant=quantity.Energy,
+    gamma=0.1):
+  """Simulation in the NVT ensemble using the Langevin thermostat.
+
+  Samples from the canonical ensemble in which the number of particles (N),
+  the system volume (V), and the temperature (T) are held constant. Langevin
+  dynamics are stochastic and it is supposed that the system is interacting with
+  fictitious microscopic degrees of freedom. An example of this would be large
+  particles in a solvent such as water. Thus, Langevin dynamics are a stochastic
+  ODE described by a friction coefficient and noise of a given covariance.
+
+  Our implementation follows the excellent set of lecture notes by Carlon,
+  Laleman, and Nomidis [1].
+
+  Args:
+    energy_or_force: A function that produces either an energy or a force from
+      a set of particle positions specified as an ndarray of shape
+      [n, spatial_dimension].
+    shift_fn: A function that displaces positions, R, by an amount dR. Both R
+      and dR should be ndarrays of shape [n, spatial_dimension].
+    dt: Floating point number specifying the timescale (step size) of the
+      simulation.
+    T_schedule: Either a floating point number specifying a constant temperature
+      or a function specifying temperature as a function of time.
+    quant: Either a quantity.Energy or a quantity.Force specifying whether
+      energy_or_force is an energy or force respectively.
+    gamma: A float specifying the friction coefficient between the particles
+      and the solvent.
+  Returns:
+    See above.
+
+    [1] E. Carlon, M. Laleman, S. Nomidis. "Molecular Dynamics Simulation."
+        http://itf.fys.kuleuven.be/~enrico/Teaching/molecular_dynamics_2015.pdf
+        Accessed on 06/05/2019.
+  """
+
+  force_fn = quantity.canonicalize_force(energy_or_force, quant)
+
+  dt_2 = dt / 2
+  dt2 = dt ** 2 / 2
+  dt32 = dt ** (3.0 / 2.0) / 2
+
+  dt, dt_2, dt2, dt32, gamma = static_cast(dt, dt_2, dt2, dt32, gamma)
+
+  T_schedule = interpolate.canonicalize(T_schedule)
+
+  def init_fn(key, R, mass=f32(1), T_initial=f32(1)):
+    mass = quantity.canonicalize_mass(mass)
+
+    key, split = random.split(key)
+
+    V = np.sqrt(T_initial / mass) * random.normal(split, R.shape, dtype=R.dtype)
+    V = V - np.mean(V, axis=0, keepdims=True)
+
+    return NVTLangevinState(R, V, force_fn(R, t=f32(0)), mass, key)
+
+  def apply_fn(state, t=f32(0), **kwargs):
+    R, V, F, mass, key = state
+
+    N, dim = R.shape
+
+    key, xi_key, theta_key = random.split(key, 3)
+    xi = random.normal(xi_key, (N, dim), dtype=R.dtype)
+    theta = random.normal(theta_key, (N, dim), dtype=R.dtype) / np.sqrt(f32(3))
+
+    # NOTE(schsam): We really only need to recompute sigma if the temperature
+    # is nonconstant. @Optimization
+    # TODO(schsam): Check that this is really valid in the case that the masses
+    # are non identical for all particles.
+    sigma = np.sqrt(f32(2) * T_schedule(t) * gamma / mass)
+    C = dt2 * (F - gamma * V) + sigma * dt32 * (xi + theta)
+
+    R = shift(R, dt * V + F + C)
+    F_new = force_fn(R)
+    V = (f32(1) - dt * gamma) * V + dt_2 * (F_new + F)
+    V = V + sigma * np.sqrt(dt) * xi - gamma * C
+
+    return NVTLangevinState(R, V, F_new, mass, key)
+  return init_fn, apply_fn
