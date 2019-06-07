@@ -383,10 +383,87 @@ def nvt_langevin(
     sigma = np.sqrt(f32(2) * T_schedule(t) * gamma / mass)
     C = dt2 * (F - gamma * V) + sigma * dt32 * (xi + theta)
 
-    R = shift(R, dt * V + F + C)
-    F_new = force_fn(R)
+    R = shift(R, dt * V + F + C, t=t, **kwargs)
+    F_new = force_fn(R, t=t, **kwargs)
     V = (f32(1) - dt * gamma) * V + dt_2 * (F_new + F)
     V = V + sigma * np.sqrt(dt) * xi - gamma * C
 
     return NVTLangevinState(R, V, F_new, mass, key)
+  return init_fn, apply_fn
+
+
+class BrownianState(namedtuple(
+    'NVTLangevinState',
+    [
+        'position',
+        'mass',
+        'rng'
+    ])):
+  """A tuple containing state information for Brownian dynamics.
+
+  Attributes:
+    position: The current position of the particles. An ndarray of floats with
+      shape [n, spatial_dimension].
+    mass: The mmass of particles. Will either be a float or an ndarray of floats
+      with shape [n].
+    rng: The current state of the random number generator.
+  """
+  def __new__(cls, position, mass, rng):
+    return super(BrownianState, cls).__new__(cls, position, mass, rng)
+register_pytree_namedtuple(BrownianState)
+
+
+def brownian(
+    energy_or_force,
+    shift,
+    dt,
+    T_schedule,
+    quant=quantity.Energy,
+    gamma=0.1):
+  """Simulation of Brownian dynamics.
+
+  This code simulates Brownian dynamics which are synonymous with the overdamped
+  regime of Langevin dynamics. However, in this case we don't need to take into
+  account velocity information and the dynamics simplify. Consequently, when
+  Brownian dynamics can be used they will be faster than Langevin. As in the
+  case of Langevin dynamics our implementation follows [1].
+
+  Args:
+    See nvt_langevin.
+
+  Returns:
+    See above.
+
+    [1] E. Carlon, M. Laleman, S. Nomidis. "Molecular Dynamics Simulation."
+        http://itf.fys.kuleuven.be/~enrico/Teaching/molecular_dynamics_2015.pdf
+        Accessed on 06/05/2019.
+  """
+
+  force_fn = quantity.canonicalize_force(energy_or_force, quant)
+
+  dt, gamma = static_cast(dt, gamma)
+
+  T_schedule = interpolate.canonicalize(T_schedule)
+
+  def init_fn(key, R, mass=f32(1)):
+    mass = quantity.canonicalize_mass(mass)
+
+    return BrownianState(R, mass, key)
+
+  def apply_fn(state, t=f32(0), **kwargs):
+
+    R, mass, key = state
+
+    key, split = random.split(key)
+
+    F = force_fn(R, t=t, **kwargs)
+    xi = random.normal(split, R.shape, R.dtype)
+
+    nu = f32(1) / (mass * gamma)
+
+    dR = F * dt * nu + np.sqrt(f32(2) * T_schedule(t) * dt * nu) * xi
+    R = shift(R, dR, t=t, **kwargs)
+
+    return BrownianState(R, mass, key)
+
   return init_fn, apply_fn

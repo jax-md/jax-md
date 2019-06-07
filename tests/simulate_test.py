@@ -26,6 +26,7 @@ from absl.testing import parameterized
 from jax import jit
 from jax import random
 from jax import test_util as jtu
+from jax import lax
 
 from jax.config import config as jax_config
 import jax.numpy as np
@@ -46,6 +47,9 @@ SPATIAL_DIMENSION = [2, 3]
 
 LANGEVIN_PARTICLE_COUNT = 8000
 LANGEVIN_DYNAMICS_STEPS = 8000
+
+BROWNIAN_PARTICLE_COUNT = 8000
+BROWNIAN_DYNAMICS_STEPS = 8000
 
 DTYPE = [f32]
 if FLAGS.jax_enable_x64:
@@ -178,9 +182,46 @@ class SimulateTest(jtu.JaxTestCase):
         if step > 4000 and step % 100 == 0:
           T_list += [quantity.temperature(state.velocity, state.mass)]
 
+      # TODO(schsam): It would be good to check Gaussinity of R and V in the
+      # noninteracting case.
       T_emp = np.mean(np.array(T_list))
       assert np.abs(T_emp - T) < 0.1
       assert state.position.dtype == dtype
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in DTYPE))
+  def test_brownian(self, spatial_dimension, dtype):
+    key = random.PRNGKey(0)
+    key, T_split, mass_split = random.split(key, 3)
+
+    _, shift = space.free()
+    energy_fn = lambda R, **kwargs: f32(0)
+
+    R = np.zeros((BROWNIAN_PARTICLE_COUNT, 2), dtype=dtype)
+    mass = random.uniform(
+      mass_split, (), minval=0.1, maxval=10.0, dtype=dtype)
+    T = random.uniform(T_split, (), minval=0.3, maxval=1.4, dtype=dtype)
+
+    dt = f32(1e-2)
+    gamma = f32(0.1)
+
+    init_fn, apply_fn = simulate.brownian(energy_fn, shift, dt, T, gamma=gamma)
+    apply_fn = jit(apply_fn)
+
+    state = init_fn(key, R, mass)
+
+    sim_t = f32(BROWNIAN_DYNAMICS_STEPS * dt)
+    for _ in range(BROWNIAN_DYNAMICS_STEPS):
+      state = apply_fn(state)
+
+    msd = np.var(state.position)
+    th_msd = dtype(2 * T / (mass * gamma) * sim_t)
+    assert np.abs(msd - th_msd) / msd < 1e-2
+    assert state.position.dtype == dtype
 
 if __name__ == '__main__':
   absltest.main()
