@@ -153,7 +153,7 @@ def fire_descent(
     V = V + alpha * (F * V_norm / F_norm - V)
 
     # NOTE(schsam): Can we clean this up at all?
-    n_pos = np.where(P > 0, n_pos + f32(1.0), n_pos)
+    n_pos = np.where(P >= 0, n_pos + f32(1.0), f32(0))
     dt_choice = np.array([dt * f_inc, dt_max])
     dt = np.where(
         P > 0, np.where(n_pos > n_min, np.min(dt_choice), dt), dt)

@@ -21,7 +21,8 @@ from __future__ import print_function
 
 from jax import ad_util
 from jax import custom_transforms
-from jax.interpreters import ad
+import jax
+#from jax.interpreters import ad
 
 import jax.numpy as np
 
@@ -79,11 +80,7 @@ def transform(T, v):
   """
   _check_transform_shapes(T, v)
   return np.dot(v, T)
-ad.defjvp(
-    transform.primitive,
-    lambda g, T, v: ad_util.zero,
-    lambda g, T, v: g
-    )
+jax.defjvp(transform, None, lambda g, ans, T, v: g)
 
 
 def pairwise_displacement(Ra, Rb):
