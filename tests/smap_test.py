@@ -92,6 +92,7 @@ class SMapTest(jtu.JaxTestCase):
         np.sum(displacement(Ra, Rb, **kwargs) ** 2, axis=-1)
 
     mapped_square = smap.pairwise(square, metric)
+    metric = space.map_product(metric)
 
     key = random.PRNGKey(0)
 
@@ -115,6 +116,7 @@ class SMapTest(jtu.JaxTestCase):
 
     mapped_square = smap.pairwise(square, disp)
 
+    disp = space.map_product(disp)
     key = random.PRNGKey(0)
 
     for _ in range(STOCHASTIC_SAMPLES):
@@ -144,6 +146,8 @@ class SMapTest(jtu.JaxTestCase):
 
     mapped_square = smap.pairwise(
       square, metric, species=species, param=params)
+
+    metric = space.map_product(metric)
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split = random.split(key)
@@ -175,6 +179,8 @@ class SMapTest(jtu.JaxTestCase):
     disp, _ = space.free()
 
     mapped_square = smap.pairwise(square, disp, species=species, param=params)
+
+    disp = space.map_product(disp)
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split = random.split(key)
@@ -209,6 +215,8 @@ class SMapTest(jtu.JaxTestCase):
 
     mapped_square = smap.pairwise(
         square, metric, species=quantity.Dynamic, param=params)
+
+    metric = space.map_product(metric)
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split = random.split(key)
@@ -292,8 +300,8 @@ class SMapTest(jtu.JaxTestCase):
   def test_pairwise_grid_force(self, spatial_dimension, dtype):
     key = random.PRNGKey(1)
 
-    box_size = f16(9.0)
-    cell_size = f16(2.0)
+    box_size = f32(9.0)
+    cell_size = f32(2.0)
     displacement, _ = space.periodic(box_size)
     energy_fn = energy.soft_sphere_pairwise(displacement, quantity.Dynamic)
     force_fn = quantity.force(energy_fn)
@@ -364,7 +372,7 @@ class SMapTest(jtu.JaxTestCase):
       box_size = f32(np.array([[8.0, 10.0, 12.0]]))
 
     cell_size = f32(2.0)
-    displacement, _ = space.periodic(box_size)
+    displacement, _ = space.periodic(box_size[0])
     energy_fn = energy.soft_sphere_pairwise(displacement, quantity.Dynamic)
     force_fn = quantity.force(energy_fn)
 

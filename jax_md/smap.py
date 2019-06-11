@@ -122,9 +122,10 @@ def pairwise(
       parameters for the function. fn returns an ndarray of evaluations of shape
       [n, m, d_out].
     metric: A function that takes two ndarray of positions of shape
-      [n, spatial_dimension] and [m, spatial_dimension] respectively and returns
-      an ndarray of distances or displacements of shape [n, m, d_in]. The metric
-      can optionally take a floating point time as a third argument.
+      [spatial_dimension] and [spatial_dimension] respectively and returns
+      an ndarray of distances or displacements of shape [] or [d_in]
+      respectively. The metric can optionally take a floating point time as a
+      third argument.
     species: A list of species for the different particles. This should either
       be None (in which case it is assumed that all the particles have the same
       species), an integer ndarray of shape [n] with species data, or Dynamic
@@ -155,6 +156,9 @@ def pairwise(
     The mapped function can also optionally take keyword arguments that get
     threaded through the metric.
   """
+
+  metric = vmap(vmap(metric, (0, None), 0), (None, 0), 0) 
+
   if species is None:
     kwargs = _kwargs_to_parameters(species, **kwargs)
     def fn_mapped(R, **dynamic_kwargs):

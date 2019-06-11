@@ -19,10 +19,9 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from jax import ad_util
+from jax import vmap
 from jax import custom_transforms
 import jax
-#from jax.interpreters import ad
 
 import jax.numpy as np
 
@@ -87,13 +86,24 @@ def pairwise_displacement(Ra, Rb):
   """Compute a matrix of pairwise displacements given two sets of positions.
 
   Args:
-    Ra: Vector of positions; ndarray(shape=[n, spatial_dim]).
-    Rb: Vector of positions; ndarray(shape=[m, spatial_dim]).
+    Ra: Vector of positions; ndarray(shape=[spatial_dim]).
+    Rb: Vector of positions; ndarray(shape=[spatial_dim]).
 
   Returns:
-    Matrix of displacements; ndarray(shape=[n, m, spatial_dim]).
+    Matrix of displacements; ndarray(shape=[spatial_dim]).
   """
-  return Ra[:, np.newaxis, :] - Rb[np.newaxis, :, :]
+  if len(Ra.shape) != 1:
+    msg = (
+      'Can only compute displacements between vectors. To compute '
+      'displacements between sets of vectors use vmap or TODO.'
+    )
+    raise ValueError(msg)
+
+  if Ra.shape != Rb.shape:
+    msg = 'Can only compute displacement between vectors of equal dimension.'
+    raise ValueError(msg)
+
+  return Ra - Rb
 
 
 def periodic_displacement(side, dR):
@@ -145,9 +155,10 @@ Spaces
 
   Spaces are tuples containing:
       displacement_fn(Ra, Rb, **kwargs): Computes displacements between pairs of
-        particles. Ra and Rb should be ndarrays of shape [N, spatial_dim] and
-        [M, spatial_dim] respectively. Returns an ndarray of shape
-        [N, M, spatial_dim].
+        particles. Ra and Rb should be ndarrays of shape [spatial_dim]. Returns
+        an ndarray of shape [spatial_dim]. To compute displacements over sets
+        of positions, use vmap. Soon (TODO) we will add convenience functions
+        to do this where needed.
 
       shift_fn(R, dR, **kwargs): Moves points at position R by an amount dR.
 
@@ -251,3 +262,11 @@ def periodic_general(T, wrapped=True):
 def metric(displacement):
   """Takes a displacement function and creates a metric."""
   return lambda Ra, Rb, **kwargs: distance(displacement(Ra, Rb, **kwargs))
+
+
+def map_product(metric_or_displacement):
+  return vmap(vmap(metric_or_displacement, (0, None), 0), (None, 0), 0)
+
+
+def map_set(metric_or_displacement):
+  return vmap(metric_or_displacement, (0, 0), 0)

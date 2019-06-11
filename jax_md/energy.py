@@ -34,9 +34,9 @@ def _canonicalize_displacement_or_metric(displacement_or_metric):
   """Checks whether or not a displacement or metric was provided."""
   for dim in range(4):
     try:
-      R = ShapedArray((1, dim), f32)
+      R = ShapedArray((dim,), f32)
       dR_or_dr = pe.abstract_eval_fun(displacement_or_metric, R, R, t=0)
-      if len(dR_or_dr.shape) == 2:
+      if len(dR_or_dr.shape) == 0:
         return displacement_or_metric
       else:
         return space.metric(displacement_or_metric)
@@ -256,8 +256,10 @@ def eam(displacement, charge_fn, embedding_fn, pairwise_fn, axis=None):
   potentials for monoatomic metals from experimental data and ab initio
   calculations." Physical Review B, 59 (1999)
   """
+  metric = space.map_product(space.metric(displacement))
+
   def energy(R, **kwargs):
-    dr = space.distance(displacement(R, R, **kwargs))
+    dr = metric(R, R, **kwargs)
     total_charge = smap._high_precision_sum(charge_fn(dr), axis=1)
     embedding_energy = embedding_fn(total_charge)
     pairwise_energy = smap._high_precision_sum(smap._diagonal_mask(
