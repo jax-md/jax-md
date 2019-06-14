@@ -47,6 +47,27 @@ def _canonicalize_displacement_or_metric(displacement_or_metric):
     'than 4.')
 
 
+def spring(dr, length=f32(1), epsilon=f32(1), alpha=f32(2)):
+  """Isotropic spring potential with a given rest length."""
+  return epsilon / alpha * (dr - length) ** alpha
+
+
+def spring_bond(
+    displacement_or_metric, bond, bond_type=None, length=1, epsilon=1, alpha=2):
+  """Convenience wrapper to compute energy of particles bonded by springs."""
+  length = np.array(length, f32)
+  epsilon = np.array(epsilon, f32)
+  alpha = np.array(alpha, f32)
+  return smap.bond(
+    spring,
+    _canonicalize_displacement_or_metric(displacement_or_metric),
+    bond,
+    bond_type,
+    length=length,
+    epsilon=epsilon,
+    alpha=alpha)
+
+
 def soft_sphere(dr, sigma=f32(1.0), epsilon=f32(1.0), alpha=f32(2.0)):
   """Finite ranged repulsive interaction between soft spheres.
 
