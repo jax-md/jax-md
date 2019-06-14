@@ -52,7 +52,7 @@ def main(unused_argv):
   species = np.array([0] * N_2 + [1] * N_2, dtype=i32)
 
   # Create an energy function.
-  energy_fn = energy.soft_sphere_pairwise(displacement, species, sigma)
+  energy_fn = energy.soft_sphere_pair(displacement, species, sigma)
   force_fn = quantity.force(energy_fn)
 
   # Create a minimizer.
