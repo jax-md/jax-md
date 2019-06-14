@@ -68,13 +68,13 @@ def soft_sphere(dr, sigma=f32(1.0), epsilon=f32(1.0), alpha=f32(2.0)):
   return U
 
 
-def soft_sphere_pairwise(
+def soft_sphere_pair(
     displacement_or_metric, species=None, sigma=1.0, epsilon=1.0, alpha=2.0): 
   """Convenience wrapper to compute soft sphere energy over a system."""
   sigma = np.array(sigma, dtype=f32)
   epsilon = np.array(epsilon, dtype=f32)
   alpha = np.array(alpha, dtype=f32)
-  return smap.pairwise(
+  return smap.pair(
       soft_sphere,
       _canonicalize_displacement_or_metric(displacement_or_metric),
       species=species,
@@ -101,7 +101,7 @@ def lennard_jones(dr, sigma, epsilon):
   return f32(4) * epsilon * (idr12 - idr6) 
 
 
-def lennard_jones_pairwise(
+def lennard_jones_pair(
     displacement_or_metric,
     species=None, sigma=1.0, epsilon=1.0, r_onset=2.0, r_cutoff=2.5):
   """Convenience wrapper to compute Lennard-Jones energy over a system."""
@@ -109,7 +109,7 @@ def lennard_jones_pairwise(
   epsilon = np.array(epsilon, dtype=f32)
   r_onset = f32(r_onset * np.max(sigma))
   r_cutoff = f32(r_cutoff * np.max(sigma))
-  return smap.pairwise(
+  return smap.pair(
     multiplicative_isotropic_cutoff(lennard_jones, r_onset, r_cutoff),
     _canonicalize_displacement_or_metric(displacement_or_metric),
     species=species,
