@@ -63,7 +63,7 @@ def simple_spring_bond(
   epsilon = np.array(epsilon, f32)
   alpha = np.array(alpha, f32)
   return smap.bond(
-    spring,
+    simple_spring,
     _canonicalize_displacement_or_metric(displacement_or_metric),
     bond,
     bond_type,
