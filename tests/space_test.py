@@ -149,9 +149,9 @@ class SpaceTest(jtu.JaxTestCase):
 
       R = random.uniform(
         split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
-      dR = space.pairwise_displacement(R, R)
+      dR = space.map_product(space.pairwise_displacement)(R, R)
 
-      dR_wrapped = space.periodic_displacement(f16(1.0), dR)
+      dR_wrapped = space.periodic_displacement(f32(1.0), dR)
 
       dR_direct = dR
       dr_direct = space.distance(dR)
@@ -243,6 +243,9 @@ class SpaceTest(jtu.JaxTestCase):
       disp_fn, shift_fn = space.periodic(box_size)
       general_disp_fn, general_shift_fn = space.periodic_general(transform)
 
+      disp_fn = space.map_product(disp_fn)
+      general_disp_fn = space.map_product(general_disp_fn)
+
       self.assertAllClose(
           disp_fn(R_scaled, R_scaled), general_disp_fn(R, R), True)
       assert disp_fn(R_scaled, R_scaled).dtype == dtype
@@ -283,15 +286,20 @@ class SpaceTest(jtu.JaxTestCase):
       disp_fn, shift_fn = space.periodic_general(T)
       true_disp_fn, true_shift_fn = space.periodic_general(T(t_g))
 
+      disp_fn = space.map_product(disp_fn)
+      true_disp_fn = space.map_product(true_disp_fn)
+
       R = random.uniform(
         split_R, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
       dR = random.normal(
         split_dR, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
 
       self.assertAllClose(
-        disp_fn(R, R, t_g), np.array(true_disp_fn(R, R), dtype=dtype), True)
+        disp_fn(R, R, t=t_g),
+        np.array(true_disp_fn(R, R), dtype=dtype), True)
       self.assertAllClose(
-        shift_fn(R, dR, t_g), np.array(true_shift_fn(R, dR), dtype=dtype), True)
+        shift_fn(R, dR, t=t_g),
+        np.array(true_shift_fn(R, dR), dtype=dtype), True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -319,6 +327,8 @@ class SpaceTest(jtu.JaxTestCase):
 
       displacement, shift = space.periodic_general(T)
       _, unwrapped_shift = space.periodic_general(T, wrapped=False)
+
+      displacement = space.map_product(displacement)
 
       for _ in range(SHIFT_STEPS):
         key, split = random.split(key)

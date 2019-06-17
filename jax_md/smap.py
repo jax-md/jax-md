@@ -34,7 +34,106 @@ from jax_md import quantity
 from jax_md.util import *
 
 
+# Mapping potential functional forms to bonds.
+
+
 # pylint: disable=invalid-name
+def _get_bond_type_parameters(params, bond_type):
+  """Get parameters for interactions for bonds indexed by a bond-type."""
+  # TODO(schsam): We should do better error checking here.
+  assert isinstance(bond_type, np.ndarray)
+  assert len(bond_type.shape) == 1
+
+  if isinstance(params, np.ndarray):
+    if len(params.shape) == 1:
+      return params[bond_type]
+    elif len(params.shape) == 0:
+      return params
+    else:
+      raise ValueError(
+          'Params must be a scalar or a 1d array if using a bond-type lookup.')
+  if isinstance(params, float) or isinstance(params, int):
+    return f32(params)
+
+  raise NotImplementedError
+
+
+def _kwargs_to_bond_parameters(bond_type, kwargs):
+  """Extract parameters from keyword arguments."""
+  # NOTE(schsam): We could pull out the species case from the generic case.
+  for k, v in kwargs.items():
+    if bond_type is not None:
+      kwargs[k] = _get_bond_type_parameters(v, bond_type)
+  return kwargs
+
+
+def bond(fn, metric, static_bonds=None, static_bond_types=None, **kwargs):
+  """Promotes a function that acts on a single pair to one on a set of bonds.
+
+  TODO(schsam): It seems like bonds might potentially have poor memory access.
+    Should think about this a bit and potentially optimize.
+
+  Args:
+    fn: A function that takes an ndarray of pairwise distances or displacements
+      of shape [n, m] or [n, m, d_in] respectively as well as kwargs specifying
+      parameters for the function. fn returns an ndarray of evaluations of shape
+      [n, m, d_out].
+    metric: A function that takes two ndarray of positions of shape
+      [spatial_dimension] and [spatial_dimension] respectively and returns
+      an ndarray of distances or displacements of shape [] or [d_in]
+      respectively. The metric can optionally take a floating point time as a
+      third argument.
+    static_bonds: An ndarray of integer pairs wth shape [b, 2] where each pair
+      specifies a bond. static_bonds are baked into the returned compute
+      function statically and cannot be changed after the fact.
+    static_bond_types: An ndarray of integers of shape [b] specifying the type
+      of each bond. Only specify bond types if you want to specify bond
+      parameters by type. One can also specify constant or per-bond parameters
+      (see below).
+    kwargs: Arguments providing parameters to the mapped function. In cases
+      where no bond type information is provided these should be either 1) a
+      scalar or 2) an ndarray of shape [b]. If bond type information is
+      provided then the parameters should be specified as either 1) a scalar or
+      2) an ndarray of shape [max_bond_type].
+
+  Returns:
+    A function fn_mapped. Note that fn_mapped can take arguments bonds and
+    bond_types which will be bonds that are specified dynamically. This will
+    incur a recompilation when the number of bonds changes. Improving this
+    state of affairs I will leave as a TODO until someone actually uses this
+    feature and runs into speed issues.
+  """
+
+  # Each call to vmap adds a single batch dimension. Here, we would like to
+  # promote the metric function from one that computes the distance /
+  # displacement between two vectors to one that acts on two lists of vectors.
+  # Thus, we apply a single application of vmap.
+  metric = vmap(metric, (0, 0), 0)
+
+  def compute_fn(R, bonds, bond_types, static_kwargs, dynamic_kwargs):
+    Ra = R[bonds[:, 0]]
+    Rb = R[bonds[:, 1]]
+    static_kwargs = _kwargs_to_bond_parameters(bond_types, static_kwargs)
+    dr = metric(Ra, Rb, **dynamic_kwargs)
+    return _high_precision_sum(fn(dr, **static_kwargs))
+
+  def mapped_fn(R, bonds=None, bond_types=None, **dynamic_kwargs):
+    accum = f32(0)
+
+    if bonds is not None:
+      accum = accum + compute_fn(R, bonds, bond_types, kwargs, dynamic_kwargs)
+
+    if static_bonds is not None:
+      accum = accum + compute_fn(
+          R, static_bonds, static_bond_types, kwargs, dynamic_kwargs)
+
+    return accum
+  return mapped_fn
+
+
+# Mapping potential functional forms to pairwise interactions.
+
+
 def _get_species_parameters(params, species):
   """Get parameters for interactions between species pairs."""
   # TODO(schsam): We should do better error checking here.
@@ -112,9 +211,9 @@ def _check_species_dtype(species):
   raise ValueError(msg)
 
 
-def pairwise(
+def pair(
     fn, metric, species=None, reduce_axis=None, keepdims=False, **kwargs):
-  """Promotes a function that acts on a pair to one that acts on a set.
+  """Promotes a function that acts on a pair of particles to one on a system.
 
   Args:
     fn: A function that takes an ndarray of pairwise distances or displacements
@@ -122,9 +221,10 @@ def pairwise(
       parameters for the function. fn returns an ndarray of evaluations of shape
       [n, m, d_out].
     metric: A function that takes two ndarray of positions of shape
-      [n, spatial_dimension] and [m, spatial_dimension] respectively and returns
-      an ndarray of distances or displacements of shape [n, m, d_in]. The metric
-      can optionally take a floating point time as a third argument.
+      [spatial_dimension] and [spatial_dimension] respectively and returns
+      an ndarray of distances or displacements of shape [] or [d_in]
+      respectively. The metric can optionally take a floating point time as a
+      third argument.
     species: A list of species for the different particles. This should either
       be None (in which case it is assumed that all the particles have the same
       species), an integer ndarray of shape [n] with species data, or Dynamic
@@ -155,6 +255,15 @@ def pairwise(
     The mapped function can also optionally take keyword arguments that get
     threaded through the metric.
   """
+
+  # Each application of vmap adds a single batch dimension. For computations
+  # over all pairs of particles, we would like to promote the metric function
+  # from one that computes the displacement / distance between two vectors to
+  # one that acts over the cartesian product of two sets of vectors. This is
+  # equivalent to two applications of vmap adding one batch dimension for the
+  # first set and then one for the second.
+  metric = vmap(vmap(metric, (0, None), 0), (None, 0), 0)
+
   if species is None:
     kwargs = _kwargs_to_parameters(species, **kwargs)
     def fn_mapped(R, **dynamic_kwargs):
@@ -210,6 +319,9 @@ def pairwise(
   return fn_mapped
 
 
+# Spatial partitioning of potentials.
+
+
 class Grid(namedtuple(
     'Grid', [
         'particle_count',
@@ -257,7 +369,7 @@ def _cell_dimensions(spatial_dimension, box_size, minimum_cell_size):
     box_size = f32(box_size)
 
   # NOTE(schsam): Should we auto-cast based on box_size? I can't imagine a case
-  # in which the box_size would not be accurately represented by an f32. 
+  # in which the box_size would not be accurately represented by an f32.
   if (isinstance(box_size, np.ndarray) and
       (box_size.dtype == np.int32 or box_size.dtype == np.int64)):
     box_size = f32(box_size)

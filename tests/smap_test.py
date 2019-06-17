@@ -49,6 +49,138 @@ else:
 
 class SMapTest(jtu.JaxTestCase):
 
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_bond_no_type_static(self, spatial_dimension, dtype):
+    harmonic = lambda dr, **kwargs: (dr - f32(1)) ** f32(2)
+    disp, _ = space.free()
+    metric = space.metric(disp)
+
+    mapped = smap.bond(harmonic, metric, np.array([[0, 1], [0, 2]], i32))
+
+    key = random.PRNGKey(0)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = random.uniform(
+        split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+
+      accum = harmonic(metric(R[0], R[1])) + harmonic(metric(R[0], R[2]))
+
+      self.assertAllClose(mapped(R), dtype(accum), True)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_bond_no_type_dynamic(self, spatial_dimension, dtype):
+    harmonic = lambda dr, **kwargs: (dr - f32(1)) ** f32(2)
+    disp, _ = space.free()
+    metric = space.metric(disp)
+
+    mapped = smap.bond(harmonic, metric)
+    bonds = np.array([[0, 1], [0, 2]], i32)
+
+    key = random.PRNGKey(0)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = random.uniform(
+        split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+
+      accum = harmonic(metric(R[0], R[1])) + harmonic(metric(R[0], R[2]))
+
+      self.assertAllClose(mapped(R, bonds), dtype(accum), True)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_bond_type_static(self, spatial_dimension, dtype):
+    harmonic = lambda dr, sigma, **kwargs: (dr - sigma) ** f32(2)
+    disp, _ = space.free()
+    metric = space.metric(disp)
+
+    sigma = np.array([1.0, 2.0], f32)
+
+    mapped = smap.bond(
+      harmonic, metric,
+      np.array([[0, 1], [0, 2]], i32), np.array([0, 1], i32), sigma=sigma)
+
+    key = random.PRNGKey(0)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = random.uniform(
+        split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+
+      accum = harmonic(metric(R[0], R[1]), 1) + harmonic(metric(R[0], R[2]), 2)
+
+      self.assertAllClose(mapped(R), dtype(accum), True)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_bond_type_dynamic(self, spatial_dimension, dtype):
+    harmonic = lambda dr, sigma, **kwargs: (dr - sigma) ** f32(2)
+    disp, _ = space.free()
+    metric = space.metric(disp)
+
+    sigma = np.array([1.0, 2.0], f32)
+
+    mapped = smap.bond(harmonic, metric, sigma=sigma)
+    bonds = np.array([[0, 1], [0, 2]], i32)
+    bond_types = np.array([0, 1], i32)
+
+    key = random.PRNGKey(0)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = random.uniform(
+        split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+
+      accum = harmonic(metric(R[0], R[1]), 1) + harmonic(metric(R[0], R[2]), 2)
+
+      self.assertAllClose(mapped(R, bonds, bond_types), dtype(accum), True)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_bond_per_bond_static(self, spatial_dimension, dtype):
+    harmonic = lambda dr, sigma, **kwargs: (dr - sigma) ** f32(2)
+    disp, _ = space.free()
+    metric = space.metric(disp)
+
+    sigma = np.array([1.0, 2.0], f32)
+
+    mapped = smap.bond(
+      harmonic, metric, np.array([[0, 1], [0, 2]], i32), sigma=sigma)
+
+    key = random.PRNGKey(0)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = random.uniform(
+        split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+
+      accum = harmonic(metric(R[0], R[1]), 1) + harmonic(metric(R[0], R[2]), 2)
+
+      self.assertAllClose(mapped(R), dtype(accum), True)
+
   def test_get_species_parameters(self):
     species = [(0, 0), (0, 1), (1, 0), (1, 1)]
     params = np.array([[2.0, 3.0], [3.0, 1.0]])
@@ -85,13 +217,14 @@ class SMapTest(jtu.JaxTestCase):
           'spatial_dimension': dim,
           'dtype': dtype
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
-  def test_pairwise_no_species_scalar(self, spatial_dimension, dtype):
+  def test_pair_no_species_scalar(self, spatial_dimension, dtype):
     square = lambda dr: dr ** 2
     displacement, _ = space.free()
     metric = lambda Ra, Rb, **kwargs: \
         np.sum(displacement(Ra, Rb, **kwargs) ** 2, axis=-1)
 
-    mapped_square = smap.pairwise(square, metric)
+    mapped_square = smap.pair(square, metric)
+    metric = space.map_product(metric)
 
     key = random.PRNGKey(0)
 
@@ -109,12 +242,13 @@ class SMapTest(jtu.JaxTestCase):
           'spatial_dimension': dim,
           'dtype': dtype
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
-  def test_pairwise_no_species_vector(self, spatial_dimension, dtype):
+  def test_pair_no_species_vector(self, spatial_dimension, dtype):
     square = lambda dr: np.sum(dr ** 2, axis=2)
     disp, _ = space.free()
 
-    mapped_square = smap.pairwise(square, disp)
+    mapped_square = smap.pair(square, disp)
 
+    disp = space.map_product(disp)
     key = random.PRNGKey(0)
 
     for _ in range(STOCHASTIC_SAMPLES):
@@ -130,7 +264,7 @@ class SMapTest(jtu.JaxTestCase):
           'spatial_dimension': dim,
           'dtype': dtype,
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
-  def test_pairwise_static_species_scalar(self, spatial_dimension, dtype):
+  def test_pair_static_species_scalar(self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 
     square = lambda dr, param=1.0: param * dr ** 2
@@ -142,8 +276,10 @@ class SMapTest(jtu.JaxTestCase):
     metric = lambda Ra, Rb, **kwargs: \
         np.sum(displacement(Ra, Rb, **kwargs) ** 2, axis=-1)
 
-    mapped_square = smap.pairwise(
+    mapped_square = smap.pair(
       square, metric, species=species, param=params)
+
+    metric = space.map_product(metric)
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split = random.split(key)
@@ -164,7 +300,7 @@ class SMapTest(jtu.JaxTestCase):
           'spatial_dimension': dim,
           'dtype': dtype
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
-  def test_pairwise_static_species_vector(self, spatial_dimension, dtype):
+  def test_pair_static_species_vector(self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 
     square = lambda dr, param=1.0: param * np.sum(dr ** 2, axis=2)
@@ -174,7 +310,9 @@ class SMapTest(jtu.JaxTestCase):
     species = random.randint(split, (PARTICLE_COUNT,), 0, 2)
     disp, _ = space.free()
 
-    mapped_square = smap.pairwise(square, disp, species=species, param=params)
+    mapped_square = smap.pair(square, disp, species=species, param=params)
+
+    disp = space.map_product(disp)
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split = random.split(key)
@@ -195,7 +333,7 @@ class SMapTest(jtu.JaxTestCase):
           'spatial_dimension': dim,
           'dtype': dtype,
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
-  def test_pairwise_dynamic_species_scalar(self, spatial_dimension, dtype):
+  def test_pair_dynamic_species_scalar(self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 
     square = lambda dr, param=1.0: param * dr ** 2
@@ -207,8 +345,10 @@ class SMapTest(jtu.JaxTestCase):
     metric = lambda Ra, Rb, **kwargs: \
         np.sum(displacement(Ra, Rb, **kwargs) ** 2, axis=-1)
 
-    mapped_square = smap.pairwise(
+    mapped_square = smap.pair(
         square, metric, species=quantity.Dynamic, param=params)
+
+    metric = space.map_product(metric)
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split = random.split(key)
@@ -230,7 +370,7 @@ class SMapTest(jtu.JaxTestCase):
           'spatial_dimension': dim,
           'dtype': dtype
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
-  def disabled_test_pairwise_dynamic_species_vector(
+  def disabled_test_pair_dynamic_species_vector(
       self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 
@@ -241,7 +381,7 @@ class SMapTest(jtu.JaxTestCase):
     species = random.randint(split, (PARTICLE_COUNT,), 0, 2)
     disp, _ = space.free()
 
-    mapped_square = smap.pairwise(
+    mapped_square = smap.pair(
         square, disp, species=quantity.Dynamic, param=params)
 
     for _ in range(STOCHASTIC_SAMPLES):
@@ -264,14 +404,14 @@ class SMapTest(jtu.JaxTestCase):
           'spatial_dimension': dim,
           'dtype': dtype,
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
-  def test_pairwise_grid_energy(self, spatial_dimension, dtype):
+  def test_pair_grid_energy(self, spatial_dimension, dtype):
     key = random.PRNGKey(1)
 
     box_size = f16(9.0)
     cell_size = f16(2.0)
     displacement, _ = space.periodic(box_size)
     metric = space.metric(displacement)
-    energy_fn = smap.pairwise(
+    energy_fn = smap.pair(
         energy.soft_sphere, metric, quantity.Dynamic,
         reduce_axis=(1,), keepdims=True)
 
@@ -289,13 +429,13 @@ class SMapTest(jtu.JaxTestCase):
           'spatial_dimension': dim,
           'dtype': dtype,
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
-  def test_pairwise_grid_force(self, spatial_dimension, dtype):
+  def test_pair_grid_force(self, spatial_dimension, dtype):
     key = random.PRNGKey(1)
 
-    box_size = f16(9.0)
-    cell_size = f16(2.0)
+    box_size = f32(9.0)
+    cell_size = f32(2.0)
     displacement, _ = space.periodic(box_size)
-    energy_fn = energy.soft_sphere_pairwise(displacement, quantity.Dynamic)
+    energy_fn = energy.soft_sphere_pair(displacement, quantity.Dynamic)
     force_fn = quantity.force(energy_fn)
 
     R = box_size * random.uniform(
@@ -311,13 +451,13 @@ class SMapTest(jtu.JaxTestCase):
           'spatial_dimension': dim,
           'dtype': dtype,
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
-  def test_pairwise_grid_force_jit(self, spatial_dimension, dtype):
+  def test_pair_grid_force_jit(self, spatial_dimension, dtype):
     key = random.PRNGKey(1)
 
     box_size = f16(9.0)
     cell_size = f16(2.0)
     displacement, _ = space.periodic(box_size)
-    energy_fn = energy.soft_sphere_pairwise(displacement, quantity.Dynamic)
+    energy_fn = energy.soft_sphere_pair(displacement, quantity.Dynamic)
     force_fn = quantity.force(energy_fn)
 
     R = box_size * random.uniform(
@@ -333,13 +473,13 @@ class SMapTest(jtu.JaxTestCase):
           'spatial_dimension': dim,
           'dtype': dtype,
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
-  def test_pairwise_grid_force_incommensurate(self, spatial_dimension, dtype):
+  def test_pair_grid_force_incommensurate(self, spatial_dimension, dtype):
     key = random.PRNGKey(1)
 
     box_size = f32(12.1)
     cell_size = f32(3.0)
     displacement, _ = space.periodic(box_size)
-    energy_fn = energy.soft_sphere_pairwise(displacement, quantity.Dynamic)
+    energy_fn = energy.soft_sphere_pair(displacement, quantity.Dynamic)
     force_fn = quantity.force(energy_fn)
 
     R = box_size * random.uniform(
@@ -355,7 +495,7 @@ class SMapTest(jtu.JaxTestCase):
           'spatial_dimension': dim,
           'dtype': dtype,
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
-  def test_pairwise_grid_force_nonuniform(self, spatial_dimension, dtype):
+  def test_pair_grid_force_nonuniform(self, spatial_dimension, dtype):
     key = random.PRNGKey(1)
 
     if spatial_dimension == 2:
@@ -364,8 +504,8 @@ class SMapTest(jtu.JaxTestCase):
       box_size = f32(np.array([[8.0, 10.0, 12.0]]))
 
     cell_size = f32(2.0)
-    displacement, _ = space.periodic(box_size)
-    energy_fn = energy.soft_sphere_pairwise(displacement, quantity.Dynamic)
+    displacement, _ = space.periodic(box_size[0])
+    energy_fn = energy.soft_sphere_pair(displacement, quantity.Dynamic)
     force_fn = quantity.force(energy_fn)
 
     R = box_size * random.uniform(
