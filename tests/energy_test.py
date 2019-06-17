@@ -51,6 +51,7 @@ if FLAGS.jax_enable_x64:
 else:
   POSITION_DTYPE = [f32]
 
+
 def lattice_repeater(small_cell_pos, latvec, no_rep):
   dtype = small_cell_pos.dtype
   pos = onp.copy(small_cell_pos).tolist()
@@ -63,43 +64,48 @@ def lattice_repeater(small_cell_pos, latvec, no_rep):
             pos.append(onp.array(repeated_atom).tolist())
   return np.array(pos, dtype), f32(latvec*no_rep)
 
-CUTOFF = 6.28721
 
-NUM_SPLINE_POINTS = 21
-dr = np.arange(0, NUM_SPLINE_POINTS) * (CUTOFF / NUM_SPLINE_POINTS)
-dr = np.array(dr, f32)
+def make_eam_test_splines():
+  cutoff = 6.28721
 
-drho = np.arange(0, 2, 2. / NUM_SPLINE_POINTS)
-drho = np.array(drho, f32)
+  num_spline_points = 21
+  dr = np.arange(0, num_spline_points) * (cutoff / num_spline_points)
+  dr = np.array(dr, f32)
 
-DENSITY_DATA = np.array([2.78589606e-01, 2.02694937e-01, 1.45334053e-01,
-                      1.06069912e-01, 8.42517168e-02, 7.65140344e-02,
-                      7.76263116e-02, 8.23214224e-02, 8.53322309e-02,
-                      8.13915861e-02, 6.59095390e-02, 4.28915711e-02,
-                      2.27910928e-02, 1.13713167e-02, 6.05020311e-03,
-                      3.65836583e-03, 2.60587564e-03, 2.06750708e-03,
-                      1.48749693e-03, 7.40019174e-04, 6.21225205e-05], np.float32)
+  drho = np.arange(0, 2, 2. / num_spline_points)
+  drho = np.array(drho, f32)
 
-EMBEDDING_DATA = np.array([1.04222211e-10, -1.04142633e+00, -1.60359806e+00,
-                       -1.89287637e+00, -2.09490167e+00, -2.26456628e+00,
-                       -2.40590322e+00, -2.52245359e+00, -2.61385603e+00,
-                       -2.67744693e+00, -2.71053295e+00, -2.71110418e+00,
-                       -2.69287013e+00, -2.68464527e+00, -2.69204083e+00,
-                       -2.68976209e+00, -2.66001244e+00, -2.60122024e+00,
-                       -2.51338548e+00, -2.39650817e+00, -2.25058831e+00], np.float32)
+  density_data = np.array([2.78589606e-01, 2.02694937e-01, 1.45334053e-01,
+                           1.06069912e-01, 8.42517168e-02, 7.65140344e-02,
+                           7.76263116e-02, 8.23214224e-02, 8.53322309e-02,
+                           8.13915861e-02, 6.59095390e-02, 4.28915711e-02,
+                           2.27910928e-02, 1.13713167e-02, 6.05020311e-03,
+                           3.65836583e-03, 2.60587564e-03, 2.06750708e-03,
+                           1.48749693e-03, 7.40019174e-04, 6.21225205e-05],
+                          np.float32)
 
-PAIRWISE_DATA = np.array([6.27032242e+01, 3.49638589e+01, 1.79007014e+01,
-                  8.69001383e+00, 4.51545250e+00, 2.83260884e+00,
-                  1.93216616e+00, 1.06795515e+00, 3.37740836e-01,
-                  1.61087890e-02, -6.20816372e-02, -6.51314297e-02,
-                  -5.35210341e-02, -5.20950200e-02, -5.51709524e-02,
-                  -4.89093894e-02, -3.28051688e-02, -1.13738785e-02,
-                  2.33833655e-03, 4.19132033e-03, 1.68600692e-04], np.float32)
+  embedding_data = np.array([1.04222211e-10, -1.04142633e+00, -1.60359806e+00,
+                             -1.89287637e+00, -2.09490167e+00, -2.26456628e+00,
+                             -2.40590322e+00, -2.52245359e+00, -2.61385603e+00,
+                             -2.67744693e+00, -2.71053295e+00, -2.71110418e+00,
+                             -2.69287013e+00, -2.68464527e+00, -2.69204083e+00,
+                             -2.68976209e+00, -2.66001244e+00, -2.60122024e+00,
+                             -2.51338548e+00, -2.39650817e+00, -2.25058831e+00],
+                            np.float32)
 
+  pairwise_data = np.array([6.27032242e+01, 3.49638589e+01, 1.79007014e+01,
+                            8.69001383e+00, 4.51545250e+00, 2.83260884e+00,
+                            1.93216616e+00, 1.06795515e+00, 3.37740836e-01,
+                            1.61087890e-02, -6.20816372e-02, -6.51314297e-02,
+                            -5.35210341e-02, -5.20950200e-02, -5.51709524e-02,
+                            -4.89093894e-02, -3.28051688e-02, -1.13738785e-02,
+                            2.33833655e-03, 4.19132033e-03, 1.68600692e-04],
+                           np.float32)
 
-charge_fn = spline(DENSITY_DATA, dr[1] - dr[0])
-embedding_fn = spline(EMBEDDING_DATA, drho[1] - drho[0])
-pairwise_fn = spline(PAIRWISE_DATA, dr[1] - dr[0])
+  charge_fn = spline(density_data, dr[1] - dr[0])
+  embedding_fn = spline(embedding_data, drho[1] - drho[0])
+  pairwise_fn = spline(pairwise_data, dr[1] - dr[0])
+  return charge_fn, embedding_fn, pairwise_fn
 
 
 class EnergyTest(jtu.JaxTestCase):
@@ -198,18 +204,22 @@ class EnergyTest(jtu.JaxTestCase):
           'dtype': dtype,
       } for num_repetitions in UNIT_CELL_SIZE for dtype in POSITION_DTYPE))
   def test_eam(self, num_repetitions, dtype):
-    latvec = np.array([[0, 1, 1], [1, 0, 1], [1, 1, 0]], dtype=dtype) * f32(4.05 / 2)
+    latvec = np.array(
+        [[0, 1, 1], [1, 0, 1], [1, 1, 0]], dtype=dtype) * f32(4.05 / 2)
     atoms = np.array([[0, 0, 0]], dtype=dtype)
-    atoms_repeated, latvec_repeated = lattice_repeater(atoms, latvec, num_repetitions)
+    atoms_repeated, latvec_repeated = lattice_repeater(
+        atoms, latvec, num_repetitions)
     inv_latvec = np.array(onp.linalg.inv(onp.array(latvec_repeated)))
-    displacement, shift = space.periodic_general(latvec_repeated)
+    displacement, _ = space.periodic_general(latvec_repeated)
+    charge_fn, embedding_fn, pairwise_fn = make_eam_test_splines()
     assert charge_fn(dtype(1.0)).dtype == dtype
     assert embedding_fn(dtype(1.0)).dtype == dtype
     assert pairwise_fn(dtype(1.0)).dtype == dtype
     eam_energy = energy.eam(displacement, charge_fn, embedding_fn, pairwise_fn)
     self.assertAllClose(
-        eam_energy(np.dot(atoms_repeated, inv_latvec))/f32(num_repetitions**3), dtype(-3.363338), True)
-
+        eam_energy(
+            np.dot(atoms_repeated, inv_latvec)) / f32(num_repetitions ** 3),
+        dtype(-3.363338), True)
 
 if __name__ == '__main__':
   absltest.main()
