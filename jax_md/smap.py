@@ -43,7 +43,7 @@ def _get_bond_type_parameters(params, bond_type):
   # TODO(schsam): We should do better error checking here.
   assert isinstance(bond_type, np.ndarray)
   assert len(bond_type.shape) == 1
-  
+
   if isinstance(params, np.ndarray):
     if len(params.shape) == 1:
       return params[bond_type]
@@ -103,28 +103,32 @@ def bond(fn, metric, static_bonds=None, static_bond_types=None, **kwargs):
     state of affairs I will leave as a TODO until someone actually uses this
     feature and runs into speed issues.
   """
-  
+
+  # Each call to vmap adds a single batch dimension. Here, we would like to
+  # promote the metric function from one that computes the distance /
+  # displacement between two vectors to one that acts on two lists of vectors.
+  # Thus, we apply a single application of vmap.
   metric = vmap(metric, (0, 0), 0)
-  
+
   def compute_fn(R, bonds, bond_types, static_kwargs, dynamic_kwargs):
     Ra = R[bonds[:, 0]]
     Rb = R[bonds[:, 1]]
     static_kwargs = _kwargs_to_bond_parameters(bond_types, static_kwargs)
     dr = metric(Ra, Rb, **dynamic_kwargs)
-    return _high_precision_sum(fn(dr, **static_kwargs)) 
-  
+    return _high_precision_sum(fn(dr, **static_kwargs))
+
   def mapped_fn(R, bonds=None, bond_types=None, **dynamic_kwargs):
     accum = f32(0)
-      
+
     if bonds is not None:
       accum = accum + compute_fn(R, bonds, bond_types, kwargs, dynamic_kwargs)
-        
+
     if static_bonds is not None:
       accum = accum + compute_fn(
           R, static_bonds, static_bond_types, kwargs, dynamic_kwargs)
-        
-    return accum          
-  return mapped_fn      
+
+    return accum
+  return mapped_fn
 
 
 # Mapping potential functional forms to pairwise interactions.
@@ -252,7 +256,13 @@ def pair(
     threaded through the metric.
   """
 
-  metric = vmap(vmap(metric, (0, None), 0), (None, 0), 0) 
+  # Each application of vmap adds a single batch dimension. For computations
+  # over all pairs of particles, we would like to promote the metric function
+  # from one that computes the displacement / distance between two vectors to
+  # one that acts over the cartesian product of two sets of vectors. This is
+  # equivalent to two applications of vmap adding one batch dimension for the
+  # first set and then one for the second.
+  metric = vmap(vmap(metric, (0, None), 0), (None, 0), 0)
 
   if species is None:
     kwargs = _kwargs_to_parameters(species, **kwargs)
@@ -359,7 +369,7 @@ def _cell_dimensions(spatial_dimension, box_size, minimum_cell_size):
     box_size = f32(box_size)
 
   # NOTE(schsam): Should we auto-cast based on box_size? I can't imagine a case
-  # in which the box_size would not be accurately represented by an f32. 
+  # in which the box_size would not be accurately represented by an f32.
   if (isinstance(box_size, np.ndarray) and
       (box_size.dtype == np.int32 or box_size.dtype == np.int64)):
     box_size = f32(box_size)
