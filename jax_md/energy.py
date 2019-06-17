@@ -47,12 +47,16 @@ def _canonicalize_displacement_or_metric(displacement_or_metric):
     'than 4.')
 
 
-def spring(dr, length=f32(1), epsilon=f32(1), alpha=f32(2)):
-  """Isotropic spring potential with a given rest length."""
+def simple_spring(dr, length=f32(1), epsilon=f32(1), alpha=f32(2)):
+  """Isotropic spring potential with a given rest length.
+
+  We define `simple_spring` to be a generalized Hookian spring with
+  agreement when alpha = 2.
+  """
   return epsilon / alpha * (dr - length) ** alpha
 
 
-def spring_bond(
+def simple_spring_bond(
     displacement_or_metric, bond, bond_type=None, length=1, epsilon=1, alpha=2):
   """Convenience wrapper to compute energy of particles bonded by springs."""
   length = np.array(length, f32)
@@ -119,7 +123,7 @@ def lennard_jones(dr, sigma, epsilon):
   dr = (sigma / dr) ** f32(2)
   idr6 = dr ** f32(3)
   idr12 = idr6 ** f32(2)
-  return f32(4) * epsilon * (idr12 - idr6) 
+  return f32(4) * epsilon * (idr12 - idr6)
 
 
 def lennard_jones_pair(
