@@ -34,6 +34,8 @@ from jax import test_util as jtu
 from jax_md import space
 from jax_md.util import *
 
+from functools import partial
+
 jax_config.parse_flags_with_absl()
 FLAGS = jax_config.FLAGS
 
@@ -286,6 +288,8 @@ class SpaceTest(jtu.JaxTestCase):
       disp_fn, shift_fn = space.periodic_general(T)
       true_disp_fn, true_shift_fn = space.periodic_general(T(t_g))
 
+      disp_fn = partial(disp_fn, t=t_g)
+
       disp_fn = space.map_product(disp_fn)
       true_disp_fn = space.map_product(true_disp_fn)
 
@@ -295,7 +299,7 @@ class SpaceTest(jtu.JaxTestCase):
         split_dR, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
 
       self.assertAllClose(
-        disp_fn(R, R, t=t_g),
+        disp_fn(R, R),
         np.array(true_disp_fn(R, R), dtype=dtype), True)
       self.assertAllClose(
         shift_fn(R, dR, t=t_g),
