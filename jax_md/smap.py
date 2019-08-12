@@ -18,19 +18,19 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from functools import reduce
+from functools import reduce, partial
 from collections import namedtuple
 import math
 from operator import mul
 
 import numpy as onp
 
-from jax import lax, ops, vmap
+from jax import lax, ops, vmap, eval_shape
 from jax.abstract_arrays import ShapedArray
 from jax.interpreters import partial_eval as pe
 import jax.numpy as np
 
-from jax_md import quantity
+from jax_md import quantity, space
 from jax_md.util import *
 
 
@@ -108,13 +108,16 @@ def bond(fn, metric, static_bonds=None, static_bond_types=None, **kwargs):
   # promote the metric function from one that computes the distance /
   # displacement between two vectors to one that acts on two lists of vectors.
   # Thus, we apply a single application of vmap.
-  metric = vmap(metric, (0, 0), 0)
+  # TODO: Uncomment this once JAX supports vmap over kwargs.
+  # metric = vmap(metric, (0, 0), 0)
 
   def compute_fn(R, bonds, bond_types, static_kwargs, dynamic_kwargs):
     Ra = R[bonds[:, 0]]
     Rb = R[bonds[:, 1]]
     static_kwargs = _kwargs_to_bond_parameters(bond_types, static_kwargs)
-    dr = metric(Ra, Rb, **dynamic_kwargs)
+    # NOTE(schsam): This pattern is needed due to JAX issue #912. 
+    _metric = vmap(partial(metric, **dynamic_kwargs), 0, 0)
+    dr = _metric(Ra, Rb)
     return _high_precision_sum(fn(dr, **static_kwargs))
 
   def mapped_fn(R, bonds=None, bond_types=None, **dynamic_kwargs):
@@ -262,12 +265,14 @@ def pair(
   # one that acts over the cartesian product of two sets of vectors. This is
   # equivalent to two applications of vmap adding one batch dimension for the
   # first set and then one for the second.
-  metric = vmap(vmap(metric, (0, None), 0), (None, 0), 0)
+  # TODO: Uncomment this once vmap supports kwargs.
+  #metric = vmap(vmap(metric, (0, None), 0), (None, 0), 0)
 
   if species is None:
     kwargs = _kwargs_to_parameters(species, **kwargs)
     def fn_mapped(R, **dynamic_kwargs):
-      dr = metric(R, R, **dynamic_kwargs)
+      _metric = space.map_product(partial(metric, **dynamic_kwargs))
+      dr = _metric(R, R)
       # NOTE(schsam): Currently we place a diagonal mask no matter what function
       # we are mapping. Should this be an option?
       return _high_precision_sum(
@@ -282,12 +287,13 @@ def pair(
       raise ValueError
     def fn_mapped(R, **dynamic_kwargs):
       U = f32(0.0)
+      _metric = space.map_product(partial(metric, **dynamic_kwargs))
       for i in range(species_count + 1):
         for j in range(i, species_count + 1):
           s_kwargs = _kwargs_to_parameters((i, j), **kwargs)
           Ra = R[species == i]
           Rb = R[species == j]
-          dr = metric(Ra, Rb, **dynamic_kwargs)
+          dr = _metric(Ra, Rb)
           if j == i:
             dU = _high_precision_sum(_diagonal_mask(fn(dr, **s_kwargs)))
             U = U + f32(0.5) * dU
@@ -300,7 +306,8 @@ def pair(
       _check_species_dtype(species)
       U = f32(0.0)
       N = R.shape[0]
-      dr = metric(R, R, **dynamic_kwargs)
+      _metric = space.map_product(partial(metric, **dynamic_kwargs))
+      dr = _metric(R, R)
       for i in range(species_count):
         for j in range(species_count):
           s_kwargs = _kwargs_to_parameters((i, j), **kwargs)
@@ -410,17 +417,6 @@ def count_cell_filling(R, box_size, minimum_cell_size):
     return filling
 
   return lax.fori_loop(0, cell_count, count, filling)
-
-
-def _grid_trace_shape(fn, *args, **kwargs):
-  """Traces a function to compute the shape of its output."""
-  shaped_args = []
-  for arg in args:
-    if isinstance(arg, np.ndarray):
-      shaped_args += [ShapedArray(tuple(arg.shape), arg.dtype)]
-    else:
-      shaped_args += [arg]
-  return pe.abstract_eval_fun(fn, *shaped_args, **kwargs).shape
 
 
 def _is_variable_compatible_with_positions(R):
@@ -538,7 +534,8 @@ def grid(
     [particle_count, spatial_dimension] and returns a Grid. It also returns a
     function compute that takes a Grid and computes fn over the grid.
   """
-  fn = vmap(fn, (0, 0,), 0)
+  # TODO: Uncomment this once JAX supports kwargs with vmap.
+  #fn = vmap(fn, (0, 0,), 0)
 
   if species is None:
     species_count = 1
@@ -655,8 +652,9 @@ def grid(
   def compute(cell_data, **kwargs):
     N, dim, cell_count, cell_R, cell_species, cell_id, = cell_data
 
-    cell_output_shape = _grid_trace_shape(
-        fn, cell_R, cell_species, species_count=species_count)
+    # TODO: Delete this once vmap supports kwargs.
+    _fn = vmap(partial(fn, species_count=species_count, **kwargs), 0, 0)
+    cell_output_shape = eval_shape(_fn, cell_R, cell_species)
     output_dimension = cell_output_shape[-1]
 
     _cells_per_iter = cells_per_iter
@@ -685,8 +683,7 @@ def grid(
       compute_id = lax.dynamic_slice(
           cell_id, (start, 0), (_cells_per_iter, cell_capacity))
 
-      cell_value = fn(
-          compute_R, compute_species, species_count=species_count, **kwargs)
+      cell_value = _fn(compute_R, compute_species)
       return copy_values_from_cell(value, cell_value, compute_id)
 
     value = np.zeros((N + 1, output_dimension), dtype=cell_R.dtype)
