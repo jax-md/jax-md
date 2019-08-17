@@ -326,11 +326,82 @@ def pair(
   return fn_mapped
 
 
-# Spatial partitioning of potentials.
+def cartesian_product(
+    fn, metric, reduce_axis=None, keepdims=False, **kwargs):
+  """Promotes a function to one that acts on a cartesian product of particles.
+  Args:
+    fn: A function that takes an ndarray of pairwise distances or displacements
+      of shape [n, m] or [n, m, d_in] respectively as well as kwargs specifying
+      parameters for the function. fn returns an ndarray of evaluations of shape
+      [n, m, d_out].
+    metric: A function that takes two ndarray of positions of shape
+      [spatial_dimension] and [spatial_dimension] respectively and returns
+      an ndarray of distances or displacements of shape [] or [d_in]
+      respectively. The metric can optionally take a floating point time as a
+      third argument.
+    reduce_axis: A list of axes to reduce over. This is supplied to np.sum and
+      so the same convention is used.
+    keepdims: A boolean specifying whether the empty dimensions should be kept
+      upon reduction. This is supplied to np.sum and so the same convention is
+      used.
+    kwargs: Arguments providing parameters to the mapped function. In cases
+      where no species information is provided these should be either 1) a
+      scalar, 2) an ndarray of shape [n], 3) an ndarray of shape [n, n]. If
+      species information is provided then the parameters should be specified as
+      either 1) a scalar or 2) an ndarray of shape [max_species, max_species].
+  Returns:
+    A function fn_mapped.
+  """
+
+  # TODO(schsam): It might be nice to support statically known species here.
+  # However, it's probably better to do this reactively in case someone needs
+  # it. If you find this code and want support, open an issue!
+
+  def fn_mapped(Ra, species_a, Rb, species_b, species_count, is_diagonal,
+                **dynamic_kwargs):
+    if Ra.dtype is not Rb.dtype:
+      raise ValueError(
+        'Positions should have the same dtype. Found {} and {}.'.format(
+          Ra.dtype.__name__, Rb.dtype.__name__))
+
+    _check_species_dtype(species_a)
+    _check_species_dtype(species_b)
+
+    U = f32(0.0)
+    Na = Ra.shape[0]
+    Nb = Rb.shape[0]
+    _metric = partial(metric, **dynamic_kwargs)
+    _metric = vmap(vmap(_metric, (0, None), 0), (None, 0), 0)
+    dr = _metric(Ra, Rb)
+
+    for i in range(species_count):
+      for j in range(species_count):
+        s_kwargs = _kwargs_to_parameters((i, j), **kwargs)
+        out_shape = eval_shape(fn, dr, **s_kwargs)
+
+        mask_a = np.array(np.reshape(species_a == i, (Na,)), dtype=Ra.dtype)
+        mask_b = np.array(np.reshape(species_b == j, (Nb,)), dtype=Rb.dtype)
+        mask = mask_b[:, np.newaxis] * mask_a[np.newaxis, :]
+
+        if len(out_shape) == 3:
+          mask = np.reshape(mask, mask.shape + (1,))
+
+        dU = mask * fn(dr, **s_kwargs)
+        # NOTE(schsam): This seems a bit dangerous since we might lose real,
+        # important errors. At some point it might be worth rethinking this.
+        # By adding an error buffer that gets thread through computations.
+        dU = np.nan_to_num(dU)
+
+        if is_diagonal and i == j:
+          dU = _diagonal_mask(dU)
+
+        U = U + _high_precision_sum(dU, axis=reduce_axis, keepdims=keepdims)
+    return U
+  return fn_mapped
 
 
-class Grid(namedtuple(
-    'Grid', [
+class CellList(namedtuple(
+    'CellList', [
         'particle_count',
         'spatial_dimension',
         'cell_count',
@@ -338,10 +409,9 @@ class Grid(namedtuple(
         'cell_species_buffer',
         'cell_id_buffer',
     ])):
-  """Stores the spatial partition of a system into a grid.
+  """Stores the spatial partition of a system into a cell list.
 
-  See documentation of grid(...) for details on the construction / specification
-  of the grid.
+  See cell_list(...) for details on the construction / specification.
 
   Attributes:
     particle_count: Integer specifying the total number of particles in the
@@ -364,10 +434,10 @@ class Grid(namedtuple(
   def __new__(
       cls, particle_count, spatial_dimension, cell_count, cell_position_buffer,
       cell_species_buffer, cell_id_buffer):
-    return super(Grid, cls).__new__(
+    return super(CellList, cls).__new__(
         cls, particle_count, spatial_dimension, cell_count,
         cell_position_buffer, cell_species_buffer, cell_id_buffer)
-register_pytree_namedtuple(Grid)
+register_pytree_namedtuple(CellList)
 
 
 def _cell_dimensions(spatial_dimension, box_size, minimum_cell_size):
@@ -389,7 +459,7 @@ def _cell_dimensions(spatial_dimension, box_size, minimum_cell_size):
     flat_cells_per_side = np.reshape(cells_per_side, (-1,))
     for cells in flat_cells_per_side:
       if cells < 3:
-        assert ValueError(
+        raise ValueError(
             ('Box must be at least 3x the size of the grid spacing in each '
              'dimension.'))
 
@@ -402,7 +472,7 @@ def _cell_dimensions(spatial_dimension, box_size, minimum_cell_size):
 
 def count_cell_filling(R, box_size, minimum_cell_size):
   """Counts the number of particles per-cell in a spatial partition."""
-  dim = R.shape[1]
+  dim = i32(R.shape[1])
   box_size, cell_size, cells_per_side, cell_count = \
       _cell_dimensions(dim, box_size, minimum_cell_size)
 
@@ -411,6 +481,7 @@ def count_cell_filling(R, box_size, minimum_cell_size):
   particle_index = np.array(R / cell_size, dtype=np.int64)
   particle_hash = np.sum(particle_index * hash_multipliers, axis=1)
   filling = np.zeros((cell_count,), dtype=np.int64)
+
   def count(cell_hash, filling):
     count = np.sum(particle_hash == cell_hash)
     filling = ops.index_update(filling, ops.index[cell_hash], count)
@@ -451,15 +522,60 @@ def _estimate_cell_capacity(R, box_size, cell_size):
   excess_storage_fraction = 1.1
   spatial_dim = R.shape[-1]
   cell_capacity = np.max(count_cell_filling(R, box_size, cell_size))
-  # Cells must store both their own data as well as the data in the
-  # neighboring halo cells.
-  cell_capacity = cell_capacity * (3 ** spatial_dim)
   return int(cell_capacity * excess_storage_fraction)
 
 
-def grid(
+def _unflatten_cell_buffer(arr, cells_per_side, dim):
+  if (isinstance(cells_per_side, int) or
+      isinstance(cells_per_side, float) or
+      (isinstance(cells_per_side, np.ndarray) and not cells_per_side.shape)):
+    cells_per_side = (int(cells_per_side),) * dim
+  elif isinstance(cells_per_side, np.ndarray) and len(cells_per_side.shape) == 1:
+    cells_per_side = tuple([int(x) for x in cells_per_side[::-1]])
+  elif isinstance(cells_per_side, np.ndarray) and len(cells_per_side.shape) == 2:
+    cells_per_side = tuple([int(x) for x in cells_per_side[0][::-1]])
+  else:
+    raise ValueError() # TODO
+  return np.reshape(arr, cells_per_side + (-1,) + arr.shape[1:])
+
+
+def _shift_array(arr, dindex):
+  if len(dindex) == 2:
+    dx, dy = dindex
+    dz = 0
+  elif len(dindex) == 3:
+    dx, dy, dz = dindex
+
+  if dx < 0:
+    arr = np.concatenate((arr[1:], arr[:1]))
+  elif dx > 0:
+    arr = np.concatenate((arr[-1:], arr[:-1]))
+
+  if dy < 0:
+    arr = np.concatenate((arr[:, 1:], arr[:, :1]), axis=1)
+  elif dy > 0:
+    arr = np.concatenate((arr[:, -1:], arr[:, :-1]), axis=1)
+
+  if dz < 0:
+    arr = np.concatenate((arr[:, :, 1:], arr[:, :, :1]), axis=2)
+  elif dz > 0:
+    arr = np.concatenate((arr[:, :, -1:], arr[:, :, :-1]), axis=2)
+
+  return arr
+
+
+def _vectorize(f, dim):
+  if dim == 2:
+    return vmap(vmap(f, 0, 0), 0, 0)
+  elif dim == 3:
+    return vmap(vmap(vmap(f, 0, 0), 0, 0), 0, 0)
+
+  raise ValueError('Cell list only supports 2d or 3d.')
+
+
+def cell_list(
     fn, box_size, minimum_cell_size, cell_capacity_or_example_positions,
-    species=None, separate_build_and_apply=False, cells_per_iter=-1):
+    species=None, separate_build_and_apply=False):
   r"""Returns a function that evaluates a function sparsely on a grid.
 
   Suppose f is a function of positions, f:R^{N\times D}\to R^{N\times M} such
@@ -489,13 +605,12 @@ def grid(
   dynamics (e.g. during minimization) it is probably worth adjusting the buffer
   size over the course of the dynamics.
 
-  Currently, the function must have a signature fn(R, species, species_count).
+  Currently, the function must be the output of cartesian_product.
   It would be nice in the future to support functions with more general
   signature. TODO.
 
   This partitioning will likely form the groundwork for parallelizing
   simulations over different accelerators.
-
   Args:
     fn: A function that we would like to compute over the partition. Should take
       arguments R (an ndarray of floating point positions of shape
@@ -518,33 +633,29 @@ def grid(
       all particles have the same species.
     separate_build_and_apply: A boolean specifying whether or not we would like
       to compose the build_cells and compute functions.
-    cells_per_iter: Depending on the size of the system, it might be necessary
-      to apply fn over batches of cells. cells_per_iter is an integer specifying
-      the number of cells per batch. If cells_per_iter is -1 then all cells are
-      computed together.
-
   Returns:
     If separate_build_and_apply is False then returns a single function
     fn_mapped that takes an ndarray of shape [particle_count, spatial_dimension]
     as well as optional kwargs and returns an ndarray of shape
     [particle_count, output_dimension].
-
     If separate_build_and_apply is True then returns two functions. A
     build_cells function that takes an ndarray of positions of shape
-    [particle_count, spatial_dimension] and returns a Grid. It also returns a
-    function compute that takes a Grid and computes fn over the grid.
+    [particle_count, spatial_dimension] and returns a CellList. It also returns
+    a function compute that takes a CellList and computes fn over the grid.
   """
-  # TODO: Uncomment this once JAX supports kwargs with vmap.
-  #fn = vmap(fn, (0, 0,), 0)
 
   if species is None:
     species_count = 1
   else:
     species_count = int(np.max(species) + 1)
 
+  if isinstance(box_size, np.ndarray) and len(box_size.shape) == 1:
+    box_size = np.reshape(box_size, (1, -1))
+
   cell_capacity = cell_capacity_or_example_positions
   if _is_variable_compatible_with_positions(cell_capacity):
-    cell_capacity = _estimate_cell_capacity(cell_capacity, box_size, minimum_cell_size)
+    cell_capacity = _estimate_cell_capacity(
+      cell_capacity, box_size, minimum_cell_size)
   elif not isinstance(cell_capacity, int):
     msg = (
         'cell_capacity_or_example_positions must either be an integer '
@@ -556,6 +667,12 @@ def grid(
   def build_cells(R):
     N = R.shape[0]
     dim = R.shape[1]
+
+    if dim != 2 and dim != 3:
+      # NOTE(schsam): Do we want to check this in compute_fn as well?
+      raise ValueError(
+          'Cell list spatial dimension must be 2 or 3. Found {}'.format(dim))
+
     neighborhood_tile_count = 3 ** dim
 
     _, cell_size, cells_per_side, cell_count = \
@@ -568,47 +685,25 @@ def grid(
 
     hash_multipliers = _compute_hash_constants(dim, cells_per_side)
 
-    # Create grid data.
+    # Create cell list data.
     particle_id = lax.iota(np.int64, N)
-    # NOTE(schsam): We use the convention that particles that come from the
-    # center cell have their true id copied, whereas particles that come from
-    # the halo have an id = N. Then when we copy data back from the grid,
-    # we copy it to an array of shape [N + 1, output_dimension] and then
-    # truncate it to an array of shape [N, output_dimension] which ignores the
-    # halo particles.
+    # NOTE(schsam): We use the convention that particles that are successfully,
+    # copied have their true id whereas particles empty slots have id = N.
+    # Then when we copy data back from the grid, copy it to an array of shape
+    # [N + 1, output_dimension] and then truncate it to an array of shape
+    # [N, output_dimension] which ignores the empty slots.
     mask_id = np.ones((N,), np.int64) * N
     cell_R = np.zeros((cell_count * cell_capacity, dim), dtype=R.dtype)
     # NOTE(schsam): empty_species_index is just supposed to be large enough that
     # we will never run into it. However, there might be a more robust way to do
     # this.
-    empty_species_index = i16(1000)
+    empty_species_index = i32(1000)
     cell_species = empty_species_index * np.ones(
         (cell_count * cell_capacity, 1), dtype=_species.dtype)
     cell_id = N * np.ones((cell_count * cell_capacity, 1), dtype=i32)
 
     indices = np.array(R / cell_size, dtype=i32)
-
-    # Create a copy of particle data for each neighboring cell shifting the hash
-    # appropriately.
-    # TODO(schsam): Replace with np.tile() when it gets implemented.
-    tiled_R = R
-    tiled_species = _species
-    for _ in range(neighborhood_tile_count - 1):
-      tiled_R = np.concatenate((tiled_R, R), axis=0)
-      tiled_species = np.concatenate((tiled_species, _species), axis=0)
-    tiled_hash = np.array([], dtype=i32)
-    tiled_id = np.array([], dtype=i32)
-
-    for dindex in _neighboring_cells(dim):
-      tiled_indices = np.mod(indices + dindex, cells_per_side)
-      tiled_hash = np.concatenate(
-          (tiled_hash, np.sum(tiled_indices * hash_multipliers, axis=1)),
-          axis=0)
-
-      if np.all(dindex == 0):
-        tiled_id = np.concatenate((tiled_id, particle_id), axis=0)
-      else:
-        tiled_id = np.concatenate((tiled_id, mask_id), axis=0)
+    hashes = np.sum(indices * hash_multipliers, axis=1)
 
     # Copy the particle data into the grid. Here we use a trick to allow us to
     # copy into all cells simultaneously using a single lax.scatter call. To do
@@ -617,82 +712,68 @@ def grid(
     # is a flat list that repeats 0, .., cell_capacity. So long as there are
     # fewer than cell_capacity particles per cell, each particle is guarenteed
     # to get a cell id that is unique.
-    sort_map = np.argsort(tiled_hash)
-    sorted_R = tiled_R[sort_map]
-    sorted_species = tiled_species[sort_map]
-    sorted_hash = tiled_hash[sort_map]
-    sorted_id = tiled_id[sort_map]
+    sort_map = np.argsort(hashes)
+    sorted_R = R[sort_map]
+    sorted_species = _species[sort_map]
+    sorted_hash = hashes[sort_map]
+    sorted_id = particle_id[sort_map]
 
-    tiled_size = neighborhood_tile_count * N
-    sorted_cell_id = np.mod(lax.iota(np.int64, tiled_size), cell_capacity)
+    sorted_cell_id = np.mod(lax.iota(np.int64, N), cell_capacity)
     sorted_cell_id = sorted_hash * cell_capacity + sorted_cell_id
 
-    def copy_values_to_cell(cell_value, value, ids):
-      scatter_indices = np.reshape(ids, (tiled_size, 1))
-      dnums = lax.ScatterDimensionNumbers(
-          update_window_dims=tuple([1]),
-          inserted_window_dims=tuple([0]),
-          scatter_dims_to_operand_dims=tuple([0]),
-      )
-      return lax.scatter(cell_value, scatter_indices, value, dnums)
+    cell_R = ops.index_update(cell_R, sorted_cell_id, sorted_R)
+    sorted_species = np.reshape(sorted_species, (N, 1))
+    cell_species = ops.index_update(
+        cell_species, sorted_cell_id, sorted_species)
+    sorted_id = np.reshape(sorted_id, (N, 1))
+    cell_id = ops.index_update(
+        cell_id, sorted_cell_id, sorted_id)
+    
+    cell_R = _unflatten_cell_buffer(cell_R, cells_per_side, dim)
+    cell_species = _unflatten_cell_buffer(cell_species, cells_per_side, dim)
+    cell_id = _unflatten_cell_buffer(cell_id, cells_per_side, dim)
 
-    cell_R = copy_values_to_cell(cell_R, sorted_R, sorted_cell_id)
-    sorted_species = np.reshape(sorted_species, (tiled_size, 1))
-    cell_species = copy_values_to_cell(
-        cell_species, sorted_species, sorted_cell_id)
-    sorted_id = np.reshape(sorted_id, (tiled_size, 1))
-    cell_id = copy_values_to_cell(cell_id, sorted_id, sorted_cell_id)
-
-    cell_R = np.reshape(cell_R, (cell_count, cell_capacity, dim))
-    cell_species = np.reshape(cell_species, (cell_count, cell_capacity))
-    cell_id = np.reshape(cell_id, (cell_count, cell_capacity))
-
-    return Grid(N, dim, cell_count, cell_R, cell_species, cell_id)
-
+    return CellList(N, dim, cell_count, cell_R, cell_species, cell_id)
+  
   def compute(cell_data, **kwargs):
     N, dim, cell_count, cell_R, cell_species, cell_id, = cell_data
-
-    # TODO: Delete this once vmap supports kwargs.
-    _fn = vmap(partial(fn, species_count=species_count, **kwargs), 0, 0)
-    cell_output_shape = eval_shape(_fn, cell_R, cell_species)
-    output_dimension = cell_output_shape[-1]
-
-    _cells_per_iter = cells_per_iter
-    if cells_per_iter == -1:
-      _cells_per_iter = cell_count
+    
+    _fn = partial(fn, species_count=species_count, is_diagonal=True)
+    _fn = _vectorize(_fn, dim)
+    cell_output_shape = eval_shape(
+        _fn, cell_R, cell_species, cell_R, cell_species)
+    
+    if len(cell_output_shape) == dim:
+      output_dimension = None
+    else:
+      output_dimension = cell_output_shape[-1]
 
     def copy_values_from_cell(value, cell_value, cell_id):
-      scatter_indices = np.reshape(
-          cell_id, (_cells_per_iter * cell_capacity, 1))
-      cell_value = np.reshape(
-          cell_value, (_cells_per_iter * cell_capacity, output_dimension))
-      dnums = lax.ScatterDimensionNumbers(
-          update_window_dims=tuple([1]),
-          inserted_window_dims=tuple([0]),
-          scatter_dims_to_operand_dims=tuple([0]),
-      )
-      return lax.scatter(value, scatter_indices, cell_value, dnums)
+      scatter_indices = np.reshape(cell_id, (-1,))
+      cell_value = np.reshape(cell_value, (-1, output_dimension))
+      return ops.index_update(value, scatter_indices, cell_value)
 
-    def compute_cell_block(start, value):
-      start = _cells_per_iter * start
+    cell_value = f32(0)
+    
+    for dindex in _neighboring_cells(dim):
+      cell_Rp = _shift_array(cell_R, dindex)
+      cell_species_p = _shift_array(cell_species, dindex)
+      
+      is_diagonal = np.all(dindex == 0)
+      _fn = partial(
+          fn, species_count=species_count, is_diagonal=is_diagonal, **kwargs)
+      _fn = _vectorize(_fn, dim)
 
-      compute_R = lax.dynamic_slice(
-          cell_R, (start, 0, 0), (_cells_per_iter, cell_capacity, dim))
-      compute_species = lax.dynamic_slice(
-          cell_species, (start, 0), (_cells_per_iter, cell_capacity))
-      compute_id = lax.dynamic_slice(
-          cell_id, (start, 0), (_cells_per_iter, cell_capacity))
+      dvalue = _fn(
+          cell_R, cell_species, cell_Rp, cell_species_p)
 
-      cell_value = _fn(compute_R, compute_species)
-      return copy_values_from_cell(value, cell_value, compute_id)
+      cell_value = cell_value + dvalue
 
-    value = np.zeros((N + 1, output_dimension), dtype=cell_R.dtype)
-    if cells_per_iter > 0:
-      return lax.fori_loop(
-          0, int(math.ceil(float(cell_count) / cells_per_iter)),
-          compute_cell_block, value)[:N]
+    if output_dimension is None:
+      return np.sum(cell_value) / f32(2)
     else:
-      return compute_cell_block(0, value)[:N]
+      value = np.zeros((N + 1, output_dimension), dtype=cell_R.dtype)
+      return copy_values_from_cell(value, cell_value, cell_id)[:N]
 
   if separate_build_and_apply:
     return build_cells, compute
