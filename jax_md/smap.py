@@ -114,7 +114,8 @@ def bond(fn, metric, static_bonds=None, static_bond_types=None, **kwargs):
   def compute_fn(R, bonds, bond_types, static_kwargs, dynamic_kwargs):
     Ra = R[bonds[:, 0]]
     Rb = R[bonds[:, 1]]
-    static_kwargs = _kwargs_to_bond_parameters(bond_types, static_kwargs)
+    _kwargs = {**static_kwargs, **dynamic_kwargs}
+    static_kwargs = _kwargs_to_bond_parameters(bond_types, _kwargs)
     # NOTE(schsam): This pattern is needed due to JAX issue #912. 
     _metric = vmap(partial(metric, **dynamic_kwargs), 0, 0)
     dr = _metric(Ra, Rb)
@@ -269,14 +270,15 @@ def pair(
   #metric = vmap(vmap(metric, (0, None), 0), (None, 0), 0)
 
   if species is None:
-    kwargs = _kwargs_to_parameters(species, **kwargs)
     def fn_mapped(R, **dynamic_kwargs):
       _metric = space.map_product(partial(metric, **dynamic_kwargs))
+      _kwargs = {**kwargs, **dynamic_kwargs}
+      _kwargs = _kwargs_to_parameters(species, **_kwargs)
       dr = _metric(R, R)
       # NOTE(schsam): Currently we place a diagonal mask no matter what function
       # we are mapping. Should this be an option?
       return _high_precision_sum(
-          _diagonal_mask(fn(dr, **kwargs)),
+          _diagonal_mask(fn(dr, **_kwargs)),
           axis=reduce_axis,
           keepdims=keepdims) * f32(0.5)
   elif isinstance(species, np.ndarray):
@@ -290,7 +292,8 @@ def pair(
       _metric = space.map_product(partial(metric, **dynamic_kwargs))
       for i in range(species_count + 1):
         for j in range(i, species_count + 1):
-          s_kwargs = _kwargs_to_parameters((i, j), **kwargs)
+          _kwargs = {**kwargs, **dynamic_kwargs}
+          s_kwargs = _kwargs_to_parameters((i, j), **_kwargs)
           Ra = R[species == i]
           Rb = R[species == j]
           dr = _metric(Ra, Rb)
