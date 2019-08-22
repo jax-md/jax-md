@@ -23,7 +23,7 @@ from functools import wraps
 import jax.numpy as np
 
 from jax.abstract_arrays import ShapedArray
-from jax.interpreters import partial_eval as pe
+from jax import eval_shape
 
 from jax_md import space, smap
 from jax_md.interpolate import spline
@@ -35,7 +35,7 @@ def _canonicalize_displacement_or_metric(displacement_or_metric):
   for dim in range(4):
     try:
       R = ShapedArray((dim,), f32)
-      dR_or_dr = pe.abstract_eval_fun(displacement_or_metric, R, R, t=0)
+      dR_or_dr = eval_shape(displacement_or_metric, R, R, t=0)
       if len(dR_or_dr.shape) == 0:
         return displacement_or_metric
       else:
