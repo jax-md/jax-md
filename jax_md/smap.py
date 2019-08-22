@@ -657,8 +657,8 @@ def grid(
 
     # TODO: Delete this once vmap supports kwargs.
     _fn = vmap(partial(fn, species_count=species_count, **kwargs), 0, 0)
-    cell_output_shape = eval_shape(_fn, cell_R, cell_species)
-    output_dimension = cell_output_shape[-1]
+    cell_output_shape_struct = eval_shape(_fn, cell_R, cell_species)
+    output_dimension = cell_output_shape_struct.shape[-1]
 
     _cells_per_iter = cells_per_iter
     if cells_per_iter == -1:
