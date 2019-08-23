@@ -34,6 +34,7 @@ import jax.numpy as np
 from jax_md import quantity
 from jax_md import simulate
 from jax_md import space
+from jax_md import energy
 from jax_md.util import *
 
 jax_config.parse_flags_with_absl()
@@ -42,6 +43,7 @@ FLAGS = jax_config.FLAGS
 
 PARTICLE_COUNT = 1000
 DYNAMICS_STEPS = 800
+SHORT_DYNAMICS_STEPS = 20
 STOCHASTIC_SAMPLES = 5
 SPATIAL_DIMENSION = [2, 3]
 
@@ -94,7 +96,40 @@ class SimulateTest(jtu.JaxTestCase):
       assert np.abs(E_total - E_initial) < E_initial * 0.01
       assert state.position.dtype == dtype
 
-  # pylint: disable=g-complex-comprehension
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in DTYPE))
+  def test_nve_ensemble_time_dependence(self, spatial_dimension, dtype):
+    key = random.PRNGKey(0)
+    pos_key, center_key, vel_key, mass_key = random.split(key, 4)
+    R = random.normal(
+      pos_key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+    R0 = random.normal(
+      center_key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+    mass = random.uniform(
+      mass_key, (PARTICLE_COUNT,), minval=0.1, maxval=5.0, dtype=dtype)
+    displacement, shift = space.free()
+
+    E = energy.soft_sphere_pair(displacement)
+
+    init_fn, apply_fn = simulate.nve(E, shift, 1e-3)
+    apply_fn = jit(apply_fn)
+
+    state = init_fn(vel_key, R, mass=mass)
+
+    E_T = lambda state: \
+        E(state.position) + quantity.kinetic_energy(state.velocity, state.mass)
+    E_initial = E_T(state)
+
+    for t in range(SHORT_DYNAMICS_STEPS):
+      state = apply_fn(state, t=t*1e-3)
+      E_total = E_T(state)
+      assert np.abs(E_total - E_initial) < E_initial * 0.01
+      assert state.position.dtype == dtype
+
   @parameterized.named_parameters(jtu.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),

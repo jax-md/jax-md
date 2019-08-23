@@ -44,3 +44,23 @@ def register_pytree_namedtuple(cls):
       cls,
       lambda xs: (tuple(xs), None),
       lambda _, xs: cls(*xs))
+
+
+def check_kwargs_time_dependence(kwargs):
+  # TODO(schsam): We should be more careful about checking that kwargs don't
+  # have excess data at the leaves of our computations.
+  return
+  if ('t' in kwargs and len(kwargs) == 1) or len(kwargs) == 0:
+    return
+
+  raise ValueError(
+    'Found unexpected kwargs: {}. Expected empty or time only.'.format(kwargs))
+
+
+def check_kwargs_empty(kwargs):
+  # TODO(schsam): We should be more careful about checking that kwargs don't
+  # have excess data at the leaves of our computations.
+  return 
+  if kwargs:
+    raise ValueError(
+      'Found unexpected kwargs: {}. Expected empty.'.format(kwargs))

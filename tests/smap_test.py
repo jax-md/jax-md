@@ -160,6 +160,33 @@ class SMapTest(jtu.JaxTestCase):
           'spatial_dimension': dim,
           'dtype': dtype
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_bond_params_dynamic(self, spatial_dimension, dtype):
+    harmonic = lambda dr, sigma, **kwargs: (dr - sigma) ** f32(2)
+    disp, _ = space.free()
+    metric = space.metric(disp)
+
+    sigma = np.array([1.0, 2.0], f32)
+
+    mapped = smap.bond(harmonic, metric)
+    bonds = np.array([[0, 1], [0, 2]], i32)
+
+    key = random.PRNGKey(0)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = random.uniform(
+        split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+
+      accum = harmonic(metric(R[0], R[1]), 1) + harmonic(metric(R[0], R[2]), 2)
+
+      self.assertAllClose(mapped(R, bonds, sigma=sigma), dtype(accum), True)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
   def test_bond_per_bond_static(self, spatial_dimension, dtype):
     harmonic = lambda dr, sigma, **kwargs: (dr - sigma) ** f32(2)
     disp, _ = space.free()
@@ -242,6 +269,33 @@ class SMapTest(jtu.JaxTestCase):
           'spatial_dimension': dim,
           'dtype': dtype
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_pair_no_species_scalar_dynamic(self, spatial_dimension, dtype):
+    square = lambda dr, epsilon: epsilon * dr ** 2
+    displacement, _ = space.free()
+    metric = lambda Ra, Rb, **kwargs: \
+        np.sum(displacement(Ra, Rb, **kwargs) ** 2, axis=-1)
+
+    mapped_square = smap.pair(square, metric)
+    metric = space.map_product(metric)
+
+    key = random.PRNGKey(0)
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split1, split2 = random.split(key, 3)
+      R = random.uniform(
+        split1, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+      epsilon = random.uniform(split2, (PARTICLE_COUNT,), dtype=dtype)
+      mat_epsilon = epsilon[:, np.newaxis] + epsilon[np.newaxis, :]
+      self.assertAllClose(
+        mapped_square(R, epsilon=epsilon),
+        np.array(0.5 * np.sum(
+          square(metric(R, R), mat_epsilon)), dtype=dtype), True)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
   def test_pair_no_species_vector(self, spatial_dimension, dtype):
     square = lambda dr: np.sum(dr ** 2, axis=2)
     disp, _ = space.free()
@@ -293,6 +347,44 @@ class SMapTest(jtu.JaxTestCase):
           R_2 = R[species == j]
           total = total + 0.5 * np.sum(square(metric(R_1, R_2), param))
       self.assertAllClose(mapped_square(R), np.array(total, dtype=dtype), True)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_pair_static_species_scalar_dynamic(self, spatial_dimension, dtype):
+    key = random.PRNGKey(0)
+
+    square = lambda dr, param=1.0: param * dr ** 2
+
+    key, split = random.split(key)
+    species = random.randint(split, (PARTICLE_COUNT,), 0, 2)
+    displacement, _ = space.free()
+    metric = lambda Ra, Rb, **kwargs: \
+        np.sum(displacement(Ra, Rb, **kwargs) ** 2, axis=-1)
+
+    mapped_square = smap.pair(square, metric, species=species)
+
+    metric = space.map_product(metric)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split1, split2 = random.split(key, 3)
+      R = random.uniform(
+        split1, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+      params = random.uniform(
+        split2, (2, 2), dtype=dtype)
+      params = f32(0.5) * (params + params.T)
+      total = 0.0
+      for i in range(2):
+        for j in range(2):
+          param = params[i, j]
+          R_1 = R[species == i]
+          R_2 = R[species == j]
+          total = total + 0.5 * np.sum(square(metric(R_1, R_2), param))
+      self.assertAllClose(
+        mapped_square(R, param=params), np.array(total, dtype=dtype), True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
