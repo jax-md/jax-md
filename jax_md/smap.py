@@ -380,7 +380,7 @@ def cartesian_product(
     for i in range(species_count):
       for j in range(species_count):
         s_kwargs = _kwargs_to_parameters((i, j), **kwargs)
-        out_shape = eval_shape(fn, dr, **s_kwargs)
+        out_shape = eval_shape(fn, dr, **s_kwargs).shape
 
         mask_a = np.array(np.reshape(species_a == i, (Na,)), dtype=Ra.dtype)
         mask_b = np.array(np.reshape(species_b == j, (Nb,)), dtype=Rb.dtype)
@@ -744,7 +744,7 @@ def cell_list(
     _fn = partial(fn, species_count=species_count, is_diagonal=True)
     _fn = _vectorize(_fn, dim)
     cell_output_shape = eval_shape(
-        _fn, cell_R, cell_species, cell_R, cell_species)
+        _fn, cell_R, cell_species, cell_R, cell_species).shape
     
     if len(cell_output_shape) == dim:
       output_dimension = None
