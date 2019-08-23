@@ -310,10 +310,11 @@ def pair(
       U = f32(0.0)
       N = R.shape[0]
       _metric = space.map_product(partial(metric, **dynamic_kwargs))
+      _kwargs = {**kwargs, **dynamic_kwargs}
       dr = _metric(R, R)
       for i in range(species_count):
         for j in range(species_count):
-          s_kwargs = _kwargs_to_parameters((i, j), **kwargs)
+          s_kwargs = _kwargs_to_parameters((i, j), **_kwargs)
           mask_a = np.array(np.reshape(species == i, (N,)), dtype=R.dtype)
           mask_b = np.array(np.reshape(species == j, (N,)), dtype=R.dtype)
           mask = mask_a[:, np.newaxis] * mask_b[np.newaxis, :]
@@ -377,9 +378,11 @@ def cartesian_product(
     _metric = vmap(vmap(_metric, (0, None), 0), (None, 0), 0)
     dr = _metric(Ra, Rb)
 
+    _kwargs = {**kwargs, **dynamic_kwargs}
+
     for i in range(species_count):
       for j in range(species_count):
-        s_kwargs = _kwargs_to_parameters((i, j), **kwargs)
+        s_kwargs = _kwargs_to_parameters((i, j), **_kwargs)
         out_shape = eval_shape(fn, dr, **s_kwargs).shape
 
         mask_a = np.array(np.reshape(species_a == i, (Na,)), dtype=Ra.dtype)
