@@ -29,7 +29,7 @@ import jax.numpy as np
 from jax.api import grad
 
 from jax import test_util as jtu
-from jax import jit
+from jax import jit, vmap
 
 from jax_md import smap, space, energy, quantity
 from jax_md.util import *
@@ -38,7 +38,7 @@ jax_config.parse_flags_with_absl()
 FLAGS = jax_config.FLAGS
 
 
-PARTICLE_COUNT = 100
+PARTICLE_COUNT = 1000
 STOCHASTIC_SAMPLES = 10
 SPATIAL_DIMENSION = [2, 3]
 
@@ -458,11 +458,11 @@ class SMapTest(jtu.JaxTestCase):
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}'.format(dim),
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
           'dtype': dtype
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
-  def disabled_test_pair_dynamic_species_vector(
+  def test_pair_dynamic_species_vector(
       self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 
@@ -475,6 +475,8 @@ class SMapTest(jtu.JaxTestCase):
 
     mapped_square = smap.pair(
         square, disp, species=quantity.Dynamic, param=params)
+
+    disp = vmap(vmap(disp, (0, None), 0), (None, 0), 0)
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split = random.split(key)
@@ -496,24 +498,22 @@ class SMapTest(jtu.JaxTestCase):
           'spatial_dimension': dim,
           'dtype': dtype,
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
-  def test_pair_grid_energy(self, spatial_dimension, dtype):
+  def test_pair_cell_list_energy(self, spatial_dimension, dtype):
     key = random.PRNGKey(1)
 
-    box_size = f16(9.0)
-    cell_size = f16(2.0)
+    box_size = f32(9.0)
+    cell_size = f32(1.0)
     displacement, _ = space.periodic(box_size)
     metric = space.metric(displacement)
-    energy_fn = smap.pair(
-        energy.soft_sphere, metric, quantity.Dynamic,
-        reduce_axis=(1,), keepdims=True)
+    exact_energy_fn = energy.soft_sphere_pair(displacement)
+    energy_fn = smap.cartesian_product(energy.soft_sphere, metric)
 
     R = box_size * random.uniform(
       key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
-    grid_energy_fn = smap.grid(energy_fn, box_size, cell_size, R)
-    species = np.zeros((PARTICLE_COUNT,), dtype=np.int64)
+    cell_energy_fn = smap.cell_list(energy_fn, box_size, cell_size, R)
     self.assertAllClose(
-      np.array(energy_fn(R, species, 1), dtype=dtype),
-      grid_energy_fn(R), True)
+      np.array(exact_energy_fn(R), dtype=dtype),
+      cell_energy_fn(R), True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -521,7 +521,7 @@ class SMapTest(jtu.JaxTestCase):
           'spatial_dimension': dim,
           'dtype': dtype,
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
-  def test_pair_grid_force(self, spatial_dimension, dtype):
+  def disabled_test_pair_grid_force(self, spatial_dimension, dtype):
     key = random.PRNGKey(1)
 
     box_size = f32(9.0)
@@ -543,21 +543,23 @@ class SMapTest(jtu.JaxTestCase):
           'spatial_dimension': dim,
           'dtype': dtype,
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
-  def test_pair_grid_force_jit(self, spatial_dimension, dtype):
+  def test_force_through_cell_list(self, spatial_dimension, dtype):
     key = random.PRNGKey(1)
 
-    box_size = f16(9.0)
-    cell_size = f16(2.0)
+    box_size = f32(9.0)
+    cell_size = f32(1.0)
     displacement, _ = space.periodic(box_size)
-    energy_fn = energy.soft_sphere_pair(displacement, quantity.Dynamic)
+    energy_fn = energy.soft_sphere_pair(displacement)
     force_fn = quantity.force(energy_fn)
 
     R = box_size * random.uniform(
       key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
-    grid_force_fn = jit(smap.grid(force_fn, box_size, cell_size, R))
-    species = np.zeros((PARTICLE_COUNT,), dtype=np.int64)
+    grid_energy_fn = smap.cartesian_product(
+      energy.soft_sphere, space.metric(displacement))
+    grid_force_fn = smap.cell_list(grid_energy_fn, box_size, cell_size, R)
+    grid_force_fn = jit(quantity.force(grid_force_fn))
     self.assertAllClose(
-      np.array(force_fn(R, species, 1), dtype=dtype), grid_force_fn(R), True)
+      np.array(force_fn(R), dtype=dtype), grid_force_fn(R), True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -565,21 +567,46 @@ class SMapTest(jtu.JaxTestCase):
           'spatial_dimension': dim,
           'dtype': dtype,
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
-  def test_pair_grid_force_incommensurate(self, spatial_dimension, dtype):
+  def test_cell_list_direct_force_jit(self, spatial_dimension, dtype):
+    key = random.PRNGKey(1)
+
+    box_size = f32(9.0)
+    cell_size = f32(1.0)
+    displacement, _ = space.periodic(box_size)
+    energy_fn = energy.soft_sphere_pair(displacement)
+    force_fn = quantity.force(energy_fn)
+
+    R = box_size * random.uniform(
+      key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+    grid_energy_fn = smap.cartesian_product(
+      energy.soft_sphere, space.metric(displacement))
+    grid_force_fn = quantity.force(grid_energy_fn)
+    grid_force_fn = jit(smap.cell_list(grid_force_fn, box_size, cell_size, R))
+    self.assertAllClose(
+      np.array(force_fn(R), dtype=dtype), grid_force_fn(R), True)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_cell_list_incommensurate(self, spatial_dimension, dtype):
     key = random.PRNGKey(1)
 
     box_size = f32(12.1)
     cell_size = f32(3.0)
     displacement, _ = space.periodic(box_size)
-    energy_fn = energy.soft_sphere_pair(displacement, quantity.Dynamic)
-    force_fn = quantity.force(energy_fn)
+    energy_fn = energy.soft_sphere_pair(displacement)
 
     R = box_size * random.uniform(
       key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
-    grid_force_fn = jit(smap.grid(force_fn, box_size, cell_size, R))
-    species = np.zeros((PARTICLE_COUNT,), dtype=np.int64)
+    cell_list_energy = smap.cartesian_product(
+      energy.soft_sphere, space.metric(displacement))
+    cell_list_energy = \
+      jit(smap.cell_list(cell_list_energy, box_size, cell_size, R))
     self.assertAllClose(
-      np.array(force_fn(R, species, 1), dtype=dtype), grid_force_fn(R), True)
+      np.array(energy_fn(R), dtype=dtype), cell_list_energy(R), True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -587,7 +614,7 @@ class SMapTest(jtu.JaxTestCase):
           'spatial_dimension': dim,
           'dtype': dtype,
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
-  def test_pair_grid_force_nonuniform(self, spatial_dimension, dtype):
+  def test_cell_list_force_nonuniform(self, spatial_dimension, dtype):
     key = random.PRNGKey(1)
 
     if spatial_dimension == 2:
@@ -597,15 +624,23 @@ class SMapTest(jtu.JaxTestCase):
 
     cell_size = f32(2.0)
     displacement, _ = space.periodic(box_size[0])
-    energy_fn = energy.soft_sphere_pair(displacement, quantity.Dynamic)
+    energy_fn = energy.soft_sphere_pair(displacement)
     force_fn = quantity.force(energy_fn)
-
+    
     R = box_size * random.uniform(
       key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
-    grid_force_fn = smap.grid(force_fn, box_size, cell_size, R)
-    species = np.zeros((PARTICLE_COUNT,), dtype=np.int64)
+
+    cell_energy_fn = smap.cartesian_product(
+      energy.soft_sphere, space.metric(displacement))
+    cell_force_fn = quantity.force(cell_energy_fn)
+    cell_force_fn = smap.cell_list(cell_force_fn, box_size, cell_size, R)
+    df = np.sum((force_fn(R) - cell_force_fn(R)) ** 2, axis=1)
+#    print(np.arange(PARTICLE_COUNT)[df > 1e-5])
+#    print(R[df > 1e-5])
+#    print(force_fn(R)[df > 1e-5])
+#    print(cell_force_fn(R)[df > 1e-5])
     self.assertAllClose(
-      np.array(force_fn(R, species, 1), dtype=dtype), grid_force_fn(R), True)
+      np.array(force_fn(R), dtype=dtype), cell_force_fn(R), True)
 
 if __name__ == '__main__':
   absltest.main()

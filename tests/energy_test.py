@@ -30,6 +30,7 @@ import numpy as onp
 from jax.api import grad
 from jax_md import space
 from jax_md.util import *
+from jax_md import quantity
 
 from jax import test_util as jtu
 
@@ -39,7 +40,7 @@ from jax_md.interpolate import spline
 jax_config.parse_flags_with_absl()
 FLAGS = jax_config.FLAGS
 
-PARTICLE_COUNT = 10
+PARTICLE_COUNT = 100
 STOCHASTIC_SAMPLES = 10
 SPATIAL_DIMENSION = [2, 3]
 UNIT_CELL_SIZE = [7, 8]
@@ -199,7 +200,74 @@ class EnergyTest(jtu.JaxTestCase):
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_num_reps={}_dtype={}'.format(num_repetitions, dtype.__name__),
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_soft_sphere_cell_list_energy(self, spatial_dimension, dtype):
+    key = random.PRNGKey(1)
+
+    box_size = f32(15.0)
+    displacement, _ = space.periodic(box_size)
+    exact_energy_fn = energy.soft_sphere_pair(displacement)
+
+    R = box_size * random.uniform(
+      key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+    energy_fn = energy.soft_sphere_cell_list(displacement, box_size, R)
+
+    self.assertAllClose(
+      np.array(exact_energy_fn(R), dtype=dtype),
+      energy_fn(R), True)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_lennard_jones_cell_list_energy(self, spatial_dimension, dtype):
+    key = random.PRNGKey(1)
+
+    box_size = f32(15.0)
+    displacement, _ = space.periodic(box_size)
+    metric = space.metric(displacement)
+    exact_energy_fn = energy.lennard_jones_pair(displacement)
+
+    R = box_size * random.uniform(
+      key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+    energy_fn = energy.lennard_jones_cell_list(displacement, box_size, R)
+
+    self.assertAllClose(
+      np.array(exact_energy_fn(R), dtype=dtype),
+      energy_fn(R), True)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_lennard_jones_cell_list_force(self, spatial_dimension, dtype):
+    key = random.PRNGKey(1)
+
+    box_size = f32(15.0)
+    displacement, _ = space.periodic(box_size)
+    metric = space.metric(displacement)
+    exact_force_fn = quantity.force(energy.lennard_jones_pair(displacement))
+
+    R = box_size * random.uniform(
+      key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+    force_fn = quantity.force(
+      energy.lennard_jones_cell_list(displacement, box_size, R))
+
+    self.assertAllClose(
+      np.array(exact_force_fn(R), dtype=dtype),
+      force_fn(R), True)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_num_reps={}_dtype={}'.format(
+            num_repetitions, dtype.__name__),
           'num_repetitions': num_repetitions,
           'dtype': dtype,
       } for num_repetitions in UNIT_CELL_SIZE for dtype in POSITION_DTYPE))

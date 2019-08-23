@@ -112,6 +112,35 @@ def soft_sphere_pair(
       alpha=alpha)
 
 
+def soft_sphere_cell_list(
+    displacement_or_metric,
+    box_size,
+    R_example,
+    species=None,
+    sigma=1.0,
+    epsilon=1.0,
+    alpha=2.0):
+  """Convenience wrapper to compute soft spheres using a cell list."""
+  sigma = np.array(sigma, dtype=f32)
+  epsilon = np.array(epsilon, dtype=f32)
+  alpha = np.array(alpha, dtype=f32)
+
+  if species is None:
+    if sigma.shape or epsilon.shape or alpha.shape:
+      raise ValueError(
+        ('At the moment per-particle (as opposed to per-species) parameters are'
+         ' not supported using cell lists. Please open a feature request!'))
+
+  energy_fn = smap.cartesian_product(
+    soft_sphere,
+    _canonicalize_displacement_or_metric(displacement_or_metric),
+    sigma=sigma,
+    epsilon=epsilon,
+    alpha=alpha)
+
+  return smap.cell_list(energy_fn, box_size, np.max(sigma), R_example, species)
+
+
 def lennard_jones(dr, sigma=f32(1), epsilon=f32(1), **unused_kwargs):
   """Lennard-Jones interaction between particles with a minimum at sigma.
 
@@ -146,6 +175,37 @@ def lennard_jones_pair(
     species=species,
     sigma=sigma,
     epsilon=epsilon)
+
+
+def lennard_jones_cell_list(
+    displacement_or_metric,
+    box_size,
+    R_example,
+    species=None,
+    sigma=1.0,
+    epsilon=1.0,
+    alpha=2.0,
+    r_onset=2.0,
+    r_cutoff=2.5):
+  """Convenience wrapper to compute soft spheres using a cell list."""
+  sigma = np.array(sigma, dtype=f32)
+  epsilon = np.array(epsilon, dtype=f32)
+  r_onset = f32(r_onset * np.max(sigma))
+  r_cutoff = f32(r_cutoff * np.max(sigma))
+
+  if species is None:
+    if sigma.shape or epsilon.shape:
+      raise ValueError(
+        ('At the moment per-particle (as opposed to per-species) parameters are'
+         ' not supported using cell lists. Please open a feature request!'))
+
+  energy_fn = smap.cartesian_product(
+    multiplicative_isotropic_cutoff(lennard_jones, r_onset, r_cutoff),
+    _canonicalize_displacement_or_metric(displacement_or_metric),
+    sigma=sigma,
+    epsilon=epsilon)
+
+  return smap.cell_list(energy_fn, box_size, r_cutoff, R_example, species)
 
 
 def multiplicative_isotropic_cutoff(fn, r_onset, r_cutoff):
