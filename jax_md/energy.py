@@ -47,12 +47,14 @@ def _canonicalize_displacement_or_metric(displacement_or_metric):
     'than 4.')
 
 
-def simple_spring(dr, length=f32(1), epsilon=f32(1), alpha=f32(2)):
+def simple_spring(
+    dr, length=f32(1), epsilon=f32(1), alpha=f32(2), **unused_kwargs):
   """Isotropic spring potential with a given rest length.
 
   We define `simple_spring` to be a generalized Hookian spring with
   agreement when alpha = 2.
   """
+  check_kwargs_time_dependnece(unused_kwargs)
   return epsilon / alpha * (dr - length) ** alpha
 
 
@@ -72,7 +74,8 @@ def simple_spring_bond(
     alpha=alpha)
 
 
-def soft_sphere(dr, sigma=f32(1.0), epsilon=f32(1.0), alpha=f32(2.0)):
+def soft_sphere(
+    dr, sigma=f32(1.0), epsilon=f32(1.0), alpha=f32(2.0), **unused_kwargs):
   """Finite ranged repulsive interaction between soft spheres.
 
   Args:
@@ -83,10 +86,11 @@ def soft_sphere(dr, sigma=f32(1.0), epsilon=f32(1.0), alpha=f32(2.0)):
       or an ndarray whose shape is [n, m].
     alpha: Exponent specifying interaction stiffness. Should either be a float
       point scalar or an ndarray whose shape is [n, m].
-
+    unused_kwargs: Allows extra data (e.g. time) to be passed to the energy.
   Returns:
     Matrix of energies whose shape is [n, m].
   """
+  check_kwargs_time_dependence(unused_kwargs)
   dr = dr / sigma
   U = epsilon * np.where(
     dr < 1.0, f32(1.0) / alpha * (f32(1.0) - dr) ** alpha, f32(0.0))
@@ -108,7 +112,7 @@ def soft_sphere_pair(
       alpha=alpha)
 
 
-def lennard_jones(dr, sigma, epsilon):
+def lennard_jones(dr, sigma=f32(1), epsilon=f32(1), **unused_kwargs):
   """Lennard-Jones interaction between particles with a minimum at sigma.
 
   Args:
@@ -117,9 +121,11 @@ def lennard_jones(dr, sigma, epsilon):
       either be a floating point scalar or an ndarray whose shape is [n, m].
     epsilon: Interaction energy scale. Should either be a floating point scalar
       or an ndarray whose shape is [n, m].
+    unused_kwargs: Allows extra data (e.g. time) to be passed to the energy.
   Returns:
     Matrix of energies of shape [n, m].
   """
+  check_kwargs_time_dependence(unused_kwargs)
   dr = (sigma / dr) ** f32(2)
   idr6 = dr ** f32(3)
   idr12 = idr6 ** f32(2)

@@ -171,8 +171,10 @@ Spaces
 def free():
   """Free boundary conditions."""
   def displacement_fn(Ra, Rb, **unused_kwargs):
+    check_kwargs_time_dependence(unused_kwargs)
     return pairwise_displacement(Ra, Rb)
   def shift_fn(R, dR, **unused_kwargs):
+    check_kwargs_time_dependence(unused_kwargs)
     return R + dR
   return displacement_fn, shift_fn
 
@@ -189,12 +191,15 @@ def periodic(side, wrapped=True):
     (displacement_fn, shift_fn) tuple.
   """
   def displacement_fn(Ra, Rb, **unused_kwargs):
+    check_kwargs_time_dependence(unused_kwargs)
     return periodic_displacement(side, pairwise_displacement(Ra, Rb))
   if wrapped:
     def shift_fn(R, dR, **unused_kwargs):
+      check_kwargs_time_dependence(unused_kwargs)
       return periodic_shift(side, R, dR)
   else:
     def shift_fn(R, dR, **unused_kwargs):
+      check_kwargs_time_dependence(unused_kwargs)
       return R + dR
   return displacement_fn, shift_fn
 
@@ -234,27 +239,33 @@ def periodic_general(T, wrapped=True):
   if callable(T):
     def displacement(Ra, Rb, t=None, **unused_kwargs):
       _check_time_dependence(t)
+      check_kwargs_empty(unused_kwargs)
       dR = periodic_displacement(f32(1.0), pairwise_displacement(Ra, Rb))
       return transform(T(t), dR)
     # Can we cache the inverse? @Optimization
     if wrapped:
       def shift(R, dR, t=None, **unused_kwargs):
         _check_time_dependence(t)
+        check_kwargs_empty(unused_kwargs)
         return periodic_shift(f32(1.0), R, transform(_small_inverse(T(t)), dR))
     else:
       def shift(R, dR, t=None, **unused_kwargs):
         _check_time_dependence(t)
+        check_kwargs_empty(unused_kwargs)
         return R + transform(_small_inverse(T(t)), dR)
   else:
     T_inv = _small_inverse(T)
     def displacement(Ra, Rb, **unused_kwargs):
+      check_kwargs_time_dependence(unused_kwargs)
       dR = periodic_displacement(f32(1.0), pairwise_displacement(Ra, Rb))
       return transform(T, dR)
     if wrapped:
       def shift(R, dR, **unused_kwargs):
+        check_kwargs_time_dependence(unused_kwargs)
         return periodic_shift(f32(1.0), R, transform(T_inv, dR))
     else:
       def shift(R, dR, **unused_kwargs):
+        check_kwargs_time_dependence(unused_kwargs)
         return R + transform(T_inv, dR)
   return displacement, shift
 
