@@ -390,6 +390,26 @@ class SMapTest(jtu.JaxTestCase):
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
+          'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_pair_scalar_dummy_arg(
+      self, spatial_dimension, dtype):
+    key = random.PRNGKey(0)
+
+    square = lambda dr, param=f32(1.0), **unused_kwargs: param * dr ** 2
+
+    key, split = random.split(key)
+    R = random.normal(key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+    displacement, shift = space.free()
+
+    mapped = smap.pair(square, space.metric(displacement))
+
+    mapped(R, t=f32(0))
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
           'dtype': dtype
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
   def test_pair_static_species_vector(self, spatial_dimension, dtype):
@@ -621,7 +641,6 @@ class SMapTest(jtu.JaxTestCase):
       box_size = f32(np.array([[8.0, 10.0]]))
     else:
       box_size = f32(np.array([[8.0, 10.0, 12.0]]))
-
     cell_size = f32(2.0)
     displacement, _ = space.periodic(box_size[0])
     energy_fn = energy.soft_sphere_pair(displacement)
@@ -635,10 +654,6 @@ class SMapTest(jtu.JaxTestCase):
     cell_force_fn = quantity.force(cell_energy_fn)
     cell_force_fn = smap.cell_list(cell_force_fn, box_size, cell_size, R)
     df = np.sum((force_fn(R) - cell_force_fn(R)) ** 2, axis=1)
-#    print(np.arange(PARTICLE_COUNT)[df > 1e-5])
-#    print(R[df > 1e-5])
-#    print(force_fn(R)[df > 1e-5])
-#    print(cell_force_fn(R)[df > 1e-5])
     self.assertAllClose(
       np.array(force_fn(R), dtype=dtype), cell_force_fn(R), True)
 

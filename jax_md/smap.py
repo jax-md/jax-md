@@ -52,9 +52,9 @@ def _get_bond_type_parameters(params, bond_type):
     else:
       raise ValueError(
           'Params must be a scalar or a 1d array if using a bond-type lookup.')
-  if isinstance(params, float) or isinstance(params, int):
-    return f32(params)
-
+  elif(isinstance(params, int) or isinstance(params, float) or
+       np.issubdtype(params, np.integer) or np.issubdtype(params, np.floating)):
+    return params
   raise NotImplementedError
 
 
@@ -162,7 +162,8 @@ def _get_matrix_parameters(params):
       return params
     else:
       raise NotImplementedError
-  elif isinstance(params, float):
+  elif(isinstance(params, int) or isinstance(params, float) or
+       np.issubdtype(params, np.integer) or np.issubdtype(params, np.floating)):
     return params
   else:
     raise NotImplementedError
