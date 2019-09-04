@@ -40,7 +40,7 @@ def _canonicalize_displacement_or_metric(displacement_or_metric):
         return displacement_or_metric
       else:
         return space.metric(displacement_or_metric)
-    except ValueError:
+    except TypeError:
       continue
   raise ValueError(
     'Canonicalize displacement not implemented for spatial dimension larger'
