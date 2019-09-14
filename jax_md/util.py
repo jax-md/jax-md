@@ -64,3 +64,10 @@ def check_kwargs_empty(kwargs):
   if kwargs:
     raise ValueError(
       'Found unexpected kwargs: {}. Expected empty.'.format(kwargs))
+
+
+def merge_dicts(a, b):
+  # TODO(schsam): Replace by {**a, **b} when Python 2 is depricated.
+  merged = dict(a)
+  merged.update(b)
+  return merged
