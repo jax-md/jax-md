@@ -19,8 +19,12 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+from jax.abstract_arrays import ShapedArray
+
+from jax import eval_shape
 from jax import vmap
 from jax import custom_transforms
+
 import jax
 
 import jax.numpy as np
@@ -281,3 +285,23 @@ def map_product(metric_or_displacement):
 
 def map_set(metric_or_displacement):
   return vmap(metric_or_displacement, (0, 0), 0)
+
+
+def canonicalize_displacement_or_metric(displacement_or_metric):
+  """Checks whether or not a displacement or metric was provided."""
+  for dim in range(1, 4):
+    try:
+      R = ShapedArray((dim,), f32)
+      dR_or_dr = eval_shape(displacement_or_metric, R, R, t=0)
+      if len(dR_or_dr.shape) == 0:
+        return displacement_or_metric
+      else:
+        return metric(displacement_or_metric)
+    except TypeError:
+      continue
+    except ValueError:
+      continue
+  raise ValueError(
+    'Canonicalize displacement not implemented for spatial dimension larger'
+    'than 4.')
+

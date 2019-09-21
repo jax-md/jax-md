@@ -100,7 +100,7 @@ def nve(energy_or_force, shift_fn, dt, quant=quantity.Energy):
     V = np.sqrt(velocity_scale) * random.normal(key, R.shape, dtype=R.dtype)
     mass = quantity.canonicalize_mass(mass)
     return NVEState(R, V, force(R) / mass, mass)
-  def apply_fun(state, t=None, **kwargs):
+  def apply_fun(state, t=f32(0), **kwargs):
     R, V, A, mass = state
     R = shift_fn(R, V * dt + A * dt_2, t=t, **kwargs)
     A_prime = force(R, t=t, **kwargs) / mass
@@ -250,7 +250,7 @@ def nvt_nose_hoover(
     v_xi = ops.index_add(v_xi, M, dt_4 * G)
 
     return KE, V, xi, v_xi
-  def apply_fun(state, t=0.0, **kwargs):
+  def apply_fun(state, t=f32(0), **kwargs):
     T = T_schedule(t)
 
     R, V, mass, KE, xi, v_xi, Q = state

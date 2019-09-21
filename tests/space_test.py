@@ -143,6 +143,30 @@ class SpaceTest(jtu.JaxTestCase):
           'spatial_dimension': dim,
           'dtype': dtype
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_canonicalize_displacement_or_metric(self, spatial_dimension, dtype):
+    key = random.PRNGKey(0)
+
+    displacement, _ = space.periodic_general(np.eye(spatial_dimension))
+    metric = space.metric(displacement)
+    test_metric = space.canonicalize_displacement_or_metric(displacement)
+
+    metric = space.map_product(metric)
+    test_metric = space.map_product(test_metric)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split1, split2 = random.split(key, 3)
+
+      R = random.normal(
+        split1, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+
+      self.assertAllClose(metric(R, R), test_metric(R, R), True)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
   def test_periodic_displacement(self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 

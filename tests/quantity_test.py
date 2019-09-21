@@ -38,6 +38,7 @@ FLAGS = jax_config.FLAGS
 PARTICLE_COUNT = 10
 STOCHASTIC_SAMPLES = 10
 SPATIAL_DIMENSION = [2, 3]
+DTYPES = [f32, f64]
 
 
 class QuantityTest(jtu.JaxTestCase):
@@ -64,6 +65,24 @@ class QuantityTest(jtu.JaxTestCase):
       return quantity.kinetic_energy(theta * V)
 
     grad(do_fn)(2.0)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dtype={}'.format(dtype.__name__),
+          'dtype': dtype,
+      } for dtype in DTYPES))
+  def test_pair_correlation(self, dtype):
+    displacement = lambda Ra, Rb, **kwargs: Ra - Rb
+    R = np.array(
+        [[1, 0],
+         [0, 0],
+         [0, 1]], dtype=dtype)
+    rs = np.linspace(0, 2, 60)
+    g = quantity.pair_correlation(displacement, rs, f32(0.1))
+    gs = g(R)
+    gs = np.mean(gs, axis=0)
+    assert np.argmax(gs) == np.argmin((rs - 1.) ** 2)
+    assert gs.dtype == dtype
 
 if __name__ == '__main__':
   absltest.main()
