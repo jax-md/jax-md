@@ -22,29 +22,9 @@ from functools import wraps
 
 import jax.numpy as np
 
-from jax.abstract_arrays import ShapedArray
-from jax import eval_shape
-
 from jax_md import space, smap
 from jax_md.interpolate import spline
 from jax_md.util import *
-
-
-def _canonicalize_displacement_or_metric(displacement_or_metric):
-  """Checks whether or not a displacement or metric was provided."""
-  for dim in range(4):
-    try:
-      R = ShapedArray((dim,), f32)
-      dR_or_dr = eval_shape(displacement_or_metric, R, R, t=0)
-      if len(dR_or_dr.shape) == 0:
-        return displacement_or_metric
-      else:
-        return space.metric(displacement_or_metric)
-    except TypeError:
-      continue
-  raise ValueError(
-    'Canonicalize displacement not implemented for spatial dimension larger'
-    'than 4.')
 
 
 def simple_spring(
@@ -66,7 +46,7 @@ def simple_spring_bond(
   alpha = np.array(alpha, f32)
   return smap.bond(
     simple_spring,
-    _canonicalize_displacement_or_metric(displacement_or_metric),
+    space.canonicalize_displacement_or_metric(displacement_or_metric),
     bond,
     bond_type,
     length=length,
@@ -105,7 +85,7 @@ def soft_sphere_pair(
   alpha = np.array(alpha, dtype=f32)
   return smap.pair(
       soft_sphere,
-      _canonicalize_displacement_or_metric(displacement_or_metric),
+      space.canonicalize_displacement_or_metric(displacement_or_metric),
       species=species,
       sigma=sigma,
       epsilon=epsilon,
@@ -133,7 +113,7 @@ def soft_sphere_cell_list(
 
   energy_fn = smap.cartesian_product(
     soft_sphere,
-    _canonicalize_displacement_or_metric(displacement_or_metric),
+    space.canonicalize_displacement_or_metric(displacement_or_metric),
     sigma=sigma,
     epsilon=epsilon,
     alpha=alpha)
@@ -171,7 +151,7 @@ def lennard_jones_pair(
   r_cutoff = f32(r_cutoff * np.max(sigma))
   return smap.pair(
     multiplicative_isotropic_cutoff(lennard_jones, r_onset, r_cutoff),
-    _canonicalize_displacement_or_metric(displacement_or_metric),
+    space.canonicalize_displacement_or_metric(displacement_or_metric),
     species=species,
     sigma=sigma,
     epsilon=epsilon)
@@ -201,7 +181,7 @@ def lennard_jones_cell_list(
 
   energy_fn = smap.cartesian_product(
     multiplicative_isotropic_cutoff(lennard_jones, r_onset, r_cutoff),
-    _canonicalize_displacement_or_metric(displacement_or_metric),
+    space.canonicalize_displacement_or_metric(displacement_or_metric),
     sigma=sigma,
     epsilon=epsilon)
 
