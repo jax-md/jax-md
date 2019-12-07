@@ -12,4 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from jax_md import space, energy, minimize, simulate, smap
+from jax_md import space, energy, minimize, simulate, smap, partition
