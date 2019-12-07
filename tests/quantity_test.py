@@ -77,7 +77,7 @@ class QuantityTest(jtu.JaxTestCase):
         [[1, 0],
          [0, 0],
          [0, 1]], dtype=dtype)
-    rs = np.linspace(0, 2, 60)
+    rs = np.linspace(0, 2, 60, dtype=dtype)
     g = quantity.pair_correlation(displacement, rs, f32(0.1))
     gs = g(R)
     gs = np.mean(gs, axis=0)

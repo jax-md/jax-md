@@ -24,6 +24,8 @@ import jax.numpy as np
 from jax_md import space
 from jax_md.util import *
 
+from functools import partial
+
 def force(energy):
   """Computes the force as the negative gradient of an energy."""
   return grad(lambda R, *args, **kwargs: -energy(R, *args, **kwargs))
@@ -91,7 +93,6 @@ def canonicalize_mass(mass):
 
 def pair_correlation(displacement_or_metric, rs, sigma):
   metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
-  metric = space.map_product(metric)
 
   sigma = f32(sigma)
   # NOTE(schsam): This seems rather harmless, but possibly something to look at
@@ -99,11 +100,15 @@ def pair_correlation(displacement_or_metric, rs, sigma):
 
   # TODO(schsam): Get this working with cell list .
   def compute_fun(R, **dynamic_kwargs):
-    dr = metric(R, R, **dynamic_kwargs)
+    _metric = partial(metric, **dynamic_kwargs)
+    _metric = space.map_product(_metric)
+    dr = _metric(R, R)
     # TODO(schsam): Clean up.
     dr = np.where(dr > f32(1e-7), dr, f32(1e7))
     dim = R.shape[1]
     exp = np.exp(-f32(0.5) * (dr[:, :, np.newaxis] - rs) ** 2 / sigma ** 2)
+    e = np.exp(dr / sigma ** 2)
+    print('{} {} {}'.format(dr.dtype, exp.dtype, e.dtype))
     gaussian_distances = exp / np.sqrt(2 * np.pi * sigma ** 2)
     return np.mean(gaussian_distances, axis=1) / rs ** (dim - 1)
   return compute_fun

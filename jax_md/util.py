@@ -20,6 +20,7 @@ from __future__ import print_function
 
 from jax.tree_util import register_pytree_node
 import jax.numpy as np
+import jax.test_util as jtu
 
 import numpy as onp
 
@@ -71,4 +72,17 @@ def merge_dicts(a, b):
   merged = dict(a)
   merged.update(b)
   return merged
+
+
+def update_test_tolerance(f32_tolerance, f64_tolerance):
+  jtu._default_tolerance[np.onp.dtype(np.onp.float32)] = f32_tolerance
+  jtu._default_tolerance[np.onp.dtype(np.onp.float64)] = f64_tolerance
+  def default_tolerance():
+    if jtu.device_under_test() != 'tpu':
+      return jtu._default_tolerance
+    tol = jtu._default_tolerance.copy()
+    tol[np.onp.dtype(np.onp.float32)] = 5e-2
+    return tol
+  jtu.default_tolerance = default_tolerance
+
 

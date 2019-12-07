@@ -39,6 +39,7 @@ from functools import partial
 jax_config.parse_flags_with_absl()
 FLAGS = jax_config.FLAGS
 
+#update_test_tolerance(1e-5, 1e-13)
 
 PARTICLE_COUNT = 10
 STOCHASTIC_SAMPLES = 10
@@ -122,6 +123,10 @@ class SpaceTest(jtu.JaxTestCase):
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
   def test_transform_inverse(self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
+    
+    tol = 1e-13
+    if dtype is f32:
+      tol = 1e-5
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split1, split2 = random.split(key, 3)
@@ -135,7 +140,7 @@ class SpaceTest(jtu.JaxTestCase):
 
       R_test = space.transform(T_inv, space.transform(T, R))
 
-      self.assertAllClose(R, R_test, True)
+      self.assertAllClose(R, R_test, True, atol=tol, rtol=tol)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -251,6 +256,10 @@ class SpaceTest(jtu.JaxTestCase):
   def test_periodic_against_periodic_general(self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 
+    tol = 1e-13
+    if dtype is f32:
+      tol = 1e-5
+
     for _ in range(STOCHASTIC_SAMPLES):
       key, split1, split2, split3 = random.split(key, 4)
 
@@ -273,10 +282,12 @@ class SpaceTest(jtu.JaxTestCase):
       general_disp_fn = space.map_product(general_disp_fn)
 
       self.assertAllClose(
-          disp_fn(R_scaled, R_scaled), general_disp_fn(R, R), True)
+          disp_fn(R_scaled, R_scaled), general_disp_fn(R, R), True,
+          atol=tol, rtol=tol)
       assert disp_fn(R_scaled, R_scaled).dtype == dtype
       self.assertAllClose(
-          shift_fn(R_scaled, dR), general_shift_fn(R, dR) * box_size, True)
+          shift_fn(R_scaled, dR), general_shift_fn(R, dR) * box_size, True,
+          atol=tol, rtol=tol)
       assert shift_fn(R_scaled, dR).dtype == dtype
 
   @parameterized.named_parameters(jtu.cases_from_list(
@@ -341,6 +352,10 @@ class SpaceTest(jtu.JaxTestCase):
 
     eye = np.eye(spatial_dimension, dtype=dtype)
 
+    tol = 1e-13
+    if dtype is f32:
+      tol = 1e-5
+
     for _ in range(STOCHASTIC_SAMPLES):
       key, split_R, split_T = random.split(key, 3)
 
@@ -366,7 +381,7 @@ class SpaceTest(jtu.JaxTestCase):
         unwrapped_R = unwrapped_shift(unwrapped_R, dR)
         self.assertAllClose(
           displacement(R, R0),
-          displacement(unwrapped_R, R0), True)
+          displacement(unwrapped_R, R0), True, atol=tol, rtol=tol)
       assert not (np.all(unwrapped_R > 0) and np.all(unwrapped_R < 1))
 
 if __name__ == '__main__':

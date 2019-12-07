@@ -26,7 +26,7 @@ config.update("jax_enable_x64", True)
 
 import jax.numpy as np
 from jax import jit
-from jax_md import space, energy, minimize, quantity, smap
+from jax_md import space, energy, minimize, quantity, smap, partition
 from jax_md.util import f32, i32
 
 def main(unused_argv):
@@ -39,6 +39,8 @@ def main(unused_argv):
 
   # Create helper functions to define a periodic box of some size.
   displacement, shift = space.periodic(box_size)
+
+  metric = space.metric(displacement)
 
   # Use JAX's random number generator to generate random initial positions.
   key, split = random.split(key)
@@ -74,6 +76,11 @@ def main(unused_argv):
       print('{:.2f}\t{:.2f}\t{:.2f}'.format(
           step, energy_fn(R), np.max(force_fn(R))))
 
+  verlet_list_fn = partition.verlet_list(metric, box_size, 2., R)
+  idx = verlet_list_fn(R)
+  print(idx.shape)
+  print(idx)
+  print(np.mean(idx == idx.shape[0]))
 
 if __name__ == '__main__':
   app.run(main)
