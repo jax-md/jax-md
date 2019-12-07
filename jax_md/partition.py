@@ -337,7 +337,7 @@ def cell_list(
   return build_cells
 
 
-def verlet_list(
+def neighbor_list(
     displacement, box_size, cutoff, example_R, buffer_size_multiplier=1.1,
     cell_size=None, **static_kwargs):
   """Returns a function that builds a list neighbors for each point.
@@ -366,7 +366,7 @@ def verlet_list(
   Returns:
     An ndarray of shape [point_count, maximum_neighbors_per_point] of ids
     specifying points in the neighborhood of each point. Empty elements are
-    given an id = point_count. 
+    given an id = point_count.
   """
 
   cutoff_sq = cutoff ** 2
@@ -378,7 +378,7 @@ def verlet_list(
   cell_list_fn = cell_list(
     box_size, cell_size, example_R, buffer_size_multiplier)
 
-  def verlet_list_candidate_fn(R, **kwargs):
+  def neighbor_list_candidate_fn(R, **kwargs):
     cl = cell_list_fn(R)
 
     N, dim = R.shape
@@ -386,17 +386,16 @@ def verlet_list(
     R = cl.R_buffer
     idx = cl.id_buffer
 
-    idx_neighbors = [idx]
+    cell_idx = [idx]
 
     for dindex in _neighboring_cells(dim):
       if onp.all(dindex == 0):
         continue
-      idx_neighbors += [_shift_array(idx, dindex)]
+      cell_idx += [_shift_array(idx, dindex)]
 
-    idx_neighbors = np.concatenate(idx_neighbors, axis=-2)
-    idx_neighbors = idx_neighbors[..., np.newaxis, :, :]
-    idx_neighbors = np.broadcast_to(
-        idx_neighbors, idx.shape[:-1] + idx_neighbors.shape[-2:])
+    cell_idx = np.concatenate(cell_idx, axis=-2)
+    cell_idx = cell_idx[..., np.newaxis, :, :]
+    cell_idx = np.broadcast_to(cell_idx, idx.shape[:-1] + cell_idx.shape[-2:])
 
     def copy_values_from_cell(value, cell_value, cell_id):
       scatter_indices = np.reshape(cell_id, (-1,))
@@ -410,23 +409,23 @@ def verlet_list(
     # another sort. However, this seems possibly less efficient than just
     # computing everything.
 
-    idx_verlet_list = np.zeros((N + 1,) + idx_neighbors.shape[-2:], np.int32)
-    idx_verlet_list = copy_values_from_cell(idx_verlet_list, idx_neighbors, idx)
-    return idx_verlet_list[:-1, :, 0]
+    neighbor_idx = np.zeros((N + 1,) + cell_idx.shape[-2:], np.int32)
+    neighbor_idx = copy_values_from_cell(neighbor_idx, cell_idx, idx)
+    return neighbor_idx[:-1, :, 0]
 
   # Use the example positions to estimate the maximum occupancy of the verlet
   # list. 
   d_ex = partial(metric_sq, **static_kwargs)
   d_ex = vmap(vmap(d_ex, (None, 0)))
   N = example_R.shape[0]
-  example_idx = verlet_list_candidate_fn(example_R)
+  example_idx = neighbor_list_candidate_fn(example_R)
   example_neigh_R = example_R[example_idx]
   example_neigh_dR = d_ex(example_R, example_neigh_R)
   max_occupancy = np.max(np.sum(example_neigh_dR < cutoff, axis=1))
   max_occupancy = int(max_occupancy * buffer_size_multiplier)
 
-  def verlet_list_fn(R, **kwargs):
-    idx = verlet_list_candidate_fn(R, **kwargs)
+  def neighbor_list_fn(R, **kwargs):
+    idx = neighbor_list_candidate_fn(R, **kwargs)
 
     d = partial(metric_sq, **kwargs)
     d = vmap(vmap(d, (None, 0)))
@@ -439,6 +438,9 @@ def verlet_list(
     idx = np.take_along_axis(idx, argsort, axis=1)
     idx = idx[:, :max_occupancy]
 
+    self_mask = idx == np.reshape(np.arange(idx.shape[0]), (idx.shape[0], 1))
+    idx = np.where(self_mask, idx.shape[0], idx)
+
     return idx
 
-  return verlet_list_fn
+  return neighbor_list_fn

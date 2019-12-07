@@ -171,14 +171,14 @@ class CellListTest(jtu.JaxTestCase):
     self.assertAllClose(R_out, R, True)
     self.assertAllClose(side_data_out, side_data, True)
 
-class VerletListTest(jtu.JaxTestCase):
+class NeighborListTest(jtu.JaxTestCase):
   @parameterized.named_parameters(jtu.cases_from_list(
       {
           'testcase_name': '_dtype={}_dim={}'.format(dtype.__name__, dim),
           'dtype': dtype,
           'dim': dim,
       } for dtype in POSITION_DTYPE for dim in SPATIAL_DIMENSION))
-  def test_verlet_list_build(self, dtype, dim):
+  def test_neighbor_list_build(self, dtype, dim):
     key = random.PRNGKey(1)
 
     box_size = (
@@ -191,9 +191,10 @@ class VerletListTest(jtu.JaxTestCase):
 
     R = box_size * random.uniform(key, (PARTICLE_COUNT, dim), dtype=dtype)
     N = R.shape[0]
-    verlet_list_fn = partition.verlet_list(displacement, box_size, cutoff, R)
+    neighbor_list_fn = partition.neighbor_list(
+      displacement, box_size, cutoff, R)
 
-    idx = verlet_list_fn(R)
+    idx = neighbor_list_fn(R)
     R_neigh = R[idx]
     mask = idx < N
 
@@ -224,7 +225,7 @@ class VerletListTest(jtu.JaxTestCase):
           'dtype': dtype,
           'dim': dim,
       } for dtype in POSITION_DTYPE for dim in SPATIAL_DIMENSION))
-  def disabled_test_verlet_list_build_time_dependent(self, dtype, dim):
+  def disabled_test_neighbor_list_build_time_dependent(self, dtype, dim):
     key = random.PRNGKey(1)
 
     if dim == 2:
@@ -244,10 +245,10 @@ class VerletListTest(jtu.JaxTestCase):
 
     R = random.uniform(key, (PARTICLE_COUNT, dim), dtype=dtype)
     N = R.shape[0]
-    verlet_list_fn = partition.verlet_list(metric, 1., cutoff, R,
-                                           cell_size=cell_size, t=f32(0.))
+    neighbor_list_fn = partition.neighbor_list(metric, 1., cutoff, R,
+                                               cell_size=cell_size, t=f32(0.))
 
-    idx = verlet_list_fn(R, t=0.25)
+    idx = neighbor_list_fn(R, t=0.25)
     R_neigh = R[idx]
     mask = idx < N
 
