@@ -1,6 +1,9 @@
-# JAX, M.D.
+# JAX, M.D. [[arXiv](https://arxiv.org/abs/1912.04232)]
 
-# Accelerated, Differentiable, Molecular Dynamics
+Accelerated, Differentiable, Molecular Dynamics
+
+[![Build Status](https://travis-ci.org/google/jax-md.svg?branch=master)](https://travis-ci.org/google/jax-md) [![PyPI](https://img.shields.io/pypi/v/jax-md)](https://pypi.org/project/jax-md/) [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/jax-md)](https://pypi.org/project/jax-md/) [![PyPI - License](https://img.shields.io/pypi/l/jax_md)](https://github.com/google/jax-md/blob/master/LICENSE)
+
 
 Molecular dynamics is a workhorse of modern computational condensed matter
 physics. It is frequently used to simulate materials to observe how small scale
