@@ -9,4 +9,4 @@ install:
   - git clone https://github.com/google/jax-md
   - pip install -e jax-md
 script:
-  - for f in jax-md/tests/*.py; do python $f; done
+  - for f in jax-md/tests/*.py; do python $f --jax_enable_x64; done
