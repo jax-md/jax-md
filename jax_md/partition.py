@@ -337,9 +337,30 @@ def cell_list(
   return build_cells
 
 
+def _displacement_or_metric_to_metric_sq(displacement_or_metric):
+  """Checks whether or not a displacement or metric was provided."""
+  for dim in range(1, 4):
+    try:
+      R = ShapedArray((dim,), f32)
+      dR_or_dr = eval_shape(displacement_or_metric, R, R, t=0)
+      if len(dR_or_dr.shape) == 0:
+        return lambda Ra, Rb, **kwargs: \
+          displacement_or_metric(Ra, Rb, **kwargs) ** 2
+      else:
+        return lambda Ra, Rb, **kwargs: space.square_distance(
+          displacement_or_metric(Ra, Rb, **kwargs))
+    except TypeError:
+      continue
+    except ValueError:
+      continue
+  raise ValueError(
+    'Canonicalize displacement not implemented for spatial dimension larger'
+    'than 4.')
+
+
 def neighbor_list(
-    displacement, box_size, cutoff, example_R, buffer_size_multiplier=1.1,
-    cell_size=None, **static_kwargs):
+    displacement_or_metric, box_size, cutoff, example_R,
+    buffer_size_multiplier=1.1, cell_size=None, **static_kwargs):
   """Returns a function that builds a list neighbors for each point.
 
   Since XLA requires fixed shape, we use example point configurations to
@@ -368,10 +389,10 @@ def neighbor_list(
     specifying points in the neighborhood of each point. Empty elements are
     given an id = point_count.
   """
+  box_size = f32(box_size)
 
   cutoff_sq = cutoff ** 2
-  metric_sq = lambda Ra, Rb, **kwargs: space.square_distance(
-    displacement(Ra, Rb, **kwargs))
+  metric_sq = _displacement_or_metric_to_metric_sq(displacement_or_metric)
 
   if cell_size is None:
     cell_size = cutoff

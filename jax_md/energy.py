@@ -22,7 +22,7 @@ from functools import wraps
 
 import jax.numpy as np
 
-from jax_md import space, smap
+from jax_md import space, smap, partition
 from jax_md.interpolate import spline
 from jax_md.util import *
 
@@ -92,33 +92,31 @@ def soft_sphere_pair(
       alpha=alpha)
 
 
-def soft_sphere_cell_list(
+def soft_sphere_neighbor_list(
     displacement_or_metric,
     box_size,
-    R_example,
+    example_R,
     species=None,
     sigma=1.0,
     epsilon=1.0,
-    alpha=2.0):
-  """Convenience wrapper to compute soft spheres using a cell list."""
+    alpha=2.0,
+    list_cutoff=1.2):
+  """Convenience wrapper to compute soft spheres using a neighbor list."""
   sigma = np.array(sigma, dtype=f32)
   epsilon = np.array(epsilon, dtype=f32)
   alpha = np.array(alpha, dtype=f32)
-
-  if species is None:
-    if sigma.shape or epsilon.shape or alpha.shape:
-      raise ValueError(
-        ('At the moment per-particle (as opposed to per-species) parameters are'
-         ' not supported using cell lists. Please open a feature request!'))
-
-  energy_fn = smap.cartesian_product(
+  list_cutoff = f32(np.max(sigma) * list_cutoff)
+  neighbor_fn = partition.neighbor_list(
+    displacement_or_metric, box_size, list_cutoff, example_R)
+  energy_fn = smap.pair_neighbor_list(
     soft_sphere,
     space.canonicalize_displacement_or_metric(displacement_or_metric),
+    species=species,
     sigma=sigma,
     epsilon=epsilon,
     alpha=alpha)
 
-  return smap.cell_list(energy_fn, box_size, np.max(sigma), R_example, species)
+  return neighbor_fn, energy_fn
 
 
 def lennard_jones(dr, sigma=f32(1), epsilon=f32(1), **unused_kwargs):
@@ -138,7 +136,9 @@ def lennard_jones(dr, sigma=f32(1), epsilon=f32(1), **unused_kwargs):
   dr = (sigma / dr) ** f32(2)
   idr6 = dr ** f32(3)
   idr12 = idr6 ** f32(2)
-  return f32(4) * epsilon * (idr12 - idr6)
+  # TODO(schsam): This seems potentially dangerous. We should do ErrorChecking
+  # here.
+  return np.nan_to_num(f32(4) * epsilon * (idr12 - idr6))
 
 
 def lennard_jones_pair(
@@ -147,8 +147,8 @@ def lennard_jones_pair(
   """Convenience wrapper to compute Lennard-Jones energy over a system."""
   sigma = np.array(sigma, dtype=f32)
   epsilon = np.array(epsilon, dtype=f32)
-  r_onset = f32(r_onset * np.max(sigma))
-  r_cutoff = f32(r_cutoff * np.max(sigma))
+  r_onste = r_onset * np.max(sigma)
+  r_cutoff = r_cutoff * np.max(sigma)
   return smap.pair(
     multiplicative_isotropic_cutoff(lennard_jones, r_onset, r_cutoff),
     space.canonicalize_displacement_or_metric(displacement_or_metric),
@@ -157,35 +157,34 @@ def lennard_jones_pair(
     epsilon=epsilon)
 
 
-def lennard_jones_cell_list(
+def lennard_jones_neighbor_list(
     displacement_or_metric,
     box_size,
-    R_example,
+    example_R,
     species=None,
     sigma=1.0,
     epsilon=1.0,
     alpha=2.0,
     r_onset=2.0,
-    r_cutoff=2.5):
-  """Convenience wrapper to compute soft spheres using a cell list."""
-  sigma = np.array(sigma, dtype=f32)
-  epsilon = np.array(epsilon, dtype=f32)
-  r_onset = f32(r_onset * np.max(sigma))
-  r_cutoff = f32(r_cutoff * np.max(sigma))
+    r_cutoff=2.5,
+    neighborlist_cutoff=3.0): # TODO(schsam) Optimize this.
+  """Convenience wrapper to compute lennard-jones using a neighbor list."""
+  sigma = np.array(sigma, f32)
+  epsilon = np.array(epsilon, f32)
+  r_onset = np.array(r_onset * np.max(sigma), f32)
+  r_cutoff = np.array(r_cutoff * np.max(sigma), f32)
+  list_cutoff = np.array(np.max(sigma) * neighborlist_cutoff, f32)
 
-  if species is None:
-    if sigma.shape or epsilon.shape:
-      raise ValueError(
-        ('At the moment per-particle (as opposed to per-species) parameters are'
-         ' not supported using cell lists. Please open a feature request!'))
-
-  energy_fn = smap.cartesian_product(
+  neighbor_fn = partition.neighbor_list(
+    displacement_or_metric, box_size, list_cutoff, example_R)
+  energy_fn = smap.pair_neighbor_list(
     multiplicative_isotropic_cutoff(lennard_jones, r_onset, r_cutoff),
     space.canonicalize_displacement_or_metric(displacement_or_metric),
+    species=species,
     sigma=sigma,
     epsilon=epsilon)
 
-  return smap.cell_list(energy_fn, box_size, r_cutoff, R_example, species)
+  return neighbor_fn, energy_fn
 
 
 def multiplicative_isotropic_cutoff(fn, r_onset, r_cutoff):

@@ -157,7 +157,7 @@ def _get_matrix_parameters(params):
   if isinstance(params, np.ndarray):
     if len(params.shape) == 1:
       # NOTE(schsam): get_parameter_matrix only supports additive parameters.
-      return params[:, np.newaxis] + params[np.newaxis, :]
+      return 0.5 * (params[:, np.newaxis] + params[np.newaxis, :])
     elif len(params.shape) == 0 or len(params.shape) == 2:
       return params
     else:
@@ -328,4 +328,101 @@ def pair(
     raise ValueError(
         'Species must be None, an ndarray, or Dynamic. Found {}.'.format(
             species))
+  return fn_mapped
+
+
+# Mapping pairwise functional forms to systems using neighbor lists.
+
+def _get_neighborhood_matrix_params(idx, params):
+  if isinstance(params, np.ndarray):
+    if len(params.shape) == 1:
+      return 0.5 * (np.reshape(params, params.shape + (1,)) + params[idx])
+    elif len(params.shape) == 0:
+      return params
+    else:
+      raise NotImplementedError()
+  elif(isinstance(params, int) or isinstance(params, float) or
+       np.issubdtype(params, np.integer) or np.issubdtype(params, np.floating)):
+    return params
+  else:
+    raise NotImplementedError 
+
+def _get_neighborhood_species_params(idx, species, params):
+  """Get parameters for interactions between species pairs."""
+  # TODO(schsam): We should do better error checking here.
+  def lookup(species_a, species_b, params):
+    return params[species_a, species_b]
+  lookup = vmap(vmap(lookup, (None, 0, None)), (0, 0, None))
+  
+  neighbor_species = np.reshape(species[idx], idx.shape)
+  if isinstance(params, np.ndarray):
+    if len(params.shape) == 2:
+      return lookup(species, neighbor_species, params)
+    elif len(params.shape) == 0:
+      return params
+    else:
+      raise ValueError(
+          'Params must be a scalar or a 2d array if using a species lookup.')
+  return params
+
+def _neighborhood_kwargs_to_params(idx, species=None, **kwargs):
+  out_dict = {}
+  for k in kwargs:
+    if species is None or (
+        isinstance(kwargs[k], np.ndarray) and kwargs[k].ndim == 1):
+      out_dict[k] = _get_neighborhood_matrix_params(idx, kwargs[k])
+    else:
+      out_dict[k] = _get_neighborhood_species_params(idx, species, kwargs[k])
+  return out_dict
+
+def pair_neighbor_list(
+    fn, metric, species=None, reduce_axis=None, keepdims=False, **kwargs):
+  """Promotes a function a pair of particles to one using neighbor lists.
+
+  Args:
+    fn: A function that takes an ndarray of pairwise distances or displacements
+      of shape [n, m] or [n, m, d_in] respectively as well as kwargs specifying
+      parameters for the function. fn returns an ndarray of evaluations of shape
+      [n, m, d_out].
+    metric: A function that takes two ndarray of positions of shape
+      [spatial_dimension] and [spatial_dimension] respectively and returns
+      an ndarray of distances or displacements of shape [] or [d_in]
+      respectively. The metric can optionally take a floating point time as a
+      third argument.
+    species: A list of species for the different particles. This should either
+      be None (in which case it is assumed that all the particles have the same
+      species), an integer ndarray of shape [n] with species data, or Dynamic
+      in which case the species data will be specified dynamically. Note: that
+      dynamic species specification is less efficient, because we cannot
+      specialize shape information.
+    reduce_axis: A list of axes to reduce over. This is supplied to np.sum and
+      so the same convention is used.
+    keepdims: A boolean specifying whether the empty dimensions should be kept
+      upon reduction. This is supplied to np.sum and so the same convention is
+      used.
+    kwargs: Arguments providing parameters to the mapped function. In cases
+      where no species information is provided these should be either 1) a
+      scalar, 2) an ndarray of shape [n], 3) an ndarray of shape [n, n]. If
+      species information is provided then the parameters should be specified as
+      either 1) a scalar or 2) an ndarray of shape [max_species, max_species].
+
+  Returns:
+    A function fn_mapped that takes an ndarray of floats of shape [N, d_in] of
+    positions and and ndarray of integers of shape [N, max_neighbors]
+    specifying neighbors.
+  """
+  def fn_mapped(R, neighbor_idx, **dynamic_kwargs):
+    d = partial(metric, **dynamic_kwargs)
+    d = vmap(vmap(d, (None, 0)))
+    mask = neighbor_idx != R.shape[0]
+    R_neigh = R[neighbor_idx]
+    dR = d(R, R_neigh)
+    merged_kwargs = _neighborhood_kwargs_to_params(neighbor_idx, species,
+        **merge_dicts(kwargs, dynamic_kwargs))
+    out = fn(dR, **merged_kwargs)
+    if out.ndim > mask.ndim:
+      ddim = out.ndim - mask.ndim
+      mask = np.reshape(mask, mask.shape + (1,) * ddim)
+    out = fn(dR, **merged_kwargs) * mask
+    return _high_precision_sum(out, reduce_axis, keepdims) / 2.
   return fn_mapped
