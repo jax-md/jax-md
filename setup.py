@@ -14,6 +14,10 @@
 # ==============================================================================
 import setuptools
 
+# https://packaging.python.org/guides/making-a-pypi-friendly-readme/
+this_directory = os.path.abspath(os.path.dirname(__file__))
+with io.open(os.path.join(this_directory, 'README.md'), encoding='utf-8') as f:
+  long_description = f.read()
 
 INSTALL_REQUIRES = [
     'absl-py',
@@ -30,5 +34,27 @@ setuptools.setup(
     author_email='jax-md-dev@google.com',
     install_requires=INSTALL_REQUIRES,
     url='https://github.com/google/jax-md',
-    packages=setuptools.find_packages()
-    )
+    packages=setuptools.find_packages(),
+    download_url = "https://pypi.org/project/jax-md/",
+    project_urls={
+        "Source Code": "https://github.com/google/jax-md",
+        "Documentation": "https://arxiv.org/abs/1912.04232",
+        "Bug Tracker": "https://github.com/google/jax-md/issues",
+    },
+    long_description=long_description,
+    long_description_content_type='text/markdown',
+    description='Differentiable, Hardware Accelerated, Molecular Dynamics',
+    python_requires='>=2.7',
+    classifiers=[
+        'Programming Language :: Python :: 2.7',
+        'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
+        'License :: OSI Approved :: Apache Software License',
+        'Operating System :: MacOS',
+        'Operating System :: POSIX :: Linux',
+        'Topic :: Software Development',
+        'Topic :: Scientific/Engineering',
+        'Intended Audience :: Science/Research',
+        'Intended Audience :: Developers',
+    ])
