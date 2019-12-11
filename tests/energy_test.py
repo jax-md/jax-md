@@ -206,7 +206,7 @@ class EnergyTest(jtu.JaxTestCase):
           'spatial_dimension': dim,
           'dtype': dtype,
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
-  def disabled_test_soft_sphere_cell_list_energy(self, spatial_dimension, dtype):
+  def test_soft_sphere_neighbor_list_energy(self, spatial_dimension, dtype):
     key = random.PRNGKey(1)
 
     box_size = f32(15.0)
@@ -215,11 +215,14 @@ class EnergyTest(jtu.JaxTestCase):
 
     R = box_size * random.uniform(
       key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
-    energy_fn = energy.soft_sphere_cell_list(displacement, box_size, R)
+    neighbor_fn, energy_fn = energy.soft_sphere_neighbor_list(
+      displacement, box_size, R)
+
+    idx = neighbor_fn(R)
 
     self.assertAllClose(
       np.array(exact_energy_fn(R), dtype=dtype),
-      energy_fn(R), True)
+      energy_fn(R, idx), True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -227,21 +230,24 @@ class EnergyTest(jtu.JaxTestCase):
           'spatial_dimension': dim,
           'dtype': dtype,
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
-  def disabled_test_lennard_jones_cell_list_energy(self, spatial_dimension, dtype):
+  def test_lennard_jones_cell_neighbor_list_energy(
+      self, spatial_dimension, dtype):
     key = random.PRNGKey(1)
 
-    box_size = f32(15.0)
+    box_size = f32(15)
     displacement, _ = space.periodic(box_size)
     metric = space.metric(displacement)
     exact_energy_fn = energy.lennard_jones_pair(displacement)
 
     R = box_size * random.uniform(
       key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
-    energy_fn = energy.lennard_jones_cell_list(displacement, box_size, R)
+    neighbor_fn, energy_fn = energy.lennard_jones_neighbor_list(
+      displacement, box_size, R)
 
+    idx = neighbor_fn(R)
     self.assertAllClose(
       np.array(exact_energy_fn(R), dtype=dtype),
-      energy_fn(R), True)
+      energy_fn(R, idx), True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -249,7 +255,7 @@ class EnergyTest(jtu.JaxTestCase):
           'spatial_dimension': dim,
           'dtype': dtype,
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
-  def disabled_test_lennard_jones_cell_list_force(self, spatial_dimension, dtype):
+  def test_lennard_jones_neighbor_list_force(self, spatial_dimension, dtype):
     key = random.PRNGKey(1)
 
     box_size = f32(15.0)
@@ -259,12 +265,14 @@ class EnergyTest(jtu.JaxTestCase):
 
     R = box_size * random.uniform(
       key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
-    force_fn = quantity.force(
-      energy.lennard_jones_cell_list(displacement, box_size, R))
+    neighbor_fn, energy_fn = energy.lennard_jones_neighbor_list(
+      displacement, box_size, R)
+    force_fn = quantity.force(energy_fn)
 
+    idx = neighbor_fn(R)
     self.assertAllClose(
       np.array(exact_force_fn(R), dtype=dtype),
-      force_fn(R), True)
+      force_fn(R, idx), True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {

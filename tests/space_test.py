@@ -354,7 +354,7 @@ class SpaceTest(jtu.JaxTestCase):
 
     tol = 1e-13
     if dtype is f32:
-      tol = 1e-5
+      tol = 2e-5
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split_R, split_T = random.split(key, 3)

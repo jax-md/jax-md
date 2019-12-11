@@ -31,7 +31,7 @@ from jax.api import grad
 from jax import test_util as jtu
 from jax import jit, vmap
 
-from jax_md import smap, space, energy, quantity
+from jax_md import smap, space, energy, quantity, partition
 from jax_md.util import *
 
 jax_config.parse_flags_with_absl()
@@ -41,6 +41,8 @@ FLAGS = jax_config.FLAGS
 PARTICLE_COUNT = 1000
 STOCHASTIC_SAMPLES = 10
 SPATIAL_DIMENSION = [2, 3]
+
+NEIGHBOR_LIST_PARTICLE_COUNT = 100
 
 if FLAGS.jax_enable_x64:
   POSITION_DTYPE = [f32, f64]
@@ -226,7 +228,7 @@ class SMapTest(jtu.JaxTestCase):
 
   def test_get_matrix_parameters(self):
     params = np.array([1.0, 2.0])
-    params_mat_test = np.array([[2.0, 3.0], [3.0, 4.0]])
+    params_mat_test = np.array([[1.0, 1.5], [1.5, 2.0]])
     params_mat = smap._get_matrix_parameters(params)
     self.assertAllClose(params_mat, params_mat_test, True)
 
@@ -284,7 +286,7 @@ class SMapTest(jtu.JaxTestCase):
       R = random.uniform(
         split1, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
       epsilon = random.uniform(split2, (PARTICLE_COUNT,), dtype=dtype)
-      mat_epsilon = epsilon[:, np.newaxis] + epsilon[np.newaxis, :]
+      mat_epsilon = 0.5 * (epsilon[:, np.newaxis] + epsilon[np.newaxis, :])
       self.assertAllClose(
         mapped_square(R, epsilon=epsilon),
         np.array(0.5 * np.sum(
@@ -511,6 +513,151 @@ class SMapTest(jtu.JaxTestCase):
           total = total + 0.5 * np.sum(square(disp(R_1, R_2), param))
       self.assertAllClose(
         mapped_square(R, species, 2), np.array(total, dtype=dtype), True)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_pair_neighbor_list_scalar(
+      self, spatial_dimension, dtype):
+    key = random.PRNGKey(0)
+
+    def truncated_square(dr, sigma):
+      return np.where(dr < sigma, dr ** 2, f32(0.))
+
+    tol = 2e-10 if dtype == np.float32 else None
+
+    N = NEIGHBOR_LIST_PARTICLE_COUNT
+    box_size = 4. * N ** (1. / spatial_dimension)
+
+    key, split = random.split(key)
+    disp, _ = space.periodic(box_size)
+    d = space.metric(disp)
+
+    neighbor_square = jit(smap.pair_neighbor_list(truncated_square, d))
+    mapped_square = jit(smap.pair(truncated_square, d))
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = box_size * random.uniform(
+        split, (N, spatial_dimension), dtype=dtype)
+      sigma = random.uniform(key, (), minval=0.5, maxval=2.5)
+      neighbor_fn = jit(partition.neighbor_list(disp, box_size, sigma, R))
+      idx = neighbor_fn(R)
+      self.assertAllClose(mapped_square(R, sigma=sigma),
+                          neighbor_square(R, idx, sigma=sigma), True, tol, tol)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_pair_neighbor_list_scalar_params_no_species(
+      self, spatial_dimension, dtype):
+    key = random.PRNGKey(0)
+
+    def truncated_square(dr, sigma):
+      return np.where(dr < sigma, dr ** 2, f32(0.))
+
+    tol = 2e-10 if dtype == np.float32 else None
+
+    N = NEIGHBOR_LIST_PARTICLE_COUNT
+    box_size = 2. * N ** (1. / spatial_dimension)
+
+    key, split = random.split(key)
+    disp, _ = space.periodic(box_size)
+    d = space.metric(disp)
+
+    neighbor_square = jit(smap.pair_neighbor_list(truncated_square, d))
+    mapped_square = jit(smap.pair(truncated_square, d))
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = box_size * random.uniform(split, (N, spatial_dimension), dtype=dtype)
+      sigma = random.uniform(key, (N,), minval=0.5, maxval=1.5)
+      neighbor_fn = jit(
+        partition.neighbor_list(disp, box_size, np.max(sigma), R))
+      idx = neighbor_fn(R)
+      self.assertAllClose(mapped_square(R, sigma=sigma),
+                          neighbor_square(R, idx, sigma=sigma), True, tol, tol)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_pair_neighbor_list_scalar_params_species(
+      self, spatial_dimension, dtype):
+    key = random.PRNGKey(0)
+
+    def truncated_square(dr, sigma):
+      return np.where(dr < sigma, dr ** 2, f32(0.))
+
+    tol = 2e-10 if dtype == np.float32 else None
+
+    N = NEIGHBOR_LIST_PARTICLE_COUNT
+    box_size = 2. * N ** (1. / spatial_dimension)
+    species = np.zeros((N,), np.int32)
+    species = np.where(np.arange(N) > N / 3, 1, species)
+    species = np.where(np.arange(N) > 2 * N / 3, 2, species)
+
+    key, split = random.split(key)
+    disp, _ = space.periodic(box_size)
+    d = space.metric(disp)
+
+    neighbor_square = jit(
+      smap.pair_neighbor_list(truncated_square, d, species=species))
+    mapped_square = jit(smap.pair(truncated_square, d, species=species))
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = box_size * random.uniform(split, (N, spatial_dimension), dtype=dtype)
+      sigma = random.uniform(key, (3, 3), minval=0.5, maxval=1.5)
+      sigma = 0.5 * (sigma + sigma.T)
+      neighbor_fn = jit(
+        partition.neighbor_list(disp, box_size, np.max(sigma), R))
+      idx = neighbor_fn(R)
+      self.assertAllClose(mapped_square(R, sigma=sigma),
+                          neighbor_square(R, idx, sigma=sigma), True, tol, tol)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_pair_neighbor_list_vector(self, spatial_dimension, dtype):
+    key = random.PRNGKey(0)
+
+    def truncated_square(dR, sigma):
+      dr = np.reshape(space.distance(dR), dR.shape[:-1] + (1,))
+      return np.where(dr < sigma, dR ** 2, f32(0.))
+
+    tol = 5e-6 if dtype == np.float32 else 1e-14
+
+    N = PARTICLE_COUNT
+    box_size = 2. * N ** (1. / spatial_dimension)
+
+    key, split = random.split(key)
+    disp, _ = space.periodic(box_size)
+
+    neighbor_square = jit(smap.pair_neighbor_list(
+      truncated_square, disp, reduce_axis=(1,)))
+    mapped_square = jit(smap.pair(truncated_square, disp, reduce_axis=(1,)))
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = box_size * random.uniform(
+        split, (N, spatial_dimension), dtype=dtype)
+      sigma = random.uniform(key, (), minval=0.5, maxval=1.5)
+      neighbor_fn = jit(partition.neighbor_list(disp, box_size, sigma, R))
+      idx = neighbor_fn(R)
+      self.assertAllClose(mapped_square(R, sigma=sigma),
+                          neighbor_square(R, idx, sigma=sigma), True, tol, tol)
 
 if __name__ == '__main__':
   absltest.main()

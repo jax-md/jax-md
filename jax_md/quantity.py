@@ -94,7 +94,7 @@ def canonicalize_mass(mass):
 def pair_correlation(displacement_or_metric, rs, sigma):
   metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
 
-  sigma = f32(sigma)
+  sigma = np.array(sigma, f32)
   # NOTE(schsam): This seems rather harmless, but possibly something to look at
   rs = np.array(rs + 1e-7, f32)
 
@@ -108,7 +108,6 @@ def pair_correlation(displacement_or_metric, rs, sigma):
     dim = R.shape[1]
     exp = np.exp(-f32(0.5) * (dr[:, :, np.newaxis] - rs) ** 2 / sigma ** 2)
     e = np.exp(dr / sigma ** 2)
-    print('{} {} {}'.format(dr.dtype, exp.dtype, e.dtype))
     gaussian_distances = exp / np.sqrt(2 * np.pi * sigma ** 2)
     return np.mean(gaussian_distances, axis=1) / rs ** (dim - 1)
   return compute_fun
