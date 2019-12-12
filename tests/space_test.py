@@ -39,8 +39,6 @@ from functools import partial
 jax_config.parse_flags_with_absl()
 FLAGS = jax_config.FLAGS
 
-#update_test_tolerance(1e-5, 1e-13)
-
 PARTICLE_COUNT = 10
 STOCHASTIC_SAMPLES = 10
 SHIFT_STEPS = 10

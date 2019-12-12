@@ -30,6 +30,7 @@ import numpy as onp
 from jax.api import grad
 from jax_md import space
 from jax_md.util import *
+from jax_md.test_util import update_test_tolerance
 from jax_md import quantity
 
 from jax import test_util as jtu
