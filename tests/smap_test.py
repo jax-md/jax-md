@@ -590,6 +590,42 @@ class SMapTest(jtu.JaxTestCase):
           'spatial_dimension': dim,
           'dtype': dtype
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_pair_neighbor_list_scalar_params_matrix(
+      self, spatial_dimension, dtype):
+    key = random.PRNGKey(0)
+
+    def truncated_square(dr, sigma):
+      return np.where(dr < sigma, dr ** 2, f32(0.))
+
+    tol = 2e-10 if dtype == np.float32 else None
+
+    N = NEIGHBOR_LIST_PARTICLE_COUNT
+    box_size = 2. * N ** (1. / spatial_dimension)
+
+    key, split = random.split(key)
+    disp, _ = space.periodic(box_size)
+    d = space.metric(disp)
+
+    neighbor_square = jit(smap.pair_neighbor_list(truncated_square, d))
+    mapped_square = jit(smap.pair(truncated_square, d))
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = box_size * random.uniform(split, (N, spatial_dimension), dtype=dtype)
+      sigma = random.uniform(key, (N, N), minval=0.5, maxval=1.5)
+      sigma = 0.5 * (sigma + sigma.T)
+      neighbor_fn = jit(
+        partition.neighbor_list(disp, box_size, np.max(sigma), R))
+      idx = neighbor_fn(R)
+      self.assertAllClose(mapped_square(R, sigma=sigma),
+                          neighbor_square(R, idx, sigma=sigma), True, tol, tol)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
   def test_pair_neighbor_list_scalar_params_species(
       self, spatial_dimension, dtype):
     key = random.PRNGKey(0)

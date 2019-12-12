@@ -337,6 +337,11 @@ def _get_neighborhood_matrix_params(idx, params):
   if isinstance(params, np.ndarray):
     if len(params.shape) == 1:
       return 0.5 * (np.reshape(params, params.shape + (1,)) + params[idx])
+    elif len(params.shape) == 2:
+      def query(id_a, id_b):
+        return params[id_a, id_b]
+      query = vmap(vmap(query, (None, 0)))
+      return query(np.arange(idx.shape[0], dtype=np.int32), idx)
     elif len(params.shape) == 0:
       return params
     else:
@@ -353,7 +358,7 @@ def _get_neighborhood_species_params(idx, species, params):
   def lookup(species_a, species_b, params):
     return params[species_a, species_b]
   lookup = vmap(vmap(lookup, (None, 0, None)), (0, 0, None))
-  
+
   neighbor_species = np.reshape(species[idx], idx.shape)
   if isinstance(params, np.ndarray):
     if len(params.shape) == 2:
