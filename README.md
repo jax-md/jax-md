@@ -51,7 +51,7 @@ pip install -e jax-md
 
 We now summarize the main components of the library.
 
-## Spaces (`space.py`)
+## Spaces ([`space.py`](https://github.com/google/jax-md/blob/master/jax_md/space.py))
 
 In general we must have a way of computing the pairwise distance between atoms.
 We must also have efficient strategies for moving atoms in some space that may
@@ -71,7 +71,7 @@ box_size = 25.0
 displacement_fn, shift_fn = space.periodic(box_size)
 ```
 
-## Potential Energy (`energy.py`)
+## Potential Energy ([`energy.py`](https://github.com/google/jax-md/blob/master/jax_md/energy.py))
 
 In the simplest case, molecular dynamics calculations are often based on a pair
 potential that is defined by a user. This then is used to compute a total energy
@@ -101,7 +101,7 @@ force_fn = quantity.force(energy_fn)
 print('Total Squared Force = {}'.format(np.sum(force_fn(R) ** 2)))
 ```
 
-## Dynamics (`simulate.py`, `minimize.py`)
+## Dynamics ([`simulate.py`](https://github.com/google/jax-md/blob/master/jax_md/simulate.py), [`minimize.py`](https://github.com/google/jax-md/blob/master/jax_md/minimize.py))
 
 Given an energy function and a system, there are a number of dynamics are useful
 to simulate. The simulation code is based on the structure of the optimizers
@@ -140,11 +140,15 @@ for _ in range(100):
 R = state.positions
 ```
 
-## Spatial Partitioning (`partition.py`)
+## Spatial Partitioning ([`partition.py`](https://github.com/google/jax-md/blob/master/jax_md/partition.py))
 
-In many applications, it is useful to construct spatial partitions of particles / objects in a simulation. We provide two helper functions to do this: a `cell_list` function that partitions objects into a grid of cells and a `neighbor_list` function that constructs a set of neighbors within some cutoff distance for each object in a simulation. 
+In many applications, it is useful to construct spatial partitions of particles / objects in a simulation. 
 
-Example:
+We provide the following methods:
+- `partition.cell_list` Partitions objects (and metadata) into a grid of cells. 
+- `partition.neighbor_list` Constructs a set of neighbors within some cutoff distance for each object in a simulation. 
+
+Cell List Example:
 ```python
 from jax_md import partition
 
@@ -152,6 +156,16 @@ cell_list_fn = partition.cell_list(box_size, cell_size, capacity)
 cell_list_data = cell_list_fn(R)
 ```
 
+Neighbor List Example:
+```python
+from jax_md import partition
+
+neighbor_list_fn = partition.neighbor_list(displacement, box_size, cell_size, R)
+neighbor_idx = neighbor_list_fn(R) 
+
+# neighbor_idx is a [N, max_neighbors] ndarray of neighbor ids for each particle.
+# Empty slots are marked by id == N.
+```
 # Development
 
 JAX MD is under active development. We have very limited development resources and so we typically focus on adding features that will have high impact to researchers using JAX MD (including us). Please don't hesitate to open feature requests to help us guide development. We more than welcome contributions!
