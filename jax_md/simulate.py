@@ -357,7 +357,7 @@ def nvt_langevin(
 
   T_schedule = interpolate.canonicalize(T_schedule)
 
-  def init_fn(key, R, mass=f32(1), T_initial=f32(1)):
+  def init_fn(key, R, mass=f32(1), T_initial=f32(1), **kwargs):
     mass = quantity.canonicalize_mass(mass)
 
     key, split = random.split(key)
@@ -365,7 +365,7 @@ def nvt_langevin(
     V = np.sqrt(T_initial / mass) * random.normal(split, R.shape, dtype=R.dtype)
     V = V - np.mean(V, axis=0, keepdims=True)
 
-    return NVTLangevinState(R, V, force_fn(R, t=f32(0)), mass, key)
+    return NVTLangevinState(R, V, force_fn(R, t=f32(0), **kwargs), mass, key)
 
   def apply_fn(state, t=f32(0), **kwargs):
     R, V, F, mass, key = state
