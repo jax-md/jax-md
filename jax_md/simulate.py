@@ -96,10 +96,10 @@ def nve(energy_or_force, shift_fn, dt, quant=quantity.Energy):
 
   dt, = static_cast(dt)
   dt_2, = static_cast(0.5 * dt ** 2)
-  def init_fun(key, R, velocity_scale=f32(1.0), mass=f32(1.0)):
+  def init_fun(key, R, velocity_scale=f32(1.0), mass=f32(1.0), **kwargs):
     V = np.sqrt(velocity_scale) * random.normal(key, R.shape, dtype=R.dtype)
     mass = quantity.canonicalize_mass(mass)
-    return NVEState(R, V, force(R) / mass, mass)
+    return NVEState(R, V, force(R, **kwargs) / mass, mass)
   def apply_fun(state, t=f32(0), **kwargs):
     R, V, A, mass = state
     R = shift_fn(R, V * dt + A * dt_2, t=t, **kwargs)
