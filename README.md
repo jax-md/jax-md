@@ -183,7 +183,6 @@ To enable 64-bit precision, set the respective JAX flag _before_ importing `neur
 ```python
 from jax.config import config
 config.update("jax_enable_x64", True)
-import neural_tangents as nt  # 64-bit precision enabled
 ```
 
 # Citation
