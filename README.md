@@ -178,7 +178,7 @@ You must follow [JAX's](https://www.github.com/google/jax/) GPU installation ins
 
 
 ### 64-bit precision
-To enable 64-bit precision, set the respective JAX flag _before_ importing `neural_tangents` (see the JAX [guide](https://colab.research.google.com/github/google/jax/blob/master/notebooks/Common_Gotchas_in_JAX.ipynb#scrollTo=YTktlwTTMgFl)), for example:
+To enable 64-bit precision, set the respective JAX flag _before_ importing `jax_md` (see the JAX [guide](https://colab.research.google.com/github/google/jax/blob/master/notebooks/Common_Gotchas_in_JAX.ipynb#scrollTo=YTktlwTTMgFl)), for example:
 
 ```python
 from jax.config import config
