@@ -428,6 +428,6 @@ def pair_neighbor_list(
     if out.ndim > mask.ndim:
       ddim = out.ndim - mask.ndim
       mask = np.reshape(mask, mask.shape + (1,) * ddim)
-    out = fn(dR, **merged_kwargs) * mask
+    out = out * mask
     return _high_precision_sum(out, reduce_axis, keepdims) / 2.
   return fn_mapped
