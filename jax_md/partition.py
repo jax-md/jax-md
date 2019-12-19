@@ -82,14 +82,19 @@ def _cell_dimensions(spatial_dimension, box_size, minimum_cell_size):
   cells_per_side = np.array(cells_per_side, dtype=np.int64)
 
   if isinstance(box_size, np.ndarray):
-    flat_cells_per_side = np.reshape(cells_per_side, (-1,))
-    for cells in flat_cells_per_side:
-      if cells < 3:
-        raise ValueError(
+    if box_size.ndim == 1 or box_size.ndim == 2:
+      assert box_size.size == spatial_dimension
+      flat_cells_per_side = np.reshape(cells_per_side, (-1,))
+      for cells in flat_cells_per_side:
+        if cells < 3:
+          raise ValueError(
             ('Box must be at least 3x the size of the grid spacing in each '
              'dimension.'))
-
-    cell_count = reduce(mul, flat_cells_per_side, 1)
+      cell_count = reduce(mul, flat_cells_per_side, 1)
+    elif box_size.ndim == 0:
+      cell_count = cells_per_side ** spatial_dimension
+    else:
+      raise ValueError('Box must either be a scalar or a vector.')
   else:
     cell_count = cells_per_side ** spatial_dimension
 
@@ -442,7 +447,8 @@ def neighbor_list(
   example_idx = neighbor_list_candidate_fn(example_R)
   example_neigh_R = example_R[example_idx]
   example_neigh_dR = d_ex(example_R, example_neigh_R)
-  max_occupancy = np.max(np.sum(example_neigh_dR < cutoff, axis=1))
+  mask = np.logical_and(example_neigh_dR < cutoff_sq, example_idx < N)
+  max_occupancy = np.max(np.sum(mask, axis=1))
   max_occupancy = int(max_occupancy * buffer_size_multiplier)
 
   def neighbor_list_fn(R, **kwargs):
