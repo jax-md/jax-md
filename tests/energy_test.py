@@ -114,6 +114,32 @@ def make_eam_test_splines():
 
 class EnergyTest(jtu.JaxTestCase):
 
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION
+    for dtype in POSITION_DTYPE))
+  def test_simple_spring(self, spatial_dimension, dtype):
+    key = random.PRNGKey(0)
+    disp, _ = space.free()
+    if spatial_dimension == 2:
+      R = np.array([[0., 0.], [1., 1.]], dtype=dtype)
+      dist = np.sqrt(2.)
+    elif spatial_dimension == 3:
+      R = np.array([[0., 0., 0.], [1., 1., 1.]], dtype=dtype)
+      dist = np.sqrt(3.)
+    bonds = np.array([[0, 1]], np.int32)
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, l_key, a_key = random.split(key, 3)
+      length = random.uniform(key, (), minval=0.1, maxval=3.0)
+      alpha = random.uniform(key, (), minval=2., maxval=4.)
+      E = energy.simple_spring_bond(disp, bonds, length=length, alpha=alpha)
+      E_exact = dtype((dist - length) ** alpha / alpha)
+      self.assertAllClose(E(R), E_exact, True)
+
+
   # pylint: disable=g-complex-comprehension
   @parameterized.named_parameters(jtu.cases_from_list(
       {
