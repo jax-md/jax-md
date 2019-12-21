@@ -34,7 +34,7 @@ def simple_spring(
   We define `simple_spring` to be a generalized Hookian spring with
   agreement when alpha = 2.
   """
-  check_kwargs_time_dependnece(unused_kwargs)
+  check_kwargs_time_dependence(unused_kwargs)
   return epsilon / alpha * (dr - length) ** alpha
 
 
