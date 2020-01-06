@@ -80,8 +80,7 @@ def canonicalize_mass(mass):
       return np.reshape(mass, (mass.shape[0], 1))
     elif len(mass.shape) == 0:
       return mass
-  elif (isinstance(mass, f16) or
-        isinstance(mass, f32) or
+  elif (isinstance(mass, f32) or
         isinstance(mass, f64)):
     return mass
   msg = (

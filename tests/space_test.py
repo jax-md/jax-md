@@ -261,7 +261,7 @@ class SpaceTest(jtu.JaxTestCase):
     for _ in range(STOCHASTIC_SAMPLES):
       key, split1, split2, split3 = random.split(key, 4)
 
-      max_box_size = f16(10.0)
+      max_box_size = f32(10.0)
       box_size = max_box_size * random.uniform(
         split1, (spatial_dimension,), dtype=dtype)
       transform = np.diag(box_size)

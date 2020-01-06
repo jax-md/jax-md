@@ -28,7 +28,6 @@ i16 = np.int16
 i32 = np.int32
 i64 = np.int64
 
-f16 = np.float16
 f32 = np.float32
 f64 = np.float64
 

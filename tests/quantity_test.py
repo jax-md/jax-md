@@ -45,7 +45,6 @@ class QuantityTest(jtu.JaxTestCase):
 
   def test_canonicalize_mass(self):
     assert quantity.canonicalize_mass(3.0) == 3.0
-    assert quantity.canonicalize_mass(f16(3.0)) == f16(3.0)
     assert quantity.canonicalize_mass(f32(3.0)) == f32(3.0)
     assert quantity.canonicalize_mass(f64(3.0)) == f64(3.0)
 
