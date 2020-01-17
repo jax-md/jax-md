@@ -25,8 +25,8 @@ from jax.config import config as jax_config
 from jax import random
 import jax.numpy as np
 
-from jax.api import jit, grad
-from jax_md import quantity
+from jax.api import jit, grad, vmap
+from jax_md import space, quantity, test_util
 from jax_md.util import *
 
 from jax import test_util as jtu
@@ -34,6 +34,7 @@ from jax import test_util as jtu
 jax_config.parse_flags_with_absl()
 FLAGS = jax_config.FLAGS
 
+test_util.update_test_tolerance(1e-5, 2e-7)
 
 PARTICLE_COUNT = 10
 STOCHASTIC_SAMPLES = 10
@@ -64,6 +65,62 @@ class QuantityTest(jtu.JaxTestCase):
       return quantity.kinetic_energy(theta * V)
 
     grad(do_fn)(2.0)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dtype={}'.format(dtype.__name__),
+          'dtype': dtype,
+      } for dtype in DTYPES))
+  def test_cosine_angles(self, dtype):
+    displacement, _ = space.free()
+    displacement = space.map_product(displacement)
+    R = np.array(
+        [[0, 0],
+         [0, 1],
+         [1, 1]], dtype=dtype)
+    dR = displacement(R, R)
+    cangles = quantity.cosine_angles(dR)
+    c45 = 1 / np.sqrt(2)
+    true_cangles = np.array(
+        [[[0, 0, 0],
+          [0, 1, c45],
+          [0, c45, 1]],
+         [[1, 0, 0],
+          [0, 0, 0],
+          [0, 0, 1]],
+         [[1, c45, 0],
+          [c45, 1, 0],
+          [0, 0, 0]]], dtype=dtype)
+    self.assertAllClose(cangles, true_cangles, True)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dtype={}'.format(dtype.__name__),
+          'dtype': dtype,
+      } for dtype in DTYPES))
+  def test_cosine_angles_neighbors(self, dtype):
+    displacement, _ = space.free()
+    displacement = vmap(vmap(displacement, (None, 0)), 0)
+
+    R = np.array(
+        [[0, 0],
+         [0, 1],
+         [1, 1]], dtype=dtype)
+    R_neigh = np.array(
+        [[[0, 1], [1, 1]],
+         [[0, 0], [0, 0]],
+         [[0, 0], [0, 0]]], dtype=dtype)
+
+    dR = displacement(R, R_neigh)
+
+    cangles = quantity.cosine_angles(dR)
+    c45 = 1 / np.sqrt(2)
+    true_cangles = np.array(
+        [[[1, c45], [c45, 1]],
+         [[1, 1], [1, 1]],
+         [[1, 1], [1, 1]]], dtype=dtype)
+    self.assertAllClose(cangles, true_cangles, True)
+
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
