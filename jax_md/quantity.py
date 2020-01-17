@@ -18,7 +18,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from jax import grad
+from jax import grad, vmap
 import jax.numpy as np
 
 from jax_md import space
@@ -88,6 +88,29 @@ def canonicalize_mass(mass):
       'ndarray. Found {}.'.format(mass)
       )
   raise ValueError(msg)
+
+
+def cosine_angles(dR):
+  """Returns cosine of angles for all atom triplets.
+
+  Args:
+    dR: Matrix of displacements; ndarray(shape=[num_atoms, num_neighbors,
+      spatial_dim]).
+
+  Returns:
+    Tensor of cosine of angles;
+    ndarray(shape=[num_atoms, num_neighbors, num_neighbors]).
+  """
+
+  def angle_between_two_vectors(dR_12, dR_13):
+    dr_12 = space.distance(dR_12) + 1e-7
+    dr_13 = space.distance(dR_13) + 1e-7
+    cos_angle = np.dot(dR_12, dR_13) / dr_12 / dr_13
+    return np.clip(cos_angle, -1.0, 1.0)
+
+  angles_between_all_triplets = vmap(
+      vmap(vmap(angle_between_two_vectors, (0, None)), (None, 0)), 0)
+  return angles_between_all_triplets(dR, dR)
 
 
 def pair_correlation(displacement_or_metric, rs, sigma):
