@@ -314,17 +314,17 @@ class EnergyTest(jtu.JaxTestCase):
     atoms = np.array([[0, 0, 0]], dtype=dtype)
     atoms_repeated, latvec_repeated = lattice_repeater(
         atoms, latvec, num_repetitions)
-    inv_latvec = np.array(onp.linalg.inv(onp.array(latvec_repeated)))
+    inv_latvec = np.array(onp.linalg.inv(onp.array(latvec_repeated)), dtype=dtype)
     displacement, _ = space.periodic_general(latvec_repeated)
     charge_fn, embedding_fn, pairwise_fn = make_eam_test_splines()
-    assert charge_fn(dtype(1.0)).dtype == dtype
-    assert embedding_fn(dtype(1.0)).dtype == dtype
-    assert pairwise_fn(dtype(1.0)).dtype == dtype
+    assert charge_fn(np.array(1.0, dtype)).dtype == dtype
+    assert embedding_fn(np.array(1.0, dtype)).dtype == dtype
+    assert pairwise_fn(np.array(1.0, dtype)).dtype == dtype
     eam_energy = energy.eam(displacement, charge_fn, embedding_fn, pairwise_fn)
     tol = 1e-5 if dtype == np.float32 else 1e-6
     self.assertAllClose(
         eam_energy(
-            np.dot(atoms_repeated, inv_latvec)) / f32(num_repetitions ** 3),
+            np.dot(atoms_repeated, inv_latvec)) / np.array(num_repetitions ** 3, dtype),
         dtype(-3.363338), True, tol, tol)
 
 if __name__ == '__main__':

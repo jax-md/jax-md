@@ -633,7 +633,7 @@ class SMapTest(jtu.JaxTestCase):
     def truncated_square(dr, sigma):
       return np.where(dr < sigma, dr ** 2, f32(0.))
 
-    tol = 2e-10 if dtype == np.float32 else None
+    tol = 2e-6 if dtype == np.float32 else None
 
     N = NEIGHBOR_LIST_PARTICLE_COUNT
     box_size = 2. * N ** (1. / spatial_dimension)

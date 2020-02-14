@@ -292,6 +292,48 @@ class SpaceTest(jtu.JaxTestCase):
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_periodic_against_periodic_general_grad(self, spatial_dimension, dtype):
+    key = random.PRNGKey(0)
+
+    tol = 1e-13
+    if dtype is f32:
+      tol = 1e-5
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split1, split2, split3 = random.split(key, 4)
+
+      max_box_size = f32(10.0)
+      box_size = max_box_size * random.uniform(
+        split1, (spatial_dimension,), dtype=dtype)
+      transform = np.diag(box_size)
+
+      R = random.uniform(
+        split2, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+      R_scaled = R * box_size
+
+      dR = random.normal(
+        split3, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+
+      disp_fn, shift_fn = space.periodic(box_size)
+      general_disp_fn, general_shift_fn = space.periodic_general(transform)
+
+      disp_fn = space.map_product(disp_fn)
+      general_disp_fn = space.map_product(general_disp_fn)
+
+      grad_fn = grad(lambda R: np.sum(disp_fn(R, R) ** 2)) 
+      general_grad_fn = grad(lambda R: np.sum(general_disp_fn(R, R) ** 2)) 
+
+      self.assertAllClose(
+          grad_fn(R_scaled), general_grad_fn(R), True,
+          atol=tol, rtol=tol)
+      assert general_grad_fn(R).dtype == dtype
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
           'dtype': dtype,
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
   def test_periodic_general_time_dependence(self, spatial_dimension, dtype):

@@ -66,9 +66,54 @@ def _small_inverse(T):
 
   return np.linalg.inv(T)
 
+# Tempororay code to do transforms while JAX's custom_transform + vmap is
+# broken. See TODO below.
+from jax.interpreters import ad
+from jax.interpreters import batching
+from jax.abstract_arrays import raise_to_shaped
+from jax import lax
+from jax.api import _dtype
 
-@custom_transforms
+def transform_shape_rule(T, v):
+  return v.shape
+def transform_dtype_rule(T, v):
+  return v.dtype
+def transform_translation_rule(c, T, v):
+  v_dim = len(c.GetShape(v).dimensions()) - 1
+  return c.DotGeneral(v, T, (((v_dim,), (0,)), ((), ())))
+transform_p = lax.standard_primitive(
+  transform_shape_rule, transform_dtype_rule,
+  'transform', transform_translation_rule)
+def transform_batching_rule(operands, batch_dims):
+  T, v = operands
+  T_dim, v_dim = batch_dims
+
+  assert T_dim is None
+  assert v_dim == 0
+
+  return transform_p.bind(T, v), v_dim
+batching.primitive_batchers[transform_p] = transform_batching_rule
+def transform_jvp(primals, tangents):
+  T, v = primals
+  gT, gv = tangents
+  return transform_p.bind(T, v), gv
+ad.primitive_jvps[transform_p] = transform_jvp
+
 def transform(T, v):
+  T_dtype, v_dtype = _dtype(T), _dtype(v)
+  if T_dtype != v_dtype:
+    higher_dtype = lax.dtypes.promote_types(T_dtype, v_dtype)
+    if higher_dtype == v_dtype:
+      T = lax.convert_element_type(T, v_dtype)
+    else:
+      v = lax.convert_element_type(v, T_dtype)
+  return transform_p.bind(T, v)
+
+
+# TODO(schsam): Replace by a custom JVP rule rather than a full primitive
+# when JAX fixes their custom_transforms + vmap issues.
+@custom_transforms
+def _transform(T, v):
   """Apply a linear transformation, T, to a collection of vectors, v.
 
   Transform is written such that it acts as the identity during gradient
@@ -83,7 +128,7 @@ def transform(T, v):
   """
   _check_transform_shapes(T, v)
   return np.dot(v, T)
-jax.defjvp(transform, None, lambda g, ans, T, v: g)
+jax.defjvp(_transform, None, lambda g, ans, T, v: g)
 
 
 def pairwise_displacement(Ra, Rb):
