@@ -133,3 +133,8 @@ def pair_correlation(displacement_or_metric, rs, sigma):
     gaussian_distances = exp / np.sqrt(2 * np.pi * sigma ** 2)
     return np.mean(gaussian_distances, axis=1) / rs ** (dim - 1)
   return compute_fun
+
+
+def box_size_at_number_density(
+    particle_count, number_density, spatial_dimension):
+  return np.power(particle_count / number_density, 1 / spatial_dimension)
