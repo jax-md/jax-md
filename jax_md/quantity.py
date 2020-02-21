@@ -138,3 +138,7 @@ def pair_correlation(displacement_or_metric, rs, sigma):
 def box_size_at_number_density(
     particle_count, number_density, spatial_dimension):
   return np.power(particle_count / number_density, 1 / spatial_dimension)
+
+
+def bulk_modulus(elastic_tensor):
+  return np.einsum('iijj->', elastic_tensor) / elastic_tensor.shape[0] ** 2
