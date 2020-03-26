@@ -380,6 +380,10 @@ def _neighborhood_kwargs_to_params(idx, species=None, **kwargs):
       out_dict[k] = _get_neighborhood_species_params(idx, species, kwargs[k])
   return out_dict
 
+def _vectorized_cond(pred, fn, operand):
+  masked = np.where(pred, operand, 1)
+  return np.where(pred, fn(masked), 0)
+
 def pair_neighbor_list(
     fn, metric, species=None, reduce_axis=None, keepdims=False, **kwargs):
   """Promotes a function a pair of particles to one using neighbor lists.
@@ -428,6 +432,6 @@ def pair_neighbor_list(
     if out.ndim > mask.ndim:
       ddim = out.ndim - mask.ndim
       mask = np.reshape(mask, mask.shape + (1,) * ddim)
-    out = out * mask
+    out = mask * out
     return _high_precision_sum(out, reduce_axis, keepdims) / 2.
   return fn_mapped

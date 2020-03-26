@@ -205,7 +205,8 @@ class NeighborListTest(jtu.JaxTestCase):
     dR_exact = d_exact(R, R)
 
     dR = np.where(dR < cutoff, dR, f32(0)) * mask
-    dR_exact = np.where(dR_exact < cutoff, dR_exact, f32(0))
+    mask_exact = 1. - np.eye(dR_exact.shape[0])
+    dR_exact = np.where(dR_exact < cutoff, dR_exact, f32(0)) * mask_exact
 
     dR = np.sort(dR, axis=1)
     dR_exact = np.sort(dR_exact, axis=1)

@@ -29,7 +29,11 @@ import jax
 
 import jax.numpy as np
 
-from jax_md.util import *
+from jax_md.util import f32
+from jax_md.util import f64
+from jax_md.util import safe_mask
+from jax_md.util import check_kwargs_time_dependence
+from jax_md.util import check_kwargs_empty
 
 # Primitive Spatial Transforms
 
@@ -188,7 +192,8 @@ def distance(dR):
   Returns:
     Matrix of distances; ndarray(shape=[...]).
   """
-  return np.sqrt(square_distance(dR))
+  dr = square_distance(dR)
+  return safe_mask(dr > 0, np.sqrt, dr)
 
 
 def periodic_shift(side, R, dR):
