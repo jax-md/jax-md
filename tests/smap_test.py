@@ -33,10 +33,12 @@ from jax import jit, vmap
 
 from jax_md import smap, space, energy, quantity, partition
 from jax_md.util import *
+from jax_md import test_util
 
 jax_config.parse_flags_with_absl()
 FLAGS = jax_config.FLAGS
 
+test_util.update_test_tolerance(f32_tolerance=2e-6)
 
 PARTICLE_COUNT = 1000
 STOCHASTIC_SAMPLES = 10

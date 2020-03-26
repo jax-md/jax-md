@@ -24,11 +24,11 @@ import jax.numpy as np
 
 from jax_md import space, smap, partition
 from jax_md.interpolate import spline
-from jax_md.util import *
+from jax_md.util import f32
+from jax_md.util import check_kwargs_time_dependence
 
 
-def simple_spring(
-    dr, length=f32(1), epsilon=f32(1), alpha=f32(2), **unused_kwargs):
+def simple_spring(dr, length=1, epsilon=1, alpha=2, **unused_kwargs):
   """Isotropic spring potential with a given rest length.
 
   We define `simple_spring` to be a generalized Hookian spring with
@@ -54,8 +54,7 @@ def simple_spring_bond(
     alpha=alpha)
 
 
-def soft_sphere(
-    dr, sigma=f32(1.0), epsilon=f32(1.0), alpha=f32(2.0), **unused_kwargs):
+def soft_sphere(dr, sigma=1, epsilon=1, alpha=2, **unused_kwargs):
   """Finite ranged repulsive interaction between soft spheres.
 
   Args:
@@ -78,7 +77,7 @@ def soft_sphere(
 
 
 def soft_sphere_pair(
-    displacement_or_metric, species=None, sigma=1.0, epsilon=1.0, alpha=2.0): 
+    displacement_or_metric, species=None, sigma=1.0, epsilon=1.0, alpha=2.0):
   """Convenience wrapper to compute soft sphere energy over a system."""
   sigma = np.array(sigma, dtype=f32)
   epsilon = np.array(epsilon, dtype=f32)
@@ -119,7 +118,7 @@ def soft_sphere_neighbor_list(
   return neighbor_fn, energy_fn
 
 
-def lennard_jones(dr, sigma=f32(1), epsilon=f32(1), **unused_kwargs):
+def lennard_jones(dr, sigma=1, epsilon=1, **unused_kwargs):
   """Lennard-Jones interaction between particles with a minimum at sigma.
 
   Args:

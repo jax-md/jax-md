@@ -182,6 +182,8 @@ class EnergyTest(jtu.JaxTestCase):
   def test_lennard_jones(self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 
+    tol = None if dtype is np.float64 else 5e-6
+
     for _ in range(STOCHASTIC_SAMPLES):
       key, split_sigma, split_epsilon = random.split(key, 3)
       sigma = dtype(random.uniform(
@@ -193,7 +195,7 @@ class EnergyTest(jtu.JaxTestCase):
         energy.lennard_jones(dr, sigma, epsilon),
         np.array(-epsilon, dtype=dtype), True)
       g = grad(energy.lennard_jones)(dr, sigma, epsilon)
-      self.assertAllClose(g, np.array(0, dtype=dtype), True)
+      self.assertAllClose(g, np.array(0, dtype=dtype), True, tol, tol)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -290,16 +292,16 @@ class EnergyTest(jtu.JaxTestCase):
     metric = space.metric(displacement)
     exact_force_fn = quantity.force(energy.lennard_jones_pair(displacement))
 
-    R = box_size * random.uniform(
+    r = box_size * random.uniform(
       key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
     neighbor_fn, energy_fn = energy.lennard_jones_neighbor_list(
-      displacement, box_size, R)
+      displacement, box_size, r)
     force_fn = quantity.force(energy_fn)
 
-    idx = neighbor_fn(R)
+    idx = neighbor_fn(r)
     self.assertAllClose(
-      np.array(exact_force_fn(R), dtype=dtype),
-      force_fn(R, idx), True)
+      np.array(exact_force_fn(r), dtype=dtype),
+      force_fn(r, neighbor_idx=idx), True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {

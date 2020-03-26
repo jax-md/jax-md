@@ -17,9 +17,11 @@
 import jax.test_util as jtu
 import jax.numpy as np
 
-def update_test_tolerance(f32_tolerance, f64_tolerance):
-  jtu._default_tolerance[np.onp.dtype(np.onp.float32)] = f32_tolerance
-  jtu._default_tolerance[np.onp.dtype(np.onp.float64)] = f64_tolerance
+def update_test_tolerance(f32_tolerance=None, f64_tolerance=None):
+  if f32_tolerance is not None:
+    jtu._default_tolerance[np.onp.dtype(np.onp.float32)] = f32_tolerance
+  if f64_tolerance is not None:
+    jtu._default_tolerance[np.onp.dtype(np.onp.float64)] = f64_tolerance
   def default_tolerance():
     if jtu.device_under_test() != 'tpu':
       return jtu._default_tolerance

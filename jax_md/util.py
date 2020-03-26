@@ -70,3 +70,8 @@ def merge_dicts(a, b):
   merged = dict(a)
   merged.update(b)
   return merged
+
+
+def safe_mask(mask, fn, operand, placeholder=0):
+  masked = np.where(mask, operand, 0)
+  return np.where(mask, fn(masked), placeholder)
