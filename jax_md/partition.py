@@ -43,17 +43,15 @@ class CellList(namedtuple(
   """Stores the spatial partition of a system into a cell list.
 
   See cell_list(...) for details on the construction / specification.
-
-  Cell list buffers all have a common shape, S, where:
-    S = [cell_count_x, cell_count_y, cell_capacity]
-  or
-    S = [cell_count_x, cell_count_y, cell_count_z, cell_capacity]
+  Cell list buffers all have a common shape, S, where
+    * `S = [cell_count_x, cell_count_y, cell_capacity]`
+    * `S = [cell_count_x, cell_count_y, cell_count_z, cell_capacity]`
   in two- and three-dimensions respectively. It is assumed that each cell has
   the same capacity.
 
   Attributes:
     R_buffer: An ndarray of floating point positions with shape
-      S + [spatial_dimension]. 
+      S + [spatial_dimension].
     id_buffer: An ndarray of int32 particle ids of shape S. Note that empty
       slots are specified by id = N where N is the number of particles in the
       system.
@@ -65,7 +63,7 @@ class CellList(namedtuple(
     return super(CellList, cls).__new__(
       cls, position_buffer, id_buffer, kwarg_buffers)
 
- 
+
 def _cell_dimensions(spatial_dimension, box_size, minimum_cell_size):
   """Compute the number of cells-per-side and total number of cells in a box."""
   if isinstance(box_size, int) or isinstance(box_size, float):

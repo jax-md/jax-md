@@ -13,6 +13,21 @@
 # limitations under the License.
 
 """Code to define different spaces in which particles are simulated.
+
+Spaces are pairs of functions containing:
+
+  * `displacement_fn(Ra, Rb, **kwargs)`
+    Computes displacements between pairs of particles. Ra and Rb should
+    be ndarrays of shape [spatial_dim]. Returns an ndarray of shape
+    [spatial_dim]. To compute displacements over sets of positions, use
+    vmap. Soon (TODO) we will add convenience functions to do this where
+    needed.
+
+  * `shift_fn(R, dR, **kwargs)` Moves points at position R by an amount dR.
+
+In each case, **kwargs is optional keyword arguments that can be supplied to
+the different functions. In cases where the space features time dependence
+this will be passed through a "t" keyword argument.
 """
 
 from __future__ import absolute_import
@@ -88,7 +103,7 @@ def transform_batching_rule(operands, batch_dims):
   assert v_dim == 0
 
   return transform_p.bind(T, v), v_dim
-batching.primitive_batchers[transform_p] = transform_batching_rule
+batching.primitive_batchers[transform_p] = transform_batching_rule # type: ignore
 def transform_jvp(primals, tangents):
   T, v = primals
   gT, gv = tangents
@@ -193,25 +208,7 @@ def periodic_shift(side, R, dR):
   return np.mod(R + dR, side)
 
 
-"""
-Spaces
-
-  The following functions provide the necessary transformations to perform
-  simulations in different spaces.
-
-  Spaces are tuples containing:
-      displacement_fn(Ra, Rb, **kwargs): Computes displacements between pairs of
-        particles. Ra and Rb should be ndarrays of shape [spatial_dim]. Returns
-        an ndarray of shape [spatial_dim]. To compute displacements over sets
-        of positions, use vmap. Soon (TODO) we will add convenience functions
-        to do this where needed.
-
-      shift_fn(R, dR, **kwargs): Moves points at position R by an amount dR.
-
-  In each case, **kwargs is optional keyword arguments that can be supplied to
-  the different functions. In cases where the space features time dependence
-  this will be passed through a "t" keyword argument.
-"""
+""" Spaces """
 
 
 def free():
