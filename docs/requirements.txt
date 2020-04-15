@@ -4,3 +4,4 @@ jaxlib
 ipykernel
 nbsphinx
 sphinx-autodoc-typehints
+.
