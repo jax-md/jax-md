@@ -39,7 +39,7 @@ test_util.update_test_tolerance(1e-5, 2e-7)
 PARTICLE_COUNT = 10
 STOCHASTIC_SAMPLES = 10
 SPATIAL_DIMENSION = [2, 3]
-DTYPES = [f32, f64]
+DTYPES = [f32, f64] if FLAGS.jax_enable_x64 else [f32]
 
 
 class QuantityTest(jtu.JaxTestCase):

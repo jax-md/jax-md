@@ -59,15 +59,7 @@ def _small_inverse(T):
   """Compute the inverse of a small matrix."""
   _check_transform_shapes(T)
   dim = T.shape[0]
-
   # TODO(schsam): Check whether matrices are singular. @ErrorChecking
-
-  if dim == 2:
-    det = T[0, 0] * T[1, 1] - T[0, 1] * T[1, 0]
-    return np.array([[T[1, 1], -T[0, 1]], [-T[1, 0], T[0, 0]]], dtype=T.dtype) / det
-
-  # TODO(schsam): Fill in the 3x3 case by hand.
-
   return np.linalg.inv(T)
 
 # Tempororay code to do transforms while JAX's custom_transform + vmap is

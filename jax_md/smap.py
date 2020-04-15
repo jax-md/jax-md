@@ -386,7 +386,7 @@ def _vectorized_cond(pred, fn, operand):
 
 def pair_neighbor_list(
     fn, metric, species=None, reduce_axis=None, keepdims=False, **kwargs):
-  """Promotes a function a pair of particles to one using neighbor lists.
+  """Promotes a function acting on pairs of particles to use neighbor lists.
 
   Args:
     fn: A function that takes an ndarray of pairwise distances or displacements
@@ -432,6 +432,6 @@ def pair_neighbor_list(
     if out.ndim > mask.ndim:
       ddim = out.ndim - mask.ndim
       mask = np.reshape(mask, mask.shape + (1,) * ddim)
-    out = mask * out
+    out = np.where(mask, out, 0.)
     return _high_precision_sum(out, reduce_axis, keepdims) / 2.
   return fn_mapped
