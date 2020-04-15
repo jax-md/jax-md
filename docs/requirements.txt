@@ -1,0 +1,6 @@
+sphinx
+sphinx_rtd_theme
+jaxlib
+ipykernel
+nbsphinx
+sphinx-autodoc-typehints
