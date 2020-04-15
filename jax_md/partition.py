@@ -440,7 +440,7 @@ def neighbor_list(
     return neighbor_idx[:-1, :, 0]
 
   # Use the example positions to estimate the maximum occupancy of the verlet
-  # list. 
+  # list.
   d_ex = partial(metric_sq, **static_kwargs)
   d_ex = vmap(vmap(d_ex, (None, 0)))
   N = example_R.shape[0]
@@ -459,6 +459,7 @@ def neighbor_list(
 
     neigh_R = R[idx]
     dR = d(R, neigh_R)
+
     argsort = np.argsort(
       f32(1) - np.logical_and(dR < cutoff_sq, idx < N), axis=1)
     # TODO(schsam): Error checking for list exceeding maximum occupancy.

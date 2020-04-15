@@ -19,6 +19,7 @@ from __future__ import division
 from __future__ import print_function
 
 from jax.tree_util import register_pytree_node
+from jax.lib import xla_bridge
 import jax.numpy as np
 
 import numpy as onp
@@ -35,7 +36,10 @@ f64 = np.float64
 def static_cast(*xs):
   """Function to cast a value to the lowest dtype that can express it."""
   # NOTE(schsam): static_cast is so named because it cannot be jit.
-  return (np.array(x, dtype=onp.min_scalar_type(x)) for x in xs)
+  if xla_bridge.get_backend().platform == 'tpu':
+    return (np.array(x, np.float32) for x in xs)
+  else:
+    return (np.array(x, dtype=onp.min_scalar_type(x)) for x in xs)
 
 
 def register_pytree_namedtuple(cls):
@@ -59,7 +63,7 @@ def check_kwargs_time_dependence(kwargs):
 def check_kwargs_empty(kwargs):
   # TODO(schsam): We should be more careful about checking that kwargs don't
   # have excess data at the leaves of our computations.
-  return 
+  return
   if kwargs:
     raise ValueError(
       'Found unexpected kwargs: {}. Expected empty.'.format(kwargs))

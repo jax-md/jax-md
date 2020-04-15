@@ -53,7 +53,7 @@ if FLAGS.jax_enable_x64:
 else:
   POSITION_DTYPE = [f32]
 
-update_test_tolerance(1e-5, 1e-7)
+update_test_tolerance(2e-5, 1e-7)
 
 
 def lattice_repeater(small_cell_pos, latvec, no_rep):
@@ -182,8 +182,6 @@ class EnergyTest(jtu.JaxTestCase):
   def test_lennard_jones(self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 
-    tol = None if dtype is np.float64 else 5e-6
-
     for _ in range(STOCHASTIC_SAMPLES):
       key, split_sigma, split_epsilon = random.split(key, 3)
       sigma = dtype(random.uniform(
@@ -195,7 +193,7 @@ class EnergyTest(jtu.JaxTestCase):
         energy.lennard_jones(dr, sigma, epsilon),
         np.array(-epsilon, dtype=dtype), True)
       g = grad(energy.lennard_jones)(dr, sigma, epsilon)
-      self.assertAllClose(g, np.array(0, dtype=dtype), True, tol, tol)
+      self.assertAllClose(g, np.array(0, dtype=dtype), True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -213,9 +211,9 @@ class EnergyTest(jtu.JaxTestCase):
       epsilon = f32(random.uniform(
           split_epsilon, (1,), minval=0.0, maxval=4.0)[0])
       r_small = random.uniform(
-          split_rs, (10,), minval=0.0, maxval=2.0 * sigma, dtype=dtype) 
+          split_rs, (10,), minval=0.0, maxval=2.0 * sigma, dtype=dtype)
       r_large = random.uniform(
-          split_rl, (10,), minval=2.5 * sigma, maxval=3.0 * sigma, dtype=dtype) 
+          split_rl, (10,), minval=2.5 * sigma, maxval=3.0 * sigma, dtype=dtype)
 
       r_onset = f32(2.0 * sigma)
       r_cutoff = f32(2.5 * sigma)
@@ -227,7 +225,7 @@ class EnergyTest(jtu.JaxTestCase):
         E(r_small, sigma, epsilon),
         energy.lennard_jones(r_small, sigma, epsilon), True)
       self.assertAllClose(
-        E(r_large, sigma, epsilon), np.zeros_like(r_large, dtype=dtype), True) 
+        E(r_large, sigma, epsilon), np.zeros_like(r_large, dtype=dtype), True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
