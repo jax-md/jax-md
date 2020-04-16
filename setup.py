@@ -30,7 +30,7 @@ INSTALL_REQUIRES = [
 
 setuptools.setup(
     name='jax-md',
-    version='0.1.3',
+    version='0.1.4',
     license='Apache 2.0',
     author='Google',
     author_email='jax-md-dev@google.com',
@@ -48,8 +48,6 @@ setuptools.setup(
     description='Differentiable, Hardware Accelerated, Molecular Dynamics',
     python_requires='>=2.7',
     classifiers=[
-        'Programming Language :: Python :: 2.7',
-        'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'License :: OSI Approved :: Apache Software License',
