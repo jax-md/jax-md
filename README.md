@@ -91,14 +91,15 @@ For finite-ranged potentials it is often useful to consider only interactions wi
 Example:
 
 ```python
+import jax.numpy as np
 from jax import random
 from jax_md import energy, quantity
 N = 1000
 spatial_dimension = 2
 key = random.PRNGKey(0)
 R = random.uniform(key, (N, spatial_dimension), minval=0.0, maxval=1.0)
-energy_fn = energy.lennard_jones_pair(displacement)
-print('E = {}'.format(energy(R)))
+energy_fn = energy.lennard_jones_pair(displacement_fn)
+print('E = {}'.format(energy_fn(R)))
 force_fn = quantity.force(energy_fn)
 print('Total Squared Force = {}'.format(np.sum(force_fn(R) ** 2)))
 ```
@@ -135,11 +136,11 @@ Example:
 from jax_md import simulate
 temperature = 1.0
 dt = 1e-3
-init, update = simulate.nvt_nose_hoover(energy, wrap_fn, dt, temperature)
-state = init(R)
+init, update = simulate.nvt_nose_hoover(energy_fn, shift_fn, dt, temperature)
+state = init(key, R)
 for _ in range(100):
   state = update(state)
-R = state.positions
+R = state.position
 ```
 
 ## Spatial Partitioning ([`partition.py`](https://github.com/google/jax-md/blob/master/jax_md/partition.py))
@@ -154,6 +155,8 @@ Cell List Example:
 ```python
 from jax_md import partition
 
+cell_size = 5.0
+capacity = 10
 cell_list_fn = partition.cell_list(box_size, cell_size, capacity)
 cell_list_data = cell_list_fn(R)
 ```
@@ -162,7 +165,7 @@ Neighbor List Example:
 ```python
 from jax_md import partition
 
-neighbor_list_fn = partition.neighbor_list(displacement, box_size, cell_size, R)
+neighbor_list_fn = partition.neighbor_list(displacement_fn, box_size, cell_size, R)
 neighbor_idx = neighbor_list_fn(R) 
 
 # neighbor_idx is a [N, max_neighbors] ndarray of neighbor ids for each particle.
