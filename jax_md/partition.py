@@ -20,6 +20,7 @@ from __future__ import print_function
 
 from functools import reduce, partial
 from collections import namedtuple
+from typing import Any, Callable
 import math
 from operator import mul
 
@@ -30,7 +31,7 @@ from jax.abstract_arrays import ShapedArray
 from jax.interpreters import partial_eval as pe
 import jax.numpy as np
 
-from jax_md import quantity, space
+from jax_md import quantity, space, dataclasses
 from jax_md.util import *
 
 
@@ -361,48 +362,108 @@ def _displacement_or_metric_to_metric_sq(displacement_or_metric):
     'than 4.')
 
 
-def neighbor_list(
-    displacement_or_metric, box_size, cutoff, example_R,
-    buffer_size_multiplier=1.1, cell_size=None, **static_kwargs):
-  """Returns a function that builds a list neighbors for each point.
+@dataclasses.dataclass
+class NeighborList(object):
+  """A struct containing the state of a Neighbor List.
 
-  Since XLA requires fixed shape, we use example point configurations to
-  estimate the maximum number of points within a neighborhood. However, if the
-  configuration changes substantially over time it might be necessary to
-  revise this estimate.
+  Attributes:
+    idx: For an N particle system this is an `[N, max_occupancy]` array of
+      integers such that `idx[i, j]` is the jth neighbor of particle i.
+    reference_position: The positions of particles when the neighbor list was
+      constructed. This is used to decide whether the neighbor list ought to be
+      updated.
+    did_buffer_overflow: A boolean that starts out False. If there are ever
+      more neighbors than max_neighbors this is set to true to indicate that
+      there was a buffer overflow. If this happens, it means that the results
+      of the simulation will be incorrect and the simulation needs to be rerun
+      using a larger buffer.
+    max_occupancy: A static integer specifying the maximum size of the
+      neighbor list. Changing this will involk a recompilation.
+    cell_list_fn: A static python callable that is used to construct a cell
+      list used in an intermediate step of the neighbor list calculation.
+  """
+  idx: np.ndarray
+  reference_position: np.ndarray
+  did_buffer_overflow: bool
+  max_occupancy: int = dataclasses.static_field() 
+  cell_list_fn: Callable = dataclasses.static_field()
+
+
+def neighbor_list(
+    displacement_or_metric, box_size, r_cutoff, dr_threshold,
+    capacity_multiplier=1.25, cell_size=None, **static_kwargs):
+  """Returns a function that builds a list neighbors for collections of points.
+
+  Neighbor lists must balance the need to be jit compatable with the fact that
+  under a jit the maximum number of neighbors cannot change (owing to static
+  shape requirements). To deal with this, our `neighbor_list` returns a
+  function `neighbor_fn` that can operate in two modes: 1) create a new
+  neighbor list or 2) update an existing neighbor list. Case 1) cannot be jit
+  and it creates a neighbor list with a maximum neighbor count of the current
+  neighbor count times capacity_multiplier. Case 2) is jit compatable, if any
+  particle has more neighbors than the maximum, the `did_buffer_overflow` bit
+  will be set to `True` and a new neighbor list will need to be created.
+
+  Here is a typical example of a simulation loop with neighbor lists:
+
+  >>> init_fn, apply_fn = simulate.nve(energy_fn, shift, 1e-3)
+  >>> exact_init_fn, exact_apply_fn = simulate.nve(exact_energy_fn, shift, 1e-3)
+  >>>
+  >>> nbrs = neighbor_fn(R)
+  >>> state = init_fn(random.PRNGKey(0), R, neighbor_idx=nbrs.idx)
+  >>>
+  >>> def body_fn(i, state):
+  >>>   state, nbrs = state
+  >>>   nbrs = neighbor_fn(state.position, nbrs)
+  >>>   state = apply_fn(state, neighbor_idx=nbrs.idx)
+  >>>   return state, nbrs
+  >>>
+  >>> step = 0
+  >>> for _ in range(20):
+  >>>   new_state, nbrs = lax.fori_loop(0, 100, body_fn, (state, nbrs))
+  >>>   if nbrs.did_buffer_overflow:
+  >>>     nbrs = neighbor_fn(state.position)
+  >>>   else:
+  >>>     state = new_state
+  >>>     step += 1
 
   Args:
     displacement: A function `d(R_a, R_b)` that computes the displacement
       between pairs of points.
     box_size: Either a float specifying the size of the box or an array of
       shape [spatial_dim] specifying the box size in each spatial dimension.
-    cutoff: A scalar specifying the neighborhood radius.
-    example_R: An ndarray of example points of shape [point_count, spatial_dim]
-      used to estimate a maximum neighborhood size.
-    buffer_size_multiplier: A floating point scalar specifying the fractional
+    r_cutoff: A scalar specifying the neighborhood radius.
+    dr_threshold: A scalar specifying the maximum distance particles can move 
+      before rebuilding the neighbor list.
+    capacity_multiplier: A floating point scalar specifying the fractional
       increase in maximum neighborhood occupancy we allocate compared with the
       maximum in the example positions.
-    cell_size: A scalar specifying the size of cells in the cell list used
-      in an intermediate step.
+    cell_size: An optional scalar specifying the size of cells in the cell list
+      used in an intermediate step.
     **static_kwargs: kwargs that get threaded through the calculation of
       example positions.
-
   Returns:
-    An ndarray of shape [point_count, maximum_neighbors_per_point] of ids
-    specifying points in the neighborhood of each point. Empty elements are
-    given an id = point_count.
+    A pair. The first element is a NeighborList containing the current neighbor
+    list. The second element contains a function 
+    `neighbor_list_fn(R, neighbor_list=None)` that will update the neighbor
+    list. If neighbor_list is None then the function will construct a new
+    neighbor list whose capacity is inferred from R. If neighbor_list is given
+    then it will update the neighbor list (with fixed capacity) if any particle
+    has moved more than dr_threshold / 2. Note that only
+    `neighbor_list_fn(R, neighbor_list)` can be `jit` since it keeps array
+    shapes fixed.
   """
   box_size = f32(box_size)
 
+  cutoff = r_cutoff + dr_threshold
   cutoff_sq = cutoff ** 2
+  threshold_sq = (dr_threshold / f32(2)) ** 2
   metric_sq = _displacement_or_metric_to_metric_sq(displacement_or_metric)
 
   if cell_size is None:
     cell_size = cutoff
-  cell_list_fn = cell_list(
-    box_size, cell_size, example_R, buffer_size_multiplier)
 
-  def neighbor_list_candidate_fn(R, **kwargs):
+  def neighbor_list_candidate_fn(cell_list_fn, R, **kwargs):
     cl = cell_list_fn(R)
 
     N, dim = R.shape
@@ -437,36 +498,53 @@ def neighbor_list(
     neighbor_idx = copy_values_from_cell(neighbor_idx, cell_idx, idx)
     return neighbor_idx[:-1, :, 0]
 
-  # Use the example positions to estimate the maximum occupancy of the verlet
-  # list.
-  d_ex = partial(metric_sq, **static_kwargs)
-  d_ex = vmap(vmap(d_ex, (None, 0)))
-  N = example_R.shape[0]
-  example_idx = neighbor_list_candidate_fn(example_R)
-  example_neigh_R = example_R[example_idx]
-  example_neigh_dR = d_ex(example_R, example_neigh_R)
-  mask = np.logical_and(example_neigh_dR < cutoff_sq, example_idx < N)
-  max_occupancy = np.max(np.sum(mask, axis=1))
-  max_occupancy = int(max_occupancy * buffer_size_multiplier)
-
-  def neighbor_list_fn(R, **kwargs):
-    idx = neighbor_list_candidate_fn(R, **kwargs)
-
+  def prune_neighbor_list(R, idx, **kwargs):
     d = partial(metric_sq, **kwargs)
     d = vmap(vmap(d, (None, 0)))
 
+    N = R.shape[0]
     neigh_R = R[idx]
     dR = d(R, neigh_R)
 
-    argsort = np.argsort(
-      f32(1) - np.logical_and(dR < cutoff_sq, idx < N), axis=1)
+    mask = np.logical_and(dR < cutoff_sq, idx < N)
+    max_occupancy = np.max(np.sum(mask, axis=1)) 
+
+    argsort = np.argsort(f32(1) - mask, axis=1)
     # TODO(schsam): Error checking for list exceeding maximum occupancy.
     idx = np.take_along_axis(idx, argsort, axis=1)
-    idx = idx[:, :max_occupancy]
 
+    return idx, max_occupancy
+
+  def mask_self(idx):
     self_mask = idx == np.reshape(np.arange(idx.shape[0]), (idx.shape[0], 1))
-    idx = np.where(self_mask, idx.shape[0], idx)
+    return np.where(self_mask, idx.shape[0], idx)
 
-    return idx
+  def neighbor_list_fn(R, neighbor_list=None, extra_capacity=0, **kwargs):
+    nbrs = neighbor_list
+    def neighbor_fn(R_and_overflow, max_occupancy=None):
+      R, overflow = R_and_overflow
+      idx = neighbor_list_candidate_fn(cell_list_fn, R, **kwargs)
+      idx, occupancy = prune_neighbor_list(R, idx, **kwargs)
+      if max_occupancy is None:
+        max_occupancy = int(occupancy * capacity_multiplier + extra_capacity)
+      return NeighborList(
+          mask_self(idx[:, :max_occupancy]), R, 
+          np.logical_or(overflow, (max_occupancy <= occupancy)),
+          max_occupancy,
+          cell_list_fn)
+
+    if nbrs is None:
+      cell_list_fn = cell_list(box_size, cell_size, R, capacity_multiplier)
+      return neighbor_fn((R, False))
+    else:
+      cell_list_fn = nbrs.cell_list_fn
+      neighbor_fn = partial(neighbor_fn, max_occupancy=nbrs.max_occupancy)
+
+    d = partial(metric_sq, **kwargs)
+    d = vmap(d)
+    return lax.cond(
+      np.any(d(R, nbrs.reference_position) > threshold_sq),
+      (R, nbrs.did_buffer_overflow), neighbor_fn,
+      nbrs, lambda x: x)
 
   return neighbor_list_fn

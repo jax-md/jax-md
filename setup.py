@@ -25,7 +25,8 @@ INSTALL_REQUIRES = [
     'absl-py',
     'numpy',
     'jax>=0.1.55',
-    'jaxlib>=0.1.37'
+    'jaxlib>=0.1.37',
+    'dataclasses'
 ]
 
 setuptools.setup(

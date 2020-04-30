@@ -191,10 +191,10 @@ class NeighborListTest(jtu.JaxTestCase):
 
     R = box_size * random.uniform(key, (PARTICLE_COUNT, dim), dtype=dtype)
     N = R.shape[0]
-    neighbor_list_fn = partition.neighbor_list(
-      displacement, box_size, cutoff, R)
+    neighbor_fn = partition.neighbor_list(
+      displacement, box_size, cutoff, 0.0, 1.1)
 
-    idx = neighbor_list_fn(R)
+    idx = neighbor_fn(R).idx
     R_neigh = R[idx]
     mask = idx < N
 
@@ -226,7 +226,7 @@ class NeighborListTest(jtu.JaxTestCase):
           'dtype': dtype,
           'dim': dim,
       } for dtype in POSITION_DTYPE for dim in SPATIAL_DIMENSION))
-  def disabled_test_neighbor_list_build_time_dependent(self, dtype, dim):
+  def test_neighbor_list_build_time_dependent(self, dtype, dim):
     key = random.PRNGKey(1)
 
     if dim == 2:
@@ -238,18 +238,21 @@ class NeighborListTest(jtu.JaxTestCase):
         [[9.0, 0.0, t],
          [0.0, 4.0, 0.0],
          [0.0, 0.0, 7.25]])
+    min_length = np.min(np.diag(box_fn(0.)))
     cutoff = f32(1.23)
-    cell_size = cutoff / np.diag(box_fn(0.))
+    # TODO(schsam): Get cell-list working with anisotropic cell sizes.
+    cell_size = cutoff / min_length
 
     displacement, _ = space.periodic_general(box_fn)
     metric = space.metric(displacement)
 
     R = random.uniform(key, (PARTICLE_COUNT, dim), dtype=dtype)
     N = R.shape[0]
-    neighbor_list_fn = partition.neighbor_list(metric, 1., cutoff, R,
-                                               cell_size=cell_size, t=f32(0.))
+    neighbor_list_fn = partition.neighbor_list(metric, 1., cutoff, 0.0,
+                                               1.1, cell_size=cell_size,
+                                               t=np.array(0.))
 
-    idx = neighbor_list_fn(R, t=0.25)
+    idx = neighbor_list_fn(R, t=np.array(0.25)).idx
     R_neigh = R[idx]
     mask = idx < N
 

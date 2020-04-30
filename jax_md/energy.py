@@ -94,19 +94,20 @@ def soft_sphere_pair(
 def soft_sphere_neighbor_list(
     displacement_or_metric,
     box_size,
-    example_R,
     species=None,
     sigma=1.0,
     epsilon=1.0,
     alpha=2.0,
-    list_cutoff=1.2):
+    dr_threshold=0.2):
   """Convenience wrapper to compute soft spheres using a neighbor list."""
   sigma = np.array(sigma, dtype=f32)
   epsilon = np.array(epsilon, dtype=f32)
   alpha = np.array(alpha, dtype=f32)
-  list_cutoff = f32(np.max(sigma) * list_cutoff)
+  list_cutoff = f32(np.max(sigma))
+  dr_threshold = f32(list_cutoff * dr_threshold)
+
   neighbor_fn = partition.neighbor_list(
-    displacement_or_metric, box_size, list_cutoff, example_R)
+    displacement_or_metric, box_size, list_cutoff, dr_threshold)
   energy_fn = smap.pair_neighbor_list(
     soft_sphere,
     space.canonicalize_displacement_or_metric(displacement_or_metric),
@@ -159,23 +160,22 @@ def lennard_jones_pair(
 def lennard_jones_neighbor_list(
     displacement_or_metric,
     box_size,
-    example_R,
     species=None,
     sigma=1.0,
     epsilon=1.0,
     alpha=2.0,
     r_onset=2.0,
     r_cutoff=2.5,
-    neighborlist_cutoff=3.0): # TODO(schsam) Optimize this.
+    dr_threshold=0.5): # TODO(schsam) Optimize this.
   """Convenience wrapper to compute lennard-jones using a neighbor list."""
   sigma = np.array(sigma, f32)
   epsilon = np.array(epsilon, f32)
   r_onset = np.array(r_onset * np.max(sigma), f32)
   r_cutoff = np.array(r_cutoff * np.max(sigma), f32)
-  list_cutoff = np.array(np.max(sigma) * neighborlist_cutoff, f32)
+  dr_threshold = np.array(np.max(sigma) * dr_threshold, f32)
 
   neighbor_fn = partition.neighbor_list(
-    displacement_or_metric, box_size, list_cutoff, example_R)
+    displacement_or_metric, box_size, r_cutoff, dr_threshold)
   energy_fn = smap.pair_neighbor_list(
     multiplicative_isotropic_cutoff(lennard_jones, r_onset, r_cutoff),
     space.canonicalize_displacement_or_metric(displacement_or_metric),
