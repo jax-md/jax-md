@@ -102,6 +102,57 @@ class SimulateTest(jtu.JaxTestCase):
           'spatial_dimension': dim,
           'dtype': dtype
       } for dim in SPATIAL_DIMENSION for dtype in DTYPE))
+  def test_nve_neighbor_list(self, spatial_dimension, dtype):
+    Nx = particles_per_side = 8
+    spacing = f32(1.25)
+
+    tol = 1e-10 if dtype == np.float64 else 1e-3
+
+    L = Nx * spacing
+    if spatial_dimension == 2:
+      R = np.stack([np.array(r) for r in onp.ndindex(Nx, Nx)]) * spacing
+    elif spatial_dimension == 3:
+      R = np.stack([np.array(r) for r in onp.ndindex(Nx, Nx, Nx)]) * spacing
+
+    R = np.array(R, dtype)
+
+    displacement, shift = space.periodic(L)
+
+    neighbor_fn, energy_fn = energy.lennard_jones_neighbor_list(displacement, L)
+    exact_energy_fn = energy.lennard_jones_pair(displacement)
+
+    init_fn, apply_fn = simulate.nve(energy_fn, shift, 1e-3)
+    exact_init_fn, exact_apply_fn = simulate.nve(exact_energy_fn, shift, 1e-3)
+
+    nbrs = neighbor_fn(R)
+    state = init_fn(random.PRNGKey(0), R, neighbor_idx=nbrs.idx)
+    exact_state = exact_init_fn(random.PRNGKey(0), R)
+
+    def body_fn(i, state):
+      state, nbrs, exact_state = state
+      nbrs = neighbor_fn(state.position, nbrs)
+      state = apply_fn(state, neighbor_idx=nbrs.idx)
+      return state, nbrs, exact_apply_fn(exact_state)
+
+    step = 0
+    for i in range(20):
+      new_state, nbrs, new_exact_state = lax.fori_loop(
+        0, 100, body_fn, (state, nbrs, exact_state))
+      if nbrs.did_buffer_overflow:
+        nbrs = neighbor_fn(state.position)
+      else:
+        state = new_state
+        exact_state = new_exact_state
+        step += 1
+    assert state.position.dtype == dtype
+    self.assertAllClose(state.position, exact_state.position, True, tol, tol)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in DTYPE))
   def test_nve_ensemble_time_dependence(self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
     pos_key, center_key, vel_key, mass_key = random.split(key, 4)

@@ -544,8 +544,8 @@ class SMapTest(jtu.JaxTestCase):
       R = box_size * random.uniform(
         split, (N, spatial_dimension), dtype=dtype)
       sigma = random.uniform(key, (), minval=0.5, maxval=2.5)
-      neighbor_fn = jit(partition.neighbor_list(disp, box_size, sigma, R))
-      idx = neighbor_fn(R)
+      neighbor_fn = partition.neighbor_list(disp, box_size, sigma, 0.0)
+      idx = neighbor_fn(R).idx
       self.assertAllClose(mapped_square(R, sigma=sigma),
                           neighbor_square(R, idx, sigma=sigma), True)
 
@@ -577,8 +577,8 @@ class SMapTest(jtu.JaxTestCase):
       R = box_size * random.uniform(
         split, (N, spatial_dimension), dtype=dtype)
       sigma = random.uniform(key, (), minval=0.5, maxval=2.5)
-      neighbor_fn = jit(partition.neighbor_list(disp, box_size, sigma, R))
-      idx = neighbor_fn(R)
+      neighbor_fn = partition.neighbor_list(disp, box_size, sigma, 0.0)
+      idx = neighbor_fn(R).idx
       self.assertAllClose(mapped_square(R, sigma=sigma),
                           neighbor_square(R, idx, sigma=sigma), True)
 
@@ -610,8 +610,8 @@ class SMapTest(jtu.JaxTestCase):
       R = box_size * random.uniform(
         split, (N, spatial_dimension), dtype=dtype)
       sigma = random.uniform(key, (), minval=0.5, maxval=4.5)
-      neighbor_fn = jit(partition.neighbor_list(disp, box_size, sigma, R))
-      idx = neighbor_fn(R)
+      neighbor_fn = partition.neighbor_list(disp, box_size, sigma, 0.0)
+      idx = neighbor_fn(R).idx
       self.assertAllClose(mapped_square(R, sigma=sigma),
                           neighbor_square(R, idx, sigma=sigma), True)
 
@@ -642,9 +642,8 @@ class SMapTest(jtu.JaxTestCase):
       key, split = random.split(key)
       R = box_size * random.uniform(split, (N, spatial_dimension), dtype=dtype)
       sigma = random.uniform(key, (N,), minval=0.5, maxval=1.5)
-      neighbor_fn = jit(
-        partition.neighbor_list(disp, box_size, np.max(sigma), R))
-      idx = neighbor_fn(R)
+      neighbor_fn = partition.neighbor_list(disp, box_size, np.max(sigma), 0.)
+      idx = neighbor_fn(R).idx
       self.assertAllClose(mapped_square(R, sigma=sigma),
                           neighbor_square(R, idx, sigma=sigma), True)
 
@@ -676,9 +675,8 @@ class SMapTest(jtu.JaxTestCase):
       R = box_size * random.uniform(split, (N, spatial_dimension), dtype=dtype)
       sigma = random.uniform(key, (N, N), minval=0.5, maxval=1.5)
       sigma = 0.5 * (sigma + sigma.T)
-      neighbor_fn = jit(
-        partition.neighbor_list(disp, box_size, np.max(sigma), R))
-      idx = neighbor_fn(R)
+      neighbor_fn = partition.neighbor_list(disp, box_size, np.max(sigma), 0.)
+      idx = neighbor_fn(R).idx
       self.assertAllClose(mapped_square(R, sigma=sigma),
                           neighbor_square(R, idx, sigma=sigma), True)
 
@@ -714,9 +712,8 @@ class SMapTest(jtu.JaxTestCase):
       R = box_size * random.uniform(split, (N, spatial_dimension), dtype=dtype)
       sigma = random.uniform(key, (3, 3), minval=0.5, maxval=1.5)
       sigma = 0.5 * (sigma + sigma.T)
-      neighbor_fn = jit(
-        partition.neighbor_list(disp, box_size, np.max(sigma), R))
-      idx = neighbor_fn(R)
+      neighbor_fn = partition.neighbor_list(disp, box_size, np.max(sigma), 0.)
+      idx = neighbor_fn(R).idx
       self.assertAllClose(mapped_square(R, sigma=sigma),
                           neighbor_square(R, idx, sigma=sigma), True)
 
@@ -748,8 +745,8 @@ class SMapTest(jtu.JaxTestCase):
       R = box_size * random.uniform(
         split, (N, spatial_dimension), dtype=dtype)
       sigma = random.uniform(key, (), minval=0.5, maxval=1.5)
-      neighbor_fn = jit(partition.neighbor_list(disp, box_size, sigma, R))
-      idx = neighbor_fn(R)
+      neighbor_fn = partition.neighbor_list(disp, box_size, sigma, 0.)
+      idx = neighbor_fn(R).idx
       self.assertAllClose(mapped_square(R, sigma=sigma),
                           neighbor_square(R, idx, sigma=sigma), True)
 

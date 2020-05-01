@@ -25,12 +25,13 @@ INSTALL_REQUIRES = [
     'absl-py',
     'numpy',
     'jax>=0.1.55',
-    'jaxlib>=0.1.37'
+    'jaxlib>=0.1.37',
+    'dataclasses'
 ]
 
 setuptools.setup(
     name='jax-md',
-    version='0.1.4',
+    version='0.1.5',
     license='Apache 2.0',
     author='Google',
     author_email='jax-md-dev@google.com',

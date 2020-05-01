@@ -53,7 +53,7 @@ if FLAGS.jax_enable_x64:
 else:
   POSITION_DTYPE = [f32]
 
-update_test_tolerance(2e-5, 1e-7)
+update_test_tolerance(2e-5, 1e-6)
 
 
 def lattice_repeater(small_cell_pos, latvec, no_rep):
@@ -243,13 +243,13 @@ class EnergyTest(jtu.JaxTestCase):
     R = box_size * random.uniform(
       key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
     neighbor_fn, energy_fn = energy.soft_sphere_neighbor_list(
-      displacement, box_size, R)
+      displacement, box_size)
 
-    idx = neighbor_fn(R)
+    nbrs = neighbor_fn(R)
 
     self.assertAllClose(
       np.array(exact_energy_fn(R), dtype=dtype),
-      energy_fn(R, idx), True)
+      energy_fn(R, nbrs.idx), True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -269,12 +269,12 @@ class EnergyTest(jtu.JaxTestCase):
     R = box_size * random.uniform(
       key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
     neighbor_fn, energy_fn = energy.lennard_jones_neighbor_list(
-      displacement, box_size, R)
+      displacement, box_size)
 
-    idx = neighbor_fn(R)
+    nbrs = neighbor_fn(R)
     self.assertAllClose(
       np.array(exact_energy_fn(R), dtype=dtype),
-      energy_fn(R, idx), True)
+      energy_fn(R, nbrs.idx), True)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -293,10 +293,10 @@ class EnergyTest(jtu.JaxTestCase):
     r = box_size * random.uniform(
       key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
     neighbor_fn, energy_fn = energy.lennard_jones_neighbor_list(
-      displacement, box_size, r)
+      displacement, box_size)
     force_fn = quantity.force(energy_fn)
 
-    idx = neighbor_fn(r)
+    idx = neighbor_fn(r).idx
     self.assertAllClose(
       np.array(exact_force_fn(r), dtype=dtype),
       force_fn(r, neighbor_idx=idx), True)
@@ -321,11 +321,10 @@ class EnergyTest(jtu.JaxTestCase):
     assert embedding_fn(np.array(1.0, dtype)).dtype == dtype
     assert pairwise_fn(np.array(1.0, dtype)).dtype == dtype
     eam_energy = energy.eam(displacement, charge_fn, embedding_fn, pairwise_fn)
-    tol = 1e-5 if dtype == np.float32 else 1e-6
     self.assertAllClose(
         eam_energy(
             np.dot(atoms_repeated, inv_latvec)) / np.array(num_repetitions ** 3, dtype),
-        dtype(-3.363338), True, tol, tol)
+        dtype(-3.363338), True)
 
 if __name__ == '__main__':
   absltest.main()
