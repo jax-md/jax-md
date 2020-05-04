@@ -391,7 +391,8 @@ class NeighborList(object):
 
 def neighbor_list(
     displacement_or_metric, box_size, r_cutoff, dr_threshold,
-    capacity_multiplier=1.25, cell_size=None, **static_kwargs):
+    capacity_multiplier=1.25, cell_size=None, disable_cell_list=False,
+    **static_kwargs):
   """Returns a function that builds a list neighbors for collections of points.
 
   Neighbor lists must balance the need to be jit compatable with the fact that
@@ -440,6 +441,9 @@ def neighbor_list(
       maximum in the example positions.
     cell_size: An optional scalar specifying the size of cells in the cell list
       used in an intermediate step.
+    disable_cell_list: An optional boolean. If set to True then the neighbor
+      list is constructed using only distances. This can be useful for
+      debugging but should generally be left as False.
     **static_kwargs: kwargs that get threaded through the calculation of
       example positions.
   Returns:
@@ -463,7 +467,13 @@ def neighbor_list(
   if cell_size is None:
     cell_size = cutoff
 
-  def neighbor_list_candidate_fn(cell_list_fn, R, **kwargs):
+  use_cell_list = np.all(cell_size < box_size / 3.) and not disable_cell_list
+
+  def candidate_fn(R, **kwargs):
+    return np.broadcast_to(np.reshape(np.arange(R.shape[0]), (1, R.shape[0])),
+                           (R.shape[0], R.shape[0]))
+
+  def cell_list_candidate_fn(cell_list_fn, R, **kwargs):
     cl = cell_list_fn(R)
 
     N, dim = R.shape
@@ -523,18 +533,22 @@ def neighbor_list(
     nbrs = neighbor_list
     def neighbor_fn(R_and_overflow, max_occupancy=None):
       R, overflow = R_and_overflow
-      idx = neighbor_list_candidate_fn(cell_list_fn, R, **kwargs)
+      if cell_list_fn is not None:
+        idx = cell_list_candidate_fn(cell_list_fn, R, **kwargs)
+      else:
+        idx = candidate_fn(R, **kwargs)
       idx, occupancy = prune_neighbor_list(R, idx, **kwargs)
       if max_occupancy is None:
         max_occupancy = int(occupancy * capacity_multiplier + extra_capacity)
       return NeighborList(
-          mask_self(idx[:, :max_occupancy]), R, 
+          mask_self(idx[:, :max_occupancy]), R,
           np.logical_or(overflow, (max_occupancy <= occupancy)),
           max_occupancy,
           cell_list_fn)
 
     if nbrs is None:
-      cell_list_fn = cell_list(box_size, cell_size, R, capacity_multiplier)
+      cell_list_fn = (cell_list(box_size, cell_size, R, capacity_multiplier) if
+                      use_cell_list else None)
       return neighbor_fn((R, False))
     else:
       cell_list_fn = nbrs.cell_list_fn
