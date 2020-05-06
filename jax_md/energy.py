@@ -186,6 +186,75 @@ def lennard_jones_neighbor_list(
   return neighbor_fn, energy_fn
 
 
+def morse(dr, sigma=1.0, epsilon=5.0, alpha=5.0, **unused_kwargs):
+  """Morse interaction between particles with a minimum at r0.
+  Args:
+    dr: An ndarray of shape [n, m] of pairwise distances between particles.
+    sigma: Distance between particles where the energy has a minimum. Should
+      either be a floating point scalar or an ndarray whose shape is [n, m].
+    epsilon: Interaction energy scale. Should either be a floating point scalar
+      or an ndarray whose shape is [n, m].
+    alpha: Range parameter. Should either be a floating point scalar or an 
+      ndarray whose shape is [n, m].
+    unused_kwargs: Allows extra data (e.g. time) to be passed to the energy.
+  Returns:
+    Matrix of energies of shape [n, m].
+  """
+  check_kwargs_time_dependence(unused_kwargs)
+  U = epsilon * (f32(1) - np.exp(-alpha * (dr - sigma)))**f32(2) - epsilon
+  # TODO(cpgoodri): ErrorChecking following lennard_jones
+  return np.nan_to_num(np.array(U, dtype=dr.dtype))
+  
+def morse_pair(
+    displacement_or_metric,
+    species=None, sigma=1.0, epsilon=5.0, alpha=5.0, r_onset=2.0, r_cutoff=2.5):
+  """Convenience wrapper to compute Morse energy over a system."""
+  sigma = np.array(sigma, dtype=f32)
+  epsilon = np.array(epsilon, dtype=f32)
+  alpha = np.array(alpha, dtype=f32)
+  # CPG comment: I don't think this approach makes sense for Morse potentials
+  #   because, unlike for LJ, it is valid to set sigma=0...
+  #r_onset = r_onset * np.max(sigma)
+  #r_cutoff = r_cutoff * np.max(sigma)
+  return smap.pair(
+    multiplicative_isotropic_cutoff(morse, r_onset, r_cutoff),
+    space.canonicalize_displacement_or_metric(displacement_or_metric),
+    species=species,
+    sigma=sigma,
+    epsilon=epsilon,
+    alpha=alpha)
+  
+def morse_neighbor_list(
+    displacement_or_metric,
+    box_size,
+    species=None,
+    sigma=1.0,
+    epsilon=5.0,
+    alpha=5.0,
+    r_onset=2.0,
+    r_cutoff=2.5,
+    dr_threshold=0.5): # TODO(cpgoodri) Optimize this.
+  """Convenience wrapper to compute Morse using a neighbor list."""
+  sigma = np.array(sigma, f32)
+  epsilon = np.array(epsilon, f32)
+  alpha = np.array(alpha, f32)
+  r_onset = np.array(r_onset, f32)
+  r_cutoff = np.array(r_cutoff, f32)
+  dr_threshold = np.array(dr_threshold, f32)
+
+  neighbor_fn = partition.neighbor_list(
+    displacement_or_metric, box_size, r_cutoff, dr_threshold)
+  energy_fn = smap.pair_neighbor_list(
+    multiplicative_isotropic_cutoff(morse, r_onset, r_cutoff),
+    space.canonicalize_displacement_or_metric(displacement_or_metric),
+    species=species,
+    sigma=sigma,
+    epsilon=epsilon,
+    alpha=alpha)
+
+  return neighbor_fn, energy_fn
+
+
 def multiplicative_isotropic_cutoff(fn, r_onset, r_cutoff):
   """Takes an isotropic function and constructs a truncated function.
 
