@@ -147,7 +147,7 @@ def lennard_jones_pair(
   """Convenience wrapper to compute Lennard-Jones energy over a system."""
   sigma = np.array(sigma, dtype=f32)
   epsilon = np.array(epsilon, dtype=f32)
-  r_onste = r_onset * np.max(sigma)
+  r_onset = r_onset * np.max(sigma)
   r_cutoff = r_cutoff * np.max(sigma)
   return smap.pair(
     multiplicative_isotropic_cutoff(lennard_jones, r_onset, r_cutoff),
