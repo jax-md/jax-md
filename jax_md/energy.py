@@ -212,10 +212,6 @@ def morse_pair(
   sigma = np.array(sigma, dtype=f32)
   epsilon = np.array(epsilon, dtype=f32)
   alpha = np.array(alpha, dtype=f32)
-  # CPG comment: I don't think this approach makes sense for Morse potentials
-  #   because, unlike for LJ, it is valid to set sigma=0...
-  #r_onset = r_onset * np.max(sigma)
-  #r_cutoff = r_cutoff * np.max(sigma)
   return smap.pair(
     multiplicative_isotropic_cutoff(morse, r_onset, r_cutoff),
     space.canonicalize_displacement_or_metric(displacement_or_metric),
