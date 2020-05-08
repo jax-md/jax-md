@@ -342,7 +342,33 @@ class EnergyTest(jtu.JaxTestCase):
       np.array(exact_energy_fn(R), dtype=dtype),
       energy_fn(R, nbrs.idx), True)
     
-    
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_morse_small_neighbor_list_energy(
+      self, spatial_dimension, dtype):
+    key = random.PRNGKey(1)
+
+    box_size = f32(5.0)
+    displacement, _ = space.periodic(box_size)
+    metric = space.metric(displacement)
+    exact_energy_fn = energy.morse_pair(displacement)
+
+    R = box_size * random.uniform(
+      key, (10, spatial_dimension), dtype=dtype)
+    neighbor_fn, energy_fn = energy.morse_neighbor_list(
+      displacement, box_size)
+
+    nbrs = neighbor_fn(R)
+    self.assertAllClose(
+      np.array(exact_energy_fn(R), dtype=dtype),
+      energy_fn(R, nbrs.idx), True)
+
+
   @parameterized.named_parameters(jtu.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
@@ -360,6 +386,31 @@ class EnergyTest(jtu.JaxTestCase):
     r = box_size * random.uniform(
       key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
     neighbor_fn, energy_fn = energy.lennard_jones_neighbor_list(
+      displacement, box_size)
+    force_fn = quantity.force(energy_fn)
+
+    idx = neighbor_fn(r).idx
+    self.assertAllClose(
+      np.array(exact_force_fn(r), dtype=dtype),
+      force_fn(r, neighbor_idx=idx), True)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_morse_neighbor_list_force(self, spatial_dimension, dtype):
+    key = random.PRNGKey(1)
+
+    box_size = f32(15.0)
+    displacement, _ = space.periodic(box_size)
+    metric = space.metric(displacement)
+    exact_force_fn = quantity.force(energy.morse_pair(displacement))
+
+    r = box_size * random.uniform(
+      key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+    neighbor_fn, energy_fn = energy.morse_neighbor_list(
       displacement, box_size)
     force_fn = quantity.force(energy_fn)
 
