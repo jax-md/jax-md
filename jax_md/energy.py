@@ -59,7 +59,7 @@ def soft_sphere(dr, sigma=1, epsilon=1, alpha=2, **unused_kwargs):
 
   Args:
     dr: An ndarray of shape [n, m] of pairwise distances between particles.
-    sigma: Particle radii. Should either be a floating point scalar or an
+    sigma: Particle diameter. Should either be a floating point scalar or an
       ndarray whose shape is [n, m].
     epsilon: Interaction energy scale. Should either be a floating point scalar
       or an ndarray whose shape is [n, m].
@@ -147,7 +147,7 @@ def lennard_jones_pair(
   """Convenience wrapper to compute Lennard-Jones energy over a system."""
   sigma = np.array(sigma, dtype=f32)
   epsilon = np.array(epsilon, dtype=f32)
-  r_onste = r_onset * np.max(sigma)
+  r_onset = r_onset * np.max(sigma)
   r_cutoff = r_cutoff * np.max(sigma)
   return smap.pair(
     multiplicative_isotropic_cutoff(lennard_jones, r_onset, r_cutoff),
@@ -264,8 +264,8 @@ def multiplicative_isotropic_cutoff(fn, r_onset, r_cutoff):
   Args:
     fn: A function that takes an ndarray of distances of shape [n, m] as well
       as varargs.
-    r_onset: A float specifying the onset radius of deformation.
-    r_cutoff: A float specifying the cutoff radius.
+    r_onset: A float specifying the distance marking the onset of deformation.
+    r_cutoff: A float specifying the cutoff distance.
 
   Returns:
     A new function with the same signature as fn, with the properties outlined
