@@ -21,6 +21,7 @@ from __future__ import print_function
 from functools import wraps
 
 import jax.numpy as np
+from jax import vmap
 
 from jax_md import space, smap, partition
 from jax_md.interpolate import spline
