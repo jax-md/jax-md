@@ -56,7 +56,7 @@ def simple_spring_bond(
 
 
 def cos_squared(costheta, epsilon=1, costheta0=1, **unused_kwargs):
-  return (k / f32(2)) * (costheta - costheta0)**2
+  return (epsilon / f32(2)) * (costheta - costheta0)**2
 
 def cos_squared_bond_triple(
     displacement, triple=None, triple_type=None,  epsilon=1, costheta0=1):
@@ -64,7 +64,7 @@ def cos_squared_bond_triple(
   epsilon = np.array(epsilon, f32)
   costheta0 = np.array(costheta0, f32)
   return smap.bond_triple(
-    cos_squared,
+    angular_function(cos_squared),
     displacement,
     triple,
     triple_type,
