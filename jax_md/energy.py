@@ -55,6 +55,24 @@ def simple_spring_bond(
     alpha=alpha)
 
 
+def cos_squared(costheta, epsilon=1, costheta0=1, **unused_kwargs):
+  return (k / f32(2)) * (costheta - costheta0)**2
+
+def cos_squared_bond_triple(
+    displacement, triple=None, triple_type=None,  epsilon=1, costheta0=1):
+  """Convenience wrapper to compute energy of cos-squared bond-bending potentials."""
+  epsilon = np.array(epsilon, f32)
+  costheta0 = np.array(costheta0, f32)
+  return smap.bond_triple(
+    cos_squared,
+    displacement,
+    triple,
+    triple_type,
+    epsilon=epsilon,
+    costheta0=costheta0)
+
+
+
 def soft_sphere(dr, sigma=1, epsilon=1, alpha=2, **unused_kwargs):
   """Finite ranged repulsive interaction between soft spheres.
 
