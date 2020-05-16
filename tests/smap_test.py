@@ -212,6 +212,198 @@ class SMapTest(jtu.JaxTestCase):
 
       self.assertAllClose(mapped(R), dtype(accum), True)
 
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_bondtriple_no_type_static(self, spatial_dimension, dtype):
+    def harmonic(dR1, dR2, **kwargs):
+      costheta = np.dot(dR1,dR2) / (np.linalg.norm(dR1) * np.linalg.norm(dR2))
+      return (costheta - f32(1)) ** f32(2)
+
+    disp, _ = space.free()
+
+    triples = np.array([[0, 1, 2], [1, 2, 3]], i32)
+    mapped = smap.bond_triple(vmap(harmonic), disp, triples)
+
+    key = random.PRNGKey(0)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = random.uniform(
+        split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+
+      accum = harmonic(disp(R[0], R[1]), disp(R[1],R[2])) + harmonic(disp(R[1], R[2]), disp(R[2],R[3]))
+
+      self.assertAllClose(mapped(R), dtype(accum), True)
+
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_bondtriple_no_type_dynamic(self, spatial_dimension, dtype):
+    def harmonic(dR1, dR2, **kwargs):
+      costheta = np.dot(dR1,dR2) / (np.linalg.norm(dR1) * np.linalg.norm(dR2))
+      return (costheta - f32(1)) ** f32(2)
+
+    disp, _ = space.free()
+
+    triples = np.array([[0, 1, 2], [1, 2, 3]], i32)
+    mapped = smap.bond_triple(vmap(harmonic), disp)
+
+    key = random.PRNGKey(0)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = random.uniform(
+        split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+
+      accum = harmonic(disp(R[0], R[1]), disp(R[1],R[2])) + harmonic(disp(R[1], R[2]), disp(R[2],R[3]))
+
+      self.assertAllClose(mapped(R, triples), dtype(accum), True)
+
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_bondtriple_type_static(self, spatial_dimension, dtype):
+    def harmonic(dR1, dR2, costheta0=1.0, **kwargs):
+      def calc_costheta(dR1, dR2):
+        return np.dot(dR1,dR2) / (np.linalg.norm(dR1) * np.linalg.norm(dR2))
+      return np.array((vmap(calc_costheta)(dR1,dR2) - costheta0) ** f32(2), dtype=dR1.dtype)
+
+
+    disp, _ = space.free()
+    costheta0 = np.array([1.0, 0.0])
+
+    triples = np.array([[0, 1, 2], [1, 2, 3], [2,3,4]], i32)
+    mapped = smap.bond_triple(
+            harmonic, disp, 
+            triples,
+            np.array([0,0,1]),
+            costheta0 = costheta0
+            )
+
+    key = random.PRNGKey(0)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = random.uniform(
+        split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+
+      accum = harmonic(np.array([disp(R[0], R[1])]), np.array([disp(R[1], R[2])]), 1.0) \
+            + harmonic(np.array([disp(R[1], R[2])]), np.array([disp(R[2], R[3])]), 1.0) \
+            + harmonic(np.array([disp(R[2], R[3])]), np.array([disp(R[3], R[4])]), 0.0)
+
+      self.assertAllClose(mapped(R), dtype(accum[0]), True)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_bondtriple_type_dynamic(self, spatial_dimension, dtype):
+    def harmonic(dR1, dR2, costheta0=1.0, **kwargs):
+      def calc_costheta(dR1, dR2):
+        return np.dot(dR1,dR2) / (np.linalg.norm(dR1) * np.linalg.norm(dR2))
+      return np.array((vmap(calc_costheta)(dR1,dR2) - costheta0) ** f32(2), dtype=dR1.dtype)
+
+    disp, _ = space.free()
+    costheta0 = np.array([1.0, 0.0])
+
+    triples = np.array([[0, 1, 2], [1, 2, 3], [2,3,4]], i32)
+    triple_types = np.array([0,0,1], i32)
+    mapped = smap.bond_triple(
+            harmonic, disp, 
+            costheta0 = costheta0
+            )
+
+    key = random.PRNGKey(0)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = random.uniform(
+        split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+
+      accum = harmonic(np.array([disp(R[0], R[1])]), np.array([disp(R[1], R[2])]), 1.0) \
+            + harmonic(np.array([disp(R[1], R[2])]), np.array([disp(R[2], R[3])]), 1.0) \
+            + harmonic(np.array([disp(R[2], R[3])]), np.array([disp(R[3], R[4])]), 0.0)
+
+      self.assertAllClose(mapped(R, triples, triple_types), dtype(accum[0]), True)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_bondtriple_params_dynamic(self, spatial_dimension, dtype):
+    def harmonic(dR1, dR2, costheta0=1.0, **kwargs):
+      def calc_costheta(dR1, dR2):
+        return np.dot(dR1,dR2) / (np.linalg.norm(dR1) * np.linalg.norm(dR2))
+      return np.array((vmap(calc_costheta)(dR1,dR2) - costheta0) ** f32(2), dtype=dR1.dtype)
+
+    disp, _ = space.free()
+    costheta0 = np.array([1.0, 1.0, 0.0])
+
+    triples = np.array([[0, 1, 2], [1, 2, 3], [2,3,4]], i32)
+    mapped = smap.bond_triple(harmonic, disp)
+
+    key = random.PRNGKey(0)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = random.uniform(
+        split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+
+      accum = harmonic(np.array([disp(R[0], R[1])]), np.array([disp(R[1], R[2])]), 1.0) \
+            + harmonic(np.array([disp(R[1], R[2])]), np.array([disp(R[2], R[3])]), 1.0) \
+            + harmonic(np.array([disp(R[2], R[3])]), np.array([disp(R[3], R[4])]), 0.0)
+
+      self.assertAllClose(mapped(R, triples, costheta0=costheta0), dtype(accum[0]), True)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_bondtriple_params_statictriples(self, spatial_dimension, dtype):
+    def harmonic(dR1, dR2, costheta0=1.0, **kwargs):
+      def calc_costheta(dR1, dR2):
+        return np.dot(dR1,dR2) / (np.linalg.norm(dR1) * np.linalg.norm(dR2))
+      return np.array((vmap(calc_costheta)(dR1,dR2) - costheta0) ** f32(2), dtype=dR1.dtype)
+
+    disp, _ = space.free()
+    costheta0 = np.array([1.0, 1.0, 0.0])
+
+    triples = np.array([[0, 1, 2], [1, 2, 3], [2,3,4]], i32)
+    mapped = smap.bond_triple(harmonic, disp, triples, costheta0=costheta0)
+
+    key = random.PRNGKey(0)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = random.uniform(
+        split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+
+      accum = harmonic(np.array([disp(R[0], R[1])]), np.array([disp(R[1], R[2])]), 1.0) \
+            + harmonic(np.array([disp(R[1], R[2])]), np.array([disp(R[2], R[3])]), 1.0) \
+            + harmonic(np.array([disp(R[2], R[3])]), np.array([disp(R[3], R[4])]), 0.0)
+
+      self.assertAllClose(mapped(R), dtype(accum[0]), True)
+
+
   def test_get_species_parameters(self):
     species = [(0, 0), (0, 1), (1, 0), (1, 1)]
     params = np.array([[2.0, 3.0], [3.0, 1.0]])

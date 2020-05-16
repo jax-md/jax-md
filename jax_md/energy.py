@@ -56,7 +56,10 @@ def simple_spring_bond(
 
 
 def cos_squared(costheta, epsilon=1, costheta0=1, **unused_kwargs):
-  return (epsilon / f32(2)) * (costheta - costheta0)**2
+  """ Simple bond-bending potential 
+  """
+  check_kwargs_time_dependence(unused_kwargs)
+  return (epsilon / f32(2)) * (costheta - costheta0) ** 2
 
 def cos_squared_bond_triple(
     displacement, triple=None, triple_type=None,  epsilon=1, costheta0=1):
