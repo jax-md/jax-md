@@ -218,7 +218,7 @@ class SimulateTest(jtu.JaxTestCase):
       T = random.uniform(T_key, (), minval=0.3, maxval=1.4, dtype=dtype)
       mass = random.uniform(
           masses_key, (PARTICLE_COUNT,), minval=0.1, maxval=10.0, dtype=dtype)
-      init_fn, apply_fn = simulate.nvt_nose_hoover(E, shift, 1e-3, T)
+      init_fn, apply_fn = simulate.nvt_nose_hoover(E, shift, 1e-3, T, tau=10)
       apply_fn = jit(apply_fn)
 
       state = init_fn(vel_key, R, mass=mass, T_initial=dtype(1.0))

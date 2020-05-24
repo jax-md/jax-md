@@ -147,7 +147,7 @@ register_pytree_namedtuple(NVTNoseHooverState)
 
 def nvt_nose_hoover(
     energy_or_force, shift_fn, dt, T_schedule, quant=quantity.Energy,
-    chain_length=5, tau=0.01):
+    chain_length=5, tau=100.0):
   """Simulation in the NVT ensemble using a Nose Hoover Chain thermostat.
 
   Samples from the canonical ensemble in which the number of particles (N),
@@ -173,8 +173,8 @@ def nvt_nose_hoover(
       energy_or_force is an energy or force respectively.
     chain_length: An integer specifying the length of the Nose-Hoover chain.
     tau: A floating point timescale over which temperature equilibration occurs.
-      The performance of the Nose-Hoover chain thermostat is quite sensitive to
-      this choice.
+      Measured in units of dt. The performance of the Nose-Hoover chain
+      thermostat can be quite sensitive to this choice.
   Returns:
     See above.
 
@@ -193,6 +193,7 @@ def nvt_nose_hoover(
 
   force = quantity.canonicalize_force(energy_or_force, quant)
 
+  tau = tau * dt
   dt_2 = dt / 2.0
   dt_4 = dt_2 / 2.0
   dt_8 = dt_4 / 2.0

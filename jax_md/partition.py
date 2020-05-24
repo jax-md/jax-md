@@ -392,7 +392,7 @@ class NeighborList(object):
 def neighbor_list(
     displacement_or_metric, box_size, r_cutoff, dr_threshold,
     capacity_multiplier=1.25, cell_size=None, disable_cell_list=False,
-    **static_kwargs):
+    mask_self=True, **static_kwargs):
   """Returns a function that builds a list neighbors for collections of points.
 
   Neighbor lists must balance the need to be jit compatable with the fact that
@@ -444,6 +444,8 @@ def neighbor_list(
     disable_cell_list: An optional boolean. If set to True then the neighbor
       list is constructed using only distances. This can be useful for
       debugging but should generally be left as False.
+    mask_self: An optional boolean. Determines whether points can consider
+      themselves to be their own neighbors.
     **static_kwargs: kwargs that get threaded through the calculation of
       example positions.
   Returns:
@@ -517,7 +519,7 @@ def neighbor_list(
     dR = d(R, neigh_R)
 
     mask = np.logical_and(dR < cutoff_sq, idx < N)
-    max_occupancy = np.max(np.sum(mask, axis=1)) 
+    max_occupancy = np.max(np.sum(mask, axis=1))
 
     argsort = np.argsort(f32(1) - mask, axis=1)
     # TODO(schsam): Error checking for list exceeding maximum occupancy.
@@ -525,7 +527,7 @@ def neighbor_list(
 
     return idx, max_occupancy
 
-  def mask_self(idx):
+  def mask_self_fn(idx):
     self_mask = idx == np.reshape(np.arange(idx.shape[0]), (idx.shape[0], 1))
     return np.where(self_mask, idx.shape[0], idx)
 
@@ -540,8 +542,15 @@ def neighbor_list(
       idx, occupancy = prune_neighbor_list(R, idx, **kwargs)
       if max_occupancy is None:
         max_occupancy = int(occupancy * capacity_multiplier + extra_capacity)
+        padding = max_occupancy - occupancy
+        N = R.shape[0]
+        if max_occupancy > occupancy:
+          idx = np.concatenate(
+            [idx, N * np.ones((N, padding), dtype=idx.dtype)], axis=1)
+      idx = idx[:, :max_occupancy]
       return NeighborList(
-          mask_self(idx[:, :max_occupancy]), R,
+          mask_self_fn(idx) if mask_self else idx,
+          R,
           np.logical_or(overflow, (max_occupancy <= occupancy)),
           max_occupancy,
           cell_list_fn)
