@@ -551,7 +551,7 @@ def neighbor_list(
       return NeighborList(
           mask_self_fn(idx) if mask_self else idx,
           R,
-          np.logical_or(overflow, (max_occupancy <= occupancy)),
+          np.logical_or(overflow, (max_occupancy < occupancy)),
           max_occupancy,
           cell_list_fn)
 
