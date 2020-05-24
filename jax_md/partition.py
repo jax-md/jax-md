@@ -521,6 +521,7 @@ def neighbor_list(
     mask = np.logical_and(dR < cutoff_sq, idx < N)
     max_occupancy = np.max(np.sum(mask, axis=1))
 
+    idx = np.where(mask, idx, N)
     argsort = np.argsort(f32(1) - mask, axis=1)
     # TODO(schsam): Error checking for list exceeding maximum occupancy.
     idx = np.take_along_axis(idx, argsort, axis=1)
