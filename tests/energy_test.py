@@ -194,6 +194,47 @@ class EnergyTest(jtu.JaxTestCase):
         np.array(-epsilon, dtype=dtype))
       g = grad(energy.lennard_jones)(dr, sigma, epsilon)
       self.assertAllClose(g, np.array(0, dtype=dtype))
+      
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_morse(self, spatial_dimension, dtype):
+    key = random.PRNGKey(0)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split_sigma, split_epsilon, split_alpha = random.split(key, 4)
+      sigma = dtype(random.uniform(
+          split_sigma, (1,), minval=0., maxval=3.0)[0])
+      epsilon = dtype(random.uniform(
+          split_epsilon, (1,), minval=0.0, maxval=4.0)[0])
+      alpha = dtype(random.uniform(
+          split_alpha, (1,), minval=1.0, maxval=30.0)[0])
+      dr = dtype(sigma)
+      self.assertAllClose(
+        energy.morse(dr, sigma, epsilon, alpha),
+        np.array(-epsilon, dtype=dtype))
+      g = grad(energy.morse)(dr, sigma, epsilon, alpha)
+      self.assertAllClose(g, np.array(0, dtype=dtype))
+    
+    # if dr = a/alpha + sigma, then V_morse(dr, sigma, epsilon, alpha)/epsilon
+    #   should be independent of sigma, epsilon, and alpha, depending only on a.
+    key, split_sigma, split_epsilon, split_alpha = random.split(key, 4)
+    sigmas = random.uniform(
+        split_sigma, (STOCHASTIC_SAMPLES,), minval=0., maxval=3.0)
+    epsilons = random.uniform(
+        split_epsilon, (STOCHASTIC_SAMPLES,), minval=0.1, maxval=4.0)
+    alphas = random.uniform(
+        split_alpha, (STOCHASTIC_SAMPLES,), minval=1.0, maxval=30.0)
+    for sigma,epsilon,alpha in zip(sigmas,epsilons,alphas):
+      a = np.linspace(max(-2.5, -alpha * sigma), 8.0, 100)
+      dr = np.array(a / alpha + sigma, dtype=dtype)
+      U = energy.morse(dr, sigma, epsilon, alpha)/dtype(epsilon)
+      Ucomp = np.array((dtype(1) - np.exp(-a)) ** dtype(2) - dtype(1), 
+                       dtype=dtype)
+      self.assertAllClose(U, Ucomp)    
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -275,6 +316,57 @@ class EnergyTest(jtu.JaxTestCase):
     self.assertAllClose(
       np.array(exact_energy_fn(R), dtype=dtype),
       energy_fn(R, nbrs.idx))
+  
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_morse_cell_neighbor_list_energy(
+      self, spatial_dimension, dtype):
+    key = random.PRNGKey(1)
+
+    box_size = f32(15)
+    displacement, _ = space.periodic(box_size)
+    metric = space.metric(displacement)
+    exact_energy_fn = energy.morse_pair(displacement)
+
+    R = box_size * random.uniform(
+      key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+    neighbor_fn, energy_fn = energy.morse_neighbor_list(
+      displacement, box_size)
+
+    nbrs = neighbor_fn(R)
+    self.assertAllClose(
+      np.array(exact_energy_fn(R), dtype=dtype),
+      energy_fn(R, nbrs.idx))
+    
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_morse_small_neighbor_list_energy(
+      self, spatial_dimension, dtype):
+    key = random.PRNGKey(1)
+
+    box_size = f32(5.0)
+    displacement, _ = space.periodic(box_size)
+    metric = space.metric(displacement)
+    exact_energy_fn = energy.morse_pair(displacement)
+
+    R = box_size * random.uniform(
+      key, (10, spatial_dimension), dtype=dtype)
+    neighbor_fn, energy_fn = energy.morse_neighbor_list(
+      displacement, box_size)
+
+    nbrs = neighbor_fn(R)
+    self.assertAllClose(
+      np.array(exact_energy_fn(R), dtype=dtype),
+      energy_fn(R, nbrs.idx))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -318,6 +410,31 @@ class EnergyTest(jtu.JaxTestCase):
     r = box_size * random.uniform(
       key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
     neighbor_fn, energy_fn = energy.lennard_jones_neighbor_list(
+      displacement, box_size)
+    force_fn = quantity.force(energy_fn)
+
+    idx = neighbor_fn(r).idx
+    self.assertAllClose(
+      np.array(exact_force_fn(r), dtype=dtype),
+      force_fn(r, neighbor_idx=idx))
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_morse_neighbor_list_force(self, spatial_dimension, dtype):
+    key = random.PRNGKey(1)
+
+    box_size = f32(15.0)
+    displacement, _ = space.periodic(box_size)
+    metric = space.metric(displacement)
+    exact_force_fn = quantity.force(energy.morse_pair(displacement))
+
+    r = box_size * random.uniform(
+      key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+    neighbor_fn, energy_fn = energy.morse_neighbor_list(
       displacement, box_size)
     force_fn = quantity.force(energy_fn)
 
