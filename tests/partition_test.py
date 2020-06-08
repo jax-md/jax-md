@@ -72,22 +72,22 @@ class CellListTest(jtu.JaxTestCase):
 
     cell_list = cell_fn(R)
 
-    self.assertAllClose(R[0], cell_list.R_buffer[0, 0, 0], True)
-    self.assertAllClose(R[1], cell_list.R_buffer[1, 8, 1], True)
-    self.assertAllClose(R[2], cell_list.R_buffer[1, 8, 0], True)
-    self.assertAllClose(R[3], cell_list.R_buffer[7, 3, 1], True)
+    self.assertAllClose(R[0], cell_list.R_buffer[0, 0, 0])
+    self.assertAllClose(R[1], cell_list.R_buffer[1, 8, 1])
+    self.assertAllClose(R[2], cell_list.R_buffer[1, 8, 0])
+    self.assertAllClose(R[3], cell_list.R_buffer[7, 3, 1])
 
-    self.assertEqual(0, cell_list.id_buffer[0, 0, 0], True)
-    self.assertEqual(1, cell_list.id_buffer[1, 8, 1], True)
-    self.assertEqual(2, cell_list.id_buffer[1, 8, 0], True)
-    self.assertEqual(3, cell_list.id_buffer[7, 3, 1], True)
+    self.assertEqual(0, cell_list.id_buffer[0, 0, 0])
+    self.assertEqual(1, cell_list.id_buffer[1, 8, 1])
+    self.assertEqual(2, cell_list.id_buffer[1, 8, 0])
+    self.assertEqual(3, cell_list.id_buffer[7, 3, 1])
 
     id_flat = np.reshape(cell_list.id_buffer, (-1,))
     R_flat = np.reshape(cell_list.R_buffer, (-1, 2))
 
     R_out = np.zeros((5, 2), dtype)
     R_out = ops.index_update(R_out, id_flat, R_flat)[:-1]
-    self.assertAllClose(R_out, R, True)
+    self.assertAllClose(R_out, R)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -111,7 +111,7 @@ class CellListTest(jtu.JaxTestCase):
     R_out = np.zeros((PARTICLE_COUNT + 1, dim))
     R_out = ops.index_update(R_out, id_flat, R_flat)[:-1]
 
-    self.assertAllClose(R_out, R, True)
+    self.assertAllClose(R_out, R)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -134,7 +134,7 @@ class CellListTest(jtu.JaxTestCase):
     R_flat = np.reshape(cell_list.R_buffer, (-1, dim))
     R_out = np.zeros((PARTICLE_COUNT + 1, dim))
     R_out = ops.index_update(R_out, id_flat, R_flat)[:-1]
-    self.assertAllClose(R_out, R, True)
+    self.assertAllClose(R_out, R)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -168,8 +168,8 @@ class CellListTest(jtu.JaxTestCase):
     side_data_out = ops.index_update(
       side_data_out, id_flat, side_data_flat)[:-1]
 
-    self.assertAllClose(R_out, R, True)
-    self.assertAllClose(side_data_out, side_data, True)
+    self.assertAllClose(R_out, R)
+    self.assertAllClose(side_data_out, side_data)
 
 class NeighborListTest(jtu.JaxTestCase):
   @parameterized.named_parameters(jtu.cases_from_list(
@@ -218,7 +218,7 @@ class NeighborListTest(jtu.JaxTestCase):
       dR_exact_row = dR_exact[i]
       dR_exact_row = np.array(dR_exact_row[dR_exact_row > 0.], dtype)
 
-      self.assertAllClose(dR_row, dR_exact_row, True)
+      self.assertAllClose(dR_row, dR_exact_row)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -276,6 +276,6 @@ class NeighborListTest(jtu.JaxTestCase):
       dR_exact_row = dR_exact[i]
       dR_exact_row = dR_exact_row[dR_exact_row > 0.]
 
-      self.assertAllClose(dR_row, dR_exact_row, True)
+      self.assertAllClose(dR_row, dR_exact_row)
 if __name__ == '__main__':
   absltest.main()

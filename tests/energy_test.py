@@ -137,7 +137,7 @@ class EnergyTest(jtu.JaxTestCase):
       alpha = random.uniform(key, (), minval=2., maxval=4.)
       E = energy.simple_spring_bond(disp, bonds, length=length, alpha=alpha)
       E_exact = dtype((dist - length) ** alpha / alpha)
-      self.assertAllClose(E(R), E_exact, True)
+      self.assertAllClose(E(R), E_exact)
 
 
   # pylint: disable=g-complex-comprehension
@@ -163,15 +163,15 @@ class EnergyTest(jtu.JaxTestCase):
         dtype=dtype)
       self.assertAllClose(
           energy.soft_sphere(
-            dtype(0), sigma, epsilon, alpha), epsilon / alpha, True)
+            dtype(0), sigma, epsilon, alpha), epsilon / alpha)
       self.assertAllClose(
         energy.soft_sphere(dtype(sigma), sigma, epsilon, alpha),
-        np.array(0.0, dtype=dtype), True)
+        np.array(0.0, dtype=dtype))
 
       if alpha == 3.0:
         grad_energy = grad(energy.soft_sphere)
         g = grad_energy(dtype(sigma), sigma, epsilon, alpha)
-        self.assertAllClose(g, np.array(0, dtype=dtype), True)
+        self.assertAllClose(g, np.array(0, dtype=dtype))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -191,9 +191,9 @@ class EnergyTest(jtu.JaxTestCase):
       dr = dtype(sigma * 2 ** (1.0 / 6.0))
       self.assertAllClose(
         energy.lennard_jones(dr, sigma, epsilon),
-        np.array(-epsilon, dtype=dtype), True)
+        np.array(-epsilon, dtype=dtype))
       g = grad(energy.lennard_jones)(dr, sigma, epsilon)
-      self.assertAllClose(g, np.array(0, dtype=dtype), True)
+      self.assertAllClose(g, np.array(0, dtype=dtype))
       
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -215,9 +215,9 @@ class EnergyTest(jtu.JaxTestCase):
       dr = dtype(sigma)
       self.assertAllClose(
         energy.morse(dr, sigma, epsilon, alpha),
-        np.array(-epsilon, dtype=dtype), True)
+        np.array(-epsilon, dtype=dtype))
       g = grad(energy.morse)(dr, sigma, epsilon, alpha)
-      self.assertAllClose(g, np.array(0, dtype=dtype), True)
+      self.assertAllClose(g, np.array(0, dtype=dtype))
     
     # if dr = a/alpha + sigma, then V_morse(dr, sigma, epsilon, alpha)/epsilon
     #   should be independent of sigma, epsilon, and alpha, depending only on a.
@@ -234,7 +234,7 @@ class EnergyTest(jtu.JaxTestCase):
       U = energy.morse(dr, sigma, epsilon, alpha)/dtype(epsilon)
       Ucomp = np.array((dtype(1) - np.exp(-a)) ** dtype(2) - dtype(1), 
                        dtype=dtype)
-      self.assertAllClose(U, Ucomp, True)    
+      self.assertAllClose(U, Ucomp)    
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -264,9 +264,9 @@ class EnergyTest(jtu.JaxTestCase):
 
       self.assertAllClose(
         E(r_small, sigma, epsilon),
-        energy.lennard_jones(r_small, sigma, epsilon), True)
+        energy.lennard_jones(r_small, sigma, epsilon))
       self.assertAllClose(
-        E(r_large, sigma, epsilon), np.zeros_like(r_large, dtype=dtype), True)
+        E(r_large, sigma, epsilon), np.zeros_like(r_large, dtype=dtype))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -290,7 +290,7 @@ class EnergyTest(jtu.JaxTestCase):
 
     self.assertAllClose(
       np.array(exact_energy_fn(R), dtype=dtype),
-      energy_fn(R, nbrs.idx), True)
+      energy_fn(R, nbrs.idx))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -315,7 +315,7 @@ class EnergyTest(jtu.JaxTestCase):
     nbrs = neighbor_fn(R)
     self.assertAllClose(
       np.array(exact_energy_fn(R), dtype=dtype),
-      energy_fn(R, nbrs.idx), True)
+      energy_fn(R, nbrs.idx))
   
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -340,7 +340,7 @@ class EnergyTest(jtu.JaxTestCase):
     nbrs = neighbor_fn(R)
     self.assertAllClose(
       np.array(exact_energy_fn(R), dtype=dtype),
-      energy_fn(R, nbrs.idx), True)
+      energy_fn(R, nbrs.idx))
     
 
   @parameterized.named_parameters(jtu.cases_from_list(
@@ -366,8 +366,7 @@ class EnergyTest(jtu.JaxTestCase):
     nbrs = neighbor_fn(R)
     self.assertAllClose(
       np.array(exact_energy_fn(R), dtype=dtype),
-      energy_fn(R, nbrs.idx), True)
-
+      energy_fn(R, nbrs.idx))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -392,7 +391,7 @@ class EnergyTest(jtu.JaxTestCase):
     nbrs = neighbor_fn(R)
     self.assertAllClose(
       np.array(exact_energy_fn(R), dtype=dtype),
-      energy_fn(R, nbrs.idx), True)
+      energy_fn(R, nbrs.idx))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -417,7 +416,7 @@ class EnergyTest(jtu.JaxTestCase):
     idx = neighbor_fn(r).idx
     self.assertAllClose(
       np.array(exact_force_fn(r), dtype=dtype),
-      force_fn(r, neighbor_idx=idx), True)
+      force_fn(r, neighbor_idx=idx))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -442,7 +441,7 @@ class EnergyTest(jtu.JaxTestCase):
     idx = neighbor_fn(r).idx
     self.assertAllClose(
       np.array(exact_force_fn(r), dtype=dtype),
-      force_fn(r, neighbor_idx=idx), True)
+      force_fn(r, neighbor_idx=idx))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -467,7 +466,7 @@ class EnergyTest(jtu.JaxTestCase):
     self.assertAllClose(
         eam_energy(
             np.dot(atoms_repeated, inv_latvec)) / np.array(num_repetitions ** 3, dtype),
-        dtype(-3.363338), True)
+        dtype(-3.363338))
 
 if __name__ == '__main__':
   absltest.main()

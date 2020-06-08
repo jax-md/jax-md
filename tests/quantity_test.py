@@ -91,7 +91,7 @@ class QuantityTest(jtu.JaxTestCase):
          [[1, c45, 0],
           [c45, 1, 0],
           [0, 0, 0]]], dtype=dtype)
-    self.assertAllClose(cangles, true_cangles, True)
+    self.assertAllClose(cangles, true_cangles)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -119,7 +119,7 @@ class QuantityTest(jtu.JaxTestCase):
         [[[1, c45], [c45, 1]],
          [[1, 1], [1, 1]],
          [[1, 1], [1, 1]]], dtype=dtype)
-    self.assertAllClose(cangles, true_cangles, True)
+    self.assertAllClose(cangles, true_cangles)
 
 
   @parameterized.named_parameters(jtu.cases_from_list(

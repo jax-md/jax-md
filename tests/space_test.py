@@ -31,10 +31,12 @@ from jax.api import grad
 
 from jax import test_util as jtu
 
-from jax_md import space
+from jax_md import space, test_util
 from jax_md.util import *
 
 from functools import partial
+
+test_util.update_test_tolerance(5e-5, 5e-13)
 
 jax_config.parse_flags_with_absl()
 FLAGS = jax_config.FLAGS
@@ -63,8 +65,8 @@ class SpaceTest(jtu.JaxTestCase):
       inv_mat = space._small_inverse(mat)
       inv_mat_real_onp = onp.linalg.inv(mat)
       inv_mat_real_np = np.linalg.inv(mat)
-      self.assertAllClose(inv_mat, inv_mat_real_onp, True)
-      self.assertAllClose(inv_mat, inv_mat_real_np, True)
+      self.assertAllClose(inv_mat, inv_mat_real_onp)
+      self.assertAllClose(inv_mat, inv_mat_real_np)
 
   # pylint: disable=g-complex-comprehension
   @parameterized.named_parameters(jtu.cases_from_list(
@@ -87,7 +89,7 @@ class SpaceTest(jtu.JaxTestCase):
       R_prime_exact = np.array(np.dot(R, T), dtype=dtype)
       R_prime = space.transform(T, R)
 
-      self.assertAllClose(R_prime_exact, R_prime, True)
+      self.assertAllClose(R_prime_exact, R_prime)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -111,7 +113,7 @@ class SpaceTest(jtu.JaxTestCase):
       grad_direct = grad(energy_direct)(R_prime)
       grad_indirect = grad(energy_indirect, 1)(T, R)
 
-      self.assertAllClose(grad_direct, grad_indirect, True)
+      self.assertAllClose(grad_direct, grad_indirect)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -138,7 +140,7 @@ class SpaceTest(jtu.JaxTestCase):
 
       R_test = space.transform(T_inv, space.transform(T, R))
 
-      self.assertAllClose(R, R_test, True, atol=tol, rtol=tol)
+      self.assertAllClose(R, R_test)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -162,7 +164,7 @@ class SpaceTest(jtu.JaxTestCase):
       R = random.normal(
         split1, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
 
-      self.assertAllClose(metric(R, R), test_metric(R, R), True)
+      self.assertAllClose(metric(R, R), test_metric(R, R))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -212,7 +214,7 @@ class SpaceTest(jtu.JaxTestCase):
 
       dR_direct = np.array(dR_direct, dtype=dR.dtype)
       assert dR_wrapped.dtype == dtype
-      self.assertAllClose(dR_wrapped, dR_direct, True)
+      self.assertAllClose(dR_wrapped, dR_direct)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -243,7 +245,7 @@ class SpaceTest(jtu.JaxTestCase):
       dR_after = space.periodic_displacement(f32(1.0), R_shift - R)
 
       assert dR_after.dtype == R.dtype
-      self.assertAllClose(dR_after, dR, True)
+      self.assertAllClose(dR_after, dR)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -279,13 +281,10 @@ class SpaceTest(jtu.JaxTestCase):
       disp_fn = space.map_product(disp_fn)
       general_disp_fn = space.map_product(general_disp_fn)
 
-      self.assertAllClose(
-          disp_fn(R_scaled, R_scaled), general_disp_fn(R, R), True,
-          atol=tol, rtol=tol)
+      self.assertAllClose(disp_fn(R_scaled, R_scaled), general_disp_fn(R, R))
       assert disp_fn(R_scaled, R_scaled).dtype == dtype
       self.assertAllClose(
-          shift_fn(R_scaled, dR), general_shift_fn(R, dR) * box_size, True,
-          atol=tol, rtol=tol)
+          shift_fn(R_scaled, dR), general_shift_fn(R, dR) * box_size)
       assert shift_fn(R_scaled, dR).dtype == dtype
 
   @parameterized.named_parameters(jtu.cases_from_list(
@@ -325,9 +324,7 @@ class SpaceTest(jtu.JaxTestCase):
       grad_fn = grad(lambda R: np.sum(disp_fn(R, R) ** 2)) 
       general_grad_fn = grad(lambda R: np.sum(general_disp_fn(R, R) ** 2)) 
 
-      self.assertAllClose(
-          grad_fn(R_scaled), general_grad_fn(R), True,
-          atol=tol, rtol=tol)
+      self.assertAllClose(grad_fn(R_scaled), general_grad_fn(R))
       assert general_grad_fn(R).dtype == dtype
 
   @parameterized.named_parameters(jtu.cases_from_list(
@@ -374,11 +371,9 @@ class SpaceTest(jtu.JaxTestCase):
         split_dR, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
 
       self.assertAllClose(
-        disp_fn(R, R),
-        np.array(true_disp_fn(R, R), dtype=dtype), True)
+        disp_fn(R, R), np.array(true_disp_fn(R, R), dtype=dtype))
       self.assertAllClose(
-        shift_fn(R, dR, t=t_g),
-        np.array(true_shift_fn(R, dR), dtype=dtype), True)
+        shift_fn(R, dR, t=t_g), np.array(true_shift_fn(R, dR), dtype=dtype))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -421,7 +416,7 @@ class SpaceTest(jtu.JaxTestCase):
         unwrapped_R = unwrapped_shift(unwrapped_R, dR)
         self.assertAllClose(
           displacement(R, R0),
-          displacement(unwrapped_R, R0), True, atol=tol, rtol=tol)
+          displacement(unwrapped_R, R0))
       assert not (np.all(unwrapped_R > 0) and np.all(unwrapped_R < 1))
 
 if __name__ == '__main__':
