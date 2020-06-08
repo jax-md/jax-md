@@ -106,7 +106,7 @@ class SimulateTest(jtu.JaxTestCase):
     Nx = particles_per_side = 8
     spacing = f32(1.25)
 
-    tol = 1e-10 if dtype == np.float64 else 1e-3
+    tol = 5e-12 if dtype == np.float64 else 5e-3
 
     L = Nx * spacing
     if spatial_dimension == 2:
@@ -145,7 +145,7 @@ class SimulateTest(jtu.JaxTestCase):
         exact_state = new_exact_state
         step += 1
     assert state.position.dtype == dtype
-    self.assertAllClose(state.position, exact_state.position, True, tol, tol)
+    self.assertAllClose(state.position, exact_state.position, atol=tol, rtol=tol)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
