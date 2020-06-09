@@ -19,3 +19,4 @@ from jax_md import simulate
 from jax_md import smap
 from jax_md import partition
 from jax_md import dataclasses
+from jax_md import nn

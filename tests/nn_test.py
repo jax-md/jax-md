@@ -147,5 +147,7 @@ class NeuralNetworkTest(jtu.JaxTestCase):
     b = dataclasses.asdict(b)
 
     self.assertAllClose(a, b) 
+
+
 if __name__ == '__main__':
   absltest.main()
