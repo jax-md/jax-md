@@ -20,6 +20,8 @@ Accessed on 04/29/2020.
 """
 
 import dataclasses
+from dataclasses import replace
+from dataclasses import asdict
 import jax
 
 
