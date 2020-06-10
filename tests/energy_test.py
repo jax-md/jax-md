@@ -12,17 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for google3.third_party.py.jax_md.energy."""
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+"""Tests for jax_md.energy."""
 
 from absl.testing import absltest
 from absl.testing import parameterized
 
 from jax.config import config as jax_config
 from jax import random
+from jax import jit, vmap
+from jax.experimental import optix
 import jax.numpy as np
 
 import numpy as onp
@@ -290,7 +288,7 @@ class EnergyTest(jtu.JaxTestCase):
 
     self.assertAllClose(
       np.array(exact_energy_fn(R), dtype=dtype),
-      energy_fn(R, nbrs.idx))
+      energy_fn(R, nbrs))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -315,7 +313,7 @@ class EnergyTest(jtu.JaxTestCase):
     nbrs = neighbor_fn(R)
     self.assertAllClose(
       np.array(exact_energy_fn(R), dtype=dtype),
-      energy_fn(R, nbrs.idx))
+      energy_fn(R, nbrs))
   
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -340,9 +338,8 @@ class EnergyTest(jtu.JaxTestCase):
     nbrs = neighbor_fn(R)
     self.assertAllClose(
       np.array(exact_energy_fn(R), dtype=dtype),
-      energy_fn(R, nbrs.idx))
+      energy_fn(R, nbrs))
     
-
   @parameterized.named_parameters(jtu.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
@@ -366,7 +363,7 @@ class EnergyTest(jtu.JaxTestCase):
     nbrs = neighbor_fn(R)
     self.assertAllClose(
       np.array(exact_energy_fn(R), dtype=dtype),
-      energy_fn(R, nbrs.idx))
+      energy_fn(R, nbrs))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -391,7 +388,7 @@ class EnergyTest(jtu.JaxTestCase):
     nbrs = neighbor_fn(R)
     self.assertAllClose(
       np.array(exact_energy_fn(R), dtype=dtype),
-      energy_fn(R, nbrs.idx))
+      energy_fn(R, nbrs))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -413,10 +410,10 @@ class EnergyTest(jtu.JaxTestCase):
       displacement, box_size)
     force_fn = quantity.force(energy_fn)
 
-    idx = neighbor_fn(r).idx
+    nbrs = neighbor_fn(r)
     self.assertAllClose(
       np.array(exact_force_fn(r), dtype=dtype),
-      force_fn(r, neighbor_idx=idx))
+      force_fn(r, nbrs))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -438,10 +435,10 @@ class EnergyTest(jtu.JaxTestCase):
       displacement, box_size)
     force_fn = quantity.force(energy_fn)
 
-    idx = neighbor_fn(r).idx
+    nbrs = neighbor_fn(r)
     self.assertAllClose(
       np.array(exact_force_fn(r), dtype=dtype),
-      force_fn(r, neighbor_idx=idx))
+      force_fn(r, nbrs))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -467,6 +464,100 @@ class EnergyTest(jtu.JaxTestCase):
         eam_energy(
             np.dot(atoms_repeated, inv_latvec)) / np.array(num_repetitions ** 3, dtype),
         dtype(-3.363338))
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_graph_network_shape_dtype(self, spatial_dimension, dtype):
+    key = random.PRNGKey(0)
+
+    R = random.uniform(key, (32, spatial_dimension), dtype=dtype)
+
+    d, _ = space.free()
+
+    cutoff = 0.2
+
+    init_fn, energy_fn = energy.graph_network(d, cutoff)
+    params = init_fn(key, R)
+
+    E_out = energy_fn(params, R) 
+
+    assert E_out.shape == ()
+    assert E_out.dtype == dtype 
+
+  
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_graph_network_neighbor_list(self, spatial_dimension, dtype):
+    key = random.PRNGKey(0)
+
+    R = random.uniform(key, (32, spatial_dimension), dtype=dtype)
+
+    d, _ = space.free()
+
+    cutoff = 0.2
+
+    init_fn, energy_fn = energy.graph_network(d, cutoff)
+    params = init_fn(key, R)
+
+    neighbor_fn, _, nl_energy_fn = \
+      energy.graph_network_neighbor_list(d, 1.0, cutoff, 0.0)
+
+    nbrs = neighbor_fn(R)
+    self.assertAllClose(energy_fn(params, R), nl_energy_fn(params, R, nbrs))
+
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_graph_network_learning(self, spatial_dimension, dtype):
+    key = random.PRNGKey(0)
+
+    R_key, dr0_key, params_key = random.split(key, 3)
+
+    d, _ = space.free()
+
+    R = random.uniform(R_key, (6, 3, spatial_dimension), dtype=dtype)
+    dr0 = random.uniform(dr0_key, (6, 3, 3), dtype=dtype)
+    E_gt = vmap(
+      lambda R, dr0: \
+      np.sum((space.distance(space.map_product(d)(R, R)) - dr0) ** 2))
+
+    cutoff = 0.2
+
+    init_fn, energy_fn = energy.graph_network(d, cutoff)
+    params = init_fn(params_key, R[0])
+
+    @jit
+    def loss(params, R):
+      return np.mean((vmap(energy_fn, (None, 0))(params, R) - E_gt(R, dr0)) ** 2)
+    
+    opt = optix.chain(optix.clip_by_global_norm(1.0), optix.adam(1e-3))
+
+
+    @jit
+    def update(params, opt_state, R):
+      updates, opt_state = opt.update(grad(loss)(params, R),
+                                      opt_state)
+      return optix.apply_updates(params, updates), opt_state
+    
+    opt_state = opt.init(params)
+
+    l0 = loss(params, R)
+    for i in range(4):
+      params, opt_state = update(params, opt_state, R)
+
+    assert loss(params, R) < l0 * 0.85
 
 if __name__ == '__main__':
   absltest.main()

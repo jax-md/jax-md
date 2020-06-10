@@ -545,9 +545,9 @@ class SMapTest(jtu.JaxTestCase):
         split, (N, spatial_dimension), dtype=dtype)
       sigma = random.uniform(key, (), minval=0.5, maxval=2.5)
       neighbor_fn = partition.neighbor_list(disp, box_size, sigma, 0.0)
-      idx = neighbor_fn(R).idx
+      nbrs = neighbor_fn(R)
       self.assertAllClose(mapped_square(R, sigma=sigma),
-                          neighbor_square(R, idx, sigma=sigma))
+                          neighbor_square(R, nbrs, sigma=sigma))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -578,9 +578,9 @@ class SMapTest(jtu.JaxTestCase):
         split, (N, spatial_dimension), dtype=dtype)
       sigma = random.uniform(key, (), minval=0.5, maxval=2.5)
       neighbor_fn = partition.neighbor_list(disp, box_size, sigma, 0.0)
-      idx = neighbor_fn(R).idx
+      nbrs = neighbor_fn(R)
       self.assertAllClose(mapped_square(R, sigma=sigma),
-                          neighbor_square(R, idx, sigma=sigma))
+                          neighbor_square(R, nbrs, sigma=sigma))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -611,9 +611,9 @@ class SMapTest(jtu.JaxTestCase):
         split, (N, spatial_dimension), dtype=dtype)
       sigma = random.uniform(key, (), minval=0.5, maxval=4.5)
       neighbor_fn = partition.neighbor_list(disp, box_size, sigma, 0.0)
-      idx = neighbor_fn(R).idx
+      nbrs = neighbor_fn(R)
       self.assertAllClose(mapped_square(R, sigma=sigma),
-                          neighbor_square(R, idx, sigma=sigma))
+                          neighbor_square(R, nbrs, sigma=sigma))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -643,9 +643,9 @@ class SMapTest(jtu.JaxTestCase):
       R = box_size * random.uniform(split, (N, spatial_dimension), dtype=dtype)
       sigma = random.uniform(key, (N,), minval=0.5, maxval=1.5)
       neighbor_fn = partition.neighbor_list(disp, box_size, np.max(sigma), 0.)
-      idx = neighbor_fn(R).idx
+      nbrs = neighbor_fn(R)
       self.assertAllClose(mapped_square(R, sigma=sigma),
-                          neighbor_square(R, idx, sigma=sigma))
+                          neighbor_square(R, nbrs, sigma=sigma))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -676,9 +676,9 @@ class SMapTest(jtu.JaxTestCase):
       sigma = random.uniform(key, (N, N), minval=0.5, maxval=1.5)
       sigma = 0.5 * (sigma + sigma.T)
       neighbor_fn = partition.neighbor_list(disp, box_size, np.max(sigma), 0.)
-      idx = neighbor_fn(R).idx
+      nbrs = neighbor_fn(R)
       self.assertAllClose(mapped_square(R, sigma=sigma),
-                          neighbor_square(R, idx, sigma=sigma))
+                          neighbor_square(R, nbrs, sigma=sigma))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -713,12 +713,12 @@ class SMapTest(jtu.JaxTestCase):
       sigma = random.uniform(key, (3, 3), minval=0.5, maxval=1.5)
       sigma = 0.5 * (sigma + sigma.T)
       neighbor_fn = partition.neighbor_list(disp, box_size, np.max(sigma), 0.)
-      idx = neighbor_fn(R).idx
+      nbrs = neighbor_fn(R)
       self.assertAllClose(mapped_square(R, sigma=sigma),
-                          neighbor_square(R, idx, sigma=sigma))
+                          neighbor_square(R, nbrs, sigma=sigma))
 
   @parameterized.named_parameters(jtu.cases_from_list(
-      {
+    {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
           'dtype': dtype
@@ -746,9 +746,9 @@ class SMapTest(jtu.JaxTestCase):
         split, (N, spatial_dimension), dtype=dtype)
       sigma = random.uniform(key, (), minval=0.5, maxval=1.5)
       neighbor_fn = partition.neighbor_list(disp, box_size, sigma, 0.)
-      idx = neighbor_fn(R).idx
+      nbrs = neighbor_fn(R)
       self.assertAllClose(mapped_square(R, sigma=sigma),
-                          neighbor_square(R, idx, sigma=sigma))
+                          neighbor_square(R, nbrs, sigma=sigma))
 
 if __name__ == '__main__':
   absltest.main()

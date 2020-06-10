@@ -283,8 +283,14 @@ def map_product(metric_or_displacement):
   return vmap(vmap(metric_or_displacement, (0, None), 0), (None, 0), 0)
 
 
-def map_set(metric_or_displacement):
+def map_bond(metric_or_displacement):
   return vmap(metric_or_displacement, (0, 0), 0)
+
+
+def map_neighbor(metric_or_displacement):
+  def wrapped_fn(Ra, Rb, **kwargs):
+    return vmap(vmap(metric_or_displacement, (None, 0)))(-Ra, -Rb, **kwargs)
+  return wrapped_fn
 
 
 def canonicalize_displacement_or_metric(displacement_or_metric):

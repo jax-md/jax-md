@@ -125,13 +125,13 @@ class SimulateTest(jtu.JaxTestCase):
     exact_init_fn, exact_apply_fn = simulate.nve(exact_energy_fn, shift, 1e-3)
 
     nbrs = neighbor_fn(R)
-    state = init_fn(random.PRNGKey(0), R, neighbor_idx=nbrs.idx)
+    state = init_fn(random.PRNGKey(0), R, neighbor=nbrs)
     exact_state = exact_init_fn(random.PRNGKey(0), R)
 
     def body_fn(i, state):
       state, nbrs, exact_state = state
       nbrs = neighbor_fn(state.position, nbrs)
-      state = apply_fn(state, neighbor_idx=nbrs.idx)
+      state = apply_fn(state, neighbor=nbrs)
       return state, nbrs, exact_apply_fn(exact_state)
 
     step = 0

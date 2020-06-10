@@ -26,6 +26,7 @@ INSTALL_REQUIRES = [
     'numpy',
     'jax>=0.1.55',
     'jaxlib>=0.1.37',
+    'dm-haiku',
     'dataclasses'
 ]
 
