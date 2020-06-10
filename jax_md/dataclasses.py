@@ -67,3 +67,6 @@ def dataclass(clz):
 
 def static_field():
   return dataclasses.field(metadata={'static': True})
+
+replace = dataclasses.replace
+asdict = dataclasses.asdict

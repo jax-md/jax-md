@@ -18,13 +18,17 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-from functools import wraps
+from functools import wraps, partial
 
+import jax
 import jax.numpy as np
+from jax.tree_util import tree_map
 
-from jax_md import space, smap, partition
+import haiku as hk
+
+from jax_md import space, smap, partition, nn
 from jax_md.interpolate import spline
-from jax_md.util import f32
+from jax_md.util import f32, f64
 from jax_md.util import check_kwargs_time_dependence
 
 
@@ -133,9 +137,10 @@ def lennard_jones(dr, sigma=1, epsilon=1, **unused_kwargs):
     Matrix of energies of shape [n, m].
   """
   check_kwargs_time_dependence(unused_kwargs)
-  dr = (sigma / dr) ** f32(2)
-  idr6 = dr ** f32(3)
-  idr12 = idr6 ** f32(2)
+  idr = (sigma / dr)
+  idr = idr * idr
+  idr6 = idr * idr * idr
+  idr12 = idr6 * idr6
   # TODO(schsam): This seems potentially dangerous. We should do ErrorChecking
   # here.
   return np.nan_to_num(f32(4) * epsilon * (idr12 - idr6))
@@ -407,3 +412,166 @@ def eam(displacement, charge_fn, embedding_fn, pairwise_fn, axis=None):
 def eam_from_lammps_parameters(displacement, f):
   """Convenience wrapper to compute EAM energy over a system."""
   return eam(displacement, *load_lammps_eam_parameters(f)[:-1])
+
+
+class EnergyGraphNet(hk.Module):
+  """Implements a Graph Neural Network for energy fitting.
+
+  This model uses a GraphNetEmbedding combined with a decoder applied to the
+  global state.
+  """
+  def __init__(self, n_recurrences, mlp_sizes, mlp_kwargs=None, name='Energy'):
+    super(EnergyGraphNet, self).__init__(name=name)
+
+    if mlp_kwargs is None:
+      mlp_kwargs = {
+        'w_init': hk.initializers.VarianceScaling(),
+        'b_init': hk.initializers.VarianceScaling(0.1),
+        'activation': jax.nn.softplus
+      }
+
+    self._graph_net = nn.GraphNetEncoder(n_recurrences, mlp_sizes, mlp_kwargs)
+    self._decoder = hk.nets.MLP(output_sizes=mlp_sizes + (1,),
+                                activate_final=False,
+                                name='GlobalDecoder',
+                                **mlp_kwargs)
+
+  def __call__(self, graph: nn.GraphTuple) -> np.ndarray:
+    output = self._graph_net(graph)
+    return np.squeeze(self._decoder(output.globals), axis=-1)
+
+
+def _canonicalize_node_state(nodes):
+  if nodes is None:
+    return nodes
+
+  if nodes.ndim == 1:
+    nodes = nodes[:, np.newaxis]
+
+  if nodes.ndim != 2:
+    raise ValueError(
+      'Nodes must be a [N, node_dim] array. Found {}.'.format(nodes.shape))
+
+  return nodes
+
+
+def graph_network(displacement_fn,
+                  r_cutoff,
+                  nodes=None,
+                  n_recurrences=2,
+                  mlp_sizes=(64, 64),
+                  mlp_kwargs=None):
+  """Convenience wrapper around EnergyGraphNet model.
+
+  Args:
+    displacement_fn: Function to compute displacement between two positions.
+    r_cutoff: A floating point cutoff; Edges will be added to the graph
+      for pairs of particles whose separation is smaller than the cutoff.
+    nodes: None or an ndarray of shape `[N, node_dim]` specifying the state
+      of the nodes. If None this is set to the zeroes vector. Often, for a
+      system with multiple species, this could be the species id.
+    n_recurrences: The number of steps of message passing in the graph network.
+    mlp_sizes: A tuple specifying the layer-widths for the fully-connected
+      networks used to update the states in the graph network.
+    mlp_kwargs: A dict specifying args for the fully-connected networks used to
+      update the states in the graph network.
+
+  Returns:
+    A tuple of functions. An `params = init_fn(key, R)` that instantiates the
+    model parameters and an `E = apply_fn(params, R)` that computes the energy
+    for a particular state.
+  """
+
+  nodes = _canonicalize_node_state(nodes)
+
+  @hk.transform
+  def model(R, **kwargs):
+    N = R.shape[0]
+
+    d = partial(displacement_fn, **kwargs)
+    d = space.map_product(d)
+    dR = d(R, R)
+
+    dr_2 = space.square_distance(dR)
+
+    if 'nodes' in kwargs:
+      _nodes = _canonicalize_node_state(kwargs['nodes'])
+    else:
+      _nodes = np.zeros((N, 1), R.dtype) if nodes is None else nodes
+
+    edge_idx = np.broadcast_to(np.arange(N)[np.newaxis, :], (N, N))
+    edge_idx = np.where(dr_2 < r_cutoff ** 2, edge_idx, N)
+
+    _globals = np.zeros((1,), R.dtype) 
+
+    net = EnergyGraphNet(n_recurrences, mlp_sizes, mlp_kwargs)
+    return net(nn.GraphTuple(_nodes, dR, _globals, edge_idx))
+
+  return model.init, model.apply 
+
+
+def graph_network_neighbor_list(displacement_fn,
+                                box_size,
+                                r_cutoff,
+                                dr_threshold,
+                                nodes=None,
+                                n_recurrences=2,
+                                mlp_sizes=(64, 64),
+                                mlp_kwargs=None):
+  """Convenience wrapper around EnergyGraphNet model using neighbor lists.
+
+  Args:
+    displacement_fn: Function to compute displacement between two positions.
+    box_size: The size of the simulation volume, used to construct neighbor
+      list.
+    r_cutoff: A floating point cutoff; Edges will be added to the graph
+      for pairs of particles whose separation is smaller than the cutoff.
+    dr_threshold: A floating point number specifying a "halo" radius that we use
+      for neighbor list construction. See `neighbor_list` for details.
+    nodes: None or an ndarray of shape `[N, node_dim]` specifying the state
+      of the nodes. If None this is set to the zeroes vector. Often, for a
+      system with multiple species, this could be the species id.
+    n_recurrences: The number of steps of message passing in the graph network.
+    mlp_sizes: A tuple specifying the layer-widths for the fully-connected
+      networks used to update the states in the graph network.
+    mlp_kwargs: A dict specifying args for the fully-connected networks used to
+      update the states in the graph network.
+
+  Returns:
+    A pair of functions. An `params = init_fn(key, R)` that instantiates the
+    model parameters and an `E = apply_fn(params, R)` that computes the energy
+    for a particular state.
+  """
+
+  nodes = _canonicalize_node_state(nodes)
+
+  @hk.transform
+  def model(R, neighbor, **kwargs):
+    N = R.shape[0]
+
+    d = partial(displacement_fn, **kwargs)
+    d = space.map_neighbor(d)
+    R_neigh = R[neighbor.idx]
+    dR = d(R, R_neigh)
+
+    if 'nodes' in kwargs:
+      _nodes = _canonicalize_node_state(kwargs['nodes'])
+    else:
+      _nodes = np.zeros((N, 1), R.dtype) if nodes is None else nodes
+
+    _globals = np.zeros((1,), R.dtype) 
+
+    dr_2 = space.square_distance(dR)
+    edge_idx = np.where(dr_2 < r_cutoff ** 2, neighbor.idx, N)
+
+    net = EnergyGraphNet(n_recurrences, mlp_sizes, mlp_kwargs)
+    return net(nn.GraphTuple(_nodes, dR, _globals, edge_idx))
+
+  neighbor_fn = partition.neighbor_list(displacement_fn,
+                                        box_size,
+                                        r_cutoff,
+                                        dr_threshold,
+                                        mask_self=False)
+  init_fn, apply_fn = model.init, model.apply
+
+  return neighbor_fn, init_fn, apply_fn

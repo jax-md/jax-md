@@ -385,7 +385,7 @@ class NeighborList(object):
   idx: np.ndarray
   reference_position: np.ndarray
   did_buffer_overflow: bool
-  max_occupancy: int = dataclasses.static_field() 
+  max_occupancy: int = dataclasses.static_field()
   cell_list_fn: Callable = dataclasses.static_field()
 
 
