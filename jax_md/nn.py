@@ -32,7 +32,57 @@ from typing import Callable
 
 # Features used in fixed feature methods
 
+def _behler_parrinello_cutoff_fn(dr, cutoff_distance=8.0):
+  """Function of pairwise distance that smoothly goes to zero at the cutoff."""
+  # Also returns zero if the pairwise distance is zero,
+  # to prevent a particle from interacting with itself.
+  return np.where((dr < cutoff_distance) & (dr > 1e-7),
+                  0.5 * (np.cos(np.pi * dr / cutoff_distance) + 1), 0)
 
+
+def radial_symmetry_functions(displacement_or_metric,
+                              species,
+                              eta,
+                              cutoff_distance):
+  """Returns a function that computes radial symmetry functions.
+
+
+  Args:
+    displacement: A function that produces an `[N_atoms, M_atoms,
+    spatial_dimension]` of particle displacements from particle positions
+      specified as an `[N_atoms, spatial_dimension] and `[M_atoms,
+      spatial_dimension]` respectively.
+    species: An `[N_atoms]` that contains the species of each particle.
+    eta: Parameter of radial symmetry function that controls the spatial
+      extension.
+    cutoff_distance: Neighbors whose distance is larger than cutoff_distance do
+      not contribute to each others symmetry functions. The contribution of a
+      neighbor to the symmetry function and its derivative goes to zero at this
+      distance.
+
+  Returns:
+    A function that computes the radial symmetry function from input `[N_atoms,
+    spatial_dimension]` and returns `[N_atoms, N_types]` where N_types is the
+    number of types of particles in the system.
+  """
+  metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
+
+  def compute_fun(R):
+    _metric = partial(metric)
+    _metric = space.map_product(_metric)
+
+    def return_radial(atom_type):
+      """Returns the radial symmetry functions for neighbor type atom_type."""
+      R_neigh = R[species == atom_type, :]
+      dr = _metric(R, R_neigh)
+      radial = (np.exp(-eta * dr ** 2) * 
+                _behler_parrinello_cutoff_fn(dr, cutoff_distance))
+      return np.sum(radial, axis=0)
+
+    return np.stack([return_radial(atom_type) for
+                     atom_type in np.unique(species)], axis=1)
+
+  return compute_fun
 
 # Graph neural network primitives
 
