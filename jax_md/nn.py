@@ -42,7 +42,7 @@ def _behler_parrinello_cutoff_fn(dr, cutoff_distance=8.0):
   
 def radial_symmetry_functions(displacement_or_metric,
                               species,
-                              eta,
+                              etas,
                               cutoff_distance):
   """Returns a function that computes radial symmetry functions.
 
@@ -53,7 +53,7 @@ def radial_symmetry_functions(displacement_or_metric,
       specified as an `[N_atoms, spatial_dimension] and `[M_atoms,
       spatial_dimension]` respectively.
     species: An `[N_atoms]` that contains the species of each particle.
-    eta: Parameter of radial symmetry function that controls the spatial
+    etas: List of radial symmetry function parameters that control the spatial
       extension.
     cutoff_distance: Neighbors whose distance is larger than cutoff_distance do
       not contribute to each others symmetry functions. The contribution of a
@@ -62,25 +62,27 @@ def radial_symmetry_functions(displacement_or_metric,
 
   Returns:
     A function that computes the radial symmetry function from input `[N_atoms,
-    spatial_dimension]` and returns `[N_atoms, N_types]` where N_types is the
-    number of types of particles in the system.
+    spatial_dimension]` and returns `[N_etas, N_atoms * N_types]` where N_etas is
+    the number of eta parameters, N_types is the number of types of particles 
+    in the system.
   """
   metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
 
   def compute_fun(R):
     _metric = partial(metric)
     _metric = space.map_product(_metric)
-
+    radial_fn = lambda eta, dr: (np.exp(-eta * dr**2) *
+                _behler_parrinello_cutoff_fn(dr, cutoff_distance))
     def return_radial(atom_type):
       """Returns the radial symmetry functions for neighbor type atom_type."""
       R_neigh = R[species == atom_type, :]
       dr = _metric(R, R_neigh)
-      radial = (np.exp(-eta * dr ** 2) * 
-                _behler_parrinello_cutoff_fn(dr, cutoff_distance))
-      return np.sum(radial, axis=0)
+      
+      radial = vmap(radial_fn, (0, None))(etas, dr)
+      return np.sum(radial, axis=1).T
 
-    return np.stack([return_radial(atom_type) for
-                     atom_type in np.unique(species)], axis=1)
+    return np.hstack([return_radial(atom_type) for 
+                     atom_type in np.unique(species)])
 
   return compute_fun
 
