@@ -20,8 +20,6 @@ Accessed on 04/29/2020.
 """
 
 import dataclasses
-from dataclasses import replace
-from dataclasses import asdict
 import jax
 
 
@@ -69,3 +67,6 @@ def dataclass(clz):
 
 def static_field():
   return dataclasses.field(metadata={'static': True})
+
+replace = dataclasses.replace
+asdict = dataclasses.asdict

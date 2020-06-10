@@ -420,13 +420,13 @@ def pair_neighbor_list(
     positions and and ndarray of integers of shape [N, max_neighbors]
     specifying neighbors.
   """
-  def fn_mapped(R, neighbor_idx, **dynamic_kwargs):
+  def fn_mapped(R, neighbor, **dynamic_kwargs):
     d = partial(metric, **dynamic_kwargs)
     d = vmap(vmap(d, (None, 0)))
-    mask = neighbor_idx != R.shape[0]
-    R_neigh = R[neighbor_idx]
+    mask = neighbor.idx != R.shape[0]
+    R_neigh = R[neighbor.idx]
     dR = d(R, R_neigh)
-    merged_kwargs = _neighborhood_kwargs_to_params(neighbor_idx, species,
+    merged_kwargs = _neighborhood_kwargs_to_params(neighbor.idx, species,
         **merge_dicts(kwargs, dynamic_kwargs))
     out = fn(dR, **merged_kwargs)
     if out.ndim > mask.ndim:

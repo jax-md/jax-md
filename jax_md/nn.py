@@ -28,6 +28,8 @@ from collections import namedtuple
 from functools import partial
 from jax.tree_util import tree_multimap, tree_map
 
+from typing import Callable
+
 # Features used in fixed feature methods
 
 
@@ -88,14 +90,16 @@ def concatenate_graph_features(graphs: GraphTuple) -> GraphTuple:
   connectivity.
   """
   return GraphTuple(
-      nodes=np.concatenate([g.nodes for g in graphs], axis=axis),
-      edges=np.concatenate([g.edges for g in graphs], axis=axis),
-      globals=np.concatenate([g.globals for g in graphs], axis=axis),
+      nodes=np.concatenate([g.nodes for g in graphs], axis=-1),
+      edges=np.concatenate([g.edges for g in graphs], axis=-1),
+      globals=np.concatenate([g.globals for g in graphs], axis=-1),
       edge_idx=graphs[0].edge_idx,  # TODO: Check for consistency.
   )
 
 
-def GraphIndependent(edge_fn, node_fn, global_fn):
+def GraphIndependent(edge_fn: Callable,
+                     node_fn: Callable,
+                     global_fn: Callable) -> Callable:
   """Applies functions independently to the nodes, edges, and global states.
   """
   identity = lambda x: x
@@ -197,3 +201,61 @@ class GraphNetwork:
       graph = dataclasses.replace(graph, globals=self._global_fn(graph))
 
     return graph
+
+
+# Prefab Networks
+
+
+class GraphNetEncoder(hk.Module):
+  """Implements a Graph Neural Network for energy fitting.
+
+  Based on the network used in "Unveiling the predictive power of static
+  structure in glassy systems"; Bapst et al.
+  (https://www.nature.com/articles/s41567-020-0842-8). This network first
+  embeds edges, nodes, and global state. Then `n_recurrences` of GraphNetwork
+  layers are applied. Unlike in Bapst et al. this network does not include a
+  readout, which should be added separately depending on the application.
+
+  For example, when predicting particle mobilities, one would use a decoder
+  only on the node states while a model of energies would decode only the node
+  states.
+  """
+  def __init__(self, n_recurrences, mlp_sizes, mlp_kwargs=None,
+               name='GraphNetEncoder'):
+    super(GraphNetEncoder, self).__init__(name=name)
+
+    if mlp_kwargs is None:
+      mlp_kwargs = {}
+
+    self._n_recurrences = n_recurrences
+
+    embedding_fn = lambda name: hk.nets.MLP(
+        output_sizes=mlp_sizes,
+        activate_final=True,
+        name=name,
+        **mlp_kwargs)
+
+    model_fn = lambda name: lambda *args: hk.nets.MLP(
+        output_sizes=mlp_sizes,
+        activate_final=True,
+        name=name,
+        **mlp_kwargs)(np.concatenate(args, axis=-1))
+
+    self._encoder = GraphIndependent(
+        embedding_fn('EdgeEncoder'),
+        embedding_fn('NodeEncoder'),
+        embedding_fn('GlobalEncoder'))
+    self._propagation_network = lambda: GraphNetwork(
+        model_fn('EdgeFunction'),
+        model_fn('NodeFunction'),
+        model_fn('GlobalFunction'))
+
+  def __call__(self, graph: GraphTuple) -> GraphTuple:
+    encoded = self._encoder(graph)
+    outputs = encoded
+
+    for _ in range(self._n_recurrences):
+      inputs = concatenate_graph_features([outputs, encoded])
+      outputs = self._propagation_network()(inputs)
+
+    return outputs
