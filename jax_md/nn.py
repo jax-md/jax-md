@@ -20,7 +20,7 @@ import jax
 from jax import vmap, jit
 import jax.numpy as np
 
-from jax_md import dataclasses
+from jax_md import space, dataclasses
 
 import haiku as hk
 

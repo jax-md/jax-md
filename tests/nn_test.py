@@ -97,7 +97,9 @@ GRAPH_NETWORKS = [
     _graph_independent
 ]
 
-GRAPHS = [
+
+def _get_graphs():
+    return [
     nn.GraphTuple(
         nodes=np.array([[1.0], [2.0]]),
         edges=np.array([[[1.0], [2.0]],
@@ -112,8 +114,8 @@ GRAPHS = [
         globals=np.array([1.0]),
         edge_idx=np.array([[0, 1,], [2, 1]])
     )
+  ]
 
-]
 
 class NeuralNetworkTest(jtu.JaxTestCase):
   @parameterized.named_parameters(jtu.cases_from_list(
@@ -123,7 +125,7 @@ class NeuralNetworkTest(jtu.JaxTestCase):
           'dtype': dtype
       } for fn in GRAPH_NETWORKS for dtype in DTYPES))
   def test_connect_graph_network(self, network_fn, dtype):
-    for g in GRAPHS:
+    for g in _get_graphs():
       g = dataclasses.replace(
           g,
           nodes=np.array(g.nodes, dtype),
