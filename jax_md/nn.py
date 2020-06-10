@@ -20,12 +20,12 @@ import jax
 from jax import vmap, jit
 import jax.numpy as np
 
-from jax_md import space, dataclasses
-
+from jax_md import space, dataclasses, quantity
+from jax_md.util import *
 import haiku as hk
 
 from collections import namedtuple
-from functools import partial
+from functools import partial, reduce
 from jax.tree_util import tree_multimap, tree_map
 
 from typing import Callable
@@ -39,7 +39,7 @@ def _behler_parrinello_cutoff_fn(dr, cutoff_distance=8.0):
   return np.where((dr < cutoff_distance) & (dr > 1e-7),
                   0.5 * (np.cos(np.pi * dr / cutoff_distance) + 1), 0)
 
-
+  
 def radial_symmetry_functions(displacement_or_metric,
                               species,
                               eta,
@@ -83,6 +83,81 @@ def radial_symmetry_functions(displacement_or_metric,
                      atom_type in np.unique(species)], axis=1)
 
   return compute_fun
+
+
+def angular_symmetry_function(dR12, dR13, eta, lam, zeta, cutoff_distance):
+  """Computes the angular symmetry function due to one pair of neighbors."""
+
+  dR23 = dR12 - dR13
+  dr12_2 = space.square_distance(dR12)
+  dr13_2 = space.square_distance(dR13)
+  dr23_2 = space.square_distance(dR23)
+  dr12 = space.distance(dR12)
+  dr13 = space.distance(dR13)
+  dr23 = space.distance(dR23)
+  triplet_squared_distances = dr12_2 + dr13_2 + dr23_2
+  triplet_cutoff = reduce(
+      lambda x, y: x * _behler_parrinello_cutoff_fn(y, cutoff_distance),
+      [dr12, dr13, dr23], 1.0)
+  result = 2.0 ** (1.0 - zeta) * (
+      1.0 + lam * quantity.angle_between_two_vectors(dR12, dR13)) ** zeta * \
+      np.exp(-eta * triplet_squared_distances) * triplet_cutoff
+  return result
+
+
+def angular_symmetry_functions(displacement,
+                               species,
+                               eta,
+                               lam,
+                               zeta,
+                               cutoff_distance=8.0):
+  """Returns a function that computes angular symmetry functions.
+
+  Args:
+    displacement: A function that produces an `[N_atoms, M_atoms,
+    spatial_dimension]` of particle displacements from particle positions
+      specified as an `[N_atoms, spatial_dimension] and `[M_atoms,
+      spatial_dimension]` respectively.
+    species: An `[N_atoms]` that contains the species of each particle.
+    eta: Parameter of angular symmetry function that controls the spatial
+      extension.
+    lam:
+    zeta:
+    cutoff_distance: Neighbors whose distance is larger than cutoff_distance do
+      not contribute to each others symmetry functions. The contribution of a
+      neighbor to the symmetry function and its derivative goes to zero at this
+      distance.
+  Returns:
+    A function that computes the angular symmetry function from input `[N_atoms,
+    spatial_dimension]` and returns `[N_atoms, N_types * (N_types + 1) / 2]`
+    where N_types is the number of types of particles in the system.
+  """
+
+  _angular_fn = lambda dR12, dR13: angular_symmetry_function(
+      dR12,
+      dR13,
+      eta=eta,
+      lam=lam,
+      zeta=zeta,
+      cutoff_distance=cutoff_distance)
+  _vmapped_angular = vmap(vmap(vmap(_angular_fn, (0, None)), (None, 0)), 0)
+  def compute_fun(R):
+    D_fn = space.map_product(displacement)
+    D_different_types = [
+        D_fn(R[species == atom_type, :], R) for atom_type in np.unique(species)
+    ]
+    out = []
+    atom_types = np.unique(species)
+    for i in range(len(atom_types)):
+      for j in range(i, len(atom_types)):
+        out += [
+            np.sum(
+                _vmapped_angular(D_different_types[i], D_different_types[j]),
+                axis=[1, 2])
+        ]
+    return np.stack(out, axis=1)
+  return compute_fun
+
 
 # Graph neural network primitives
 
