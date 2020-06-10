@@ -542,7 +542,7 @@ class EnergyTest(jtu.JaxTestCase):
     def loss(params, R):
       return np.mean((vmap(energy_fn, (None, 0))(params, R) - E_gt(R, dr0)) ** 2)
     
-    opt = optix.chain(optix.clip_by_global_norm(1.0), optix.adam(1e-3))
+    opt = optix.chain(optix.clip_by_global_norm(1.0), optix.adam(1e-4))
 
 
     @jit
@@ -557,7 +557,7 @@ class EnergyTest(jtu.JaxTestCase):
     for i in range(4):
       params, opt_state = update(params, opt_state, R)
 
-    assert loss(params, R) < l0 * 0.85
+    assert loss(params, R) < l0 * 0.95
 
 if __name__ == '__main__':
   absltest.main()

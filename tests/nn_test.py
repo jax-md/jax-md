@@ -51,11 +51,29 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
       } for N_types in N_TYPES_TO_TEST for dtype in DTYPES))
   def test_radial_symmetry_functions(self, N_types, dtype):
     displacement, shift = space.free()
-    gr = nn.radial_symmetry_functions(displacement,np.array([1, N_types]), 1.0, 4)
+    gr = nn.radial_symmetry_functions(displacement,np.array([1, 1, N_types]), 1.0, 4)
     R = np.array([[0,0,0], [1,1,1], [1,1,0]], dtype)
     gr_out = gr(R)
     self.assertAllClose(gr_out.shape, (3, N_types))
-    self.assertAllClose(gr_out[1, 0], dtype(0.030094), rtol=1e-6, atol=1e-6)
+    self.assertAllClose(gr_out[2, 0], dtype(0.411717), rtol=1e-6, atol=1e-6)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_fn={}_dtype={}'.format(N_types, dtype.__name__),
+          'dtype': dtype,
+          'N_types': N_types
+      } for N_types in N_TYPES_TO_TEST for dtype in DTYPES))
+  def test_angular_symmetry_functions(self, N_types, dtype):
+    displacement, shift = space.free()
+    gr = nn.angular_symmetry_functions(displacement,np.array([1, 1, N_types]), 
+                                       eta=1e-4/(0.529177 ** 2), 
+                                       lam=-1.0, 
+                                       zeta=1.0, 
+                                       cutoff_distance=8.0)
+    R = np.array([[0,0,0], [1,1,1], [1,1,0]], dtype)
+    gr_out = gr(R)
+    self.assertAllClose(gr_out.shape, (3, N_types * (N_types + 1) // 2))
+    self.assertAllClose(gr_out[2, 0], dtype(1.577944), rtol=1e-6, atol=1e-6)
 
 def _graph_network(graph_tuple):
   update_node_fn = lambda n, se, re, g: n
@@ -114,7 +132,9 @@ GRAPH_NETWORKS = [
     _graph_independent
 ]
 
-GRAPHS = [
+
+def _get_graphs():
+    return [
     nn.GraphTuple(
         nodes=np.array([[1.0], [2.0]]),
         edges=np.array([[[1.0], [2.0]],
@@ -129,8 +149,8 @@ GRAPHS = [
         globals=np.array([1.0]),
         edge_idx=np.array([[0, 1,], [2, 1]])
     )
+  ]
 
-]
 
 class NeuralNetworkTest(jtu.JaxTestCase):
   @parameterized.named_parameters(jtu.cases_from_list(
@@ -140,7 +160,7 @@ class NeuralNetworkTest(jtu.JaxTestCase):
           'dtype': dtype
       } for fn in GRAPH_NETWORKS for dtype in DTYPES))
   def test_connect_graph_network(self, network_fn, dtype):
-    for g in GRAPHS:
+    for g in _get_graphs():
       g = dataclasses.replace(
           g,
           nodes=np.array(g.nodes, dtype),
