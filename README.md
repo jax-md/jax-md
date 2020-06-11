@@ -40,6 +40,9 @@ To get started playing around with JAX MD check out the following colab notebook
 - [NVT Simulation](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/nvt_simulation.ipynb)
 - [NVE with Neighbor Lists](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/nve_neighbor_list.ipynb)
 - [Custom Potentials](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/customizing_potentials_cookbook.ipynb)
+- [Neural Network Potentials](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/neural_networks.ipynb)
+- [Flocking](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/flocking.ipynb)
+- [Meta Optimization](https://colab.research.google.com/drive/1qXTCkN57xuizsYy7XWpLl8l_KgTmQBEW#scrollTo=t_yj2rAUTGe_)
 
 You can install JAX MD locally with pip,
 ```
@@ -83,10 +86,15 @@ whose negative gradient gives forces. One of the very nice things about JAX is
 that we get forces for free! The second part of the code is devoted to computing
 energies. 
 
-We provide the following potentials:
+We provide the following classical potentials:
 - `energy.soft_sphere` a soft sphere whose energy incrases as the overlap of the spheres to some power, `alpha`.
 - `energy.lennard_jones` a standard 12-6 lennard-jones potential.
+- `energy.morse` a morse potential.
 - `energy.eam` embedded atom model potential with ability to load parameters from LAMMPS files.
+
+We also provide the following neural network potentials:
+- `energy.behler_parrinello` a widely used fixed-feature neural network architecture for molecular systems.
+- `energy.graph_network` a deep graph neural network designed for energy fitting.
 
 For finite-ranged potentials it is often useful to consider only interactions within a certain neighborhood. We include the `_neighbor_list` modifier to the above potentials that uses a list of neighbors (see below) for optimization.
 
