@@ -32,6 +32,34 @@ from typing import Callable
 
 # Features used in fixed feature methods
 
+"""
+Our neural network force field is based on the Behler-Parrinello neural network
+architecture (BP-NN) [1]. The BP-NN architecture uses a relatively simple, fully
+connected neural network to predict the local energy for each atom. Then the 
+total energy is the sum of local energies due to each atom. Atoms of the same 
+type use the same NN to predict energy.
+
+Each atomic NN is applied to hand-crafted features called symmetry functions. 
+There are two kinds of symmetry functions: radial and angular. Radial symmetry
+functions represent information about two-body interactions of the central atom, 
+whereas angular symmetry functions represent information about three-body
+interactions. Below we implement radial and angular symmetry functions for
+arbitrary number of types of atoms (Note that most applications of BP-NN limit 
+their systems to 1 to 3 types of atoms). We also present a convenience wrapper
+that returns radial and angular symmetry functions with symmetry function 
+parameters that should work reasonably for most systems (the symmetry functions
+are taken from reference [2]). Please see references [1, 2] for details about 
+how the BP-NN works. 
+
+[1] Behler, Jörg, and Michele Parrinello. "Generalized neural-network 
+representation of high-dimensional potential-energy surfaces." Physical 
+Review Letters 98.14 (2007): 146401. 
+
+[2] Artrith, Nongnuch, Björn Hiller, and Jörg Behler. "Neural network potentials
+for metals and oxides–First applications to copper clusters at zinc oxide." 
+Physica Status Solidi (b) 250.6 (2013): 1191-1203.
+"""
+
 def _behler_parrinello_cutoff_fn(dr, cutoff_distance=8.0):
   """Function of pairwise distance that smoothly goes to zero at the cutoff."""
   # Also returns zero if the pairwise distance is zero,
@@ -168,6 +196,41 @@ def angular_symmetry_functions(displacement,
         ]
     return np.hstack(out)
   return compute_fun
+
+
+def behler_parrinello_symmetry_functions(displacement, 
+                                         species,
+                                         radial_etas=None, 
+                                         angular_etas=None, 
+                                         lambdas=None,
+                                         zetas=None, 
+                                         cutoff_distance=8.0):
+  if radial_etas is None:
+    radial_etas = np.array([9e-4, 0.01, 0.02, 0.035, 0.06, 0.1, 0.2, 0.4],
+                    f32) / f32(0.529177 ** 2)
+  
+  if angular_etas is None:
+    angular_etas = np.array([1e-4] * 4 + [0.003] * 4 + [0.008] * 2 + [0.015] * 4
+                   + [0.025] * 4 + [0.045] * 4, f32) / f32(0.529177 ** 2)
+  
+  if lambdas is None:
+    lambdas = np.array([-1, 1] * 4 + [1] * 14, f32)
+  
+  if zetas is None:
+    zetas = np.array([1, 1, 2, 2] * 2 + [1, 2] + [1, 2, 4, 16] * 3, f32)
+
+  radial_fn = radial_symmetry_functions(displacement, 
+                                        species, 
+                                        etas=radial_etas,
+                                        cutoff_distance=cutoff_distance)
+  angular_fn = angular_symmetry_functions(displacement, 
+                                          species, 
+                                          etas=angular_etas,
+                                          lambdas=lambdas, 
+                                          zetas=zetas, 
+                                          cutoff_distance=cutoff_distance)
+  return lambda R: np.hstack((radial_fn(R), angular_fn(R)))
+
 
 # Graph neural network primitives
 
