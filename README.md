@@ -42,7 +42,7 @@ To get started playing around with JAX MD check out the following colab notebook
 - [Custom Potentials](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/customizing_potentials_cookbook.ipynb)
 - [Neural Network Potentials](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/neural_networks.ipynb)
 - [Flocking](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/flocking.ipynb)
-- [Meta Optimization](https://colab.research.google.com/drive/1qXTCkN57xuizsYy7XWpLl8l_KgTmQBEW#scrollTo=t_yj2rAUTGe_)
+- [Meta Optimization](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/meta_optimization.ipynb)
 
 You can install JAX MD locally with pip,
 ```
