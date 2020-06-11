@@ -90,6 +90,14 @@ def canonicalize_mass(mass):
   raise ValueError(msg)
 
 
+
+def angle_between_two_vectors(dR_12, dR_13):
+  dr_12 = space.distance(dR_12) + 1e-7
+  dr_13 = space.distance(dR_13) + 1e-7
+  cos_angle = np.dot(dR_12, dR_13) / dr_12 / dr_13
+  return np.clip(cos_angle, -1.0, 1.0)
+
+
 def cosine_angles(dR):
   """Returns cosine of angles for all atom triplets.
 
@@ -102,11 +110,6 @@ def cosine_angles(dR):
     ndarray(shape=[num_atoms, num_neighbors, num_neighbors]).
   """
 
-  def angle_between_two_vectors(dR_12, dR_13):
-    dr_12 = space.distance(dR_12) + 1e-7
-    dr_13 = space.distance(dR_13) + 1e-7
-    cos_angle = np.dot(dR_12, dR_13) / dr_12 / dr_13
-    return np.clip(cos_angle, -1.0, 1.0)
 
   angles_between_all_triplets = vmap(
       vmap(vmap(angle_between_two_vectors, (0, None)), (None, 0)), 0)
