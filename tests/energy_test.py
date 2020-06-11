@@ -45,6 +45,7 @@ SPATIAL_DIMENSION = [2, 3]
 UNIT_CELL_SIZE = [7, 8]
 
 SOFT_SPHERE_ALPHA = [2.0, 3.0]
+N_TYPES_TO_TEST = [1, 2]
 
 if FLAGS.jax_enable_x64:
   POSITION_DTYPE = [f32, f64]
@@ -415,6 +416,27 @@ class EnergyTest(jtu.JaxTestCase):
       np.array(exact_force_fn(r), dtype=dtype),
       force_fn(r, nbrs))
 
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_N_types={}_dtype={}'.format(N_types, dtype.__name__),
+          'N_types': N_types,
+          'dtype': dtype,
+      } for N_types in N_TYPES_TO_TEST for dtype in POSITION_DTYPE))
+  def test_behler_parrinello_network(self, N_types, dtype):
+    key = random.PRNGKey(1)
+    R = np.array([[0,0,0], [1,1,1], [1,1,0]], dtype)
+    species = np.array([1, 1, N_types])
+    box_size = f32(1.5)
+    displacement, _ = space.periodic(box_size)
+    nn_init, nn_apply = energy.behler_parrinello(displacement, species)
+    params = nn_init(key, R)
+    nn_force_fn = grad(nn_apply, argnums=1)
+    nn_force = nn_force_fn(params, R)
+    nn_energy = nn_apply(params, R)
+    self.assertAllClose(np.any(np.isnan(nn_energy)), False)
+    self.assertAllClose(np.any(np.isnan(nn_force)), False)
+    self.assertAllClose(nn_force.shape, [3,3])
+  
   @parameterized.named_parameters(jtu.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
