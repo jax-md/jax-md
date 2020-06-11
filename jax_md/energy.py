@@ -23,7 +23,7 @@ from functools import wraps, partial
 import jax
 import jax.numpy as np
 from jax.tree_util import tree_map
-
+from jax import vmap
 import haiku as hk
 
 from jax_md import space, smap, partition, nn
@@ -412,6 +412,37 @@ def eam(displacement, charge_fn, embedding_fn, pairwise_fn, axis=None):
 def eam_from_lammps_parameters(displacement, f):
   """Convenience wrapper to compute EAM energy over a system."""
   return eam(displacement, *load_lammps_eam_parameters(f)[:-1])
+
+
+def behler_parrinello(displacement, 
+                      species=None,
+                      mlp_sizes=(30, 30), 
+                      mlp_kwargs=None, 
+                      sym_kwargs=None):
+  if sym_kwargs is None:
+    sym_kwargs = {}
+  if mlp_kwargs is None:
+    mlp_kwargs = {
+        'activation': np.tanh
+    }
+
+  sym_fn = nn.behler_parrinello_symmetry_functions(displacement, 
+                                                   species, 
+                                                   **sym_kwargs)
+
+  @hk.transform
+  def model(R, **kwargs):
+    embedding_fn = hk.nets.MLP(output_sizes=mlp_sizes+(1,),
+                               activate_final=False,
+                               name='BPEncoder',
+                               **mlp_kwargs)
+    embedding_fn = vmap(embedding_fn)
+    sym = sym_fn(R, **kwargs)
+    readout = embedding_fn(sym)
+    return np.sum(readout)
+  return model.init, model.apply
+
+
 
 
 class EnergyGraphNet(hk.Module):

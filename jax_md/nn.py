@@ -96,8 +96,8 @@ def radial_symmetry_functions(displacement_or_metric,
   """
   metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
 
-  def compute_fun(R):
-    _metric = partial(metric)
+  def compute_fun(R, **kwargs):
+    _metric = partial(metric, **kwargs)
     _metric = space.map_product(_metric)
     radial_fn = lambda eta, dr: (np.exp(-eta * dr**2) *
                 _behler_parrinello_cutoff_fn(dr, cutoff_distance))
@@ -167,7 +167,7 @@ def angular_symmetry_functions(displacement,
     spatial_dimension]` and returns `[N_atoms, N_types * (N_types + 1) / 2]`
     where N_types is the number of types of particles in the system.
   """
-
+  
   _angular_fn = vmap(single_pair_angular_symmetry_function,
                      (None, None, 0, 0, 0, None))
 
@@ -180,8 +180,9 @@ def angular_symmetry_functions(displacement,
   _all_pairs_angular = vmap(
       vmap(vmap(_batched_angular_fn, (0, None)), (None, 0)), 0)
 
-  def compute_fun(R):
-    D_fn = space.map_product(displacement)
+  def compute_fun(R, **kwargs):
+    D_fn = partial(displacement, **kwargs)
+    D_fn = space.map_product(D_fn)
     D_different_types = [
         D_fn(R[species == atom_type, :], R) for atom_type in np.unique(species)
     ]
@@ -210,8 +211,9 @@ def behler_parrinello_symmetry_functions(displacement,
                     f32) / f32(0.529177 ** 2)
   
   if angular_etas is None:
-    angular_etas = np.array([1e-4] * 4 + [0.003] * 4 + [0.008] * 2 + [0.015] * 4
-                   + [0.025] * 4 + [0.045] * 4, f32) / f32(0.529177 ** 2)
+    angular_etas = np.array([1e-4] * 4 + [0.003] * 4 + [0.008] * 2 + 
+                            [0.015] * 4 + [0.025] * 4 + [0.045] * 4,
+                            f32) / f32(0.529177 ** 2)
   
   if lambdas is None:
     lambdas = np.array([-1, 1] * 4 + [1] * 14, f32)
@@ -229,7 +231,9 @@ def behler_parrinello_symmetry_functions(displacement,
                                           lambdas=lambdas, 
                                           zetas=zetas, 
                                           cutoff_distance=cutoff_distance)
-  return lambda R: np.hstack((radial_fn(R), angular_fn(R)))
+  return lambda R, **kwargs: np.hstack((radial_fn(R, **kwargs), 
+                                        angular_fn(R, **kwargs)))
+
 
 
 # Graph neural network primitives
