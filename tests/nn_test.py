@@ -86,6 +86,30 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
     self.assertAllClose(gr_out.shape, (3, N_etas *  N_types * (N_types + 1) // 2))
     self.assertAllClose(gr_out[2, 0], dtype(1.577944), rtol=1e-6, atol=1e-6)
 
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_N_types={}_N_etas={}_d_type={}'.format(
+              N_types, N_etas, dtype.__name__),
+          'dtype': dtype,
+          'N_types': N_types,
+          'N_etas': N_etas,
+      } for N_types in N_TYPES_TO_TEST
+        for N_etas in N_ETAS_TO_TEST
+        for dtype in DTYPES))
+  def test_behler_parrinello_symmetry_functions(self, N_types, N_etas, dtype):
+    displacement, shift = space.free()
+    gr = nn.behler_parrinello_symmetry_functions(
+            displacement,np.array([1, 1, N_types]),
+            radial_etas=np.array([1e-4/(0.529177 ** 2)] * N_etas, dtype),
+            angular_etas=np.array([1e-4/(0.529177 ** 2)] * N_etas, dtype),
+            lambdas=np.array([-1.0] * N_etas, dtype),
+            zetas=np.array([1.0] * N_etas, dtype),
+            cutoff_distance=8.0)
+    R = np.array([[0,0,0], [1,1,1], [1,1,0]], dtype)
+    gr_out = gr(R)
+    self.assertAllClose(gr_out.shape, (3, N_etas *  (N_types + N_types * (N_types + 1) // 2)))
+    self.assertAllClose(gr_out[2, 0], dtype(1.885791), rtol=1e-6, atol=1e-6)
+
 def _graph_network(graph_tuple):
   update_node_fn = lambda n, se, re, g: n
   update_edge_fn = lambda e, sn, rn, g: e

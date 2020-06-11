@@ -197,6 +197,41 @@ def angular_symmetry_functions(displacement,
     return np.hstack(out)
   return compute_fun
 
+
+def behler_parrinello_symmetry_functions(displacement, 
+                                         species,
+                                         radial_etas=None, 
+                                         angular_etas=None, 
+                                         lambdas=None,
+                                         zetas=None, 
+                                         cutoff_distance=8.0):
+  if radial_etas is None:
+    radial_etas = np.array([9e-4, 0.01, 0.02, 0.035, 0.06, 0.1, 0.2, 0.4],
+                    f32) / f32(0.529177 ** 2)
+  
+  if angular_etas is None:
+    angular_etas = np.array([1e-4] * 4 + [0.003] * 4 + [0.008] * 2 + [0.015] * 4
+                   + [0.025] * 4 + [0.045] * 4, f32) / f32(0.529177 ** 2)
+  
+  if lambdas is None:
+    lambdas = np.array([-1, 1] * 4 + [1] * 14, f32)
+  
+  if zetas is None:
+    zetas = np.array([1, 1, 2, 2] * 2 + [1, 2] + [1, 2, 4, 16] * 3, f32)
+
+  radial_fn = radial_symmetry_functions(displacement, 
+                                        species, 
+                                        etas=radial_etas,
+                                        cutoff_distance=cutoff_distance)
+  angular_fn = angular_symmetry_functions(displacement, 
+                                          species, 
+                                          etas=angular_etas,
+                                          lambdas=lambdas, 
+                                          zetas=zetas, 
+                                          cutoff_distance=cutoff_distance)
+  return lambda R: np.hstack((radial_fn(R), angular_fn(R)))
+
+
 # Graph neural network primitives
 
 """
