@@ -515,7 +515,8 @@ def graph_network(displacement_fn,
 
   nodes = _canonicalize_node_state(nodes)
 
-  @hk.transform
+  @hk.without_apply_rng
+  @partial(hk.transform, apply_rng=True)
   def model(R, **kwargs):
     N = R.shape[0]
 
@@ -576,7 +577,8 @@ def graph_network_neighbor_list(displacement_fn,
 
   nodes = _canonicalize_node_state(nodes)
 
-  @hk.transform
+  @hk.without_apply_rng
+  @partial(hk.transform, apply_rng=True)
   def model(R, neighbor, **kwargs):
     N = R.shape[0]
 
