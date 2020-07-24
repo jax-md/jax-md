@@ -54,16 +54,8 @@ def main(unused_argv):
   species = np.array([0] * N_2 + [1] * N_2, dtype=i32)
 
   # Create an energy function.
-  # energy_fn = energy.soft_sphere_pair(displacement, species, sigma)
-  # pp_energy_fn = energy.soft_sphere_pair(displacement, species, sigma, per_particle=True)
   energy_fn = energy.soft_sphere_pair(displacement, species, sigma)
-  nbr_fn, pp_energy_fn = energy.soft_sphere_neighbor_list(displacement, box_size, species, sigma, per_particle=True)
-  # energy_fn = energy.soft_sphere_pair(displacement)
-  # pp_energy_fn = energy.soft_sphere_pair(displacement, per_particle=True)
   force_fn = quantity.force(energy_fn)
-
-  nbrs = nbr_fn(R)
-  print(pp_energy_fn(R, neighbor=nbrs, species_count=2))
 
   # Create a minimizer.
   init_fn, apply_fn = minimize.fire_descent(energy_fn, shift)
