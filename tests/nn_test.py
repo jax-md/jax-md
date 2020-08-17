@@ -24,7 +24,7 @@ import jax.numpy as np
 import numpy as onp
 
 from jax.api import jit, grad
-from jax_md import space, quantity, nn, dataclasses
+from jax_md import space, quantity, nn, dataclasses, partition
 from jax_md.util import f32, f64
 from jax_md.test_util import update_test_tolerance
 
@@ -63,6 +63,102 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
     gr_out = gr(R)
     self.assertAllClose(gr_out.shape, (3, N_types * N_etas))
     self.assertAllClose(gr_out[2, 0], dtype(0.411717), rtol=1e-6, atol=1e-6)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_N_types={}_N_etas={}_dtype={}_dim={}'.format(
+              N_types, N_etas, dtype.__name__, dim),
+          'dtype': dtype,
+          'N_types': N_types,
+          'N_etas': N_etas,
+          'dim': dim,
+      } for N_types in N_TYPES_TO_TEST 
+        for N_etas in N_ETAS_TO_TEST 
+        for dtype in DTYPES
+        for dim in [2, 3]))
+  def test_radial_symmetry_functions_neighbor_list(self,
+                                                   N_types,
+                                                   N_etas,
+                                                   dtype,
+                                                   dim):
+    key = random.PRNGKey(0)
+
+    N = 128
+    box_size = 12.0
+    r_cutoff = 3.
+
+    displacement, shift = space.periodic(box_size)
+    R_key, species_key = random.split(key)
+    R = box_size * random.uniform(R_key, (N, dim))
+    species = random.choice(species_key, N_types, (N,))
+
+    neighbor_fn = partition.neighbor_list(displacement, box_size, r_cutoff, 0.)
+
+    gr = nn.radial_symmetry_functions(displacement,
+                                      species, 
+                                      np.linspace(1.0, 2.0, N_etas, dtype=dtype), 
+                                      r_cutoff)
+    gr_neigh = nn.radial_symmetry_functions_neighbor_list(
+      displacement,
+      species,
+      np.linspace(1.0, 2.0, N_etas, dtype=dtype),
+      r_cutoff)
+    nbrs = neighbor_fn(R)
+    gr_exact = gr(R)
+    gr_nbrs = gr_neigh(R, neighbor=nbrs)
+
+    self.assertAllClose(gr_exact, gr_nbrs)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_N_types={}_N_etas={}_dtype={}_dim={}'.format(
+              N_types, N_etas, dtype.__name__, dim),
+          'dtype': dtype,
+          'N_types': N_types,
+          'N_etas': N_etas,
+          'dim': dim,
+      } for N_types in N_TYPES_TO_TEST 
+        for N_etas in N_ETAS_TO_TEST 
+        for dtype in DTYPES
+        for dim in [2, 3]))
+  def test_angular_symmetry_functions_neighbor_list(self,
+                                                    N_types,
+                                                    N_etas,
+                                                    dtype,
+                                                    dim):
+    key = random.PRNGKey(0)
+
+    N = 128
+    box_size = 12.0
+    r_cutoff = 3.
+
+    displacement, shift = space.periodic(box_size)
+    R_key, species_key = random.split(key)
+    R = box_size * random.uniform(R_key, (N, dim))
+    species = random.choice(species_key, N_types, (N,))
+
+    neighbor_fn = partition.neighbor_list(displacement, box_size, r_cutoff, 0.)
+
+    etas = np.linspace(1., 2., N_etas, dtype=dtype)
+    gr = nn.angular_symmetry_functions(displacement,
+                                       species,
+                                       etas=etas, 
+                                       lambdas=np.array([-1.0] * N_etas, dtype), 
+                                       zetas=np.array([1.0] * N_etas, dtype),
+                                       cutoff_distance=r_cutoff)
+    
+    gr_neigh = nn.angular_symmetry_functions_neighbor_list(displacement,
+                                                           species,
+                                                           etas=etas, 
+                                                           lambdas=np.array([-1.0] * N_etas, dtype), 
+                                                           zetas=np.array([1.0] * N_etas, dtype),
+                                                           cutoff_distance=r_cutoff)
+    
+    nbrs = neighbor_fn(R)
+    gr_exact = gr(R)
+    gr_nbrs = gr_neigh(R, neighbor=nbrs)
+
+    self.assertAllClose(gr_exact, gr_nbrs)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {

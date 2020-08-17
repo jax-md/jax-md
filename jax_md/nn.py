@@ -20,7 +20,7 @@ import jax
 from jax import vmap, jit
 import jax.numpy as np
 
-from jax_md import space, dataclasses, quantity
+from jax_md import space, dataclasses, quantity, partition, smap
 from jax_md.util import *
 import haiku as hk
 
@@ -67,7 +67,7 @@ def _behler_parrinello_cutoff_fn(dr, cutoff_distance=8.0):
   return np.where((dr < cutoff_distance) & (dr > 1e-7),
                   0.5 * (np.cos(np.pi * dr / cutoff_distance) + 1), 0)
 
-  
+
 def radial_symmetry_functions(displacement_or_metric,
                               species,
                               etas,
@@ -105,7 +105,7 @@ def radial_symmetry_functions(displacement_or_metric,
       """Returns the radial symmetry functions for neighbor type atom_type."""
       R_neigh = R[species == atom_type, :]
       dr = _metric(R, R_neigh)
-      
+
       radial = vmap(radial_fn, (0, None))(etas, dr)
       return np.sum(radial, axis=1).T
 
@@ -115,11 +115,62 @@ def radial_symmetry_functions(displacement_or_metric,
   return compute_fun
 
 
-def single_pair_angular_symmetry_function(dR12, 
-                                          dR13, 
-                                          eta, 
-                                          lam, 
-                                          zeta, 
+def radial_symmetry_functions_neighbor_list(displacement_or_metric,
+                                            species,
+                                            etas,
+                                            cutoff_distance):
+  """Returns a function that computes radial symmetry functions.
+
+
+  Args:
+    displacement: A function that produces an `[N_atoms, M_atoms,
+    spatial_dimension]` of particle displacements from particle positions
+      specified as an `[N_atoms, spatial_dimension] and `[M_atoms,
+      spatial_dimension]` respectively.
+    species: An `[N_atoms]` that contains the species of each particle.
+    etas: List of radial symmetry function parameters that control the spatial
+      extension.
+    cutoff_distance: Neighbors whose distance is larger than cutoff_distance do
+      not contribute to each others symmetry functions. The contribution of a
+      neighbor to the symmetry function and its derivative goes to zero at this
+      distance.
+
+  Returns:
+    A function that computes the radial symmetry function from input `[N_atoms,
+    spatial_dimension]` and returns `[N_etas, N_atoms * N_types]` where N_etas is
+    the number of eta parameters, N_types is the number of types of particles 
+    in the system.
+  """
+  metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
+
+  def compute_fun(R, neighbor, **kwargs):
+    _metric = partial(metric, **kwargs)
+    _metric = space.map_neighbor(_metric)
+    radial_fn = lambda eta, dr: (np.exp(-eta * dr**2) *
+                _behler_parrinello_cutoff_fn(dr, cutoff_distance))
+    def return_radial(atom_type):
+      """Returns the radial symmetry functions for neighbor type atom_type."""
+      # import pdb ; pdb.set_trace()
+      R_neigh = R[neighbor.idx]
+      species_neigh = species[neighbor.idx]
+      mask = np.logical_and(neighbor.idx < R.shape[0],
+                            species_neigh == atom_type)
+      dr = _metric(R, R_neigh)
+
+      radial = vmap(radial_fn, (0, None))(etas, dr)
+      return smap._high_precision_sum(radial * mask[np.newaxis, :, :], axis=2).T
+
+    return np.hstack([return_radial(atom_type) for
+                     atom_type in np.unique(species)])
+
+  return compute_fun
+
+
+def single_pair_angular_symmetry_function(dR12,
+                                          dR13,
+                                          eta,
+                                          lam,
+                                          zeta,
                                           cutoff_distance):
   """Computes the angular symmetry function due to one pair of neighbors."""
 
@@ -198,8 +249,113 @@ def angular_symmetry_functions(displacement,
     return np.hstack(out)
   return compute_fun
 
+def angular_symmetry_functions_neighbor_list(displacement,
+                                             species,
+                                             etas,
+                                             lambdas,
+                                             zetas,
+                                             cutoff_distance):
+  """Returns a function that computes angular symmetry functions.
 
-def behler_parrinello_symmetry_functions(displacement, 
+  Args:
+    displacement: A function that produces an `[N_atoms, M_atoms,
+    spatial_dimension]` of particle displacements from particle positions
+      specified as an `[N_atoms, spatial_dimension] and `[M_atoms,
+      spatial_dimension]` respectively.
+    species: An `[N_atoms]` that contains the species of each particle.
+    eta: Parameter of angular symmetry function that controls the spatial
+      extension.
+    lam:
+    zeta:
+    cutoff_distance: Neighbors whose distance is larger than cutoff_distance do
+      not contribute to each others symmetry functions. The contribution of a
+      neighbor to the symmetry function and its derivative goes to zero at this
+      distance.
+  Returns:
+    A function that computes the angular symmetry function from input `[N_atoms,
+    spatial_dimension]` and returns `[N_atoms, N_types * (N_types + 1) / 2]`
+    where N_types is the number of types of particles in the system.
+  """
+  
+  _angular_fn = vmap(single_pair_angular_symmetry_function,
+                     (None, None, 0, 0, 0, None))
+
+  _batched_angular_fn = lambda dR12, dR13: _angular_fn(dR12,
+                                                       dR13,
+                                                       etas,
+                                                       lambdas,
+                                                       zetas,
+                                                       cutoff_distance)
+  _all_pairs_angular = vmap(
+      vmap(vmap(_batched_angular_fn, (0, None)), (None, 0)), 0)
+
+  def compute_fun(R, neighbor, **kwargs):
+    D_fn = partial(displacement, **kwargs)
+    D_fn = space.map_neighbor(D_fn)
+
+    R_neigh = R[neighbor.idx]
+    species_neigh = species[neighbor.idx]
+
+    atom_types = np.unique(species)
+
+    base_mask = neighbor.idx < len(R)
+    mask = [np.logical_and(base_mask, species_neigh == t) for t in atom_types]
+
+    out = []
+    dR = D_fn(R, R_neigh)
+    all_angular = _all_pairs_angular(dR, dR)
+
+    for i in range(len(atom_types)):
+      mask_i = mask[i][:, :, np.newaxis, np.newaxis]
+      for j in range(i, len(atom_types)):
+        mask_j = mask[j][:, np.newaxis, :, np.newaxis]
+        out += [
+            np.sum(all_angular * mask_i * mask_j , axis=[1, 2])
+        ]
+    return np.hstack(out)
+  return compute_fun
+
+
+def behler_parrinello_symmetry_functions_neighbor_list(displacement,
+                                                       species,
+                                                       radial_etas=None, 
+                                                       angular_etas=None, 
+                                                       lambdas=None,
+                                                       zetas=None, 
+                                                       cutoff_distance=8.0):
+  if radial_etas is None:
+    radial_etas = np.array([9e-4, 0.01, 0.02, 0.035, 0.06, 0.1, 0.2, 0.4],
+                    f32) / f32(0.529177 ** 2)
+  
+  if angular_etas is None:
+    angular_etas = np.array([1e-4] * 4 + [0.003] * 4 + [0.008] * 2 + 
+                            [0.015] * 4 + [0.025] * 4 + [0.045] * 4,
+                            f32) / f32(0.529177 ** 2)
+  
+  if lambdas is None:
+    lambdas = np.array([-1, 1] * 4 + [1] * 14, f32)
+  
+  if zetas is None:
+    zetas = np.array([1, 1, 2, 2] * 2 + [1, 2] + [1, 2, 4, 16] * 3, f32)
+
+  radial_fn = radial_symmetry_functions_neighbor_list(
+    displacement,
+    species,
+    etas=radial_etas,
+    cutoff_distance=cutoff_distance)
+  angular_fn = angular_symmetry_functions_neighbor_list(
+    displacement,
+    species,
+    etas=angular_etas,
+    lambdas=lambdas,
+    zetas=zetas,
+    cutoff_distance=cutoff_distance)
+  return (lambda R, neighbor, **kwargs:
+          np.hstack((radial_fn(R, neighbor, **kwargs),
+                     angular_fn(R, neighbor, **kwargs))))
+
+
+def behler_parrinello_symmetry_functions(displacement,
                                          species,
                                          radial_etas=None, 
                                          angular_etas=None, 
@@ -231,9 +387,10 @@ def behler_parrinello_symmetry_functions(displacement,
                                           lambdas=lambdas, 
                                           zetas=zetas, 
                                           cutoff_distance=cutoff_distance)
-  return lambda R, **kwargs: np.hstack((radial_fn(R, **kwargs), 
-                                        angular_fn(R, **kwargs)))
+  symmetry_fn = lambda R, **kwargs: np.hstack((radial_fn(R, **kwargs),
+                                               angular_fn(R, **kwargs)))
 
+  return symmetry_fn
 
 
 # Graph neural network primitives

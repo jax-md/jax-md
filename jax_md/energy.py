@@ -414,10 +414,10 @@ def eam_from_lammps_parameters(displacement, f):
   return eam(displacement, *load_lammps_eam_parameters(f)[:-1])
 
 
-def behler_parrinello(displacement, 
+def behler_parrinello(displacement,
                       species=None,
-                      mlp_sizes=(30, 30), 
-                      mlp_kwargs=None, 
+                      mlp_sizes=(30, 30),
+                      mlp_kwargs=None,
                       sym_kwargs=None):
   if sym_kwargs is None:
     sym_kwargs = {}
@@ -426,10 +426,11 @@ def behler_parrinello(displacement,
         'activation': np.tanh
     }
 
-  sym_fn = nn.behler_parrinello_symmetry_functions(displacement, 
-                                                   species, 
+  sym_fn = nn.behler_parrinello_symmetry_functions(displacement,
+                                                   species,
                                                    **sym_kwargs)
 
+  @hk.without_apply_rng
   @hk.transform
   def model(R, **kwargs):
     embedding_fn = hk.nets.MLP(output_sizes=mlp_sizes+(1,),
@@ -443,6 +444,34 @@ def behler_parrinello(displacement,
   return model.init, model.apply
 
 
+def behler_parrinello_neighbor_list(displacement,
+                                    species=None,
+                                    mlp_sizes=(30, 30),
+                                    mlp_kwargs=None,
+                                    sym_kwargs=None):
+  if sym_kwargs is None:
+    sym_kwargs = {}
+  if mlp_kwargs is None:
+    mlp_kwargs = {
+        'activation': np.tanh
+    }
+
+  sym_fn = nn.behler_parrinello_symmetry_functions_neighbor_list(displacement,
+                                                                 species,
+                                                                 **sym_kwargs)
+
+  @hk.without_apply_rng
+  @hk.transform
+  def model(R, neighbor, **kwargs):
+    embedding_fn = hk.nets.MLP(output_sizes=mlp_sizes+(1,),
+                               activate_final=False,
+                               name='BPEncoder',
+                               **mlp_kwargs)
+    embedding_fn = vmap(embedding_fn)
+    sym = sym_fn(R, neighbor=neighbor, **kwargs)
+    readout = embedding_fn(sym)
+    return np.sum(readout)
+  return model.init, model.apply
 
 
 class EnergyGraphNet(hk.Module):
