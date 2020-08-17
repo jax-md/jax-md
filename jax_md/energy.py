@@ -441,16 +441,10 @@ def eam_from_lammps_parameters(displacement, f):
 
 def behler_parrinello(displacement,
                       species=None,
-<<<<<<< HEAD
-                      mlp_sizes=(30, 30),
-                      mlp_kwargs=None,
-                      sym_kwargs=None):
-=======
                       mlp_sizes=(30, 30), 
                       mlp_kwargs=None, 
                       sym_kwargs=None,
                       per_particle=False):
->>>>>>> 7fedd1295ce825655709ff68030e97cc6b58144b
   if sym_kwargs is None:
     sym_kwargs = {}
   if mlp_kwargs is None:
@@ -477,8 +471,6 @@ def behler_parrinello(displacement,
     return np.sum(readout)
   return model.init, model.apply
 
-
-<<<<<<< HEAD
 def behler_parrinello_neighbor_list(displacement,
                                     species=None,
                                     mlp_sizes=(30, 30),
@@ -509,8 +501,6 @@ def behler_parrinello_neighbor_list(displacement,
   return model.init, model.apply
 
 
-=======
->>>>>>> 7fedd1295ce825655709ff68030e97cc6b58144b
 class EnergyGraphNet(hk.Module):
   """Implements a Graph Neural Network for energy fitting.
 
@@ -582,7 +572,7 @@ def graph_network(displacement_fn,
   nodes = _canonicalize_node_state(nodes)
 
   @hk.without_apply_rng
-  @partial(hk.transform, apply_rng=True)
+  @hk.transform
   def model(R, **kwargs):
     N = R.shape[0]
 
@@ -644,7 +634,7 @@ def graph_network_neighbor_list(displacement_fn,
   nodes = _canonicalize_node_state(nodes)
 
   @hk.without_apply_rng
-  @partial(hk.transform, apply_rng=True)
+  @hk.transform
   def model(R, neighbor, **kwargs):
     N = R.shape[0]
 
