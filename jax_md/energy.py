@@ -81,7 +81,12 @@ def soft_sphere(dr, sigma=1, epsilon=1, alpha=2, **unused_kwargs):
 
 
 def soft_sphere_pair(
-    displacement_or_metric, species=None, sigma=1.0, epsilon=1.0, alpha=2.0):
+    displacement_or_metric,
+    species=None,
+    sigma=1.0,
+    epsilon=1.0,
+    alpha=2.0,
+    per_particle=False):
   """Convenience wrapper to compute soft sphere energy over a system."""
   sigma = np.array(sigma, dtype=f32)
   epsilon = np.array(epsilon, dtype=f32)
@@ -92,7 +97,8 @@ def soft_sphere_pair(
       species=species,
       sigma=sigma,
       epsilon=epsilon,
-      alpha=alpha)
+      alpha=alpha,
+      reduce_axis=(1,) if per_particle else None)
 
 
 def soft_sphere_neighbor_list(
@@ -102,7 +108,8 @@ def soft_sphere_neighbor_list(
     sigma=1.0,
     epsilon=1.0,
     alpha=2.0,
-    dr_threshold=0.2):
+    dr_threshold=0.2,
+    per_particle=False):
   """Convenience wrapper to compute soft spheres using a neighbor list."""
   sigma = np.array(sigma, dtype=f32)
   epsilon = np.array(epsilon, dtype=f32)
@@ -118,7 +125,8 @@ def soft_sphere_neighbor_list(
     species=species,
     sigma=sigma,
     epsilon=epsilon,
-    alpha=alpha)
+    alpha=alpha,
+    reduce_axis=(1,) if per_particle else None)
 
   return neighbor_fn, energy_fn
 
@@ -148,7 +156,12 @@ def lennard_jones(dr, sigma=1, epsilon=1, **unused_kwargs):
 
 def lennard_jones_pair(
     displacement_or_metric,
-    species=None, sigma=1.0, epsilon=1.0, r_onset=2.0, r_cutoff=2.5):
+    species=None,
+    sigma=1.0,
+    epsilon=1.0,
+    r_onset=2.0,
+    r_cutoff=2.5,
+    per_particle=False):
   """Convenience wrapper to compute Lennard-Jones energy over a system."""
   sigma = np.array(sigma, dtype=f32)
   epsilon = np.array(epsilon, dtype=f32)
@@ -159,7 +172,8 @@ def lennard_jones_pair(
     space.canonicalize_displacement_or_metric(displacement_or_metric),
     species=species,
     sigma=sigma,
-    epsilon=epsilon)
+    epsilon=epsilon,
+    reduce_axis=(1,) if per_particle else None)
 
 
 def lennard_jones_neighbor_list(
@@ -171,7 +185,8 @@ def lennard_jones_neighbor_list(
     alpha=2.0,
     r_onset=2.0,
     r_cutoff=2.5,
-    dr_threshold=0.5): # TODO(schsam) Optimize this.
+    dr_threshold=0.5,
+    per_particle=False): # TODO(schsam) Optimize this.
   """Convenience wrapper to compute lennard-jones using a neighbor list."""
   sigma = np.array(sigma, f32)
   epsilon = np.array(epsilon, f32)
@@ -186,7 +201,8 @@ def lennard_jones_neighbor_list(
     space.canonicalize_displacement_or_metric(displacement_or_metric),
     species=species,
     sigma=sigma,
-    epsilon=epsilon)
+    epsilon=epsilon,
+    reduce_axis=(1,) if per_particle else None)
 
   return neighbor_fn, energy_fn
 
@@ -199,7 +215,7 @@ def morse(dr, sigma=1.0, epsilon=5.0, alpha=5.0, **unused_kwargs):
       either be a floating point scalar or an ndarray whose shape is [n, m].
     epsilon: Interaction energy scale. Should either be a floating point scalar
       or an ndarray whose shape is [n, m].
-    alpha: Range parameter. Should either be a floating point scalar or an 
+    alpha: Range parameter. Should either be a floating point scalar or an
       ndarray whose shape is [n, m].
     unused_kwargs: Allows extra data (e.g. time) to be passed to the energy.
   Returns:
@@ -209,10 +225,16 @@ def morse(dr, sigma=1.0, epsilon=5.0, alpha=5.0, **unused_kwargs):
   U = epsilon * (f32(1) - np.exp(-alpha * (dr - sigma)))**f32(2) - epsilon
   # TODO(cpgoodri): ErrorChecking following lennard_jones
   return np.nan_to_num(np.array(U, dtype=dr.dtype))
-  
+
 def morse_pair(
     displacement_or_metric,
-    species=None, sigma=1.0, epsilon=5.0, alpha=5.0, r_onset=2.0, r_cutoff=2.5):
+    species=None,
+    sigma=1.0,
+    epsilon=5.0,
+    alpha=5.0,
+    r_onset=2.0,
+    r_cutoff=2.5,
+    per_particle=False):
   """Convenience wrapper to compute Morse energy over a system."""
   sigma = np.array(sigma, dtype=f32)
   epsilon = np.array(epsilon, dtype=f32)
@@ -223,8 +245,9 @@ def morse_pair(
     species=species,
     sigma=sigma,
     epsilon=epsilon,
-    alpha=alpha)
-  
+    alpha=alpha,
+    reduce_axis=(1,) if per_particle else None)
+
 def morse_neighbor_list(
     displacement_or_metric,
     box_size,
@@ -234,7 +257,8 @@ def morse_neighbor_list(
     alpha=5.0,
     r_onset=2.0,
     r_cutoff=2.5,
-    dr_threshold=0.5): # TODO(cpgoodri) Optimize this.
+    dr_threshold=0.5,
+    per_particle=False): # TODO(cpgoodri) Optimize this.
   """Convenience wrapper to compute Morse using a neighbor list."""
   sigma = np.array(sigma, f32)
   epsilon = np.array(epsilon, f32)
@@ -251,7 +275,8 @@ def morse_neighbor_list(
     species=species,
     sigma=sigma,
     epsilon=epsilon,
-    alpha=alpha)
+    alpha=alpha,
+    reduce_axis=(1,) if per_particle else None)
 
   return neighbor_fn, energy_fn
 
@@ -416,9 +441,16 @@ def eam_from_lammps_parameters(displacement, f):
 
 def behler_parrinello(displacement,
                       species=None,
+<<<<<<< HEAD
                       mlp_sizes=(30, 30),
                       mlp_kwargs=None,
                       sym_kwargs=None):
+=======
+                      mlp_sizes=(30, 30), 
+                      mlp_kwargs=None, 
+                      sym_kwargs=None,
+                      per_particle=False):
+>>>>>>> 7fedd1295ce825655709ff68030e97cc6b58144b
   if sym_kwargs is None:
     sym_kwargs = {}
   if mlp_kwargs is None:
@@ -440,10 +472,13 @@ def behler_parrinello(displacement,
     embedding_fn = vmap(embedding_fn)
     sym = sym_fn(R, **kwargs)
     readout = embedding_fn(sym)
+    if per_particle:
+      return readout
     return np.sum(readout)
   return model.init, model.apply
 
 
+<<<<<<< HEAD
 def behler_parrinello_neighbor_list(displacement,
                                     species=None,
                                     mlp_sizes=(30, 30),
@@ -474,6 +509,8 @@ def behler_parrinello_neighbor_list(displacement,
   return model.init, model.apply
 
 
+=======
+>>>>>>> 7fedd1295ce825655709ff68030e97cc6b58144b
 class EnergyGraphNet(hk.Module):
   """Implements a Graph Neural Network for energy fitting.
 
