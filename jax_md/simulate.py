@@ -224,18 +224,11 @@ def nvt_nose_hoover(
     # TODO(schsam): We can probably cache the G parameters from the previous
     # update.
 
-    # TODO(schsam): It is also probably the case that we could do a better job
-    # of vectorizing this code.
-    G = (Q[M - 1] * v_xi[M - 1] ** f32(2) - T) / Q[M]
-    v_xi = ops.index_add(v_xi, M, dt_4 * G)
-    for m in range(M - 1, 0, -1):
-      G = (Q[m - 1] * v_xi[m - 1] ** f32(2) - T) / Q[m]
-      scale = np.exp(-dt_8 * v_xi[m + 1])
-      v_xi = ops.index_update(v_xi, m, scale * (scale * v_xi[m] + dt_4 * G))
-
-    G = (f32(2.0) * KE - DOF * T) / Q[0]
-    scale = np.exp(-dt_8 * v_xi[1])
-    v_xi = ops.index_update(v_xi, 0, scale * (scale * v_xi[0] + dt_4 * G))
+    t = xi.dtype
+    G = np.concatenate((np.array([(KE * f32(2) - DOF * T) / Q[0]], dtype=t),
+                        (Q[:-1] * v_xi[:-1] ** f32(2) - T) / Q[1:],))
+    scale = np.concatenate((np.exp(-dt_8 * v_xi[1:]), np.ones((1,), dtype=t)))
+    v_xi = scale * (scale * v_xi + dt_4 * G)
 
     scale = np.exp(-dt_2 * v_xi[0])
     KE = KE * scale ** f32(2)
@@ -243,10 +236,11 @@ def nvt_nose_hoover(
 
     xi = xi + dt_2 * v_xi
 
+    scale = np.concatenate((np.exp(-dt_8 * v_xi[1:]), np.ones((1,), dtype=t)))
+    v_xi = scale ** 2 * v_xi
     G = (f32(2) * KE - DOF * T) / Q[0]
     for m in range(M):
-      scale = np.exp(-dt_8 * v_xi[m + 1])
-      v_xi = ops.index_update(v_xi, m, scale * (scale * v_xi[m] + dt_4 * G))
+      v_xi = ops.index_add(v_xi, m, scale[m] * dt_4 * G)
       G = (Q[m] * v_xi[m] ** f32(2) - T) / Q[m + 1]
     v_xi = ops.index_add(v_xi, M, dt_4 * G)
 
