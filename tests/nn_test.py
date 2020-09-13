@@ -107,7 +107,8 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
     gr_exact = gr(R)
     gr_nbrs = gr_neigh(R, neighbor=nbrs)
 
-    self.assertAllClose(gr_exact, gr_nbrs, atol=1e-13, rtol=1e-13)
+    tol = 1e-13 if FLAGS.jax_enable_x64 else 1e-6
+    self.assertAllClose(gr_exact, gr_nbrs, atol=tol, rtol=tol)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -158,7 +159,8 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
     gr_exact = gr(R)
     gr_nbrs = gr_neigh(R, neighbor=nbrs)
 
-    self.assertAllClose(gr_exact, gr_nbrs, atol=1e-13, rtol=1e-1)
+    tol = 1e-13 if FLAGS.jax_enable_x64 else 1e-6
+    self.assertAllClose(gr_exact, gr_nbrs, atol=tol, rtol=tol)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
