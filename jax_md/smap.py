@@ -283,6 +283,7 @@ def pair(
           axis=reduce_axis,
           keepdims=keepdims) * f32(0.5)
   elif isinstance(species, np.ndarray):
+    species = onp.array(species)
     _check_species_dtype(species)
     species_count = int(np.max(species))
     if reduce_axis is not None or keepdims:

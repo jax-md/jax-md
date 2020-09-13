@@ -68,22 +68,22 @@ class CellList(namedtuple(
 def _cell_dimensions(spatial_dimension, box_size, minimum_cell_size):
   """Compute the number of cells-per-side and total number of cells in a box."""
   if isinstance(box_size, int) or isinstance(box_size, float):
-    box_size = f32(box_size)
+    box_size = float(box_size)
 
   # NOTE(schsam): Should we auto-cast based on box_size? I can't imagine a case
   # in which the box_size would not be accurately represented by an f32.
-  if (isinstance(box_size, np.ndarray) and
+  if (isinstance(box_size, onp.ndarray) and
       (box_size.dtype == np.int32 or box_size.dtype == np.int64)):
-    box_size = f32(box_size)
+    box_size = float(box_size)
 
-  cells_per_side = np.floor(box_size / minimum_cell_size)
+  cells_per_side = onp.floor(box_size / minimum_cell_size)
   cell_size = box_size / cells_per_side
-  cells_per_side = np.array(cells_per_side, dtype=np.int64)
+  cells_per_side = onp.array(cells_per_side, dtype=np.int64)
 
-  if isinstance(box_size, np.ndarray):
+  if isinstance(box_size, onp.ndarray):
     if box_size.ndim == 1 or box_size.ndim == 2:
       assert box_size.size == spatial_dimension
-      flat_cells_per_side = np.reshape(cells_per_side, (-1,))
+      flat_cells_per_side = onp.reshape(cells_per_side, (-1,))
       for cells in flat_cells_per_side:
         if cells < 3:
           raise ValueError(
@@ -102,7 +102,7 @@ def _cell_dimensions(spatial_dimension, box_size, minimum_cell_size):
 
 def count_cell_filling(R, box_size, minimum_cell_size):
   """Counts the number of particles per-cell in a spatial partition."""
-  dim = i32(R.shape[1])
+  dim = int(R.shape[1])
   box_size, cell_size, cells_per_side, cell_count = \
       _cell_dimensions(dim, box_size, minimum_cell_size)
 
@@ -143,14 +143,14 @@ def _compute_hash_constants(spatial_dimension, cells_per_side):
 
 def _neighboring_cells(dimension):
   for dindex in onp.ndindex(*([3] * dimension)):
-    yield np.array(dindex, dtype=np.int64) - 1
+    yield onp.array(dindex, dtype=np.int64) - 1
 
 
 def _estimate_cell_capacity(R, box_size, cell_size, buffer_size_multiplier):
   # TODO(schsam): We might want to do something more sophisticated here or at
   # least expose this constant.
   spatial_dim = R.shape[-1]
-  cell_capacity = np.max(count_cell_filling(R, box_size, cell_size))
+  cell_capacity = onp.max(count_cell_filling(R, box_size, cell_size))
   return int(cell_capacity * buffer_size_multiplier)
 
 
@@ -240,8 +240,13 @@ def cell_list(
     containing the partition.
   """
 
-  if isinstance(box_size, np.ndarray) and len(box_size.shape) == 1:
-    box_size = np.reshape(box_size, (1, -1))
+  if isinstance(box_size, np.ndarray):
+    box_size = onp.array(box_size)
+    if len(box_size.shape) == 1:
+      box_size = np.reshape(box_size, (1, -1))
+
+  if isinstance(minimum_cell_size, np.ndarray):
+    minimum_cell_size = onp.array(minimum_cell_size)
 
   cell_capacity = cell_capacity_or_example_R
   if _is_variable_compatible_with_positions(cell_capacity):

@@ -37,6 +37,7 @@ from jax_md import energy
 from jax_md.interpolate import spline
 
 jax_config.parse_flags_with_absl()
+jax_config.enable_omnistaging()
 FLAGS = jax_config.FLAGS
 
 PARTICLE_COUNT = 100

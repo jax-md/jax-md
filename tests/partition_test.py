@@ -38,6 +38,7 @@ from jax_md import smap, partition, space, energy, quantity
 from jax_md.util import *
 
 jax_config.parse_flags_with_absl()
+jax_config.enable_omnistaging()
 FLAGS = jax_config.FLAGS
 
 

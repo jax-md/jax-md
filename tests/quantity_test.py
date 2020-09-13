@@ -32,6 +32,7 @@ from jax_md.util import *
 from jax import test_util as jtu
 
 jax_config.parse_flags_with_absl()
+jax_config.enable_omnistaging()
 FLAGS = jax_config.FLAGS
 
 test_util.update_test_tolerance(1e-5, 2e-7)

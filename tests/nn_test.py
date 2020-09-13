@@ -31,8 +31,8 @@ from jax_md.test_util import update_test_tolerance
 from jax import test_util as jtu
 
 jax_config.parse_flags_with_absl()
+jax_config.enable_omnistaging()
 FLAGS = jax_config.FLAGS
-
 
 if FLAGS.jax_enable_x64:
   DTYPES = [f32, f64]
@@ -107,7 +107,7 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
     gr_exact = gr(R)
     gr_nbrs = gr_neigh(R, neighbor=nbrs)
 
-    self.assertAllClose(gr_exact, gr_nbrs)
+    self.assertAllClose(gr_exact, gr_nbrs, atol=1e-13, rtol=1e-13)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -158,7 +158,7 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
     gr_exact = gr(R)
     gr_nbrs = gr_neigh(R, neighbor=nbrs)
 
-    self.assertAllClose(gr_exact, gr_nbrs)
+    self.assertAllClose(gr_exact, gr_nbrs, atol=1e-13, rtol=1e-1)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {

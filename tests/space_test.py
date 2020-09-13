@@ -14,10 +14,6 @@
 
 """Tests for jax_md.space."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import numpy as onp
 
 from absl.testing import absltest
@@ -39,6 +35,7 @@ from functools import partial
 test_util.update_test_tolerance(5e-5, 5e-13)
 
 jax_config.parse_flags_with_absl()
+jax_config.enable_omnistaging()
 FLAGS = jax_config.FLAGS
 
 PARTICLE_COUNT = 10
