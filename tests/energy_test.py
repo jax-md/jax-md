@@ -17,6 +17,7 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 
+import os
 from jax.config import config as jax_config
 from jax import random
 from jax import jit, vmap
@@ -194,7 +195,43 @@ class EnergyTest(jtu.JaxTestCase):
         np.array(-epsilon, dtype=dtype))
       g = grad(energy.lennard_jones)(dr, sigma, epsilon)
       self.assertAllClose(g, np.array(0, dtype=dtype))
-      
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': 'dtype={}'.format(dtype.__name__),
+          'dtype': dtype
+      } for dtype in POSITION_DTYPE))
+  def test_bks(self, dtype):
+      LATCON = 3.5660930663857577e+01
+      displacement, shift = space.periodic(LATCON)
+      dist_fun = space.metric(displacement)
+      species = np.tile(np.array([0, 1, 1]), 1000)
+      current_dir = os.getcwd()
+      filename = os.path.join(current_dir, 'tests/data/silica_positions.npy')
+      with open(filename, 'rb') as f:
+        R_f = np.array(np.load(f))
+      energy_fn = energy.bks_silica_pair(dist_fun, species=species)
+      self.assertAllClose(-857939.528386092, energy_fn(R_f))
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': 'dtype={}'.format(dtype.__name__),
+          'dtype': dtype
+      } for dtype in POSITION_DTYPE))
+  def test_bks_neighbor_list(self, dtype):
+      LATCON = 3.5660930663857577e+01
+      displacement, shift = space.periodic(LATCON)
+      dist_fun = space.metric(displacement)
+      species = np.tile(np.array([0, 1, 1]), 1000)
+      current_dir = os.getcwd()
+      filename = os.path.join(current_dir, 'tests/data/silica_positions.npy')
+      with open(filename, 'rb') as f:
+        R_f = np.array(np.load(f))
+      neighbor_fn, energy_nei = energy.bks_silica_neighbor_list(
+          dist_fun, LATCON, species=species)
+      nbrs = neighbor_fn(R_f)
+      self.assertAllClose(-857939.528386092, energy_nei(R_f, nbrs))
+
   @parameterized.named_parameters(jtu.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),

@@ -25,7 +25,7 @@ import jax.numpy as np
 from jax.tree_util import tree_map
 from jax import vmap
 import haiku as hk
-
+from jax.scipy.special import erfc #error function
 from jax_md import space, smap, partition, nn
 from jax_md.interpolate import spline
 from jax_md.util import f32, f64
@@ -327,6 +327,138 @@ def multiplicative_isotropic_cutoff(fn, r_onset, r_cutoff):
     return smooth_fn(dr) * fn(dr, *args, **kwargs)
 
   return cutoff_fn
+
+
+def dsf_coulomb(r, Q_sq, alpha=0.25, cutoff=8.0):
+  qqr2e = 332.06371 #coulmbic conversion factor:1/(4*pi*epo)
+
+  cutoffsq = cutoff*cutoff
+  erfcc = erfc(alpha*cutoff)
+  erfcd = np.exp(-alpha*alpha*cutoffsq)
+  f_shift = -(erfcc/cutoffsq + 2.0/np.sqrt(np.pi)*alpha*erfcd/cutoff) 
+  e_shift = erfcc/cutoff - f_shift*cutoff 
+  
+  coulomb_en = qqr2e*Q_sq/r * (erfc(alpha*r) - r*e_shift - r**2*f_shift)
+  return np.where(r < cutoff, coulomb_en, 0.0)
+
+def bks(r, Q_sq, exp_coeff, exp_decay, attractive_coeff, repulsive_coeff, 
+        coulomb_alpha, cutoff, **unused_kwargs):
+  energy = (dsf_coulomb(r, Q_sq, coulomb_alpha, cutoff) + \
+          exp_coeff * np.exp(-r / exp_decay) + \
+          attractive_coeff / r ** 6 + repulsive_coeff / r ** 24)
+  return  np.where(r < cutoff, energy, 0.0)
+
+def bks_pair(displacement_or_metric, species, Q_sq, exp_coeff, exp_decay, 
+             attractive_coeff, repulsive_coeff, coulomb_alpha, cutoff):
+  Q_sq = np.array(Q_sq, f32)
+  exp_coeff = np.array(exp_coeff, f32)
+  exp_decay = np.array(exp_decay, f32)
+  attractive_coeff = np.array(attractive_coeff, f32)
+  repulsive_coeff = np.array(repulsive_coeff, f32)
+
+  return smap.pair(bks, displacement_or_metric, 
+                   species=species, 
+                   Q_sq=Q_sq, 
+                   exp_coeff=exp_coeff, 
+                   exp_decay=exp_decay, 
+                   attractive_coeff=attractive_coeff, 
+                   repulsive_coeff=repulsive_coeff,
+                   coulomb_alpha=coulomb_alpha,
+                   cutoff=cutoff)
+  
+def bks_neighbor_list(displacement_or_metric, 
+                      box_size, 
+                      species, 
+                      Q_sq, 
+                      exp_coeff, 
+                      exp_decay, 
+                      attractive_coeff, 
+                      repulsive_coeff, 
+                      coulomb_alpha, 
+                      cutoff,
+                      dr_threshold=0.8):
+  Q_sq = np.array(Q_sq, f32)
+  exp_coeff = np.array(exp_coeff, f32)
+  exp_decay = np.array(exp_decay, f32)
+  attractive_coeff = np.array(attractive_coeff, f32)
+  repulsive_coeff = np.array(repulsive_coeff, f32)
+  dr_threshold = f32(dr_threshold)
+
+  neighbor_fn = partition.neighbor_list(
+      displacement_or_metric, box_size, cutoff, dr_threshold)
+  
+  energy_fn = smap.pair_neighbor_list(
+      bks, 
+      space.canonicalize_displacement_or_metric(displacement_or_metric),
+      species=species, 
+      Q_sq=Q_sq, 
+      exp_coeff=exp_coeff, 
+      exp_decay=exp_decay, 
+      attractive_coeff=attractive_coeff, 
+      repulsive_coeff=repulsive_coeff,
+      coulomb_alpha=coulomb_alpha,
+      cutoff=cutoff)
+  
+  return neighbor_fn, energy_fn
+
+CHARGE_OXYGEN = -0.977476019
+CHARGE_SILICON = 1.954952037
+
+BKS_SILICA_DICT = {
+    'Q_sq' : [[CHARGE_SILICON**2, CHARGE_SILICON*CHARGE_OXYGEN], 
+              [CHARGE_SILICON*CHARGE_OXYGEN, CHARGE_OXYGEN**2]], 
+    'exp_coeff' : [[0, 471671.1243 ], 
+                   [471671.1243, 23138.64826]],
+    'exp_decay' : [[1, 0.19173537], 
+                   [0.19173537, 0.356855265]],
+    'attractive_coeff' : [[0, -2156.074422], 
+                          [-2156.074422, -1879.223108]],
+    'repulsive_coeff' : [[78940848.06, 668.7557239],
+                         [668.7557239, 2605.841269]],
+    'coulomb_alpha' : 0.25,
+    'cutoff' : 8.0, 
+} #all the parameter(coefficient)kcal/mol
+                   
+
+def bks_silica_pair(displacement_or_metric, species):
+  def e_self(Q_sq, alpha=0.25, cutoff=8.0):
+    cutoffsq = cutoff*cutoff
+    erfcc = erfc(alpha*cutoff)
+    erfcd = np.exp(-alpha*alpha*cutoffsq)
+    f_shift = -(erfcc/cutoffsq + 2.0/np.sqrt(np.pi)*alpha*erfcd/cutoff) 
+    e_shift = erfcc/cutoff - f_shift*cutoff
+    qqr2e = 332.06371 #kcal/mol #coulmbic conversion factor:1/(4*pi*epo)
+    return -(e_shift/2.0 + alpha/np.sqrt(np.pi))*Q_sq*qqr2e
+  bks_pair_fn = bks_pair(displacement_or_metric, 
+                         species, 
+                         **BKS_SILICA_DICT)
+  N_0 = np.sum(species==0)
+  N_1 = np.sum(species==1)
+  return lambda R: bks_pair_fn(R) + \
+                   N_0 * e_self(CHARGE_SILICON**2) + \
+                   N_1 * e_self(CHARGE_OXYGEN**2)
+def bks_silica_neighbor_list(displacement_or_metric, 
+                             box_size, 
+                             species):
+  def e_self(Q_sq, alpha=0.25, cutoff=8.0):
+    cutoffsq = cutoff*cutoff
+    erfcc = erfc(alpha*cutoff)
+    erfcd = np.exp(-alpha*alpha*cutoffsq)
+    f_shift = -(erfcc/cutoffsq + 2.0/np.sqrt(np.pi)*alpha*erfcd/cutoff) 
+    e_shift = erfcc/cutoff - f_shift*cutoff
+    qqr2e = 332.06371 #kcal/mol #coulmbic conversion factor:1/(4*pi*epo)
+    return -(e_shift/2.0 + alpha/np.sqrt(np.pi))*Q_sq*qqr2e
+  neighbor_fn, bks_pair_fn = bks_neighbor_list(displacement_or_metric,
+                                  box_size, 
+                                  species,   
+                                  dr_threshold=0.8,
+                                  **BKS_SILICA_DICT,
+                                  )
+  N_0 = np.sum(species==0)
+  N_1 = np.sum(species==1)
+  return neighbor_fn, lambda R, neighbor: bks_pair_fn(R, neighbor) + \
+                      N_0 * e_self(CHARGE_SILICON**2) + \
+                      N_1 * e_self(CHARGE_OXYGEN**2)
 
 
 def load_lammps_eam_parameters(f):
