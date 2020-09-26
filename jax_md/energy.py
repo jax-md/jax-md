@@ -281,6 +281,38 @@ def morse_neighbor_list(
   return neighbor_fn, energy_fn
 
 
+def gupta_potential(displacement, 
+                    p=10.15, 
+                    q=4.13, 
+                    r_0n=2.96, 
+                    U_n =3.454, 
+                    A=0.118428,
+                    cutoff=8.0):
+  """Gupta potential with default parameters for Au_55 cluster."""
+  def _gupta_term1(r, p, r_0n, cutoff):
+    """Repulsive term in Gupta potential."""
+    within_cutoff = (r > 0) & (r < cutoff)
+    term1 = np.exp(-1.0 * p * (r / r_0n - 1))
+    return np.where(within_cutoff, term1, 0.0)
+
+  def _gupta_term2(r, q, r_0n, cutoff):
+    """Attractive term in Gupta potential."""
+    within_cutoff = (r > 0) & (r < cutoff)
+    term2 = np.exp(-2.0 * q * (r / r_0n - 1))
+    return np.where(within_cutoff, term2, 0.0)
+
+  def compute_fn(R):
+    dR = space.map_product(displacement)(R, R)
+    dr = space.distance(dR)
+    first_term = A * np.sum(_gupta_term1(dr, p, r_0n, cutoff), axis=1)
+    second_term = np.sqrt(np.sum(_gupta_term2(dr, 
+                                              q, 
+                                              r_0n, 
+                                              cutoff), axis=1))
+    return U_n / 2.0 * np.sum( first_term - second_term)
+
+  return compute_fn
+
 def multiplicative_isotropic_cutoff(fn, r_onset, r_cutoff):
   """Takes an isotropic function and constructs a truncated function.
 

@@ -201,6 +201,18 @@ class EnergyTest(jtu.JaxTestCase):
           'testcase_name': 'dtype={}'.format(dtype.__name__),
           'dtype': dtype
       } for dtype in POSITION_DTYPE))
+  def test_gupta(self, dtype):
+      displacement, shift = space.free()
+      pos = np.array([[0, 0, 0], [0, 0, 2.9], [0, 2.9, 2.9]])
+      energy_fn = energy.gupta_potential(displacement)
+      self.assertAllClose(-5.46324213, energy_fn(pos))
+
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': 'dtype={}'.format(dtype.__name__),
+          'dtype': dtype
+      } for dtype in POSITION_DTYPE))
   def test_bks(self, dtype):
       LATCON = 3.5660930663857577e+01
       displacement, shift = space.periodic(LATCON)
