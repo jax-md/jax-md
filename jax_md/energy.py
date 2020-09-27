@@ -451,46 +451,51 @@ BKS_SILICA_DICT = {
     'cutoff' : 8.0, 
 } #all the parameter(coefficient)kcal/mol
                    
+def _bks_silica_self(Q_sq, alpha, cutoff):
+  cutoffsq = cutoff * cutoff
+  erfcc = erfc(alpha * cutoff)
+  erfcd = np.exp(-alpha * alpha * cutoffsq)
+  f_shift = -(erfcc / cutoffsq + 2.0 / np.sqrt(np.pi) * alpha * erfcd / cutoff) 
+  e_shift = erfcc / cutoff - f_shift * cutoff
+  qqr2e = 332.06371 #kcal/mol #coulmbic conversion factor:1/(4*pi*epo)
+  return -(e_shift / 2.0 + alpha / np.sqrt(np.pi)) * Q_sq * qqr2e
 
 def bks_silica_pair(displacement_or_metric, species):
-  def e_self(Q_sq, alpha=0.25, cutoff=8.0):
-    cutoffsq = cutoff*cutoff
-    erfcc = erfc(alpha*cutoff)
-    erfcd = np.exp(-alpha*alpha*cutoffsq)
-    f_shift = -(erfcc/cutoffsq + 2.0/np.sqrt(np.pi)*alpha*erfcd/cutoff) 
-    e_shift = erfcc/cutoff - f_shift*cutoff
-    qqr2e = 332.06371 #kcal/mol #coulmbic conversion factor:1/(4*pi*epo)
-    return -(e_shift/2.0 + alpha/np.sqrt(np.pi))*Q_sq*qqr2e
   bks_pair_fn = bks_pair(displacement_or_metric, 
                          species, 
                          **BKS_SILICA_DICT)
   N_0 = np.sum(species==0)
   N_1 = np.sum(species==1)
-  return lambda R: bks_pair_fn(R) + \
-                   N_0 * e_self(CHARGE_SILICON**2) + \
-                   N_1 * e_self(CHARGE_OXYGEN**2)
-def bks_silica_neighbor_list(displacement_or_metric, 
-                             box_size, 
+
+  e_self = partial(_bks_silica_self, alpha=0.25, cutoff=8.0)
+
+  def energy_fn(R, **unused_kwargs):
+    return (bks_pair_fn(R) +
+            N_0 * e_self(CHARGE_SILICON**2) +
+            N_1 * e_self(CHARGE_OXYGEN**2))
+
+
+  return energy_fn
+
+def bks_silica_neighbor_list(displacement_or_metric,
+                             box_size,
                              species):
-  def e_self(Q_sq, alpha=0.25, cutoff=8.0):
-    cutoffsq = cutoff*cutoff
-    erfcc = erfc(alpha*cutoff)
-    erfcd = np.exp(-alpha*alpha*cutoffsq)
-    f_shift = -(erfcc/cutoffsq + 2.0/np.sqrt(np.pi)*alpha*erfcd/cutoff) 
-    e_shift = erfcc/cutoff - f_shift*cutoff
-    qqr2e = 332.06371 #kcal/mol #coulmbic conversion factor:1/(4*pi*epo)
-    return -(e_shift/2.0 + alpha/np.sqrt(np.pi))*Q_sq*qqr2e
   neighbor_fn, bks_pair_fn = bks_neighbor_list(displacement_or_metric,
-                                  box_size, 
-                                  species,   
-                                  dr_threshold=0.8,
-                                  **BKS_SILICA_DICT,
-                                  )
+                                               box_size,
+                                               species,
+                                               dr_threshold=0.8,
+                                               **BKS_SILICA_DICT)
   N_0 = np.sum(species==0)
   N_1 = np.sum(species==1)
-  return neighbor_fn, lambda R, neighbor: bks_pair_fn(R, neighbor) + \
-                      N_0 * e_self(CHARGE_SILICON**2) + \
-                      N_1 * e_self(CHARGE_OXYGEN**2)
+
+  e_self = partial(_bks_silica_self, alpha=0.25, cutoff=8.0)
+
+  def energy_fn(R, neighbor, **unused_kwargs):
+    return (bks_pair_fn(R, neighbor) +
+            N_0 * e_self(CHARGE_SILICON ** 2) +
+            N_1 * e_self(CHARGE_OXYGEN ** 2))
+
+  return neighbor_fn, energy_fn
 
 
 def load_lammps_eam_parameters(f):
