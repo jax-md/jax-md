@@ -281,11 +281,11 @@ def morse_neighbor_list(
   return neighbor_fn, energy_fn
 
 
-def gupta_potential(displacement, 
-                    p=10.15, 
-                    q=4.13, 
-                    r_0n=2.96, 
-                    U_n =3.454, 
+def gupta_potential(displacement,
+                    p=10.15,
+                    q=4.13,
+                    r_0n=2.96,
+                    U_n=3.454,
                     A=0.118428,
                     cutoff=8.0):
   """Gupta potential with default parameters for Au_55 cluster."""
@@ -305,10 +305,7 @@ def gupta_potential(displacement,
     dR = space.map_product(displacement)(R, R)
     dr = space.distance(dR)
     first_term = A * np.sum(_gupta_term1(dr, p, r_0n, cutoff), axis=1)
-    second_term = np.sqrt(np.sum(_gupta_term2(dr, 
-                                              q, 
-                                              r_0n, 
-                                              cutoff), axis=1))
+    second_term = np.sqrt(np.sum(_gupta_term2(dr, q, r_0n, cutoff), axis=1))
     return U_n / 2.0 * np.sum( first_term - second_term)
 
   return compute_fn
@@ -373,12 +370,14 @@ def dsf_coulomb(r, Q_sq, alpha=0.25, cutoff=8.0):
   coulomb_en = qqr2e*Q_sq/r * (erfc(alpha*r) - r*e_shift - r**2*f_shift)
   return np.where(r < cutoff, coulomb_en, 0.0)
 
+
 def bks(r, Q_sq, exp_coeff, exp_decay, attractive_coeff, repulsive_coeff, 
         coulomb_alpha, cutoff, **unused_kwargs):
   energy = (dsf_coulomb(r, Q_sq, coulomb_alpha, cutoff) + \
           exp_coeff * np.exp(-r / exp_decay) + \
           attractive_coeff / r ** 6 + repulsive_coeff / r ** 24)
   return  np.where(r < cutoff, energy, 0.0)
+
 
 def bks_pair(displacement_or_metric, species, Q_sq, exp_coeff, exp_decay, 
              attractive_coeff, repulsive_coeff, coulomb_alpha, cutoff):
@@ -398,7 +397,8 @@ def bks_pair(displacement_or_metric, species, Q_sq, exp_coeff, exp_decay,
                    coulomb_alpha=coulomb_alpha,
                    cutoff=cutoff)
   
-def bks_neighbor_list(displacement_or_metric, 
+
+def bks_neighbor_list(displacement_or_metric,
                       box_size, 
                       species, 
                       Q_sq, 
@@ -433,6 +433,7 @@ def bks_neighbor_list(displacement_or_metric,
   
   return neighbor_fn, energy_fn
 
+
 CHARGE_OXYGEN = -0.977476019
 CHARGE_SILICON = 1.954952037
 
@@ -448,7 +449,6 @@ BKS_SILICA_DICT = {
     'repulsive_coeff' : [[78940848.06, 668.7557239],
                          [668.7557239, 2605.841269]],
     'coulomb_alpha' : 0.25,
-    'cutoff' : 8.0, 
 } #all the parameter(coefficient)kcal/mol
                    
 def _bks_silica_self(Q_sq, alpha, cutoff):
@@ -460,14 +460,15 @@ def _bks_silica_self(Q_sq, alpha, cutoff):
   qqr2e = 332.06371 #kcal/mol #coulmbic conversion factor:1/(4*pi*epo)
   return -(e_shift / 2.0 + alpha / np.sqrt(np.pi)) * Q_sq * qqr2e
 
-def bks_silica_pair(displacement_or_metric, species):
+def bks_silica_pair(displacement_or_metric, species, cutoff=8.0):
   bks_pair_fn = bks_pair(displacement_or_metric, 
-                         species, 
+                         species,
+                         cutoff=cutoff,
                          **BKS_SILICA_DICT)
   N_0 = np.sum(species==0)
   N_1 = np.sum(species==1)
 
-  e_self = partial(_bks_silica_self, alpha=0.25, cutoff=8.0)
+  e_self = partial(_bks_silica_self, alpha=0.25, cutoff=cutoff)
 
   def energy_fn(R, **unused_kwargs):
     return (bks_pair_fn(R) +
@@ -477,18 +478,21 @@ def bks_silica_pair(displacement_or_metric, species):
 
   return energy_fn
 
+
 def bks_silica_neighbor_list(displacement_or_metric,
                              box_size,
-                             species):
+                             species,
+                             cutoff=8.0):
   neighbor_fn, bks_pair_fn = bks_neighbor_list(displacement_or_metric,
                                                box_size,
                                                species,
+                                               cutoff=cutoff,
                                                dr_threshold=0.8,
                                                **BKS_SILICA_DICT)
   N_0 = np.sum(species==0)
   N_1 = np.sum(species==1)
 
-  e_self = partial(_bks_silica_self, alpha=0.25, cutoff=8.0)
+  e_self = partial(_bks_silica_self, alpha=0.25, cutoff=cutoff)
 
   def energy_fn(R, neighbor, **unused_kwargs):
     return (bks_pair_fn(R, neighbor) +
