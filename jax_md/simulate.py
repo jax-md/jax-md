@@ -201,7 +201,10 @@ def nvt_nose_hoover(
 
   T_schedule = interpolate.canonicalize(T_schedule)
 
-  def init_fun(key, R, mass=f32(1.0), T_initial=f32(1.0)):
+  def init_fun(key, R, mass=f32(1.0), T_initial=None):
+    if T_initial is None:
+      T_initial = T_schedule(0.0)
+
     mass = quantity.canonicalize_mass(mass)
     V = np.sqrt(T_initial / mass) * random.normal(key, R.shape, dtype=R.dtype)
     V = V - np.mean(V, axis=0, keepdims=True)
@@ -352,7 +355,10 @@ def nvt_langevin(
 
   T_schedule = interpolate.canonicalize(T_schedule)
 
-  def init_fn(key, R, mass=f32(1), T_initial=f32(1), **kwargs):
+  def init_fn(key, R, mass=f32(1), T_initial=None, **kwargs):
+    if T_initial is None:
+      T_initial = T_schedule(0.0)
+
     mass = quantity.canonicalize_mass(mass)
 
     key, split = random.split(key)
