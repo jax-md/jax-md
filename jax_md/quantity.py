@@ -14,14 +14,10 @@
 
 """Describes different physical quantities."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 from jax import grad, vmap
 import jax.numpy as np
 
-from jax_md import space
+from jax_md import space, dataclasses
 from jax_md.util import *
 
 from functools import partial
@@ -120,7 +116,7 @@ def pair_correlation(displacement_or_metric, rs, sigma):
   metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
 
   sigma = np.array(sigma, f32)
-  # NOTE(schsam): This seems rather harmless, but possibly something to look at
+  # NOTE(schsam): This seems rather harmless, but possibly something to look at.
   rs = np.array(rs + 1e-7, f32)
 
   # TODO(schsam): Get this working with cell list .
@@ -145,3 +141,64 @@ def box_size_at_number_density(
 
 def bulk_modulus(elastic_tensor):
   return np.einsum('iijj->', elastic_tensor) / elastic_tensor.shape[0] ** 2
+
+
+@dataclasses.dataclass
+class PHopState:
+    position_buffer: np.ndarray
+    phop: np.ndarray
+
+def phop(displacement, window_size):
+  """Computes the phop indicator of rearrangements.
+
+  phop is an indicator function that is effective at detecting when particles
+  in a quiescent system have experienced a rearrangement. Qualitatively, phop
+  measures when the average position of a particle has changed significantly.
+
+  Formally, given a window of size \Delta t we two averages before and after
+  the current time,
+
+    E_A[f] = E_{t\in[t - \Delta t / 2, t]}[f(t)]
+    E_B[f] = E_{t\in[t, t + \Delta t / 2]}[f(t)].
+
+  In terms of these expectations, phop is given by,
+    phop = \sqrt{E_A[(R_i(t) - E_B[R_i(t)])^2]E_B[(R_i(t) - E_A[R_i(t)])^2]}.
+
+  phop was first introduced in
+
+    R. Candelier et al.
+    "Spatiotemporal Hierarchy of Relaxation Events, Dynamical Heterogeneities,
+     and Structural Reorganization in a Supercooled Liquid"
+    Physical Review Letters 105, 135702 (2010) 
+  """
+  half_window_size = window_size // 2
+  displacement = space.map_bond(displacement)
+
+  def init_fn(position):
+    position_buffer = np.tile(position, (window_size, 1, 1))
+    assert position_buffer.shape == ((window_size,) + position.shape)
+    return PHopState(
+        position_buffer = position_buffer,
+        phop = np.zeros((position.shape[0],)),
+    )
+
+  def update_fn(state, position):
+    # Compute phop.
+    a_pos = state.position_buffer[:half_window_size]
+    a_mean = np.mean(a_pos, axis=0)
+    b_pos = state.position_buffer[half_window_size:]
+    b_mean = np.mean(b_pos, axis=0)
+
+    phop = np.sqrt(np.mean((a_pos - b_mean) ** 2 * (b_pos - a_mean) ** 2,
+                           axis=(0, 2)))
+    
+    # Unwrap position.
+    buff = state.position_buffer
+    position = displacement(position, buff[-1]) + buff[-1]
+
+    # Add position to the list.
+    buff = np.concatenate((buff, position[np.newaxis, :, :]))[1:]
+     
+    return PHopState(buff, phop)
+
+  return init_fn, update_fn

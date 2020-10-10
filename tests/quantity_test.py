@@ -141,5 +141,36 @@ class QuantityTest(jtu.JaxTestCase):
     assert np.argmax(gs) == np.argmin((rs - 1.) ** 2)
     assert gs.dtype == dtype
 
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': f'_dim={dim}_dtype={dtype.__name__}_window={window}',
+          'spatial_dim': dim,
+          'dtype': dtype,
+          'window': window
+      } for dim in SPATIAL_DIMENSION
+        for dtype in DTYPES
+        for window in [10, 20]))
+  def test_phop(self, spatial_dim, dtype, window):
+    Ra = np.ones((1, spatial_dim), dtype=dtype)
+    Rb = 2. * np.ones((1, spatial_dim), dtype=dtype)
+    half_window = window // 2
+
+    displacement_fn = lambda Ra, Rb: Ra - Rb
+
+    init_fn, push_fn = quantity.phop(displacement_fn, window)
+
+    phop_state = init_fn(Ra)
+
+    # E_A[R] = 1
+    # E_B[R] = 1 + i / half_window
+    # E_A[(R - E_B[R]) ** 2] = (i / half_window) ** 2
+    # E_B[(R - E_A[R]) ** 2] = (i / half_window)
+    # phop = (i / half_window) ** (3 / 2)
+
+    for i in range(half_window):
+      phop_state = push_fn(phop_state, Rb)
+      self.assertAllClose(
+        phop_state.phop,
+        np.array([(float(i) / half_window) ** (3. / 2)], dtype=dtype))
 if __name__ == '__main__':
   absltest.main()
