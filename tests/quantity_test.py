@@ -143,6 +143,87 @@ class QuantityTest(jtu.JaxTestCase):
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
+          'testcase_name': '_dtype={}'.format(dtype.__name__),
+          'dtype': dtype,
+      } for dtype in DTYPES))
+  def test_pair_correlation_species(self, dtype):
+    displacement = lambda Ra, Rb, **kwargs: Ra - Rb
+    R = np.array(
+        [[1, 0],
+         [0, 0],
+         [10, 1],
+         [10, 3]], dtype=dtype)
+    species = np.array([0, 0, 1, 1])
+    rs = np.linspace(0, 2, 60, dtype=dtype)
+    g = quantity.pair_correlation(displacement, rs, f32(0.1), species)
+    g_0, g_1 = g(R)
+    g_0 = np.mean(g_0, axis=0)
+    g_1 = np.mean(g_1, axis=0)
+    self.assertAllClose(np.argmax(g_0), np.argmin((rs - 1.) ** 2))
+    self.assertAllClose(np.argmax(g_1), np.argmin((rs - 2.) ** 2))
+    assert g_0.dtype == dtype
+    assert g_1.dtype == dtype
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': f'_dim={dim}_dtype={dtype.__name__}',
+          'dim': dim,
+          'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION for dtype in DTYPES))
+  def test_pair_correlation_neighbor_list_species(self, dim, dtype):
+    N = 100
+    L = 10.
+    displacement, _ = space.periodic(L)
+    R = random.uniform(random.PRNGKey(0), (N, dim), dtype=dtype)
+    species = np.where(np.arange(N) < N // 2, 0, 1)
+    rs = np.linspace(0, 2, 60, dtype=dtype)
+    g = quantity.pair_correlation(displacement, rs, f32(0.1), species)
+    nbr_fn, g_neigh = quantity.pair_correlation_neighbor_list(displacement,
+                                                              L,
+                                                              rs,
+                                                              f32(0.1),
+                                                              species)
+    nbrs = nbr_fn(R)
+
+    g_0, g_1 = g(R)
+    g_0 = np.mean(g_0, axis=0)
+    g_1 = np.mean(g_1, axis=0)
+
+    g_0_neigh, g_1_neigh = g_neigh(R, neighbor=nbrs)
+    g_0_neigh = np.mean(g_0_neigh, axis=0)
+    g_1_neigh = np.mean(g_1_neigh, axis=0)
+    self.assertAllClose(g_0, g_0_neigh)
+    self.assertAllClose(g_1, g_1_neigh)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': f'_dim={dim}_dtype={dtype.__name__}',
+          'dim': dim,
+          'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION for dtype in DTYPES))
+  def test_pair_correlation_neighbor_list(self, dim, dtype):
+    N = 100
+    L = 10.
+    displacement, _ = space.periodic(L)
+    R = random.uniform(random.PRNGKey(0), (N, dim), dtype=dtype)
+    rs = np.linspace(0, 2, 60, dtype=dtype)
+    g = quantity.pair_correlation(displacement, rs, f32(0.1))
+    nbr_fn, g_neigh = quantity.pair_correlation_neighbor_list(displacement,
+                                                              L,
+                                                              rs,
+                                                              f32(0.1))
+    nbrs = nbr_fn(R)
+
+    g_0 = g(R)
+    g_0 = np.mean(g_0, axis=0)
+
+    g_0_neigh = g_neigh(R, neighbor=nbrs)
+    g_0_neigh = np.mean(g_0_neigh, axis=0)
+
+    self.assertAllClose(g_0, g_0_neigh)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
           'testcase_name': f'_dim={dim}_dtype={dtype.__name__}_window={window}',
           'spatial_dim': dim,
           'dtype': dtype,
@@ -172,5 +253,7 @@ class QuantityTest(jtu.JaxTestCase):
       self.assertAllClose(
         phop_state.phop,
         np.array([(float(i) / half_window) ** (3. / 2)], dtype=dtype))
+
+
 if __name__ == '__main__':
   absltest.main()

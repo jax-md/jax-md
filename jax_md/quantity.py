@@ -17,7 +17,7 @@
 from jax import grad, vmap
 import jax.numpy as np
 
-from jax_md import space, dataclasses
+from jax_md import space, dataclasses, partition
 from jax_md.util import *
 
 from functools import partial
@@ -86,7 +86,6 @@ def canonicalize_mass(mass):
   raise ValueError(msg)
 
 
-
 def angle_between_two_vectors(dR_12, dR_13):
   dr_12 = space.distance(dR_12) + 1e-7
   dr_13 = space.distance(dR_13) + 1e-7
@@ -106,32 +105,126 @@ def cosine_angles(dR):
     ndarray(shape=[num_atoms, num_neighbors, num_neighbors]).
   """
 
-
   angles_between_all_triplets = vmap(
       vmap(vmap(angle_between_two_vectors, (0, None)), (None, 0)), 0)
   return angles_between_all_triplets(dR, dR)
 
 
-def pair_correlation(displacement_or_metric, rs, sigma):
-  metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
+def is_integer(x):
+  return x.dtype == np.int32 or x.dtype == np.int64
 
-  sigma = np.array(sigma, f32)
-  # NOTE(schsam): This seems rather harmless, but possibly something to look at.
-  rs = np.array(rs + 1e-7, f32)
 
-  # TODO(schsam): Get this working with cell list .
-  def compute_fun(R, **dynamic_kwargs):
-    _metric = partial(metric, **dynamic_kwargs)
-    _metric = space.map_product(_metric)
-    dr = _metric(R, R)
-    # TODO(schsam): Clean up.
-    dr = np.where(dr > f32(1e-7), dr, f32(1e7))
-    dim = R.shape[1]
-    exp = np.exp(-f32(0.5) * (dr[:, :, np.newaxis] - rs) ** 2 / sigma ** 2)
-    e = np.exp(dr / sigma ** 2)
-    gaussian_distances = exp / np.sqrt(2 * np.pi * sigma ** 2)
-    return np.mean(gaussian_distances, axis=1) / rs ** (dim - 1)
-  return compute_fun
+def pair_correlation(displacement_or_metric, rs, sigma, species=None):
+  """Computes the pair correlation function at a mesh of distances.
+
+  The pair correlation function measures the number of particles at a given
+  distance from a central particle. The pair correlation function is defined
+  by $g(r) = <\sum_{i\neq j}\delta(r - |r_i - r_j|)>.$ We make the
+  approximation
+  $\delta(r) \approx {1 \over \sqrt{2\pi\sigma^2}e^{-r / (2\sigma^2)}}$.
+
+  Args:
+    displacement_or_metric: A function that computes the displacement or
+      distance between two points.
+    rs: An array of radii at which we would like to compute g(r).
+    sigima: A float specifying the width of the approximating Gaussian.
+    species: An optional array specifying the species of each particle. If
+      species is None then we compute a single g(r) for all particles,
+      otherwise we compute one g(r) for each species.
+
+  Returns:
+    A function `g_fn` that computes the pair correlation function for a
+    collection of particles.
+  """
+  d = space.canonicalize_displacement_or_metric(displacement_or_metric)
+  d = space.map_product(d)
+  def pairwise(dr, dim):
+    return np.exp(-f32(0.5) * (dr - rs) ** 2 / sigma ** 2) / rs ** (dim - 1)
+  pairwise = vmap(vmap(pairwise, (0, None)), (0, None))
+
+  if species is None:
+    def g_fn(R):
+      dim = R.shape[-1]
+      mask = 1 - np.eye(R.shape[0], dtype=R.dtype)
+      return np.sum(mask[:, :, np.newaxis] * pairwise(d(R, R), dim), axis=(1,))
+  else:
+    if not (isinstance(species, np.ndarray) and is_integer(species)):
+      raise TypeError('Malformed species; expecting array of integers.')
+    species_types = np.unique(species)
+    def g_fn(R):
+      dim = R.shape[-1]
+      g_R = []
+      mask = 1 - np.eye(R.shape[0], dtype=R.dtype)
+      for s in species_types:
+        Rs = R[species == s]
+        mask_s = mask[:, species == s, np.newaxis]
+        g_R += [np.sum(mask_s * pairwise(d(Rs, R), dim), axis=(1,))]
+      return g_R
+  return g_fn
+
+
+def pair_correlation_neighbor_list(displacement_or_metric,
+                                   box_size,
+                                   rs,
+                                   sigma,
+                                   species=None,
+                                   dr_threshold=0.5):
+  """Computes the pair correlation function at a mesh of distances.
+
+  The pair correlation function measures the number of particles at a given
+  distance from a central particle. The pair correlation function is defined
+  by $g(r) = <\sum_{i\neq j}\delta(r - |r_i - r_j|)>.$ We make the
+  approximation,
+  $\delta(r) \approx {1 \over \sqrt{2\pi\sigma^2}e^{-r / (2\sigma^2)}}$.
+
+  This function uses neighbor lists to speed up the calculation.
+
+  Args:
+    displacement_or_metric: A function that computes the displacement or
+      distance between two points.
+    box_size: The size of the box containing the particles.
+    rs: An array of radii at which we would like to compute g(r).
+    sigima: A float specifying the width of the approximating Gaussian.
+    species: An optional array specifying the species of each particle. If
+      species is None then we compute a single g(r) for all particles,
+      otherwise we compute one g(r) for each species.
+    dr_threshold: A float specifying the halo size of the neighobr list.
+
+  Returns:
+    A pair of functions: `neighbor_fn` that constructs a neighbor list (see
+    `neighbor_list` in `partition.py` for details). `g_fn` that computes the
+    pair correlation function for a collection of particles given their
+    position and a neighbor list.
+  """
+  d = space.canonicalize_displacement_or_metric(displacement_or_metric)
+  d = space.map_neighbor(d)
+  def pairwise(dr, dim):
+    return np.exp(-f32(0.5) * (dr - rs) ** 2 / sigma ** 2) / rs ** (dim - 1)
+  pairwise = vmap(vmap(pairwise, (0, None)), (0, None))
+
+  neighbor_fn = partition.neighbor_list(displacement_or_metric, box_size, np.max(rs) + sigma, dr_threshold)
+
+  if species is None:
+    def g_fn(R, neighbor):
+      dim = R.shape[-1]
+      R_neigh = R[neighbor.idx]
+      mask = neighbor.idx < R.shape[0]
+      return np.sum(mask[:, :, np.newaxis] * pairwise(d(R, R_neigh), dim), axis=(1,))
+  else:
+    if not (isinstance(species, np.ndarray) and is_integer(species)):
+      raise TypeError('Malformed species; expecting array of integers.')
+    species_types = np.unique(species)
+    def g_fn(R, neighbor):
+      dim = R.shape[-1]
+      g_R = []
+      mask = neighbor.idx < R.shape[0]
+      neighbor_species = species[neighbor.idx]
+      R_neigh = R[neighbor.idx]
+      for s in species_types:
+        mask_s = mask * (neighbor_species == s)
+        g_R += [np.sum(mask_s[:, :, np.newaxis] * pairwise(d(R, R_neigh), dim), axis=(1,))]
+      return g_R
+  return neighbor_fn, g_fn
 
 
 def box_size_at_number_density(
@@ -169,8 +262,20 @@ def phop(displacement, window_size):
     R. Candelier et al.
     "Spatiotemporal Hierarchy of Relaxation Events, Dynamical Heterogeneities,
      and Structural Reorganization in a Supercooled Liquid"
-    Physical Review Letters 105, 135702 (2010) 
+    Physical Review Letters 105, 135702 (2010).
+
+  Args:
+    displacement: A function that computes displacements between pairs of
+      particles. See `spaces.py` for details.
+    window_size: An integer specifying the number of positions that constitute
+      the window.
+
+  Returns:
+    A pair of functions, `(init_fn, update_fn)` that initialize the state of a
+    phop measurement and update the state of a phop measurement to include new
+    positions.
   """
+
   half_window_size = window_size // 2
   displacement = space.map_bond(displacement)
 
