@@ -18,8 +18,8 @@
   nearest minimum (inherent structure) to some initial system described by a
   position R.
 
-  In general, minimization code follows the same overall structure as optimizers
-  in JAX. Optimizers return two functions:
+  Minimization code follows the same overall structure as optimizers in JAX.
+  Optimizers return two functions:
     init_fn: function that initializes the  state of an optimizer. Should take
       positions as an ndarray of shape [n, output_dimension]. Returns a state
       which will be a namedtuple.
@@ -27,21 +27,16 @@
       step of optimization.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 from collections import namedtuple
 
 import jax.numpy as np
 
 from jax_md import quantity
-from jax_md.util import *
+from jax_md.util import f32, f64, register_pytree_namedtuple, static_cast
 
 
 # pylint: disable=invalid-name
-def gradient_descent(
-    energy_or_force, shift_fn, step_size, quant=quantity.Energy):
+def gradient_descent(energy_or_force, shift_fn, step_size):
   """Defines gradient descent minimization.
 
     This is the simplest optimization strategy that moves particles down their
@@ -61,7 +56,7 @@ def gradient_descent(
     Returns:
       See above.
   """
-  force = quantity.canonicalize_force(energy_or_force, quant)
+  force = quantity.canonicalize_force(energy_or_force)
   def init_fun(R, **unused_kwargs):
     return R
   def apply_fun(R, **kwargs):
@@ -94,8 +89,8 @@ register_pytree_namedtuple(FireDescentState)
 
 
 def fire_descent(
-    energy_or_force, shift_fn, quant=quantity.Energy, dt_start=0.1,
-    dt_max=0.4, n_min=5, f_inc=1.1, f_dec=0.5, alpha_start=0.1, f_alpha=0.99):
+    energy_or_force, shift_fn, dt_start=0.1, dt_max=0.4, n_min=5, f_inc=1.1,
+    f_dec=0.5, alpha_start=0.1, f_alpha=0.99):
   """Defines FIRE minimization.
 
   This code implements the "Fast Inertial Relaxation Engine" from [1].
@@ -129,7 +124,7 @@ def fire_descent(
   dt_start, dt_max, n_min, f_inc, f_dec, alpha_start, f_alpha = static_cast(
     dt_start, dt_max, n_min, f_inc, f_dec, alpha_start, f_alpha)
 
-  force = quantity.canonicalize_force(energy_or_force, quant)
+  force = quantity.canonicalize_force(energy_or_force)
   def init_fun(R, **kwargs):
     V = np.zeros_like(R)
     return FireDescentState(

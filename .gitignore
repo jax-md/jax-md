@@ -4,6 +4,7 @@
 .ipynb_checkpoints
 /bazel-*
 .bazelrc
+.pytype/*
 /tensorflow
 .DS_Store
 build/

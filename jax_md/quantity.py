@@ -14,7 +14,7 @@
 
 """Describes different physical quantities."""
 
-from jax import grad, vmap
+from jax.api import grad, vmap, eval_shape
 import jax.numpy as np
 
 from jax_md import space, dataclasses, partition
@@ -22,31 +22,26 @@ from jax_md.util import *
 
 from functools import partial
 
+
 def force(energy):
   """Computes the force as the negative gradient of an energy."""
   return grad(lambda R, *args, **kwargs: -energy(R, *args, **kwargs))
 
 
-def canonicalize_force(energy_or_force, quantity):
-  if quantity is Force:
-    return energy_or_force
-  elif quantity is Energy:
-    return force(energy_or_force)
-
-  raise ValueError(
-      'Expected quantity to be Energy or Force, but found {}'.format(quantity))
-
-
-class Force(object):
-  """Dummy object to denote whether a quantity is a force."""
-  pass
-Force = Force()
-
-
-class Energy(object):
-  """Dummy object to denote whether a quantity is an energy."""
-  pass
-Energy = Energy()
+def canonicalize_force(energy_or_force_fn):
+  _force_fn = None
+  def force_fn(R, **kwargs):
+    nonlocal _force_fn
+    if _force_fn is None:
+      out_shape = eval_shape(energy_or_force_fn, R, **kwargs).shape
+      if out_shape == ():
+        _force_fn = force(energy_or_force_fn)
+      else:
+        _force_fn = energy_or_force_fn
+    
+    return _force_fn(R, **kwargs)
+  
+  return force_fn
 
 
 class Dynamic(object):

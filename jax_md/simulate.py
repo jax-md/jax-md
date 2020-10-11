@@ -72,7 +72,7 @@ register_pytree_namedtuple(NVEState)
 
 
 # pylint: disable=invalid-name
-def nve(energy_or_force, shift_fn, dt, quant=quantity.Energy):
+def nve(energy_or_force, shift_fn, dt):
   """Simulates a system in the NVE ensemble.
 
   Samples from the microcanonical ensemble in which the number of particles (N),
@@ -92,7 +92,7 @@ def nve(energy_or_force, shift_fn, dt, quant=quantity.Energy):
   Returns:
     See above.
   """
-  force = quantity.canonicalize_force(energy_or_force, quant)
+  force = quantity.canonicalize_force(energy_or_force)
 
   dt, = static_cast(dt)
   dt_2, = static_cast(0.5 * dt ** 2)
@@ -146,8 +146,7 @@ register_pytree_namedtuple(NVTNoseHooverState)
 
 
 def nvt_nose_hoover(
-    energy_or_force, shift_fn, dt, T_schedule, quant=quantity.Energy,
-    chain_length=5, tau=100.0):
+    energy_or_force, shift_fn, dt, T_schedule, chain_length=5, tau=100.0):
   """Simulation in the NVT ensemble using a Nose Hoover Chain thermostat.
 
   Samples from the canonical ensemble in which the number of particles (N),
@@ -191,7 +190,7 @@ def nvt_nose_hoover(
       Journal of Physics A: Mathematical and General 39, no. 19 (2006): 5629.
   """
 
-  force = quantity.canonicalize_force(energy_or_force, quant)
+  force = quantity.canonicalize_force(energy_or_force)
 
   tau = tau * dt
   dt_2 = dt / 2.0
@@ -309,7 +308,6 @@ def nvt_langevin(
     shift,
     dt,
     T_schedule,
-    quant=quantity.Energy,
     gamma=0.1):
   """Simulation in the NVT ensemble using the Langevin thermostat.
 
@@ -345,7 +343,7 @@ def nvt_langevin(
         Accessed on 06/05/2019.
   """
 
-  force_fn = quantity.canonicalize_force(energy_or_force, quant)
+  force_fn = quantity.canonicalize_force(energy_or_force)
 
   dt_2 = dt / 2
   dt2 = dt ** 2 / 2
@@ -419,7 +417,6 @@ def brownian(
     shift,
     dt,
     T_schedule,
-    quant=quantity.Energy,
     gamma=0.1):
   """Simulation of Brownian dynamics.
 
@@ -440,7 +437,7 @@ def brownian(
         Accessed on 06/05/2019.
   """
 
-  force_fn = quantity.canonicalize_force(energy_or_force, quant)
+  force_fn = quantity.canonicalize_force(energy_or_force)
 
   dt, gamma = static_cast(dt, gamma)
 
