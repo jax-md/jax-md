@@ -14,53 +14,70 @@
 
 """Neural Network Primitives."""
 
+from typing import Callable, Tuple, Dict, Any
+
 import numpy as onp
 
 import jax
 from jax import vmap, jit
 import jax.numpy as np
 
-from jax_md import space, dataclasses, quantity, partition, smap
-from jax_md.util import *
+from jax_md import space, dataclasses, quantity, partition, smap, util
 import haiku as hk
 
 from collections import namedtuple
 from functools import partial, reduce
 from jax.tree_util import tree_multimap, tree_map
 
-from typing import Callable
+
+# Typing
+
+
+Array = util.Array
+f32 = util.f32
+f64 = util.f64
+
+InitFn = Callable[..., Array]
+CallFn = Callable[..., Array]
+
+DisplacementOrMetricFn = space.DisplacementOrMetricFn
+DisplacementFn = space.DisplacementFn
+NeighborList = partition.NeighborList
+
 
 # Features used in fixed feature methods
 
+
 """
 Our neural network force field is based on the Behler-Parrinello neural network
-architecture (BP-NN) [1]. The BP-NN architecture uses a relatively simple, fully
-connected neural network to predict the local energy for each atom. Then the 
-total energy is the sum of local energies due to each atom. Atoms of the same 
-type use the same NN to predict energy.
+architecture (BP-NN) [1]. The BP-NN architecture uses a relatively simple,
+fully connected neural network to predict the local energy for each atom. Then
+the total energy is the sum of local energies due to each atom. Atoms of the
+same type use the same NN to predict energy.
 
-Each atomic NN is applied to hand-crafted features called symmetry functions. 
+Each atomic NN is applied to hand-crafted features called symmetry functions.
 There are two kinds of symmetry functions: radial and angular. Radial symmetry
-functions represent information about two-body interactions of the central atom, 
-whereas angular symmetry functions represent information about three-body
+functions represent information about two-body interactions of the central
+atom, whereas angular symmetry functions represent information about three-body
 interactions. Below we implement radial and angular symmetry functions for
-arbitrary number of types of atoms (Note that most applications of BP-NN limit 
+arbitrary number of types of atoms (Note that most applications of BP-NN limit
 their systems to 1 to 3 types of atoms). We also present a convenience wrapper
-that returns radial and angular symmetry functions with symmetry function 
+that returns radial and angular symmetry functions with symmetry function
 parameters that should work reasonably for most systems (the symmetry functions
-are taken from reference [2]). Please see references [1, 2] for details about 
-how the BP-NN works. 
+are taken from reference [2]). Please see references [1, 2] for details about
+how the BP-NN works.
 
-[1] Behler, Jörg, and Michele Parrinello. "Generalized neural-network 
-representation of high-dimensional potential-energy surfaces." Physical 
-Review Letters 98.14 (2007): 146401. 
+[1] Behler, Jörg, and Michele Parrinello. "Generalized neural-network
+representation of high-dimensional potential-energy surfaces." Physical
+Review Letters 98.14 (2007): 146401.
 
 [2] Artrith, Nongnuch, Björn Hiller, and Jörg Behler. "Neural network potentials
-for metals and oxides–First applications to copper clusters at zinc oxide." 
+for metals and oxides–First applications to copper clusters at zinc oxide."
 Physica Status Solidi (b) 250.6 (2013): 1191-1203.
 """
 
-def _behler_parrinello_cutoff_fn(dr, cutoff_distance=8.0):
+def _behler_parrinello_cutoff_fn(dr: Array,
+                                 cutoff_distance: float=8.0) -> Array:
   """Function of pairwise distance that smoothly goes to zero at the cutoff."""
   # Also returns zero if the pairwise distance is zero,
   # to prevent a particle from interacting with itself.
@@ -68,10 +85,11 @@ def _behler_parrinello_cutoff_fn(dr, cutoff_distance=8.0):
                   0.5 * (np.cos(np.pi * dr / cutoff_distance) + 1), 0)
 
 
-def radial_symmetry_functions(displacement_or_metric,
-                              species,
-                              etas,
-                              cutoff_distance):
+def radial_symmetry_functions(displacement_or_metric: DisplacementOrMetricFn,
+                              species: Array,
+                              etas: Array,
+                              cutoff_distance: float
+                              ) -> Callable[[Array], Array]:
   """Returns a function that computes radial symmetry functions.
 
 
@@ -96,7 +114,7 @@ def radial_symmetry_functions(displacement_or_metric,
   """
   metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
 
-  def compute_fun(R, **kwargs):
+  def compute_fun(R: Array, **kwargs) -> Array:
     _metric = partial(metric, **kwargs)
     _metric = space.map_product(_metric)
     radial_fn = lambda eta, dr: (np.exp(-eta * dr**2) *
@@ -115,10 +133,11 @@ def radial_symmetry_functions(displacement_or_metric,
   return compute_fun
 
 
-def radial_symmetry_functions_neighbor_list(displacement_or_metric,
-                                            species,
-                                            etas,
-                                            cutoff_distance):
+def radial_symmetry_functions_neighbor_list(
+    displacement_or_metric: DisplacementOrMetricFn,
+    species: Array,
+    etas: Array,
+    cutoff_distance: float) -> Callable[[Array, NeighborList], Array]:
   """Returns a function that computes radial symmetry functions.
 
 
@@ -143,14 +162,13 @@ def radial_symmetry_functions_neighbor_list(displacement_or_metric,
   """
   metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
 
-  def compute_fun(R, neighbor, **kwargs):
+  def compute_fun(R: Array, neighbor: NeighborList, **kwargs) -> Array:
     _metric = partial(metric, **kwargs)
     _metric = space.map_neighbor(_metric)
     radial_fn = lambda eta, dr: (np.exp(-eta * dr**2) *
                 _behler_parrinello_cutoff_fn(dr, cutoff_distance))
     def return_radial(atom_type):
       """Returns the radial symmetry functions for neighbor type atom_type."""
-      # import pdb ; pdb.set_trace()
       R_neigh = R[neighbor.idx]
       species_neigh = species[neighbor.idx]
       mask = np.logical_and(neighbor.idx < R.shape[0],
@@ -158,7 +176,7 @@ def radial_symmetry_functions_neighbor_list(displacement_or_metric,
       dr = _metric(R, R_neigh)
 
       radial = vmap(radial_fn, (0, None))(etas, dr)
-      return smap._high_precision_sum(radial * mask[np.newaxis, :, :], axis=2).T
+      return util.high_precision_sum(radial * mask[np.newaxis, :, :], axis=2).T
 
     return np.hstack([return_radial(atom_type) for
                      atom_type in np.unique(species)])
@@ -166,12 +184,13 @@ def radial_symmetry_functions_neighbor_list(displacement_or_metric,
   return compute_fun
 
 
-def single_pair_angular_symmetry_function(dR12,
-                                          dR13,
-                                          eta,
-                                          lam,
-                                          zeta,
-                                          cutoff_distance):
+def single_pair_angular_symmetry_function(dR12: Array,
+                                          dR13: Array,
+                                          eta: Array,
+                                          lam: Array,
+                                          zeta: Array,
+                                          cutoff_distance: float
+                                          ) -> Array:
   """Computes the angular symmetry function due to one pair of neighbors."""
 
   dR23 = dR12 - dR13
@@ -191,12 +210,13 @@ def single_pair_angular_symmetry_function(dR12,
   return result
 
 
-def angular_symmetry_functions(displacement,
-                               species,
-                               etas,
-                               lambdas,
-                               zetas,
-                               cutoff_distance):
+def angular_symmetry_functions(displacement: DisplacementFn,
+                               species: Array,
+                               etas: Array,
+                               lambdas: Array,
+                               zetas: Array,
+                               cutoff_distance: float
+                               ) -> Callable[[Array], Array]:
   """Returns a function that computes angular symmetry functions.
 
   Args:
@@ -249,12 +269,13 @@ def angular_symmetry_functions(displacement,
     return np.hstack(out)
   return compute_fun
 
-def angular_symmetry_functions_neighbor_list(displacement,
-                                             species,
-                                             etas,
-                                             lambdas,
-                                             zetas,
-                                             cutoff_distance):
+def angular_symmetry_functions_neighbor_list(
+    displacement: DisplacementFn,
+    species: Array,
+    etas: Array,
+    lambdas: Array,
+    zetas: Array,
+    cutoff_distance: float) -> Callable[[Array, NeighborList], Array]:
   """Returns a function that computes angular symmetry functions.
 
   Args:
@@ -289,7 +310,7 @@ def angular_symmetry_functions_neighbor_list(displacement,
   _all_pairs_angular = vmap(
       vmap(vmap(_batched_angular_fn, (0, None)), (None, 0)), 0)
 
-  def compute_fun(R, neighbor, **kwargs):
+  def compute_fun(R: Array, neighbor: NeighborList, **kwargs) -> Array:
     D_fn = partial(displacement, **kwargs)
     D_fn = space.map_neighbor(D_fn)
 
@@ -316,22 +337,23 @@ def angular_symmetry_functions_neighbor_list(displacement,
   return compute_fun
 
 
-def behler_parrinello_symmetry_functions_neighbor_list(displacement,
-                                                       species,
-                                                       radial_etas=None, 
-                                                       angular_etas=None, 
-                                                       lambdas=None,
-                                                       zetas=None, 
-                                                       cutoff_distance=8.0):
+def behler_parrinello_symmetry_functions_neighbor_list(
+    displacement: DisplacementFn,
+    species: Array,
+    radial_etas: Array=None,
+    angular_etas: Array=None,
+    lambdas: Array=None,
+    zetas: Array=None,
+    cutoff_distance: float=8.0) -> Callable[[Array, NeighborList], Array]:
   if radial_etas is None:
     radial_etas = np.array([9e-4, 0.01, 0.02, 0.035, 0.06, 0.1, 0.2, 0.4],
                     f32) / f32(0.529177 ** 2)
-  
+
   if angular_etas is None:
     angular_etas = np.array([1e-4] * 4 + [0.003] * 4 + [0.008] * 2 + 
                             [0.015] * 4 + [0.025] * 4 + [0.045] * 4,
                             f32) / f32(0.529177 ** 2)
-  
+
   if lambdas is None:
     lambdas = np.array([-1, 1] * 4 + [1] * 14, f32)
   
@@ -355,13 +377,14 @@ def behler_parrinello_symmetry_functions_neighbor_list(displacement,
                      angular_fn(R, neighbor, **kwargs))))
 
 
-def behler_parrinello_symmetry_functions(displacement,
-                                         species,
-                                         radial_etas=None, 
-                                         angular_etas=None, 
-                                         lambdas=None,
-                                         zetas=None, 
-                                         cutoff_distance=8.0):
+def behler_parrinello_symmetry_functions(displacement: DisplacementFn,
+                                         species: Array,
+                                         radial_etas: Array=None, 
+                                         angular_etas: Array=None, 
+                                         lambdas: Array=None,
+                                         zetas: Array=None, 
+                                         cutoff_distance: float=8.0
+                                         ) -> Callable[[Array], Array]:
   if radial_etas is None:
     radial_etas = np.array([9e-4, 0.01, 0.02, 0.035, 0.06, 0.1, 0.2, 0.4],
                     f32) / f32(0.529177 ** 2)
@@ -442,7 +465,7 @@ class GraphTuple(object):
     edge_idx: np.ndarray
 
 
-def concatenate_graph_features(graphs: GraphTuple) -> GraphTuple:
+def concatenate_graph_features(graphs: Tuple[GraphTuple, ...]) -> GraphTuple:
   """Given a list of GraphTuple returns a new concatenated GraphTuple.
 
   Note that currently we do not check that the graphs have consistent edge
@@ -452,13 +475,14 @@ def concatenate_graph_features(graphs: GraphTuple) -> GraphTuple:
       nodes=np.concatenate([g.nodes for g in graphs], axis=-1),
       edges=np.concatenate([g.edges for g in graphs], axis=-1),
       globals=np.concatenate([g.globals for g in graphs], axis=-1),
-      edge_idx=graphs[0].edge_idx,  # TODO: Check for consistency.
+      edge_idx=graphs[0].edge_idx,  # pytype: disable=wrong-keyword-args
   )
 
 
-def GraphIndependent(edge_fn: Callable,
-                     node_fn: Callable,
-                     global_fn: Callable) -> Callable:
+def GraphIndependent(edge_fn: Callable[[Array], Array],
+                     node_fn: Callable[[Array], Array],
+                     global_fn: Callable[[Array], Array]
+                     ) -> Callable[[GraphTuple], GraphTuple]:
   """Applies functions independently to the nodes, edges, and global states.
   """
   identity = lambda x: x
@@ -476,7 +500,9 @@ def GraphIndependent(edge_fn: Callable,
   return embed_fn
 
 
-def _apply_node_fn(graph, node_fn):
+def _apply_node_fn(graph: GraphTuple,
+                   node_fn: Callable[[Array,Array, Array, Array], Array]
+                   ) -> Array:
   mask = graph.edge_idx < graph.nodes.shape[0]
   mask = mask[:, :, np.newaxis]
 
@@ -500,7 +526,9 @@ def _apply_node_fn(graph, node_fn):
   return node_fn(graph.nodes, incoming_edges, outgoing_edges, _globals)
 
 
-def _apply_edge_fn(graph, edge_fn):
+def _apply_edge_fn(graph: GraphTuple,
+                   edge_fn: Callable[[Array, Array, Array, Array], Array]
+                   ) -> Array:
   if graph.nodes is not None:
     incoming_nodes = graph.nodes[graph.edge_idx]
     outgoing_nodes = np.broadcast_to(
@@ -521,7 +549,9 @@ def _apply_edge_fn(graph, edge_fn):
   return edge_fn(graph.edges, incoming_nodes, outgoing_nodes, _globals) * mask
 
 
-def _apply_global_fn(graph, global_fn):
+def _apply_global_fn(graph: GraphTuple,
+                     global_fn: Callable[[Array, Array, Array], Array]
+                     ) -> Array:
   nodes = None if graph.nodes is None else np.sum(graph.nodes, axis=0)
 
   if graph.edges is not None:
@@ -539,7 +569,10 @@ class GraphNetwork:
 
   See https://arxiv.org/abs/1806.01261 for more details.
   """
-  def __init__(self, edge_fn, node_fn, global_fn):
+  def __init__(self,
+               edge_fn: Callable[[Array], Array],
+               node_fn: Callable[[Array], Array],
+               global_fn: Callable[[Array], Array]):
     self._node_fn = (None if node_fn is None else
                      partial(_apply_node_fn, node_fn=vmap(node_fn)))
 
@@ -549,7 +582,7 @@ class GraphNetwork:
     self._global_fn = (None if global_fn is None else
                        partial(_apply_global_fn, global_fn=global_fn))
 
-  def __call__(self, graph):
+  def __call__(self, graph: GraphTuple) -> GraphTuple:
     if self._edge_fn is not None:
       graph = dataclasses.replace(graph, edges=self._edge_fn(graph))
 
@@ -579,8 +612,11 @@ class GraphNetEncoder(hk.Module):
   only on the node states while a model of energies would decode only the node
   states.
   """
-  def __init__(self, n_recurrences, mlp_sizes, mlp_kwargs=None,
-               name='GraphNetEncoder'):
+  def __init__(self,
+               n_recurrences: int,
+               mlp_sizes: Tuple[int, ...],
+               mlp_kwargs: Dict[str, Any]=None,
+               name: str='GraphNetEncoder'):
     super(GraphNetEncoder, self).__init__(name=name)
 
     if mlp_kwargs is None:
@@ -614,7 +650,7 @@ class GraphNetEncoder(hk.Module):
     outputs = encoded
 
     for _ in range(self._n_recurrences):
-      inputs = concatenate_graph_features([outputs, encoded])
+      inputs = concatenate_graph_features((outputs, encoded))
       outputs = self._propagation_network()(inputs)
 
     return outputs

@@ -70,3 +70,4 @@ def static_field():
 
 replace = dataclasses.replace
 asdict = dataclasses.asdict
+astuple = dataclasses.astuple

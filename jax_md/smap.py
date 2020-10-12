@@ -14,11 +14,10 @@
 
 """Code to transform functions on individual tuples of particles to sets."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 from functools import reduce, partial
+
+from typing import Dict, Callable, Tuple
+
 from collections import namedtuple
 import math
 from operator import mul
@@ -30,15 +29,29 @@ from jax.abstract_arrays import ShapedArray
 from jax.interpreters import partial_eval as pe
 import jax.numpy as np
 
-from jax_md import quantity, space
-from jax_md.util import *
+from jax_md import quantity, space, util
+
+
+merge_dicts = util.merge_dicts
+high_precision_sum = util.high_precision_sum
+
+# Typing
+
+
+Array = util.Array
+f32 = util.f32
+f64 = util.f64
+
+i32 = util.i32
+i64 = util.i64
+
+DisplacementOrMetricFn = space.DisplacementOrMetricFn
 
 
 # Mapping potential functional forms to bonds.
 
 
-# pylint: disable=invalid-name
-def _get_bond_type_parameters(params, bond_type):
+def _get_bond_type_parameters(params: Array, bond_type: Array) -> Array:
   """Get parameters for interactions for bonds indexed by a bond-type."""
   # TODO(schsam): We should do better error checking here.
   assert isinstance(bond_type, np.ndarray)
@@ -58,7 +71,8 @@ def _get_bond_type_parameters(params, bond_type):
   raise NotImplementedError
 
 
-def _kwargs_to_bond_parameters(bond_type, kwargs):
+def _kwargs_to_bond_parameters(bond_type: Array,
+                               kwargs: Dict[str, Array]) -> Dict[str, Array]:
   """Extract parameters from keyword arguments."""
   # NOTE(schsam): We could pull out the species case from the generic case.
   for k, v in kwargs.items():
@@ -67,7 +81,11 @@ def _kwargs_to_bond_parameters(bond_type, kwargs):
   return kwargs
 
 
-def bond(fn, metric, static_bonds=None, static_bond_types=None, **kwargs):
+def bond(fn: Callable[..., Array],
+         displacement_or_metric: DisplacementOrMetricFn,
+         static_bonds: Array=None,
+         static_bond_types: Array=None,
+         **kwargs) -> Callable[..., Array]:
   """Promotes a function that acts on a single pair to one on a set of bonds.
 
   TODO(schsam): It seems like bonds might potentially have poor memory access.
@@ -108,8 +126,6 @@ def bond(fn, metric, static_bonds=None, static_bond_types=None, **kwargs):
   # promote the metric function from one that computes the distance /
   # displacement between two vectors to one that acts on two lists of vectors.
   # Thus, we apply a single application of vmap.
-  # TODO: Uncomment this once JAX supports vmap over kwargs.
-  # metric = vmap(metric, (0, 0), 0)
 
   def compute_fn(R, bonds, bond_types, static_kwargs, dynamic_kwargs):
     Ra = R[bonds[:, 0]]
@@ -117,11 +133,14 @@ def bond(fn, metric, static_bonds=None, static_bond_types=None, **kwargs):
     _kwargs = merge_dicts(static_kwargs, dynamic_kwargs)
     _kwargs = _kwargs_to_bond_parameters(bond_types, _kwargs)
     # NOTE(schsam): This pattern is needed due to JAX issue #912. 
-    _metric = vmap(partial(metric, **dynamic_kwargs), 0, 0)
-    dr = _metric(Ra, Rb)
-    return _high_precision_sum(fn(dr, **_kwargs))
+    d = vmap(partial(displacement_or_metric, **dynamic_kwargs), 0, 0)
+    dr = d(Ra, Rb)
+    return high_precision_sum(fn(dr, **_kwargs))
 
-  def mapped_fn(R, bonds=None, bond_types=None, **dynamic_kwargs):
+  def mapped_fn(R: Array,
+                bonds: Array=None,
+                bond_types: Array=None,
+                **dynamic_kwargs) -> Array:
     accum = f32(0)
 
     if bonds is not None:
@@ -138,7 +157,7 @@ def bond(fn, metric, static_bonds=None, static_bond_types=None, **kwargs):
 # Mapping potential functional forms to pairwise interactions.
 
 
-def _get_species_parameters(params, species):
+def _get_species_parameters(params: Array, species: Array) -> Array:
   """Get parameters for interactions between species pairs."""
   # TODO(schsam): We should do better error checking here.
   if isinstance(params, np.ndarray):
@@ -152,7 +171,7 @@ def _get_species_parameters(params, species):
   return params
 
 
-def _get_matrix_parameters(params):
+def _get_matrix_parameters(params: Array) -> Array:
   """Get an NxN parameter matrix from per-particle parameters."""
   if isinstance(params, np.ndarray):
     if len(params.shape) == 1:
@@ -169,7 +188,7 @@ def _get_matrix_parameters(params):
     raise NotImplementedError
 
 
-def _kwargs_to_parameters(species=None, **kwargs):
+def _kwargs_to_parameters(species: Array=None, **kwargs) -> Dict[str, Array]:
   """Extract parameters from keyword arguments."""
   # NOTE(schsam): We could pull out the species case from the generic case.
   s_kwargs = kwargs
@@ -181,7 +200,7 @@ def _kwargs_to_parameters(species=None, **kwargs):
   return s_kwargs
 
 
-def _diagonal_mask(X):
+def _diagonal_mask(X: Array) -> Array:
   """Sets the diagonal of a matrix to zero."""
   if X.shape[0] != X.shape[1]:
     raise ValueError(
@@ -202,12 +221,6 @@ def _diagonal_mask(X):
   return mask * X
 
 
-def _high_precision_sum(X, axis=None, keepdims=False):
-  """Sums over axes at 64-bit precision then casts back to original dtype."""
-  return np.array(
-      np.sum(X, axis=axis, dtype=f64, keepdims=keepdims), dtype=X.dtype)
-
-
 def _check_species_dtype(species):
   if species.dtype == i32 or species.dtype == i64:
     return
@@ -216,8 +229,12 @@ def _check_species_dtype(species):
   raise ValueError(msg)
 
 
-def pair(
-    fn, metric, species=None, reduce_axis=None, keepdims=False, **kwargs):
+def pair(fn: Callable[..., Array],
+         displacement_or_metric: DisplacementOrMetricFn,
+         species: Array=None,
+         reduce_axis: Tuple[int, ...]=None,
+         keepdims: bool=False,
+         **kwargs) -> Callable[..., Array]:
   """Promotes a function that acts on a pair of particles to one on a system.
 
   Args:
@@ -267,21 +284,17 @@ def pair(
   # one that acts over the cartesian product of two sets of vectors. This is
   # equivalent to two applications of vmap adding one batch dimension for the
   # first set and then one for the second.
-  # TODO: Uncomment this once vmap supports kwargs.
-  #metric = vmap(vmap(metric, (0, None), 0), (None, 0), 0)
 
   if species is None:
-    def fn_mapped(R, **dynamic_kwargs):
-      _metric = space.map_product(partial(metric, **dynamic_kwargs))
+    def fn_mapped(R: Array, **dynamic_kwargs) -> Array:
+      d = space.map_product(partial(displacement_or_metric, **dynamic_kwargs))
       _kwargs = merge_dicts(kwargs, dynamic_kwargs)
       _kwargs = _kwargs_to_parameters(species, **_kwargs)
-      dr = _metric(R, R)
+      dr = d(R, R)
       # NOTE(schsam): Currently we place a diagonal mask no matter what function
       # we are mapping. Should this be an option?
-      return _high_precision_sum(
-          _diagonal_mask(fn(dr, **_kwargs)),
-          axis=reduce_axis,
-          keepdims=keepdims) * f32(0.5)
+      return high_precision_sum(_diagonal_mask(fn(dr, **_kwargs)),
+                                axis=reduce_axis, keepdims=keepdims) * f32(0.5)
   elif isinstance(species, np.ndarray):
     species = onp.array(species)
     _check_species_dtype(species)
@@ -291,19 +304,19 @@ def pair(
       raise ValueError
     def fn_mapped(R, **dynamic_kwargs):
       U = f32(0.0)
-      _metric = space.map_product(partial(metric, **dynamic_kwargs))
+      d = space.map_product(partial(displacement_or_metric, **dynamic_kwargs))
       for i in range(species_count + 1):
         for j in range(i, species_count + 1):
           _kwargs = merge_dicts(kwargs, dynamic_kwargs)
           s_kwargs = _kwargs_to_parameters((i, j), **_kwargs)
           Ra = R[species == i]
           Rb = R[species == j]
-          dr = _metric(Ra, Rb)
+          dr = d(Ra, Rb)
           if j == i:
-            dU = _high_precision_sum(_diagonal_mask(fn(dr, **s_kwargs)))
+            dU = high_precision_sum(_diagonal_mask(fn(dr, **s_kwargs)))
             U = U + f32(0.5) * dU
           else:
-            dU = _high_precision_sum(fn(dr, **s_kwargs))
+            dU = high_precision_sum(fn(dr, **s_kwargs))
             U = U + dU
       return U
   elif species is quantity.Dynamic:
@@ -311,9 +324,9 @@ def pair(
       _check_species_dtype(species)
       U = f32(0.0)
       N = R.shape[0]
-      _metric = space.map_product(partial(metric, **dynamic_kwargs))
+      d = space.map_product(partial(displacement_or_metric, **dynamic_kwargs))
       _kwargs = merge_dicts(kwargs, dynamic_kwargs)
-      dr = _metric(R, R)
+      dr = d(R, R)
       for i in range(species_count):
         for j in range(species_count):
           s_kwargs = _kwargs_to_parameters((i, j), **_kwargs)
@@ -323,7 +336,7 @@ def pair(
           if i == j:
             mask = mask * _diagonal_mask(mask)
           dU = mask * fn(dr, **s_kwargs)
-          U = U + _high_precision_sum(dU, axis=reduce_axis, keepdims=keepdims)
+          U = U + high_precision_sum(dU, axis=reduce_axis, keepdims=keepdims)
       return U / f32(2.0)
   else:
     raise ValueError(
@@ -334,7 +347,7 @@ def pair(
 
 # Mapping pairwise functional forms to systems using neighbor lists.
 
-def _get_neighborhood_matrix_params(idx, params):
+def _get_neighborhood_matrix_params(idx: Array, params: Array) -> Array:
   if isinstance(params, np.ndarray):
     if len(params.shape) == 1:
       return 0.5 * (np.reshape(params, params.shape + (1,)) + params[idx])
@@ -353,7 +366,9 @@ def _get_neighborhood_matrix_params(idx, params):
   else:
     raise NotImplementedError 
 
-def _get_neighborhood_species_params(idx, species, params):
+def _get_neighborhood_species_params(idx: Array,
+                                     species: Array,
+                                     params: Array) -> Array:
   """Get parameters for interactions between species pairs."""
   # TODO(schsam): We should do better error checking here.
   def lookup(species_a, species_b, params):
@@ -371,7 +386,9 @@ def _get_neighborhood_species_params(idx, species, params):
           'Params must be a scalar or a 2d array if using a species lookup.')
   return params
 
-def _neighborhood_kwargs_to_params(idx, species=None, **kwargs):
+def _neighborhood_kwargs_to_params(idx: Array,
+                                   species: Array=None,
+                                   **kwargs) -> Dict[str, Array]:
   out_dict = {}
   for k in kwargs:
     if species is None or (
@@ -381,12 +398,18 @@ def _neighborhood_kwargs_to_params(idx, species=None, **kwargs):
       out_dict[k] = _get_neighborhood_species_params(idx, species, kwargs[k])
   return out_dict
 
-def _vectorized_cond(pred, fn, operand):
+def _vectorized_cond(pred: Array,
+                     fn: Callable[[Array], Array],
+                     operand: Array) -> Array:
   masked = np.where(pred, operand, 1)
   return np.where(pred, fn(masked), 0)
 
-def pair_neighbor_list(
-    fn, metric, species=None, reduce_axis=None, keepdims=False, **kwargs):
+def pair_neighbor_list(fn: Callable[..., Array],
+                       displacement_or_metric: DisplacementOrMetricFn,
+                       species: Array=None,
+                       reduce_axis: Tuple[int, ...]=None,
+                       keepdims: bool=False,
+                       **kwargs) -> Callable[..., Array]:
   """Promotes a function acting on pairs of particles to use neighbor lists.
 
   Args:
@@ -422,17 +445,19 @@ def pair_neighbor_list(
     specifying neighbors.
   """
   def fn_mapped(R, neighbor, **dynamic_kwargs):
-    d = partial(metric, **dynamic_kwargs)
+    d = partial(displacement_or_metric, **dynamic_kwargs)
     d = vmap(vmap(d, (None, 0)))
     mask = neighbor.idx != R.shape[0]
     R_neigh = R[neighbor.idx]
     dR = d(R, R_neigh)
-    merged_kwargs = _neighborhood_kwargs_to_params(neighbor.idx, species,
-        **merge_dicts(kwargs, dynamic_kwargs))
+    merged_kwargs = merge_dicts(kwargs, dynamic_kwargs)
+    merged_kwargs = _neighborhood_kwargs_to_params(neighbor.idx,
+                                                   species,
+                                                   **merged_kwargs)
     out = fn(dR, **merged_kwargs)
     if out.ndim > mask.ndim:
       ddim = out.ndim - mask.ndim
       mask = np.reshape(mask, mask.shape + (1,) * ddim)
     out = np.where(mask, out, 0.)
-    return _high_precision_sum(out, reduce_axis, keepdims) / 2.
+    return high_precision_sum(out, reduce_axis, keepdims) / 2.
   return fn_mapped

@@ -14,32 +14,31 @@
 
 """Defines utility functions."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+from typing import Tuple, Union
 
 from jax.tree_util import register_pytree_node
 from jax.lib import xla_bridge
-import jax.numpy as np
+import jax.numpy as jnp
 
 import numpy as onp
 
+Array = jnp.ndarray
 
-i16 = np.int16
-i32 = np.int32
-i64 = np.int64
+i16 = jnp.int16
+i32 = jnp.int32
+i64 = jnp.int64
 
-f32 = np.float32
-f64 = np.float64
+f32 = jnp.float32
+f64 = jnp.float64
 
 
 def static_cast(*xs):
   """Function to cast a value to the lowest dtype that can express it."""
   # NOTE(schsam): static_cast is so named because it cannot be jit.
   if xla_bridge.get_backend().platform == 'tpu':
-    return (np.array(x, np.float32) for x in xs)
+    return (jnp.array(x, jnp.float32) for x in xs)
   else:
-    return (np.array(x, dtype=onp.min_scalar_type(x)) for x in xs)
+    return (jnp.array(x, dtype=onp.min_scalar_type(x)) for x in xs)
 
 
 def register_pytree_namedtuple(cls):
@@ -47,26 +46,6 @@ def register_pytree_namedtuple(cls):
       cls,
       lambda xs: (tuple(xs), None),
       lambda _, xs: cls(*xs))
-
-
-def check_kwargs_time_dependence(kwargs):
-  # TODO(schsam): We should be more careful about checking that kwargs don't
-  # have excess data at the leaves of our computations.
-  return
-  if ('t' in kwargs and len(kwargs) == 1) or len(kwargs) == 0:
-    return
-
-  raise ValueError(
-    'Found unexpected kwargs: {}. Expected empty or time only.'.format(kwargs))
-
-
-def check_kwargs_empty(kwargs):
-  # TODO(schsam): We should be more careful about checking that kwargs don't
-  # have excess data at the leaves of our computations.
-  return
-  if kwargs:
-    raise ValueError(
-      'Found unexpected kwargs: {}. Expected empty.'.format(kwargs))
 
 
 def merge_dicts(a, b):
@@ -77,5 +56,13 @@ def merge_dicts(a, b):
 
 
 def safe_mask(mask, fn, operand, placeholder=0):
-  masked = np.where(mask, operand, 0)
-  return np.where(mask, fn(masked), placeholder)
+  masked = jnp.where(mask, operand, 0)
+  return jnp.where(mask, fn(masked), placeholder)
+
+
+def high_precision_sum(X: Array,
+                       axis: Union[Tuple[int, ...], int]=None,
+                       keepdims: bool=False):
+  """Sums over axes at 64-bit precision then casts back to original dtype."""
+  return jnp.array(
+      jnp.sum(X, axis=axis, dtype=f64, keepdims=keepdims), dtype=X.dtype)

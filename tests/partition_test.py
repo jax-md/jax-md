@@ -73,10 +73,10 @@ class CellListTest(jtu.JaxTestCase):
 
     cell_list = cell_fn(R)
 
-    self.assertAllClose(R[0], cell_list.R_buffer[0, 0, 0])
-    self.assertAllClose(R[1], cell_list.R_buffer[1, 8, 1])
-    self.assertAllClose(R[2], cell_list.R_buffer[1, 8, 0])
-    self.assertAllClose(R[3], cell_list.R_buffer[7, 3, 1])
+    self.assertAllClose(R[0], cell_list.position_buffer[0, 0, 0])
+    self.assertAllClose(R[1], cell_list.position_buffer[1, 8, 1])
+    self.assertAllClose(R[2], cell_list.position_buffer[1, 8, 0])
+    self.assertAllClose(R[3], cell_list.position_buffer[7, 3, 1])
 
     self.assertEqual(0, cell_list.id_buffer[0, 0, 0])
     self.assertEqual(1, cell_list.id_buffer[1, 8, 1])
@@ -84,7 +84,7 @@ class CellListTest(jtu.JaxTestCase):
     self.assertEqual(3, cell_list.id_buffer[7, 3, 1])
 
     id_flat = np.reshape(cell_list.id_buffer, (-1,))
-    R_flat = np.reshape(cell_list.R_buffer, (-1, 2))
+    R_flat = np.reshape(cell_list.position_buffer, (-1, 2))
 
     R_out = np.zeros((5, 2), dtype)
     R_out = ops.index_update(R_out, id_flat, R_flat)[:-1]
@@ -108,7 +108,7 @@ class CellListTest(jtu.JaxTestCase):
     cell_list = cell_fn(R)
 
     id_flat = np.reshape(cell_list.id_buffer, (-1,))
-    R_flat = np.reshape(cell_list.R_buffer, (-1, dim))
+    R_flat = np.reshape(cell_list.position_buffer, (-1, dim))
     R_out = np.zeros((PARTICLE_COUNT + 1, dim))
     R_out = ops.index_update(R_out, id_flat, R_flat)[:-1]
 
@@ -132,7 +132,7 @@ class CellListTest(jtu.JaxTestCase):
     cell_list = cell_fn(R)
 
     id_flat = np.reshape(cell_list.id_buffer, (-1,))
-    R_flat = np.reshape(cell_list.R_buffer, (-1, dim))
+    R_flat = np.reshape(cell_list.position_buffer, (-1, dim))
     R_out = np.zeros((PARTICLE_COUNT + 1, dim))
     R_out = ops.index_update(R_out, id_flat, R_flat)[:-1]
     self.assertAllClose(R_out, R)
@@ -158,7 +158,7 @@ class CellListTest(jtu.JaxTestCase):
     cell_list = cell_fn(R, side_data=side_data)
 
     id_flat = np.reshape(cell_list.id_buffer, (-1,))
-    R_flat = np.reshape(cell_list.R_buffer, (-1, dim))
+    R_flat = np.reshape(cell_list.position_buffer, (-1, dim))
     R_out = np.zeros((PARTICLE_COUNT + 1, dim), dtype)
     R_out = ops.index_update(R_out, id_flat, R_flat)[:-1]
 

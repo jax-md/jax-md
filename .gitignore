@@ -5,6 +5,7 @@
 /bazel-*
 .bazelrc
 .pytype/*
+**/.pytype/*
 /tensorflow
 .DS_Store
 build/

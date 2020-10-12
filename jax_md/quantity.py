@@ -14,21 +14,46 @@
 
 """Describes different physical quantities."""
 
-from jax.api import grad, vmap, eval_shape
-import jax.numpy as np
 
-from jax_md import space, dataclasses, partition
-from jax_md.util import *
+from typing import TypeVar, Callable, Union, Tuple
+
+from jax.api import grad, vmap, eval_shape
+import jax.numpy as jnp
+
+from jax_md import space, dataclasses, partition, util
 
 from functools import partial
 
 
-def force(energy):
+# Types
+
+
+Array = util.Array
+f32 = util.f32
+f64 = util.f64
+
+DisplacementFn = space.DisplacementFn
+MetricFn = space.MetricFn
+Box = space.Box
+
+EnergyFn = Callable[..., Array]
+ForceFn = Callable[..., Array]
+
+T = TypeVar('T')
+InitFn = Callable[..., T]
+ApplyFn = Callable[[T], T]
+Simulator = Tuple[InitFn, ApplyFn]
+
+
+# Functions
+
+
+def force(energy_fn: EnergyFn) -> ForceFn:
   """Computes the force as the negative gradient of an energy."""
-  return grad(lambda R, *args, **kwargs: -energy(R, *args, **kwargs))
+  return grad(lambda R, *args, **kwargs: -energy_fn(R, *args, **kwargs))
 
 
-def canonicalize_force(energy_or_force_fn):
+def canonicalize_force(energy_or_force_fn: Union[EnergyFn, ForceFn]) -> ForceFn:
   _force_fn = None
   def force_fn(R, **kwargs):
     nonlocal _force_fn
@@ -50,29 +75,28 @@ class Dynamic(object):
 Dynamic = Dynamic()
 
 
-def kinetic_energy(V, mass=1.0):
+def kinetic_energy(velocity: Array, mass: Array=1.0) -> float:
   """Computes the kinetic energy of a system with some velocities."""
-  return 0.5 * np.sum(mass * V ** 2)
+  return 0.5 * util.high_precision_sum(mass * velocity ** 2)
 
 
-def temperature(V, mass=1.0):
+def temperature(velocity: Array, mass: Array=1.0) -> float:
   """Computes the temperature of a system with some velocities."""
-  N, dim = V.shape
-  return np.sum(mass * V ** 2) / (N * dim)
+  N, dim = velocity.shape
+  return util.high_precision_sum(mass * velocity ** 2) / (N * dim)
 
 
-def canonicalize_mass(mass):
+def canonicalize_mass(mass: Union[float, Array]) -> Union[float, Array]:
   if isinstance(mass, float):
     return mass
-  elif isinstance(mass, np.ndarray):
+  elif isinstance(mass, jnp.ndarray):
     if len(mass.shape) == 2 and mass.shape[1] == 1:
       return mass
     elif len(mass.shape) == 1:
-      return np.reshape(mass, (mass.shape[0], 1))
+      return jnp.reshape(mass, (mass.shape[0], 1))
     elif len(mass.shape) == 0:
       return mass
-  elif (isinstance(mass, f32) or
-        isinstance(mass, f64)):
+  elif isinstance(mass, f32) or isinstance(mass, f64):
     return mass
   msg = (
       'Expected mass to be either a floating point number or a one-dimensional'
@@ -81,14 +105,14 @@ def canonicalize_mass(mass):
   raise ValueError(msg)
 
 
-def angle_between_two_vectors(dR_12, dR_13):
+def angle_between_two_vectors(dR_12: Array, dR_13: Array) -> Array:
   dr_12 = space.distance(dR_12) + 1e-7
   dr_13 = space.distance(dR_13) + 1e-7
-  cos_angle = np.dot(dR_12, dR_13) / dr_12 / dr_13
-  return np.clip(cos_angle, -1.0, 1.0)
+  cos_angle = jnp.dot(dR_12, dR_13) / dr_12 / dr_13
+  return jnp.clip(cos_angle, -1.0, 1.0)
 
 
-def cosine_angles(dR):
+def cosine_angles(dR: Array) -> Array:
   """Returns cosine of angles for all atom triplets.
 
   Args:
@@ -105,11 +129,14 @@ def cosine_angles(dR):
   return angles_between_all_triplets(dR, dR)
 
 
-def is_integer(x):
-  return x.dtype == np.int32 or x.dtype == np.int64
+def is_integer(x: Array) -> bool:
+  return x.dtype == jnp.int32 or x.dtype == jnp.int64
 
 
-def pair_correlation(displacement_or_metric, rs, sigma, species=None):
+def pair_correlation(displacement_or_metric: Union[DisplacementFn, MetricFn],
+                     radii: Array,
+                     sigma: float,
+                     species: Array=None):
   """Computes the pair correlation function at a mesh of distances.
 
   The pair correlation function measures the number of particles at a given
@@ -121,7 +148,7 @@ def pair_correlation(displacement_or_metric, rs, sigma, species=None):
   Args:
     displacement_or_metric: A function that computes the displacement or
       distance between two points.
-    rs: An array of radii at which we would like to compute g(r).
+    radii: An array of radii at which we would like to compute g(r).
     sigima: A float specifying the width of the approximating Gaussian.
     species: An optional array specifying the species of each particle. If
       species is None then we compute a single g(r) for all particles,
@@ -134,36 +161,38 @@ def pair_correlation(displacement_or_metric, rs, sigma, species=None):
   d = space.canonicalize_displacement_or_metric(displacement_or_metric)
   d = space.map_product(d)
   def pairwise(dr, dim):
-    return np.exp(-f32(0.5) * (dr - rs) ** 2 / sigma ** 2) / rs ** (dim - 1)
+    return jnp.exp(-f32(0.5) * (dr - radii)**2 / sigma**2) / radii**(dim - 1)
   pairwise = vmap(vmap(pairwise, (0, None)), (0, None))
 
   if species is None:
     def g_fn(R):
       dim = R.shape[-1]
-      mask = 1 - np.eye(R.shape[0], dtype=R.dtype)
-      return np.sum(mask[:, :, np.newaxis] * pairwise(d(R, R), dim), axis=(1,))
+      mask = 1 - jnp.eye(R.shape[0], dtype=R.dtype)
+      return jnp.sum(mask[:, :, jnp.newaxis] *
+                     pairwise(d(R, R), dim), axis=(1,))
   else:
-    if not (isinstance(species, np.ndarray) and is_integer(species)):
+    if not (isinstance(species, jnp.ndarray) and is_integer(species)):
       raise TypeError('Malformed species; expecting array of integers.')
-    species_types = np.unique(species)
+    species_types = jnp.unique(species)
     def g_fn(R):
       dim = R.shape[-1]
       g_R = []
-      mask = 1 - np.eye(R.shape[0], dtype=R.dtype)
+      mask = 1 - jnp.eye(R.shape[0], dtype=R.dtype)
       for s in species_types:
         Rs = R[species == s]
-        mask_s = mask[:, species == s, np.newaxis]
-        g_R += [np.sum(mask_s * pairwise(d(Rs, R), dim), axis=(1,))]
+        mask_s = mask[:, species == s, jnp.newaxis]
+        g_R += [jnp.sum(mask_s * pairwise(d(Rs, R), dim), axis=(1,))]
       return g_R
   return g_fn
 
 
-def pair_correlation_neighbor_list(displacement_or_metric,
-                                   box_size,
-                                   rs,
-                                   sigma,
-                                   species=None,
-                                   dr_threshold=0.5):
+def pair_correlation_neighbor_list(
+    displacement_or_metric: Union[DisplacementFn, MetricFn],
+    box_size: Box,
+    radii: Array,
+    sigma: float,
+    species: Array=None,
+    dr_threshold: float=0.5):
   """Computes the pair correlation function at a mesh of distances.
 
   The pair correlation function measures the number of particles at a given
@@ -178,7 +207,7 @@ def pair_correlation_neighbor_list(displacement_or_metric,
     displacement_or_metric: A function that computes the displacement or
       distance between two points.
     box_size: The size of the box containing the particles.
-    rs: An array of radii at which we would like to compute g(r).
+    radii: An array of radii at which we would like to compute g(r).
     sigima: A float specifying the width of the approximating Gaussian.
     species: An optional array specifying the species of each particle. If
       species is None then we compute a single g(r) for all particles,
@@ -194,21 +223,25 @@ def pair_correlation_neighbor_list(displacement_or_metric,
   d = space.canonicalize_displacement_or_metric(displacement_or_metric)
   d = space.map_neighbor(d)
   def pairwise(dr, dim):
-    return np.exp(-f32(0.5) * (dr - rs) ** 2 / sigma ** 2) / rs ** (dim - 1)
+    return jnp.exp(-f32(0.5) * (dr - radii)**2 / sigma**2) / radii**(dim - 1)
   pairwise = vmap(vmap(pairwise, (0, None)), (0, None))
 
-  neighbor_fn = partition.neighbor_list(displacement_or_metric, box_size, np.max(rs) + sigma, dr_threshold)
+  neighbor_fn = partition.neighbor_list(displacement_or_metric,
+                                        box_size,
+                                        jnp.max(radii) + sigma,
+                                        dr_threshold)
 
   if species is None:
     def g_fn(R, neighbor):
       dim = R.shape[-1]
       R_neigh = R[neighbor.idx]
       mask = neighbor.idx < R.shape[0]
-      return np.sum(mask[:, :, np.newaxis] * pairwise(d(R, R_neigh), dim), axis=(1,))
+      return jnp.sum(mask[:, :, jnp.newaxis] *
+                     pairwise(d(R, R_neigh), dim), axis=(1,))
   else:
-    if not (isinstance(species, np.ndarray) and is_integer(species)):
+    if not (isinstance(species, jnp.ndarray) and is_integer(species)):
       raise TypeError('Malformed species; expecting array of integers.')
-    species_types = np.unique(species)
+    species_types = jnp.unique(species)
     def g_fn(R, neighbor):
       dim = R.shape[-1]
       g_R = []
@@ -217,26 +250,32 @@ def pair_correlation_neighbor_list(displacement_or_metric,
       R_neigh = R[neighbor.idx]
       for s in species_types:
         mask_s = mask * (neighbor_species == s)
-        g_R += [np.sum(mask_s[:, :, np.newaxis] * pairwise(d(R, R_neigh), dim), axis=(1,))]
+        g_R += [jnp.sum(mask_s[:, :, jnp.newaxis] *
+                        pairwise(d(R, R_neigh), dim), axis=(1,))]
       return g_R
   return neighbor_fn, g_fn
 
 
-def box_size_at_number_density(
-    particle_count, number_density, spatial_dimension):
-  return np.power(particle_count / number_density, 1 / spatial_dimension)
+def box_size_at_number_density(particle_count: int,
+                               number_density: float,
+                               spatial_dimension: int) -> float:
+  return jnp.power(particle_count / number_density, 1 / spatial_dimension)
 
 
-def bulk_modulus(elastic_tensor):
-  return np.einsum('iijj->', elastic_tensor) / elastic_tensor.shape[0] ** 2
+def bulk_modulus(elastic_tensor: Array) -> float:
+  return jnp.einsum('iijj->', elastic_tensor) / elastic_tensor.shape[0] ** 2
 
 
 @dataclasses.dataclass
 class PHopState:
-    position_buffer: np.ndarray
-    phop: np.ndarray
+    position_buffer: jnp.ndarray
+    phop: jnp.ndarray
 
-def phop(displacement, window_size):
+InitFn = Callable[[Array], PHopState]
+ApplyFn = Callable[[PHopState, Array], PHopState]
+PHopCalculator = Tuple[InitFn, ApplyFn]
+
+def phop(displacement: DisplacementFn, window_size: int) -> PHopCalculator:
   """Computes the phop indicator of rearrangements.
 
   phop is an indicator function that is effective at detecting when particles
@@ -274,31 +313,28 @@ def phop(displacement, window_size):
   half_window_size = window_size // 2
   displacement = space.map_bond(displacement)
 
-  def init_fn(position):
-    position_buffer = np.tile(position, (window_size, 1, 1))
+  def init_fn(position: Array) -> PHopState:
+    position_buffer = jnp.tile(position, (window_size, 1, 1))
     assert position_buffer.shape == ((window_size,) + position.shape)
-    return PHopState(
-        position_buffer = position_buffer,
-        phop = np.zeros((position.shape[0],)),
-    )
+    return PHopState(position_buffer, jnp.zeros((position.shape[0],)))  # pytype: disable=wrong-arg-count
 
-  def update_fn(state, position):
+  def update_fn(state: PHopState, position: Array) -> PHopState:
     # Compute phop.
     a_pos = state.position_buffer[:half_window_size]
-    a_mean = np.mean(a_pos, axis=0)
+    a_mean = jnp.mean(a_pos, axis=0)
     b_pos = state.position_buffer[half_window_size:]
-    b_mean = np.mean(b_pos, axis=0)
+    b_mean = jnp.mean(b_pos, axis=0)
 
-    phop = np.sqrt(np.mean((a_pos - b_mean) ** 2 * (b_pos - a_mean) ** 2,
-                           axis=(0, 2)))
-    
+    phop = jnp.sqrt(jnp.mean((a_pos - b_mean) ** 2 * (b_pos - a_mean) ** 2,
+                             axis=(0, 2)))
+
     # Unwrap position.
     buff = state.position_buffer
     position = displacement(position, buff[-1]) + buff[-1]
 
     # Add position to the list.
-    buff = np.concatenate((buff, position[np.newaxis, :, :]))[1:]
-     
-    return PHopState(buff, phop)
+    buff = jnp.concatenate((buff, position[jnp.newaxis, :, :]))[1:]
+
+    return PHopState(buff, phop)  # pytype: disable=wrong-arg-count
 
   return init_fn, update_fn

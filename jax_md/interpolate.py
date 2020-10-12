@@ -24,7 +24,16 @@ from __future__ import print_function
 import jax.numpy as np
 from scipy.interpolate import splrep, PPoly
 
-from jax_md.util import *
+from jax_md import util
+
+
+# Typing
+
+f32 = util.f32
+f64 = util.f64
+
+# 
+
 
 def constant(f):
   def schedule(unused_t):

@@ -1,4 +1,4 @@
-# Copyright 2019 Google LLC
+# Copyright 2020 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,13 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from jax_md import space
-from jax_md import energy
-from jax_md import minimize
-from jax_md import simulate
-from jax_md import smap
-from jax_md import partition
-from jax_md import dataclasses
-from jax_md import nn
-from jax_md import interpolate
-from jax_md import util
+from typing import TypeVar, Callable
+import jax.numpy as jnp
+
+Array = jnp.ndarray
+
+EnergyFn = Callable[[Array], float]
+ForceFn = Callable[[Array], Array]
+ShiftFn = Callable[[Array, Array], Array]
+
+

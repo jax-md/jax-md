@@ -29,14 +29,32 @@
 
 from collections import namedtuple
 
-import jax.numpy as np
+from typing import TypeVar, Callable, Tuple, Union
+
+import jax.numpy as jnp
 
 from jax_md import quantity
-from jax_md.util import f32, f64, register_pytree_namedtuple, static_cast
+from jax_md import dataclasses
+from jax_md import util
+from jax_md import space
+
+# Types
+
+Array = util.Array
+f32 = util.f32
+f64 = util.f64
+
+ShiftFn = space.ShiftFn
+
+T = TypeVar('T')
+InitFn = Callable[..., T]
+ApplyFn = Callable[[T], T]
+Minimizer = Tuple[InitFn, ApplyFn]
 
 
-# pylint: disable=invalid-name
-def gradient_descent(energy_or_force, shift_fn, step_size):
+def gradient_descent(energy_or_force: Callable[..., Array],
+                     shift_fn: ShiftFn,
+                     step_size: float) -> Minimizer[Array]:
   """Defines gradient descent minimization.
 
     This is the simplest optimization strategy that moves particles down their
@@ -57,18 +75,17 @@ def gradient_descent(energy_or_force, shift_fn, step_size):
       See above.
   """
   force = quantity.canonicalize_force(energy_or_force)
-  def init_fun(R, **unused_kwargs):
+  def init_fn(R: Array, **unused_kwargs) -> Array:
     return R
-  def apply_fun(R, **kwargs):
+  def apply_fn(R: Array, **kwargs) -> Array:
     R = shift_fn(R, step_size * force(R, **kwargs), **kwargs)
     return R
-  return init_fun, apply_fun
+  return init_fn, apply_fn
 
 
-class FireDescentState(namedtuple(
-    'FireDescentState',
-    ['position', 'velocity', 'force', 'dt', 'alpha', 'n_pos'])):
-  """A tuple containing state information for the Fire Descent minimizer.
+@dataclasses.dataclass
+class FireDescentState:
+  """A dataclass containing state information for the Fire Descent minimizer.
 
   Attributes:
     position: The current position of particles. An ndarray of floats
@@ -81,16 +98,23 @@ class FireDescentState(namedtuple(
     alpha: A float specifying the current momentum.
     n_pos: The number of steps in the right direction, so far.
   """
+  position: Array
+  velocity: Array
+  force: Array
+  dt: float
+  alpha: float
+  n_pos: float
 
-  def __new__(cls, position, velocity, force, dt, alpha, n_pos):
-    return super(FireDescentState, cls).__new__(
-        cls, position, velocity, force, dt, alpha, n_pos)
-register_pytree_namedtuple(FireDescentState)
 
-
-def fire_descent(
-    energy_or_force, shift_fn, dt_start=0.1, dt_max=0.4, n_min=5, f_inc=1.1,
-    f_dec=0.5, alpha_start=0.1, f_alpha=0.99):
+def fire_descent(energy_or_force: Callable[..., Array],
+                 shift_fn: ShiftFn,
+                 dt_start: float=0.1,
+                 dt_max: float=0.4,
+                 n_min: float=5,
+                 f_inc: float=1.1,
+                 f_dec: float=0.5,
+                 alpha_start: float=0.1,
+                 f_alpha: float=0.99):
   """Defines FIRE minimization.
 
   This code implements the "Fast Inertial Relaxation Engine" from [1].
@@ -121,16 +145,15 @@ def fire_descent(
       Physical review letters 97, no. 17 (2006): 170201.
   """
 
-  dt_start, dt_max, n_min, f_inc, f_dec, alpha_start, f_alpha = static_cast(
+  dt_start, dt_max, n_min, f_inc, f_dec, alpha_start, f_alpha = util.static_cast(
     dt_start, dt_max, n_min, f_inc, f_dec, alpha_start, f_alpha)
 
   force = quantity.canonicalize_force(energy_or_force)
-  def init_fun(R, **kwargs):
-    V = np.zeros_like(R)
-    return FireDescentState(
-      R, V, force(R, **kwargs), dt_start, alpha_start, f32(0))
-  def apply_fun(state, **kwargs):
-    R, V, F_old, dt, alpha, n_pos = state
+  def init_fn(R: Array, **kwargs) -> FireDescentState:
+    V = jnp.zeros_like(R)
+    return FireDescentState(R, V, force(R, **kwargs), dt_start, alpha_start, 0)  # pytype: disable=wrong-arg-count
+  def apply_fn(state: FireDescentState, **kwargs) -> FireDescentState:
+    R, V, F_old, dt, alpha, n_pos = dataclasses.astuple(state)
 
     R = shift_fn(R, dt * V + dt ** f32(2) * F_old, **kwargs)
 
@@ -140,23 +163,23 @@ def fire_descent(
 
     # NOTE(schsam): This will be wrong if F_norm ~< 1e-8.
     # TODO(schsam): We should check for forces below 1e-6. @ErrorChecking
-    F_norm = np.sqrt(np.sum(F ** f32(2)) + f32(1e-6))
-    V_norm = np.sqrt(np.sum(V ** f32(2)))
+    F_norm = jnp.sqrt(jnp.sum(F ** f32(2)) + f32(1e-6))
+    V_norm = jnp.sqrt(jnp.sum(V ** f32(2)))
 
-    P = np.array(np.dot(np.reshape(F, (-1)), np.reshape(V, (-1))))
+    P = jnp.array(jnp.dot(jnp.reshape(F, (-1)), jnp.reshape(V, (-1))))
 
     V = V + alpha * (F * V_norm / F_norm - V)
 
     # NOTE(schsam): Can we clean this up at all?
-    n_pos = np.where(P >= 0, n_pos + f32(1.0), f32(0))
-    dt_choice = np.array([dt * f_inc, dt_max])
-    dt = np.where(
-        P > 0, np.where(n_pos > n_min, np.min(dt_choice), dt), dt)
-    dt = np.where(P < 0, dt * f_dec, dt)
-    alpha = np.where(
-        P > 0, np.where(n_pos > n_min, alpha * f_alpha, alpha), alpha)
-    alpha = np.where(P < 0, alpha_start, alpha)
-    V = (P < 0) * np.zeros_like(V) + (P >= 0) * V
+    n_pos = jnp.where(P >= 0, n_pos + f32(1.0), f32(0))
+    dt_choice = jnp.array([dt * f_inc, dt_max])
+    dt = jnp.where(
+        P > 0, jnp.where(n_pos > n_min, jnp.min(dt_choice), dt), dt)
+    dt = jnp.where(P < 0, dt * f_dec, dt)
+    alpha = jnp.where(
+        P > 0, jnp.where(n_pos > n_min, alpha * f_alpha, alpha), alpha)
+    alpha = jnp.where(P < 0, alpha_start, alpha)
+    V = (P < 0) * jnp.zeros_like(V) + (P >= 0) * V
 
-    return FireDescentState(R, V, F, dt, alpha, n_pos)
-  return init_fun, apply_fun
+    return FireDescentState(R, V, F, dt, alpha, n_pos)  # pytype: disable=wrong-arg-count
+  return init_fn, apply_fn

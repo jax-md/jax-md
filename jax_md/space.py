@@ -30,9 +30,7 @@ the different functions. In cases where the space features time dependence
 this will be passed through a "t" keyword argument.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+from typing import Callable, Union, Tuple, Any
 
 from jax.abstract_arrays import ShapedArray
 
@@ -42,19 +40,32 @@ from jax import custom_jvp
 
 import jax
 
-import jax.numpy as np
+import jax.numpy as jnp
 
+from jax_md.util import Array
 from jax_md.util import f32
 from jax_md.util import f64
 from jax_md.util import safe_mask
-from jax_md.util import check_kwargs_time_dependence
-from jax_md.util import check_kwargs_empty
+
+
+# Types
+
+
+DisplacementFn = Callable[[Array, Array], Array]
+MetricFn = Callable[[Array, Array], float]
+DisplacementOrMetricFn = Union[DisplacementFn, MetricFn]
+
+ShiftFn = Callable[[Array, Array], Array]
+
+Space = Tuple[DisplacementFn, ShiftFn]
+
+Box = Union[float, Array]
+
 
 # Primitive Spatial Transforms
 
 
-# pylint: disable=invalid-name
-def _check_transform_shapes(T, v=None):
+def _check_transform_shapes(T: Array, v: Array=None):
   """Check whether a transform and collection of vectors have valid shape."""
   if len(T.shape) != 2:
     raise ValueError(
@@ -70,16 +81,16 @@ def _check_transform_shapes(T, v=None):
          'Found {} and {} respectively.'.format(T.shape[1], v.shape[-1])))
 
 
-def _small_inverse(T):
+def _small_inverse(T: Array) -> Array:
   """Compute the inverse of a small matrix."""
   _check_transform_shapes(T)
   dim = T.shape[0]
   # TODO(schsam): Check whether matrices are singular. @ErrorChecking
-  return np.linalg.inv(T)
+  return jnp.linalg.inv(T)
 
 
 @custom_jvp
-def transform(T, v):
+def transform(T: Array, v: Array) -> Array:
   """Apply a linear transformation, T, to a collection of vectors, v.
 
   Transform is written such that it acts as the identity during gradient
@@ -93,17 +104,18 @@ def transform(T, v):
     Transformed vectors; ndarray(shape=[..., spatial_dim]).
   """
   _check_transform_shapes(T, v)
-  return np.dot(v, T)
+  return jnp.dot(v, T)
 
 
 @transform.defjvp
-def transform_jvp(primals, tangents):
+def transform_jvp(primals: Tuple[Array, Array],
+                  tangents: Tuple[Array, Array]) -> Tuple[Array, Array]:
   T, v = primals
   dT, dv = tangents
   return transform(T, v), dv
 
 
-def pairwise_displacement(Ra, Rb):
+def pairwise_displacement(Ra: Array, Rb: Array) -> Array:
   """Compute a matrix of pairwise displacements given two sets of positions.
 
   Args:
@@ -127,7 +139,7 @@ def pairwise_displacement(Ra, Rb):
   return Ra - Rb
 
 
-def periodic_displacement(side, dR):
+def periodic_displacement(side: Box, dR: Array) -> Array:
   """Wraps displacement vectors into a hypercube.
 
   Args:
@@ -138,10 +150,10 @@ def periodic_displacement(side, dR):
   Returns:
     Matrix of wrapped displacements; ndarray(shape=[..., spatial_dim]).
   """
-  return np.mod(dR + side * f32(0.5), side) - f32(0.5) * side
+  return jnp.mod(dR + side * f32(0.5), side) - f32(0.5) * side
 
 
-def square_distance(dR):
+def square_distance(dR: Array) -> Array:
   """Computes square distances.
 
   Args:
@@ -149,10 +161,10 @@ def square_distance(dR):
   Returns:
     Matrix of squared distances; ndarray(shape=[...]).
   """
-  return np.sum(dR ** 2, axis=-1)
+  return jnp.sum(dR ** 2, axis=-1)
 
 
-def distance(dR):
+def distance(dR: Array) -> Array:
   """Computes distances.
 
   Args:
@@ -161,29 +173,27 @@ def distance(dR):
     Matrix of distances; ndarray(shape=[...]).
   """
   dr = square_distance(dR)
-  return safe_mask(dr > 0, np.sqrt, dr)
+  return safe_mask(dr > 0, jnp.sqrt, dr)
 
 
-def periodic_shift(side, R, dR):
+def periodic_shift(side: Box, R: Array, dR: Array) -> Array:
   """Shifts positions, wrapping them back within a periodic hypercube."""
-  return np.mod(R + dR, side)
+  return jnp.mod(R + dR, side)
 
 
 """ Spaces """
 
 
-def free():
+def free() -> Space:
   """Free boundary conditions."""
-  def displacement_fn(Ra, Rb, **unused_kwargs):
-    check_kwargs_time_dependence(unused_kwargs)
+  def displacement_fn(Ra: Array, Rb: Array, **unused_kwargs) -> Array:
     return pairwise_displacement(Ra, Rb)
-  def shift_fn(R, dR, **unused_kwargs):
-    check_kwargs_time_dependence(unused_kwargs)
+  def shift_fn(R: Array, dR: Array, **unused_kwargs) -> Array:
     return R + dR
   return displacement_fn, shift_fn
 
 
-def periodic(side, wrapped=True):
+def periodic(side: Box, wrapped: bool=True) -> Space:
   """Periodic boundary conditions on a hypercube of sidelength side.
 
   Args:
@@ -194,28 +204,19 @@ def periodic(side, wrapped=True):
   Returns:
     (displacement_fn, shift_fn) tuple.
   """
-  def displacement_fn(Ra, Rb, **unused_kwargs):
-    check_kwargs_time_dependence(unused_kwargs)
+  def displacement_fn(Ra: Array, Rb: Array, **unused_kwargs) -> Array:
     return periodic_displacement(side, pairwise_displacement(Ra, Rb))
   if wrapped:
-    def shift_fn(R, dR, **unused_kwargs):
-      check_kwargs_time_dependence(unused_kwargs)
+    def shift_fn(R: Array, dR: Array, **unused_kwargs) -> Array:
       return periodic_shift(side, R, dR)
   else:
-    def shift_fn(R, dR, **unused_kwargs):
-      check_kwargs_time_dependence(unused_kwargs)
+    def shift_fn(R: Array, dR: Array, **unused_kwargs) -> Array:
       return R + dR
   return displacement_fn, shift_fn
 
 
-def _check_time_dependence(t):
-  if t is None:
-    msg = ('Space has time-dependent transform, but no time has been '
-           'provided. (t = {})'.format(t))
-    raise ValueError(msg)
-
-
-def periodic_general(T, wrapped=True):
+def periodic_general(T: Union[Array, Callable[..., Array]],
+                     wrapped: bool=True) -> Space:
   """Periodic boundary conditions on a parallelepiped.
 
   This function defines a simulation on a parellelepiped formed by applying an
@@ -241,53 +242,46 @@ def periodic_general(T, wrapped=True):
     (displacement_fn, shift_fn) tuple.
   """
   if callable(T):
-    def displacement(Ra, Rb, t=None, **unused_kwargs):
-      _check_time_dependence(t)
-      check_kwargs_empty(unused_kwargs)
+    def displacement(Ra: Array, Rb: Array, **kwargs) -> Array:
       dR = periodic_displacement(f32(1.0), pairwise_displacement(Ra, Rb))
-      return transform(T(t), dR)
+      return transform(T(**kwargs), dR)
     # Can we cache the inverse? @Optimization
     if wrapped:
-      def shift(R, dR, t=None, **unused_kwargs):
-        _check_time_dependence(t)
-        check_kwargs_empty(unused_kwargs)
-        return periodic_shift(f32(1.0), R, transform(_small_inverse(T(t)), dR))
+      def shift(R: Array, dR: Array, **kwargs) -> Array:
+        return periodic_shift(f32(1.0),
+                              R,
+                              transform(_small_inverse(T(**kwargs)), dR))
     else:
-      def shift(R, dR, t=None, **unused_kwargs):
-        _check_time_dependence(t)
-        check_kwargs_empty(unused_kwargs)
-        return R + transform(_small_inverse(T(t)), dR)
+      def shift(R: Array, dR: Array, **kwargs) -> Array:
+        return R + transform(_small_inverse(T(**kwargs)), dR)
   else:
     T_inv = _small_inverse(T)
-    def displacement(Ra, Rb, **unused_kwargs):
-      check_kwargs_time_dependence(unused_kwargs)
+    def displacement(Ra: Array, Rb: Array, **unused_kwargs) -> Array:
       dR = periodic_displacement(f32(1.0), pairwise_displacement(Ra, Rb))
       return transform(T, dR)
     if wrapped:
-      def shift(R, dR, **unused_kwargs):
-        check_kwargs_time_dependence(unused_kwargs)
+      def shift(R: Array, dR: Array, **unused_kwargs) -> Array:
         return periodic_shift(f32(1.0), R, transform(T_inv, dR))
     else:
-      def shift(R, dR, **unused_kwargs):
-        check_kwargs_time_dependence(unused_kwargs)
+      def shift(R: Array, dR: Array, **unused_kwargs) -> Array:
         return R + transform(T_inv, dR)
   return displacement, shift
 
 
-def metric(displacement):
+def metric(displacement: DisplacementFn) -> MetricFn:
   """Takes a displacement function and creates a metric."""
   return lambda Ra, Rb, **kwargs: distance(displacement(Ra, Rb, **kwargs))
 
 
-def map_product(metric_or_displacement):
+def map_product(metric_or_displacement: DisplacementOrMetricFn) -> DisplacementOrMetricFn:
   return vmap(vmap(metric_or_displacement, (0, None), 0), (None, 0), 0)
 
 
-def map_bond(metric_or_displacement):
+def map_bond(metric_or_displacement: DisplacementOrMetricFn) -> DisplacementOrMetricFn:
   return vmap(metric_or_displacement, (0, 0), 0)
 
 
-def map_neighbor(metric_or_displacement):
+def map_neighbor(metric_or_displacement: DisplacementOrMetricFn) -> DisplacementOrMetricFn:
   def wrapped_fn(Ra, Rb, **kwargs):
     return vmap(vmap(metric_or_displacement, (None, 0)))(-Ra, -Rb, **kwargs)
   return wrapped_fn
