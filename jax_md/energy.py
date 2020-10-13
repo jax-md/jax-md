@@ -810,7 +810,7 @@ def graph_network(displacement_fn: DisplacementFn,
                   mlp_sizes: Tuple[int, ...]=(64, 64),
                   mlp_kwargs: Dict[str, Any]=None
                   ) -> Tuple[nn.InitFn,
-                             Callable[[PyTree, Array, NeighborList], Array]]:
+                             Callable[[PyTree, Array], Array]]:
   """Convenience wrapper around EnergyGraphNet model.
 
   Args:
