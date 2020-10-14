@@ -204,7 +204,7 @@ class EnergyTest(jtu.JaxTestCase):
   def test_gupta(self, dtype):
       displacement, shift = space.free()
       pos = np.array([[0, 0, 0], [0, 0, 2.9], [0, 2.9, 2.9]])
-      energy_fn = energy.gupta_potential(displacement)
+      energy_fn = energy.gupta_gold55(displacement)
       self.assertAllClose(-5.46324213, energy_fn(pos))
 
 

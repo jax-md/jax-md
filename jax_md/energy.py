@@ -313,13 +313,42 @@ def morse_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
 
 
 def gupta_potential(displacement,
-                    p=10.15,
-                    q=4.13,
-                    r_0n=2.96,
-                    U_n=3.454,
-                    A=0.118428,
-                    cutoff=8.0):
-  """Gupta potential with default parameters for Au_55 cluster."""
+                    p,
+                    q,
+                    r_0n,
+                    U_n,
+                    A,
+                    cutoff):
+  """Gupta potential with default parameters for Au_55 cluster. Gupta
+  potential was introduced by R. P. Gupta [1]. This potential uses parameters
+  that were fit for bulk gold by Jellinek [2]. This particular implementation 
+  of the Gupta potential was introduced by Garzon and Posada-Amarillas [3]. 
+  
+  Args: 
+    displacement: Function to compute displacement between two positions.
+    p: Gupta potential parameter of the repulsive term that was fitted for 
+    bulk gold.
+    q: Gupta potential parameter of the attractive term that was fitted for 
+    bulk gold.
+    r_0n: Parameter that determines the length scale of the potential. This
+    value was particularly fit for gold clusters of size 55 atoms.
+    U_n: Parameter that determines the energy scale, fit particularly for
+    gold clusters of size 55 atoms.
+    A: Parameter that was obtained using the cohesive energy of the fcc gold 
+    metal.
+    cutoff: Pairwise interactions that are farther than the cutoff distance
+    will be ignored.
+  
+  Returns:
+    A function that takes in positions of gold atoms (shape [n, 3] where n is 
+    the number of atoms) and returns the total energy of the system in units 
+    of eV.
+
+  [1] R.P. Gupta, Phys. Rev. B 23, 6265 (1981)
+  [2] J. Jellinek, in Metal-Ligand Interactions, edited by N. Russo and
+  D. R. Salahub (Kluwer Academic, Dordrecht, 1996), p. 325.
+  [3] I. L. Garzon, A. Posada-Amarillas, Phys. Rev. B 54, 16 (1996)
+  """
   def _gupta_term1(r, p, r_0n, cutoff):
     """Repulsive term in Gupta potential."""
     within_cutoff = (r > 0) & (r < cutoff)
@@ -340,6 +369,24 @@ def gupta_potential(displacement,
     return U_n / 2.0 * np.sum(first_term - second_term)
 
   return compute_fn
+
+
+GUPTA_GOLD55_DICT = {
+    'p' : 10.15,
+    'q' : 4.13,
+    'r_0n' : 2.96,
+    'U_n' : 3.454,
+    'A' : 0.118428,
+}
+
+def gupta_gold55(displacement,
+                 cutoff=8.0):
+  gupta_gold_fn = gupta_potential(displacement,
+                                  cutoff=cutoff,
+                                  **GUPTA_GOLD55_DICT)
+  def energy_fn(R, **unused_kwargs):
+    return gupta_gold_fn(R)
+  return energy_fn
 
 def multiplicative_isotropic_cutoff(fn: Callable[..., Array],
                                     r_onset: float,
