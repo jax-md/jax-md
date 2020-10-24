@@ -313,13 +313,42 @@ def morse_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
 
 
 def gupta_potential(displacement,
-                    p=10.15,
-                    q=4.13,
-                    r_0n=2.96,
-                    U_n=3.454,
-                    A=0.118428,
-                    cutoff=8.0):
-  """Gupta potential with default parameters for Au_55 cluster."""
+                    p,
+                    q,
+                    r_0n,
+                    U_n,
+                    A,
+                    cutoff):
+  """Gupta potential with default parameters for Au_55 cluster. Gupta
+  potential was introduced by R. P. Gupta [1]. This potential uses parameters
+  that were fit for bulk gold by Jellinek [2]. This particular implementation 
+  of the Gupta potential was introduced by Garzon and Posada-Amarillas [3]. 
+  
+  Args: 
+    displacement: Function to compute displacement between two positions.
+    p: Gupta potential parameter of the repulsive term that was fitted for 
+    bulk gold.
+    q: Gupta potential parameter of the attractive term that was fitted for 
+    bulk gold.
+    r_0n: Parameter that determines the length scale of the potential. This
+    value was particularly fit for gold clusters of size 55 atoms.
+    U_n: Parameter that determines the energy scale, fit particularly for
+    gold clusters of size 55 atoms.
+    A: Parameter that was obtained using the cohesive energy of the fcc gold 
+    metal.
+    cutoff: Pairwise interactions that are farther than the cutoff distance
+    will be ignored.
+  
+  Returns:
+    A function that takes in positions of gold atoms (shape [n, 3] where n is 
+    the number of atoms) and returns the total energy of the system in units 
+    of eV.
+
+  [1] R.P. Gupta, Phys. Rev. B 23, 6265 (1981)
+  [2] J. Jellinek, in Metal-Ligand Interactions, edited by N. Russo and
+  D. R. Salahub (Kluwer Academic, Dordrecht, 1996), p. 325.
+  [3] I. L. Garzon, A. Posada-Amarillas, Phys. Rev. B 54, 16 (1996)
+  """
   def _gupta_term1(r, p, r_0n, cutoff):
     """Repulsive term in Gupta potential."""
     within_cutoff = (r > 0) & (r < cutoff)
@@ -340,6 +369,24 @@ def gupta_potential(displacement,
     return U_n / 2.0 * np.sum(first_term - second_term)
 
   return compute_fn
+
+
+GUPTA_GOLD55_DICT = {
+    'p' : 10.15,
+    'q' : 4.13,
+    'r_0n' : 2.96,
+    'U_n' : 3.454,
+    'A' : 0.118428,
+}
+
+def gupta_gold55(displacement,
+                 cutoff=8.0):
+  gupta_gold_fn = gupta_potential(displacement,
+                                  cutoff=cutoff,
+                                  **GUPTA_GOLD55_DICT)
+  def energy_fn(R, **unused_kwargs):
+    return gupta_gold_fn(R)
+  return energy_fn
 
 def multiplicative_isotropic_cutoff(fn: Callable[..., Array],
                                     r_onset: float,
@@ -390,6 +437,7 @@ def dsf_coulomb(r: Array,
                 Q_sq: Array,
                 alpha: Array=0.25,
                 cutoff: float=8.0) -> Array:
+  """Damped-shifted-force approximation of the coulombic interaction."""
   qqr2e = 332.06371  # Coulmbic conversion factor: 1/(4*pi*epo).
 
   cutoffsq = cutoff*cutoff
@@ -402,7 +450,7 @@ def dsf_coulomb(r: Array,
   return np.where(r < cutoff, coulomb_en, 0.0)
 
 
-def bks(r: Array,
+def bks(dr: Array,
         Q_sq: Array,
         exp_coeff: Array,
         exp_decay: Array,
@@ -411,10 +459,38 @@ def bks(r: Array,
         coulomb_alpha: Array,
         cutoff: float,
         **unused_kwargs) -> Array:
-  energy = (dsf_coulomb(r, Q_sq, coulomb_alpha, cutoff) + \
-            exp_coeff * np.exp(-r / exp_decay) + \
-            attractive_coeff / r ** 6 + repulsive_coeff / r ** 24)
-  return  np.where(r < cutoff, energy, 0.0)
+  """Beest-Kramer-van Santen (BKS) potential[1] which is commonly used to 
+  model silicas. This function computes the interaction between two 
+  given atoms within the Buckingham form[2], following the implementation
+  from Ref. [3]
+  Args:
+    dr: An ndarray of shape [n, m] of pairwise distances between particles.
+    Q_sq: An ndarray of shape [n, m] of pairwise product of partial charges. 
+    exp_coeff: An ndarray of shape [n, m] that sets the scale of the
+    exponential decay of the short-range interaction.
+    attractive_coeff: An ndarray of shape [n, m] for the coefficient of the 
+    attractive 6th order term.
+    repulsive_coeff: An ndarray of shape [n, m] for the coefficient of the
+    repulsive 24th order term, to prevent the unphysical fusion of atoms.
+    coulomb_alpha: Damping parameter for the approximation of the long-range
+    coulombic interactions (a scalar).
+    cutoff: Cutoff distance for considering pairwise interactions.
+    unused_kwargs: Allows extra data (e.g. time) to be passed to the energy.
+  Returns:
+    Matrix of energies of shape [n, m].
+  [1] Van Beest, B. W. H., Gert Jan Kramer, and R. A. Van Santen. "Force fields
+  for silicas and aluminophosphates based on ab initio calculations." Physical 
+  Review Letters 64.16 (1990): 1955. 
+  [2] Carré, Antoine, et al. "Developing empirical potentials from ab initio 
+  simulations: The case of amorphous silica." Computational Materials Science 
+  124 (2016): 323-334.
+  [3] Liu, Han, et al. "Machine learning Forcefield for silicate glasses." 
+  arXiv preprint arXiv:1902.03486 (2019).
+  """
+  energy = (dsf_coulomb(dr, Q_sq, coulomb_alpha, cutoff) + \
+            exp_coeff * np.exp(-dr / exp_decay) + \
+            attractive_coeff / dr ** 6 + repulsive_coeff / dr ** 24)
+  return  np.where(dr < cutoff, energy, 0.0)
 
 
 def bks_pair(displacement_or_metric: DisplacementOrMetricFn,
@@ -426,6 +502,7 @@ def bks_pair(displacement_or_metric: DisplacementOrMetricFn,
              repulsive_coeff: Array,
              coulomb_alpha: Array,
              cutoff: float) -> Callable[[Array], Array]:
+  """Convenience wrapper to compute BKS energy over a system."""
   Q_sq = np.array(Q_sq, f32)
   exp_coeff = np.array(exp_coeff, f32)
   exp_decay = np.array(exp_decay, f32)
@@ -456,6 +533,7 @@ def bks_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                       dr_threshold: float=0.8
                       ) -> Tuple[NeighborFn,
                                  Callable[[Array, NeighborList], Array]]:
+  """Convenience wrapper to compute BKS energy using a neighbor list."""
   Q_sq = np.array(Q_sq, f32)
   exp_coeff = np.array(exp_coeff, f32)
   exp_decay = np.array(exp_decay, f32)
@@ -498,9 +576,10 @@ BKS_SILICA_DICT = {
     'repulsive_coeff' : [[78940848.06, 668.7557239],
                          [668.7557239, 2605.841269]],
     'coulomb_alpha' : 0.25,
-} #all the parameter(coefficient)kcal/mol
+}
                    
 def _bks_silica_self(Q_sq: Array, alpha: Array, cutoff: float) -> Array:
+  """Function for computing the self-energy contributions to BKS."""
   cutoffsq = cutoff * cutoff
   erfcc = erfc(alpha * cutoff)
   erfcd = np.exp(-alpha * alpha * cutoffsq)
@@ -512,6 +591,7 @@ def _bks_silica_self(Q_sq: Array, alpha: Array, cutoff: float) -> Array:
 def bks_silica_pair(displacement_or_metric: DisplacementOrMetricFn,
                     species: Array,
                     cutoff: float=8.0):
+  """Convenience wrapper to compute BKS energy for SiO2."""
   bks_pair_fn = bks_pair(displacement_or_metric, 
                          species,
                          cutoff=cutoff,
@@ -536,6 +616,7 @@ def bks_silica_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                              cutoff: float=8.0
                              ) -> Tuple[NeighborFn,
                                         Callable[[Array, NeighborList], Array]]:
+  """Convenience wrapper to compute BKS energy over a system using neighbor lists."""
   neighbor_fn, bks_pair_fn = bks_neighbor_list(displacement_or_metric,
                                                box_size,
                                                species,
