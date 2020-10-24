@@ -27,7 +27,7 @@ import numpy as onp
 from jax import lax, ops, vmap, eval_shape
 from jax.abstract_arrays import ShapedArray
 from jax.interpreters import partial_eval as pe
-import jax.numpy as np
+import jax.numpy as jnp
 
 from jax_md import quantity, space, util
 
@@ -54,10 +54,10 @@ DisplacementOrMetricFn = space.DisplacementOrMetricFn
 def _get_bond_type_parameters(params: Array, bond_type: Array) -> Array:
   """Get parameters for interactions for bonds indexed by a bond-type."""
   # TODO(schsam): We should do better error checking here.
-  assert isinstance(bond_type, np.ndarray)
+  assert isinstance(bond_type, jnp.ndarray)
   assert len(bond_type.shape) == 1
 
-  if isinstance(params, np.ndarray):
+  if isinstance(params, jnp.ndarray):
     if len(params.shape) == 1:
       return params[bond_type]
     elif len(params.shape) == 0:
@@ -66,7 +66,7 @@ def _get_bond_type_parameters(params: Array, bond_type: Array) -> Array:
       raise ValueError(
           'Params must be a scalar or a 1d array if using a bond-type lookup.')
   elif(isinstance(params, int) or isinstance(params, float) or
-       np.issubdtype(params, np.integer) or np.issubdtype(params, np.floating)):
+       jnp.issubdtype(params, jnp.integer) or jnp.issubdtype(params, jnp.floating)):
     return params
   raise NotImplementedError
 
@@ -160,7 +160,7 @@ def bond(fn: Callable[..., Array],
 def _get_species_parameters(params: Array, species: Array) -> Array:
   """Get parameters for interactions between species pairs."""
   # TODO(schsam): We should do better error checking here.
-  if isinstance(params, np.ndarray):
+  if isinstance(params, jnp.ndarray):
     if len(params.shape) == 2:
       return params[species]
     elif len(params.shape) == 0:
@@ -173,16 +173,16 @@ def _get_species_parameters(params: Array, species: Array) -> Array:
 
 def _get_matrix_parameters(params: Array) -> Array:
   """Get an NxN parameter matrix from per-particle parameters."""
-  if isinstance(params, np.ndarray):
+  if isinstance(params, jnp.ndarray):
     if len(params.shape) == 1:
       # NOTE(schsam): get_parameter_matrix only supports additive parameters.
-      return 0.5 * (params[:, np.newaxis] + params[np.newaxis, :])
+      return 0.5 * (params[:, jnp.newaxis] + params[jnp.newaxis, :])
     elif len(params.shape) == 0 or len(params.shape) == 2:
       return params
     else:
       raise NotImplementedError
   elif(isinstance(params, int) or isinstance(params, float) or
-       np.issubdtype(params, np.integer) or np.issubdtype(params, np.floating)):
+       jnp.issubdtype(params, jnp.integer) or jnp.issubdtype(params, jnp.floating)):
     return params
   else:
     raise NotImplementedError
@@ -214,10 +214,10 @@ def _diagonal_mask(X: Array) -> Array:
   # NOTE(schsam): It seems potentially dangerous to set nans to 0 here. However,
   # masking nans also doesn't seem to work. So it also seems necessary. At the
   # very least we should do some @ErrorChecking.
-  X = np.nan_to_num(X)
-  mask = f32(1.0) - np.eye(N, dtype=X.dtype)
+  X = jnp.nan_to_num(X)
+  mask = f32(1.0) - jnp.eye(N, dtype=X.dtype)
   if len(X.shape) == 3:
-    mask = np.reshape(mask, (N, N, 1))
+    mask = jnp.reshape(mask, (N, N, 1))
   return mask * X
 
 
@@ -253,10 +253,10 @@ def pair(fn: Callable[..., Array],
       in which case the species data will be specified dynamically. Note: that
       dynamic species specification is less efficient, because we cannot
       specialize shape information.
-    reduce_axis: A list of axes to reduce over. This is supplied to np.sum and
+    reduce_axis: A list of axes to reduce over. This is supplied to jnp.sum and
       so the same convention is used.
     keepdims: A boolean specifying whether the empty dimensions should be kept
-      upon reduction. This is supplied to np.sum and so the same convention is
+      upon reduction. This is supplied to jnp.sum and so the same convention is
       used.
     kwargs: Arguments providing parameters to the mapped function. In cases
       where no species information is provided these should be either 1) a
@@ -270,7 +270,7 @@ def pair(fn: Callable[..., Array],
     If species is None or statically specified then fn_mapped takes as arguments
     an ndarray of positions of shape [n, spatial_dimension].
 
-    If species is Dynamic then fn_mapped takes as input an ndarray of shape
+    If species is Dynamic then fn_mapped takes as ijnput an ndarray of shape
     [n, spatial_dimension], an integer ndarray of species of shape [n], and an
     integer specifying the maximum species.
 
@@ -295,10 +295,10 @@ def pair(fn: Callable[..., Array],
       # we are mapping. Should this be an option?
       return high_precision_sum(_diagonal_mask(fn(dr, **_kwargs)),
                                 axis=reduce_axis, keepdims=keepdims) * f32(0.5)
-  elif isinstance(species, np.ndarray):
+  elif isinstance(species, jnp.ndarray):
     species = onp.array(species)
     _check_species_dtype(species)
-    species_count = int(np.max(species))
+    species_count = int(onp.max(species))
     if reduce_axis is not None or keepdims:
       # TODO(schsam): Support reduce_axis with static species.
       raise ValueError
@@ -330,9 +330,9 @@ def pair(fn: Callable[..., Array],
       for i in range(species_count):
         for j in range(species_count):
           s_kwargs = _kwargs_to_parameters((i, j), **_kwargs)
-          mask_a = np.array(np.reshape(species == i, (N,)), dtype=R.dtype)
-          mask_b = np.array(np.reshape(species == j, (N,)), dtype=R.dtype)
-          mask = mask_a[:, np.newaxis] * mask_b[np.newaxis, :]
+          mask_a = jnp.array(jnp.reshape(species == i, (N,)), dtype=R.dtype)
+          mask_b = jnp.array(jnp.reshape(species == j, (N,)), dtype=R.dtype)
+          mask = mask_a[:, jnp.newaxis] * mask_b[jnp.newaxis, :]
           if i == j:
             mask = mask * _diagonal_mask(mask)
           dU = mask * fn(dr, **s_kwargs)
@@ -348,20 +348,20 @@ def pair(fn: Callable[..., Array],
 # Mapping pairwise functional forms to systems using neighbor lists.
 
 def _get_neighborhood_matrix_params(idx: Array, params: Array) -> Array:
-  if isinstance(params, np.ndarray):
+  if isinstance(params, jnp.ndarray):
     if len(params.shape) == 1:
-      return 0.5 * (np.reshape(params, params.shape + (1,)) + params[idx])
+      return 0.5 * (jnp.reshape(params, params.shape + (1,)) + params[idx])
     elif len(params.shape) == 2:
       def query(id_a, id_b):
         return params[id_a, id_b]
       query = vmap(vmap(query, (None, 0)))
-      return query(np.arange(idx.shape[0], dtype=np.int32), idx)
+      return query(jnp.arange(idx.shape[0], dtype=jnp.int32), idx)
     elif len(params.shape) == 0:
       return params
     else:
       raise NotImplementedError()
   elif(isinstance(params, int) or isinstance(params, float) or
-       np.issubdtype(params, np.integer) or np.issubdtype(params, np.floating)):
+       jnp.issubdtype(params, jnp.integer) or jnp.issubdtype(params, jnp.floating)):
     return params
   else:
     raise NotImplementedError 
@@ -375,8 +375,8 @@ def _get_neighborhood_species_params(idx: Array,
     return params[species_a, species_b]
   lookup = vmap(vmap(lookup, (None, 0, None)), (0, 0, None))
 
-  neighbor_species = np.reshape(species[idx], idx.shape)
-  if isinstance(params, np.ndarray):
+  neighbor_species = jnp.reshape(species[idx], idx.shape)
+  if isinstance(params, jnp.ndarray):
     if len(params.shape) == 2:
       return lookup(species, neighbor_species, params)
     elif len(params.shape) == 0:
@@ -392,7 +392,7 @@ def _neighborhood_kwargs_to_params(idx: Array,
   out_dict = {}
   for k in kwargs:
     if species is None or (
-        isinstance(kwargs[k], np.ndarray) and kwargs[k].ndim == 1):
+        isinstance(kwargs[k], jnp.ndarray) and kwargs[k].ndim == 1):
       out_dict[k] = _get_neighborhood_matrix_params(idx, kwargs[k])
     else:
       out_dict[k] = _get_neighborhood_species_params(idx, species, kwargs[k])
@@ -401,8 +401,8 @@ def _neighborhood_kwargs_to_params(idx: Array,
 def _vectorized_cond(pred: Array,
                      fn: Callable[[Array], Array],
                      operand: Array) -> Array:
-  masked = np.where(pred, operand, 1)
-  return np.where(pred, fn(masked), 0)
+  masked = jnp.where(pred, operand, 1)
+  return jnp.where(pred, fn(masked), 0)
 
 def pair_neighbor_list(fn: Callable[..., Array],
                        displacement_or_metric: DisplacementOrMetricFn,
@@ -428,10 +428,10 @@ def pair_neighbor_list(fn: Callable[..., Array],
       in which case the species data will be specified dynamically. Note: that
       dynamic species specification is less efficient, because we cannot
       specialize shape information.
-    reduce_axis: A list of axes to reduce over. This is supplied to np.sum and
+    reduce_axis: A list of axes to reduce over. This is supplied to jnp.sum and
       so the same convention is used.
     keepdims: A boolean specifying whether the empty dimensions should be kept
-      upon reduction. This is supplied to np.sum and so the same convention is
+      upon reduction. This is supplied to jnp.sum and so the same convention is
       used.
     kwargs: Arguments providing parameters to the mapped function. In cases
       where no species information is provided these should be either 1) a
@@ -457,7 +457,7 @@ def pair_neighbor_list(fn: Callable[..., Array],
     out = fn(dR, **merged_kwargs)
     if out.ndim > mask.ndim:
       ddim = out.ndim - mask.ndim
-      mask = np.reshape(mask, mask.shape + (1,) * ddim)
-    out = np.where(mask, out, 0.)
+      mask = jnp.reshape(mask, mask.shape + (1,) * ddim)
+    out = jnp.where(mask, out, 0.)
     return high_precision_sum(out, reduce_axis, keepdims) / 2.
   return fn_mapped
