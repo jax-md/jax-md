@@ -103,7 +103,7 @@ class FireDescentState:
   force: Array
   dt: float
   alpha: float
-  n_pos: float
+  n_pos: int
 
 
 def fire_descent(energy_or_force: Callable[..., Array],
