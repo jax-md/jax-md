@@ -14,10 +14,6 @@
 
 """Tests for google3.third_party.py.jax_md.dynamics."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import numpy as onp
 
 from absl.testing import absltest
@@ -26,6 +22,7 @@ from absl.testing import parameterized
 from jax.config import config as jax_config
 from jax import random
 from jax import jit
+from jax import lax
 import jax.numpy as np
 
 from jax import test_util as jtu
@@ -38,7 +35,6 @@ from jax_md.util import *
 jax_config.parse_flags_with_absl()
 jax_config.enable_omnistaging()
 FLAGS = jax_config.FLAGS
-
 
 PARTICLE_COUNT = 10
 OPTIMIZATION_STEPS = 10
@@ -63,13 +59,19 @@ class DynamicsTest(jtu.JaxTestCase):
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split, split0 = random.split(key, 3)
-      R = random.uniform(split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
-      R0 = random.uniform(split0, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+      R = random.uniform(split,
+                         (PARTICLE_COUNT, spatial_dimension),
+                         dtype=dtype)
+      R0 = random.uniform(split0,
+                          (PARTICLE_COUNT, spatial_dimension),
+                          dtype=dtype)
 
       energy = lambda R, **kwargs: np.sum((R - R0) ** 2)
       _, shift_fn = space.free()
 
-      opt_init, opt_apply = minimize.gradient_descent(energy, shift_fn, f32(1e-1))
+      opt_init, opt_apply = minimize.gradient_descent(energy,
+                                                      shift_fn,
+                                                      f32(1e-1))
 
       E_current = energy(R)
       dr_current = np.sum((R - R0) ** 2)
@@ -111,10 +113,12 @@ class DynamicsTest(jtu.JaxTestCase):
       dr_current = np.sum((R - R0) ** 2)
 
       # NOTE(schsam): We add this to test to make sure we can jit through the
-      # creation of FireDescentState namedtuple.
+      # creation of FireDescentState.
+      step_fn = lambda i, state: opt_apply(state)
+
       @jit
       def three_steps(state):
-        return opt_apply(opt_apply(opt_apply(state)))
+        return lax.fori_loop(0, 3, step_fn, state)
 
       for _ in range(OPTIMIZATION_STEPS):
         opt_state = three_steps(opt_state)

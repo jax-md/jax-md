@@ -151,7 +151,9 @@ def fire_descent(energy_or_force: Callable[..., Array],
   force = quantity.canonicalize_force(energy_or_force)
   def init_fn(R: Array, **kwargs) -> FireDescentState:
     V = jnp.zeros_like(R)
-    return FireDescentState(R, V, force(R, **kwargs), dt_start, alpha_start, 0)  # pytype: disable=wrong-arg-count
+    n_pos = jnp.zeros((), jnp.int32)
+    F = force(R, **kwargs)
+    return FireDescentState(R, V, F, dt_start, alpha_start, n_pos)  # pytype: disable=wrong-arg-count
   def apply_fn(state: FireDescentState, **kwargs) -> FireDescentState:
     R, V, F_old, dt, alpha, n_pos = dataclasses.astuple(state)
 
@@ -171,13 +173,19 @@ def fire_descent(energy_or_force: Callable[..., Array],
     V = V + alpha * (F * V_norm / F_norm - V)
 
     # NOTE(schsam): Can we clean this up at all?
-    n_pos = jnp.where(P >= 0, n_pos + f32(1.0), f32(0))
+    n_pos = jnp.where(P >= 0, n_pos + 1, 0)
     dt_choice = jnp.array([dt * f_inc, dt_max])
-    dt = jnp.where(
-        P > 0, jnp.where(n_pos > n_min, jnp.min(dt_choice), dt), dt)
+    dt = jnp.where(P > 0,
+                   jnp.where(n_pos > n_min,
+                             jnp.min(dt_choice),
+                             dt),
+                   dt)
     dt = jnp.where(P < 0, dt * f_dec, dt)
-    alpha = jnp.where(
-        P > 0, jnp.where(n_pos > n_min, alpha * f_alpha, alpha), alpha)
+    alpha = jnp.where(P > 0,
+                      jnp.where(n_pos > n_min,
+                                alpha * f_alpha,
+                                alpha),
+                      alpha)
     alpha = jnp.where(P < 0, alpha_start, alpha)
     V = (P < 0) * jnp.zeros_like(V) + (P >= 0) * V
 
