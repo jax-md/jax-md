@@ -16,7 +16,7 @@
 
 from functools import reduce, partial
 
-from typing import Dict, Callable, Tuple
+from typing import Dict, Callable, Tuple, Union
 
 from collections import namedtuple
 import math
@@ -319,8 +319,9 @@ def pair(fn: Callable[..., Array],
             dU = high_precision_sum(fn(dr, **s_kwargs))
             U = U + dU
       return U
-  elif species is quantity.Dynamic:
-    def fn_mapped(R, species, species_count, **dynamic_kwargs):
+  elif isinstance(species, int):
+    species_count = species
+    def fn_mapped(R, species, **dynamic_kwargs):
       _check_species_dtype(species)
       U = f32(0.0)
       N = R.shape[0]
@@ -341,7 +342,7 @@ def pair(fn: Callable[..., Array],
   else:
     raise ValueError(
         'Species must be None, an ndarray, or Dynamic. Found {}.'.format(
-            species))
+          species))
   return fn_mapped
 
 
@@ -406,7 +407,7 @@ def _vectorized_cond(pred: Array,
 
 def pair_neighbor_list(fn: Callable[..., Array],
                        displacement_or_metric: DisplacementOrMetricFn,
-                       species: Array=None,
+                       species: Union[Array, int]=None,
                        reduce_axis: Tuple[int, ...]=None,
                        keepdims: bool=False,
                        **kwargs) -> Callable[..., Array]:
@@ -422,10 +423,11 @@ def pair_neighbor_list(fn: Callable[..., Array],
       an ndarray of distances or displacements of shape [] or [d_in]
       respectively. The metric can optionally take a floating point time as a
       third argument.
-    species: A list of species for the different particles. This should either
+    species: Species information for the different particles. This should either
       be None (in which case it is assumed that all the particles have the same
-      species), an integer ndarray of shape [n] with species data, or Dynamic
-      in which case the species data will be specified dynamically. Note: that
+      species), an integer ndarray of shape [n] with species data, or an integer
+      in which case the species data will be specified dynamically in the
+      mapped function with at most `species` types of particles. Note: that
       dynamic species specification is less efficient, because we cannot
       specialize shape information.
     reduce_axis: A list of axes to reduce over. This is supplied to jnp.sum and

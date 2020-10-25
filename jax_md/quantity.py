@@ -63,16 +63,9 @@ def canonicalize_force(energy_or_force_fn: Union[EnergyFn, ForceFn]) -> ForceFn:
         _force_fn = force(energy_or_force_fn)
       else:
         _force_fn = energy_or_force_fn
-    
     return _force_fn(R, **kwargs)
-  
+
   return force_fn
-
-
-class Dynamic(object):
-  """Object used to denote dynamic shapes and species."""
-  pass
-Dynamic = Dynamic()
 
 
 def kinetic_energy(velocity: Array, mass: Array=1.0) -> float:

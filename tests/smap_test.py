@@ -462,8 +462,7 @@ class SMapTest(jtu.JaxTestCase):
     metric = lambda Ra, Rb, **kwargs: \
         np.sum(displacement(Ra, Rb, **kwargs) ** 2, axis=-1)
 
-    mapped_square = smap.pair(
-        square, metric, species=quantity.Dynamic, param=params)
+    mapped_square = smap.pair(square, metric, species=2, param=params)
 
     metric = space.map_product(metric)
 
@@ -478,8 +477,8 @@ class SMapTest(jtu.JaxTestCase):
           R_1 = R[species == i]
           R_2 = R[species == j]
           total = total + 0.5 * np.sum(square(metric(R_1, R_2), param))
-      self.assertAllClose(
-        mapped_square(R, species, 2), np.array(total, dtype=dtype))
+      self.assertAllClose(mapped_square(R, species),
+                          np.array(total, dtype=dtype))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -498,8 +497,7 @@ class SMapTest(jtu.JaxTestCase):
     species = random.randint(split, (PARTICLE_COUNT,), 0, 2)
     disp, _ = space.free()
 
-    mapped_square = smap.pair(
-        square, disp, species=quantity.Dynamic, param=params)
+    mapped_square = smap.pair(square, disp, species=2, param=params)
 
     disp = vmap(vmap(disp, (0, None), 0), (None, 0), 0)
 
@@ -514,8 +512,8 @@ class SMapTest(jtu.JaxTestCase):
           R_1 = R[species == i]
           R_2 = R[species == j]
           total = total + 0.5 * np.sum(square(disp(R_1, R_2), param))
-      self.assertAllClose(
-        mapped_square(R, species, 2), np.array(total, dtype=dtype))
+      self.assertAllClose(mapped_square(R, species),
+                          np.array(total, dtype=dtype))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
