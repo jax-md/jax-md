@@ -14,13 +14,16 @@
 
 try:
   import IPython
-  from IPython.display import HTML, display
 
   import base64
 
+  import numpy as onp
+
+  import jax.numpy as jnp
+  from jax_md import dataclasses
+
   from google.colab import output
 
-  import numpy as onp
 
   import time
 
@@ -32,14 +35,14 @@ try:
 
   @dataclasses.dataclass
   class Disk:
-    position: np.ndarray
-    size: np.ndarray
-    color: np.ndarray
+    position: jnp.ndarray
+    size: jnp.ndarray
+    color: jnp.ndarray
     count: int = dataclasses.static_field()
 
     def __init__(self, position, diameter=1.0, color=None):
       if color is None:
-        color = np.array([0.8, 0.8, 1.0])
+        color = jnp.array([0.8, 0.8, 1.0])
       
       object.__setattr__(self, 'position', position)
       object.__setattr__(self, 'size', diameter)
@@ -52,14 +55,14 @@ try:
 
   @dataclasses.dataclass
   class Sphere:
-    position: np.ndarray
-    size: np.ndarray
-    color: np.ndarray
+    position: jnp.ndarray
+    size: jnp.ndarray
+    color: jnp.ndarray
     count: int
 
     def __init__(self, position, diameter=1.0, color=None):
       if color is None:
-        color = np.array([0.8, 0.8, 1.0])
+        color = jnp.array([0.8, 0.8, 1.0])
       
       object.__setattr__(self, 'position', position)
       object.__setattr__(self, 'size', diameter)
@@ -72,15 +75,15 @@ try:
   @dataclasses.dataclass
   class Bond:
     reference_geometry: str
-    neighbor_idx: np.ndarray
-    diameter: np.ndarray
-    color: np.ndarray
+    neighbor_idx: jnp.ndarray
+    diameter: jnp.ndarray
+    color: jnp.ndarray
     count: int
     max_neighbors: int
 
     def __init__(self, reference_geometry, idx, diameter=1.0, color=None):
       if color is None:
-        color = np.array([0.8, 0.8, 1.0])
+        color = jnp.array([0.8, 0.8, 1.0])
 
       object.__setattr__(self, 'reference_geometry', reference_geometry)
       object.__setattr__(self, 'neighbor_idx', idx)
@@ -104,11 +107,11 @@ try:
 
   def encode(R):
     dtype = R.dtype
-    if dtype == np.float64:
-      dtype = np.float32
-    if dtype == np.int64:
-      dtype = np.int32
-    dtype = np.float32
+    if dtype == jnp.float64:
+      dtype = jnp.float32
+    if dtype == jnp.int64:
+      dtype = jnp.int32
+    dtype = jnp.float32
     return base64.b64encode(onp.array(R, dtype).tobytes()).decode('utf-8')
 
   import json
@@ -142,7 +145,7 @@ try:
 
     assert dimension is not None
 
-    if isinstance(box_size, np.ndarray):
+    if isinstance(box_size, jnp.ndarray):
       box_size = float(box_size)
 
     def get_metadata():
