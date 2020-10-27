@@ -24,7 +24,9 @@ from operator import mul
 
 import numpy as onp
 
-from jax import lax, ops, vmap, eval_shape
+from jax import lax
+from jax import ops
+from jax.api import jit, vmap, eval_shape
 from jax.abstract_arrays import ShapedArray
 from jax.interpreters import partial_eval as pe
 import jax.numpy as np
@@ -508,13 +510,13 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
 
   use_cell_list = np.all(cell_size < box_size / 3.) and not disable_cell_list
 
+  @jit
   def candidate_fn(R, **kwargs):
     return np.broadcast_to(np.reshape(np.arange(R.shape[0]), (1, R.shape[0])),
                            (R.shape[0], R.shape[0]))
 
-  def cell_list_candidate_fn(cell_list_fn, R, **kwargs):
-    cl = cell_list_fn(R)
-
+  @jit
+  def cell_list_candidate_fn(cl, R, **kwargs):
     N, dim = R.shape
 
     R = cl.position_buffer
@@ -547,6 +549,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
     neighbor_idx = copy_values_from_cell(neighbor_idx, cell_idx, idx)
     return neighbor_idx[:-1, :, 0]
 
+  @jit
   def prune_neighbor_list(R, idx, **kwargs):
     d = partial(metric_sq, **kwargs)
     d = vmap(vmap(d, (None, 0)))
@@ -556,15 +559,17 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
     dR = d(R, neigh_R)
 
     mask = np.logical_and(dR < cutoff_sq, idx < N)
-    max_occupancy = np.max(np.sum(mask, axis=1))
+    out_idx = N * np.ones(idx.shape, np.int32)
 
-    idx = np.where(mask, idx, N)
-    argsort = np.argsort(f32(1) - mask, axis=1)
-    # TODO(schsam): Error checking for list exceeding maximum occupancy.
-    idx = np.take_along_axis(idx, argsort, axis=1)
+    cumsum = np.cumsum(mask, axis=1)
+    index = np.where(mask, cumsum - 1, idx.shape[1] - 1)
+    p_index = np.arange(idx.shape[0])[:, None]
+    out_idx = ops.index_update(out_idx, ops.index[p_index, index], idx)
+    max_occupancy = np.max(cumsum[:, -1])
 
-    return idx, max_occupancy
+    return out_idx, max_occupancy
 
+  @jit
   def mask_self_fn(idx):
     self_mask = idx == np.reshape(np.arange(idx.shape[0]), (idx.shape[0], 1))
     return np.where(self_mask, idx.shape[0], idx)
@@ -577,7 +582,8 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
     def neighbor_fn(R_and_overflow, max_occupancy=None):
       R, overflow = R_and_overflow
       if cell_list_fn is not None:
-        idx = cell_list_candidate_fn(cell_list_fn, R, **kwargs)
+        cl = cell_list_fn(R)
+        idx = cell_list_candidate_fn(cl, R, **kwargs)
       else:
         idx = candidate_fn(R, **kwargs)
       idx, occupancy = prune_neighbor_list(R, idx, **kwargs)
