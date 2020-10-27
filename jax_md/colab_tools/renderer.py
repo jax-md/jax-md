@@ -219,5 +219,5 @@ try:
 
     display(renderer_code)
 
-except:
-  pass
+except Exception as e:
+  print(e)
