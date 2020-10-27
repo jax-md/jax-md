@@ -1,3 +1,9 @@
+<!--
+  A fragment of HTML and Javascript that describes a visualization tool.
+  
+  This code is expected to be injected into Jupyter or Colaboratory notebooks using the `IPython.display.HTML` function. The tool is rendered using WebGL2.
+-->
+
 <div id='seek'>
   <button type='button'
           id='pause_play' 
@@ -17,6 +23,7 @@
 <div id='info'> </div>
 <div id='error' style="color:red"> </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"></script>
+
 <script>
   var DIMENSION;
 
@@ -32,6 +39,7 @@
   var BOX_SIZE;
   var READ_BUFFER_SIZE = null;
   var IS_LOADED = false;
+  var SIMULATION_IDX = 0;
 
   // Info
 
@@ -127,6 +135,7 @@
     FRAME_COUNT = metadata.frame_count;
     BOX_SIZE = metadata.box_size;
     DIMENSION = metadata.dimension;
+    SIMULATION_IDX = metadata.simulation_idx;
 
     if (metadata.background_color)
       BACKGROUND_COLOR = metadata.background_color;
@@ -160,7 +169,6 @@
     }
 
     FRAME_RANGE.max = FRAME_COUNT - 1;
-    console.log(FRAME_RANGE);
 
     // This specifies the maximum number of frames of data we will try to
     // transfer between Python and Javascript at a time.
@@ -182,7 +190,8 @@
   async function load_geometry(name) {
     console.log('Loading ' + name + '.');
     INFO.innerHTML += 'Loading geometry "' + name + '".<br>';
-    var result = await invokeFunction('GetGeometryMetadata', [name], {});
+    var result = await invokeFunction('GetGeometryMetadata' + SIMULATION_IDX,
+                                      [name], {});
     var data = from_json(result);
 
     console.log(data);
@@ -238,7 +247,9 @@
 
     if (data.shape == 'Bond') {
       var vertex_buffer = GL.createBuffer();
-      var vertex_count = geometry.count * geometry.max_neighbors * VERTICES_PER_BOND;
+      var vertex_count = (geometry.count * 
+                          geometry.max_neighbors * 
+                          VERTICES_PER_BOND);
       var vertex_buffer_size = 4 * SIZE['position'] * vertex_count;
       GL.bindBuffer(GL.ARRAY_BUFFER, vertex_buffer);
       GL.bufferData(GL.ARRAY_BUFFER, vertex_buffer_size, GL.DYNAMIC_DRAW);
@@ -282,7 +293,7 @@
     console.log(dbg_string);
     INFO.innerHTML = info_text + dbg_string + '<br>';
 
-    var result = await invokeFunction('GetArrayChunk', 
+    var result = await invokeFunction('GetArrayChunk' + SIMULATION_IDX, 
                                       [name, field, offset, READ_BUFFER_SIZE],
                                       {});
     var data = from_json(result);
@@ -298,7 +309,8 @@
   async function load_array(name, field) {
     const info_text = INFO.innerHTML;
     INFO.innerHTML += 'Loading "' + field + '".<br>';
-    var result = await invokeFunction('GetArray', [name, field], {});
+    var result = await invokeFunction('GetArray' + SIMULATION_IDX,
+                                      [name, field], {});
     var data = from_json(result);
 
     if (!data.array) {
