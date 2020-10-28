@@ -84,7 +84,7 @@ class Sphere:
       possibly time-varying / per-sphere RGB colors.
     count: The number of spheres.
   """
- position: jnp.ndarray
+  position: jnp.ndarray
   size: jnp.ndarray
   color: jnp.ndarray
   count: int
