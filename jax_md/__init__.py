@@ -22,5 +22,9 @@ from jax_md import dataclasses
 from jax_md import nn
 from jax_md import interpolate
 from jax_md import util
+
 try:
+  # Attempt to load colab_tools if IPython is installed.
   from jax_md import colab_tools
+except:
+  pass
