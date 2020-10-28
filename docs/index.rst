@@ -15,6 +15,7 @@ particular problem.
    jax_md.energy
    jax_md.minimize
    jax_md.simulate
+   jax_md.nn
    jax_md.quantity
    jax_md.smap
 
