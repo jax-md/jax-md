@@ -129,7 +129,7 @@
   function simulation_info_string() {
     return ('<p style="color:yellow">' +
             'Simulation Info:</p><div style="padding-left: 20px; padding-bottom: 10px;">' +
-            'Box Size:    ' + BOX_SIZE + '<br>' +
+            'Box Size:    ' + BOX_SIZE.map(x => parseFloat(x).toFixed(2)) + '<br>' +
             'Dimension:   ' + DIMENSION + '<br>' +
             'Frame Count: ' + FRAME_COUNT + '<br></div>');
   }
