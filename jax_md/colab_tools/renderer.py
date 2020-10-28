@@ -205,7 +205,7 @@ def render(box_size,
       assert box_size.shape == (dimension,)
       box_size = list(box_size)
     else:
-      box_size = [box_size,] * dimension
+      box_size = [float(box_size),] * dimension
   elif isinstance(box_size, float) or isinstance(box_size, int):
     box_size = [box_size,] * dimension
 
