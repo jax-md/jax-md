@@ -72,7 +72,7 @@ class Disk:
 
 @dataclasses.dataclass
 class Sphere:
-   """Sphere geometry elements.
+  """Sphere geometry elements.
 
   Args:
     position: An array of shape `(steps, count, dim)` or `(count, dim)` 
