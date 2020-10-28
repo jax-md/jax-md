@@ -1,0 +1,1047 @@
+<!--
+  Copyright 2020 Google LLC
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+      https://www.apache.org/licenses/LICENSE-2.0
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+
+<!--
+  A fragment of HTML and Javascript that describes a visualization tool.
+  
+  This code is expected to be injected into Jupyter or Colaboratory notebooks using the `IPython.display.HTML` function. The tool is rendered using WebGL2.
+-->
+
+<div id='seek'>
+  <button type='button'
+          id='pause_play' 
+          style='width:40px; vertical-align:middle;' 
+          onclick="toggle_play()"> || 
+  </button>
+  <input type="range" 
+         min="0"
+         max="1"
+         value="0"
+         style="width:512px; vertical-align:middle;"
+         class="slider"
+         id="frame_range"
+         oninput='change_frame(this.value)'>
+</div>
+<canvas id="canvas"></canvas>
+<div id='info'> </div>
+<div id='error' style="color:red"> </div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"></script>
+
+<script>
+  var DIMENSION;
+
+  var SIZE;
+
+  var SHAPE = {};
+
+  var GEOMETRY = {};
+
+  var CURRENT_FRAME = 0;
+  var FRAME_COUNT = 0;
+
+  var BOX_SIZE;
+  var READ_BUFFER_SIZE = null;
+  var IS_LOADED = false;
+  var SIMULATION_IDX = 0;
+
+  // Info
+
+  var INFO = document.getElementById('info');
+  var ERROR = document.getElementById('error');
+
+  // Graphics
+
+  var GL;
+  var SHADER;
+  var BACKGROUND_COLOR = [0.2, 0.2, 0.2];
+
+  // 3D Camera
+
+  var EYE = mat4.create();
+  var PERSPECTIVE = mat4.create();
+  var LOOK_AT = mat4.create()
+  var YAW = 0.0;
+  var PITCH = 0.0;
+  var CAMERA_POSITION = mat4.create();
+  var Y_ROTATION_MATRIX = mat4.create();
+  var X_ROTATION_MATRIX = mat4.create();
+  var VIEW_DISTANCE = 0.0;
+
+  function make_look_at() {
+    var center = [BOX_SIZE[0] / 2.0, BOX_SIZE[1] / 2.0, BOX_SIZE[2] / 2.0];
+    var direction = [Math.cos(YAW) * Math.cos(PITCH),
+                     Math.sin(PITCH),
+                     Math.sin(YAW) * Math.cos(PITCH)];
+    var pos = [center[0] - VIEW_DISTANCE * direction[0],
+               center[1] - VIEW_DISTANCE * direction[1],
+               center[2] - VIEW_DISTANCE * direction[2]];
+    mat4.lookAt(LOOK_AT, 
+                pos, 
+                center, 
+                [0.0, 1.0, 0.0]);
+  }
+
+  // 2D Camera
+
+  var SCREEN_POSITION = [0, 0];
+  var CAMERA_SIZE = [0, 0];
+
+  // Bonds
+
+  const BOND_SEGMENTS = 3;
+  const VERTICES_PER_BOND = BOND_SEGMENTS * 6;
+
+  // Simulation State
+
+  var IS_PLAYING = true;
+  var PLAY_PAUSE_BUTTON = document.getElementById('pause_play');
+
+  var FRAME_RANGE = document.getElementById('frame_range');
+
+  google.colab.output.setIframeHeight(0, true, {maxHeight: 5000});
+  var invokeFunction = google.colab.kernel.invokeFunction;
+
+  var CANVAS = document.getElementById("canvas");
+  CANVAS.width = 1024;
+  CANVAS.height = 1024;
+
+  // Simulation Loading.
+
+  function make_sizes() {
+    return {
+      position: DIMENSION,
+      angle: DIMENSION - 1,
+      size: 1,
+      color: 3,
+    };
+  }
+
+  function simulation_info_string() {
+    return ('<p style="color:yellow">' +
+            'Simulation Info:</p><div style="padding-left: 20px; padding-bottom: 10px;">' +
+            'Box Size:    ' + BOX_SIZE.map(x => parseFloat(x).toFixed(2)) + '<br>' +
+            'Dimension:   ' + DIMENSION + '<br>' +
+            'Frame Count: ' + FRAME_COUNT + '<br></div>');
+  }
+
+  async function load_simulation() {
+    console.log("Loading simulation."); 
+    INFO.innerHTML = 'Loading simulation...<br>';
+
+    var result = await invokeFunction('GetSimulationMetadata', [], {});
+    var metadata = from_json(result);
+
+    if(!metadata.box_size) {
+      ERROR.innerHTML += 'ERROR: No box size specified.<br>';
+    }
+
+    FRAME_COUNT = metadata.frame_count;
+    BOX_SIZE = metadata.box_size;
+    DIMENSION = metadata.dimension;
+    SIMULATION_IDX = metadata.simulation_idx;
+
+    if (metadata.background_color)
+      BACKGROUND_COLOR = metadata.background_color;
+
+    if (metadata.resolution) {
+      CANVAS.width = metadata.resolution[0];
+      CANVAS.height = metadata.resolution[1];
+    }
+
+    const aspect_ratio = CANVAS.width / CANVAS.height;
+
+    INFO.innerHTML += simulation_info_string();
+
+    SIZE = make_sizes();
+    initialize_gl();
+
+    if (DIMENSION == 2) {
+      SCREEN_POSITION = [BOX_SIZE[0] / 2.0, BOX_SIZE[1] / 2.0];
+      CAMERA_SIZE = [aspect_ratio * BOX_SIZE[0] / 2.0, BOX_SIZE[1] / 2.0];
+    } else if (DIMENSION == 3) {
+      const fovy = 45.0 / 180.0 * Math.PI;
+      const max_box_size = Math.max(BOX_SIZE[0], BOX_SIZE[1], BOX_SIZE[2]);
+      PERSPECTIVE = mat4.perspective(PERSPECTIVE, 
+                                     fovy,            // Field of view.
+                                     aspect_ratio,    // Aspect ratio.
+                                     max_box_size / 10.0, // Near clip plane.
+                                     100 * max_box_size); // Far clip plane.
+      VIEW_DISTANCE = 2 * max_box_size;
+      make_look_at();
+    } else {
+      ERROR.innerHTML += 'ERROR: Invalid dimension specified: ' + DIMENSION + '.<br>';
+    }
+
+    FRAME_RANGE.max = FRAME_COUNT - 1;
+
+    // This specifies the maximum number of frames of data we will try to
+    // transfer between Python and Javascript at a time.
+    READ_BUFFER_SIZE = metadata.buffer_size;
+    if (!READ_BUFFER_SIZE)
+      READ_BUFFER_SIZE = FRAME_COUNT;
+
+    var geometry_list = metadata.geometry;
+    if (geometry_list) {
+      for (var i = 0; i < geometry_list.length ; i++) {
+        const name = geometry_list[i];
+        GEOMETRY[name] = await load_geometry(name);
+      }
+    }
+
+    IS_LOADED = true;
+  }
+
+  async function load_geometry(name) {
+    console.log('Loading ' + name + '.');
+    INFO.innerHTML += 'Loading geometry "' + name + '".<br>';
+    var result = await invokeFunction('GetGeometryMetadata' + SIMULATION_IDX,
+                                      [name], {});
+    var data = from_json(result);
+
+    console.log(data);
+
+    var geometry = {};
+    geometry.name = name;
+    geometry.shape = data.shape;
+    geometry.count = data.count;
+    geometry.selected = new Int32Array(data.count);
+
+    if (data.reference_geometry)
+      geometry.reference_geometry = data.reference_geometry;
+
+    if (data.max_neighbors)
+      geometry.max_neighbors = data.max_neighbors;
+
+    if(!geometry.shape) {
+      ERROR.innerHTML += 'ERROR: No shape specified for the geometry.<br>';
+    }
+
+    for (var field in data.fields) {
+      var array;
+      var array_type;
+      if (data.fields[field] == 'dynamic') {
+        array = await load_dynamic_array(name, field, geometry.count);
+        array_type = GL.DYNAMIC_DRAW;
+      } else if (data.fields[field] == 'static') {
+        array = await load_array(name, field);
+        array_type = GL.STATIC_DRAW;
+      } else if (data.fields[field] == 'global') {
+        array = await load_array(name, field);
+        array_type = 'GLOBAL';
+      } else {
+        ERROR.innerHTML += ('ERROR: field must have type "dynamic", "static", or ' +
+                            '"global". Found' + data.fields[field] + '.<br>');
+      }
+
+      geometry[field] = array;
+      geometry[field + '_type'] = array_type; 
+
+      if (data.shape == 'Bond' && field == 'neighbor_idx')
+        continue;
+
+      if (array_type != 'GLOBAL') {
+        var array_buffer = GL.createBuffer();
+        var array_buffer_size = 4 * SIZE[field] * geometry.count;
+        GL.bindBuffer(GL.ARRAY_BUFFER, array_buffer);
+        GL.bufferData(GL.ARRAY_BUFFER, array, array_type);
+        geometry[field + '_buffer'] = array_buffer;  
+        geometry[field + '_buffer_size'] = array_buffer_size;   
+      }
+    }
+
+    if (data.shape == 'Bond') {
+      var vertex_buffer = GL.createBuffer();
+      var vertex_count = (geometry.count * 
+                          geometry.max_neighbors * 
+                          VERTICES_PER_BOND);
+      var vertex_buffer_size = 4 * SIZE['position'] * vertex_count;
+      GL.bindBuffer(GL.ARRAY_BUFFER, vertex_buffer);
+      GL.bufferData(GL.ARRAY_BUFFER, vertex_buffer_size, GL.DYNAMIC_DRAW);
+
+      geometry.vertices = new Float32Array(SIZE['position'] * vertex_count);
+      geometry.vertex_buffer = vertex_buffer;
+      geometry.vertex_buffer_size = vertex_buffer_size;
+
+      var vertex_normal_buffer = GL.createBuffer();
+      GL.bindBuffer(GL.ARRAY_BUFFER, vertex_normal_buffer);
+      GL.bufferData(GL.ARRAY_BUFFER, vertex_buffer_size, GL.DYNAMIC_DRAW);
+
+      geometry.normals = new Float32Array(SIZE['position'] * vertex_count);
+      geometry.vertex_normal_buffer = vertex_normal_buffer;
+    }
+
+    return geometry;
+  }
+
+  async function load_dynamic_array(name, field, count) {
+    if (!FRAME_COUNT) {
+      ERROR.innerHTML += 'ERROR: No frame count specified.<br>';
+    }
+
+    var array = new Float32Array(FRAME_COUNT * count * SIZE[field]);
+
+    const info_text = INFO.innerHTML;
+
+    for (var i = 0 ; i < FRAME_COUNT ; i += READ_BUFFER_SIZE) {
+      await load_array_chunk(name, field, count, array, i, info_text);
+    }
+
+    INFO.innerHTML = info_text + 'Loaded "' + field + '".<br>';
+
+    return array;
+  }
+
+  async function load_array_chunk(name, field, count, array, offset, info_text) {
+    var dbg_string = ('Loading "' + field + '" chunk at time offset ' + offset +
+                      '.<br>'); 
+    console.log(dbg_string);
+    INFO.innerHTML = info_text + dbg_string + '<br>';
+
+    var result = await invokeFunction('GetArrayChunk' + SIMULATION_IDX, 
+                                      [name, field, offset, READ_BUFFER_SIZE],
+                                      {});
+    var data = from_json(result);
+
+    if (!data.array_chunk) {
+      // Error checking.
+    }
+
+    var array_chunk = decode(data.array_chunk);
+    array.set(array_chunk, offset * count * SIZE[field]);
+  }
+
+  async function load_array(name, field) {
+    const info_text = INFO.innerHTML;
+    INFO.innerHTML += 'Loading "' + field + '".<br>';
+    var result = await invokeFunction('GetArray' + SIMULATION_IDX,
+                                      [name, field], {});
+    var data = from_json(result);
+
+    if (!data.array) {
+      ERROR.innerHTML += 'ERROR: No data array specified.<br>';
+    }
+    INFO.innerHTML = info_text + 'Loaded "' + field + '".<br>';
+    return decode(data.array);
+  }
+
+  function initialize_gl() {
+    GL = CANVAS.getContext("webgl2");
+
+    if (!GL) {
+        alert('Unable to initialize WebGL.');
+        return;
+    }
+
+    GL.viewport(0, 0, GL.drawingBufferWidth, GL.drawingBufferHeight);
+
+    if (BACKGROUND_COLOR)
+      GL.clearColor(BACKGROUND_COLOR[0], 
+                    BACKGROUND_COLOR[1], 
+                    BACKGROUND_COLOR[2], 
+                    1.0);
+    else
+      GL.clearColor(0.2, 0.2, 0.2, 1.0);
+    GL.enable(GL.DEPTH_TEST);
+
+    var shader_program;
+    if (DIMENSION == 2)
+      shader_program = initialize_shader(
+          GL, VERTEX_SHADER_SOURCE_2D, FRAGMENT_SHADER_SOURCE_2D);
+    else if (DIMENSION == 3)
+      shader_program = initialize_shader(
+          GL, VERTEX_SHADER_SOURCE_3D, FRAGMENT_SHADER_SOURCE_3D);
+
+    SHADER = {
+      program: shader_program,
+      attribute: {
+          vertex_position: GL.getAttribLocation(shader_program, 'vertex_position'),
+          position: GL.getAttribLocation(shader_program, 'position'),
+          size: GL.getAttribLocation(shader_program, 'size'),
+          color: GL.getAttribLocation(shader_program, 'color'),
+      },
+      uniform: {
+          color: GL.getUniformLocation(shader_program, 'color'),
+          global_size: GL.getUniformLocation(shader_program, 'global_size'),
+          use_global_size: GL.getUniformLocation(shader_program, 'use_global_size'),
+          global_color: GL.getUniformLocation(shader_program, 'global_color'),
+          use_global_color: GL.getUniformLocation(shader_program, 'use_global_color'),
+          use_position: GL.getUniformLocation(shader_program, 'use_position')
+      },
+    };
+
+    if (DIMENSION == 2) {
+      SHADER.uniform['screen_position'] = GL.getUniformLocation(shader_program, 'screen_position');
+      SHADER.uniform['screen_size'] = GL.getUniformLocation(shader_program, 'screen_size');
+    } else if (DIMENSION == 3) {
+      SHADER.attribute['vertex_normal'] = GL.getAttribLocation(shader_program, 'vertex_normal');
+      SHADER.uniform['perspective'] = GL.getUniformLocation(shader_program, 'perspective');
+      SHADER.uniform['light_direction'] = GL.getUniformLocation(shader_program, 'light_direction');
+    }
+
+    GL.useProgram(shader_program);
+    
+    GL.uniform4f(SHADER.uniform.color, 0.9, 0.9, 1.0, 1.0);
+    GL.uniform1f(SHADER.uniform.global_size, 1.0);
+    GL.uniform1i(SHADER.uniform.use_global_size, true);
+
+    GL.uniform3f(SHADER.uniform.global_color, 1.0, 1.0, 1.0);
+    GL.uniform1i(SHADER.uniform.use_global_color, true);
+    GL.uniform1f(SHADER.uniform.use_position, 1.0);
+
+    var inorm = 1.0 / Math.sqrt(3);
+    GL.uniform3f(SHADER.uniform.light_direction, inorm, -inorm, inorm)
+
+    SHAPE['Disk'] = make_disk(GL, SHADER, 16, 0.5);
+    SHAPE['Sphere'] = make_sphere(GL, SHADER, 16, 16, 0.5);
+
+    const vao = GL.createVertexArray();
+    GL.bindVertexArray(vao);
+  }
+
+  function make_disk(gl, shader, segments, radius) {
+    var position = new Float32Array(segments * DIMENSION * 3);
+    for (var s = 0 ; s < segments ; s++) {
+        const th = 2 * s / segments * Math.PI;
+        const th_p = 2 * (s + 1) / segments * Math.PI;
+        position.set([0.0, 0.0], s * 3 * DIMENSION);
+        position.set([radius * Math.cos(th), radius * Math.sin(th)],
+                     s * 3 * DIMENSION + DIMENSION);
+        position.set([radius * Math.cos(th_p), radius * Math.sin(th_p)], 
+                     s * 3 * DIMENSION + 2 * DIMENSION);
+    }
+
+    var buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, position, gl.STATIC_DRAW);
+
+    return {
+      vertex_position: position,
+      vertex_buffer: buffer,
+      vertex_count: segments * 3,
+    };
+  }
+
+  function make_sphere(gl, shader, horizontal_segments, vertical_segments, radius) {
+    const stride = DIMENSION * 3 * 2;  // 3 vertices per tri, two tris per quad.
+    if (DIMENSION != 3) {
+      return null;
+      // Error Checking.
+    }
+
+    var position = new Float32Array(vertical_segments * horizontal_segments * stride);
+    var normal = new Float32Array(vertical_segments * horizontal_segments * stride);
+
+    var dtheta = 2 * Math.PI / horizontal_segments;
+    var dphi = Math.PI / vertical_segments;
+
+    for (var vs = 0 ; vs < vertical_segments ; vs++) {
+      const phi_0 = vs * dphi;
+      const phi_1 = (vs + 1) * dphi;
+      const offset = vs * horizontal_segments * stride;
+      for (var hs = 0 ; hs < horizontal_segments ; hs++) {
+        const theta_0 = hs * dtheta;
+        const theta_1 = (hs + 1) * dtheta;
+
+        const x0 = radius * Math.sin(phi_0) * Math.cos(theta_0);
+        const y0 = radius * Math.sin(phi_0) * Math.sin(theta_0);
+        const z0 = radius * Math.cos(phi_0);
+
+        const x1 = radius * Math.sin(phi_1) * Math.cos(theta_0);
+        const y1 = radius * Math.sin(phi_1) * Math.sin(theta_0);
+        const z1 = radius * Math.cos(phi_1);
+
+        const x2 = radius * Math.sin(phi_0) * Math.cos(theta_1);
+        const y2 = radius * Math.sin(phi_0) * Math.sin(theta_1);
+        const z2 = radius * Math.cos(phi_0);
+
+        const x3 = radius * Math.sin(phi_1) * Math.cos(theta_1);
+        const y3 = radius * Math.sin(phi_1) * Math.sin(theta_1);
+        const z3 = radius * Math.cos(phi_1);
+
+        position.set([x0, y0, z0,
+                      x1, y1, z1,
+                      x2, y2, z2,
+                      x1, y1, z1,
+                      x3, y3, z3,
+                      x2, y2, z2], offset + hs * stride);
+
+        normal.set([x0 / radius, y0 / radius, z0 / radius,
+                    x1 / radius, y1 / radius, z1 / radius,
+                    x2 / radius, y2 / radius, z2 / radius,
+                    x1 / radius, y1 / radius, z1 / radius,
+                    x3 / radius, y3 / radius, z3 / radius,
+                    x2 / radius, y2 / radius, z2 / radius], offset + hs * stride);              
+      }
+    }
+
+    var buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, position, gl.STATIC_DRAW);
+
+    var normal_buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, normal_buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, normal, gl.STATIC_DRAW);
+
+    return {
+      vertex_position: position,
+      vertex_buffer: buffer,
+      vertex_normals: normal,
+      vertex_normal_buffer: normal_buffer,
+      vertex_count: vertical_segments * horizontal_segments * 3 * 2
+    };
+  }
+
+  function set_attribute(geometry, name) {
+    if (!geometry[name]) {
+      if (SIZE[name] == 1)
+        GL.uniform1f(SHADER.uniform['global_' + name], 1.0);
+      else if (SIZE[name] == 2)
+        GL.uniform2f(SHADER.uniform['global_' + name], 1.0, 1.0);
+      else if (SIZE[name] == 3)
+        GL.uniform3f(SHADER.uniform['global_' + name], 1.0, 1.0, 1.0);
+
+      GL.uniform1i(SHADER.uniform['use_global_' + name], true);
+    } else if (geometry[name + '_type'] == 'GLOBAL') {
+      if (SIZE[name] == 1)
+        GL.uniform1fv(SHADER.uniform['global_' + name], geometry[name]);
+      else if (SIZE[name] == 2)
+        GL.uniform2fv(SHADER.uniform['global_' + name], geometry[name]);
+      else if (SIZE[name] == 3)
+        GL.uniform3fv(SHADER.uniform['global_' + name], geometry[name]);
+
+      GL.uniform1i(SHADER.uniform['use_global_' + name], true);
+    } else {
+      GL.enableVertexAttribArray(SHADER.attribute[name]);
+      var stride = SIZE[name] * geometry.count;
+      GL.bindBuffer(GL.ARRAY_BUFFER, geometry[name + '_buffer']);
+      if (geometry[name + '_type'] == GL.DYNAMIC_DRAW) {
+        const data = geometry[name].slice(FRAME_COUNT * stride, 
+                                          (FRAME_COUNT + 1) * stride);
+        GL.bufferSubData(GL.ARRAY_BUFFER, 0, data);
+      }
+      GL.vertexAttribPointer(
+        SHADER.attribute[name],               
+        SIZE[name],        
+        GL.FLOAT,         
+        false,            
+        0,    
+        0
+      );                
+      GL.vertexAttribDivisor(SHADER.attribute[name], 1);
+
+      GL.uniform1i(SHADER.uniform['use_global_' + name], false);
+    }
+  }
+
+  var loops = 0;
+
+  function update_frame() {
+    if(!GL) {
+      window.requestAnimationFrame(update_frame);
+      return;
+    }
+
+    GL.clear(GL.COLOR_BUFFER_BIT | GL.DEPTH_BUFFER_BIT);
+    
+    if (!IS_LOADED) {
+      window.requestAnimationFrame(update_frame);
+      return;
+    }
+
+    if (DIMENSION == 2) {
+      var camera_x = SCREEN_POSITION[0];
+      var camera_y = SCREEN_POSITION[1];
+
+      if (DRAGGING) {
+        const delta = get_drag_offset();
+        camera_x += delta[0];
+        camera_y += delta[1];
+      }
+      GL.uniform2f(SHADER.uniform.screen_position, camera_x, camera_y);
+      GL.uniform2f(SHADER.uniform.screen_size, CAMERA_SIZE[0], CAMERA_SIZE[1]);
+    } else if (DIMENSION == 3) {
+
+      // Now these are some janky globals.
+      if (DRAGGING) {
+        var yaw = YAW;
+        var pitch = PITCH;
+        const delta = get_drag_offset();
+        YAW = YAW - delta[0];
+        PITCH = PITCH - delta[1];
+        make_look_at();
+        YAW = yaw;
+        PITCH = pitch;
+      }
+
+      GL.uniformMatrix4fv(SHADER.uniform.perspective, false,
+                          mat4.multiply(EYE, PERSPECTIVE, LOOK_AT));
+    }
+
+    if (CURRENT_FRAME >= FRAME_COUNT - 1) {
+      loops++;
+      CURRENT_FRAME = 0;
+    }
+
+    for (var name in GEOMETRY) {
+      var geom = GEOMETRY[name];
+
+      set_attribute(geom, 'size');
+      set_attribute(geom, 'color');
+
+      var shape = geom.shape;
+      var vertex_buffer;
+      var vertex_count;
+      var vertex_normal_buffer = null;
+
+      if (shape != 'Bond') {
+        shape = SHAPE[shape];
+
+        update_shape(geom);        
+
+        vertex_buffer = shape.vertex_buffer;
+        vertex_count = shape.vertex_count;
+        vertex_normal_buffer = shape.vertex_normal_buffer;
+      } else {
+        vertex_count = update_bond_vertex_data(GEOMETRY[geom.reference_geometry],
+                                               geom);
+        vertex_buffer = geom.vertex_buffer;
+        vertex_normal_buffer = geom.vertex_normal_buffer;
+      }
+
+      GL.enableVertexAttribArray(SHADER.attribute.vertex_position);
+      GL.bindBuffer(GL.ARRAY_BUFFER, vertex_buffer);
+      GL.vertexAttribPointer(
+        SHADER.attribute.vertex_position,
+        DIMENSION,
+        GL.FLOAT,
+        false,
+        0,
+        0
+      );
+
+      if (DIMENSION == 3 && vertex_normal_buffer) { 
+        GL.enableVertexAttribArray(SHADER.attribute.vertex_normal);
+        GL.bindBuffer(GL.ARRAY_BUFFER, vertex_normal_buffer);
+        GL.vertexAttribPointer(
+          SHADER.attribute.vertex_normal,
+          DIMENSION,
+          GL.FLOAT,
+          false,
+          0,
+          0
+        );
+      }
+
+      if (shape == 'Bond')
+      {
+        GL.drawArrays(GL.TRIANGLES, 0, vertex_count);
+      }
+      else {
+        GL.drawArraysInstanced(GL.TRIANGLES, 0, vertex_count, geom.count);
+      }
+    }
+
+    if(IS_PLAYING) {
+      CURRENT_FRAME++;
+      FRAME_RANGE.value = CURRENT_FRAME;
+    }
+
+    window.requestAnimationFrame(update_frame);
+  }
+
+  function update_shape(geometry) {
+    GL.enableVertexAttribArray(SHADER.attribute.position);
+    var stride = geometry.count * DIMENSION;
+    GL.bindBuffer(GL.ARRAY_BUFFER, geometry.position_buffer);
+    if (geometry.position_type == GL.DYNAMIC_DRAW) {
+      const positions = geometry.position.subarray(CURRENT_FRAME * stride, 
+                                                   (CURRENT_FRAME + 1) * stride);
+      GL.bufferSubData(GL.ARRAY_BUFFER, 0, positions);
+    }
+    GL.vertexAttribPointer(
+      SHADER.attribute.position,               
+      DIMENSION,        
+      GL.FLOAT,         
+      false,            
+      0,    
+      0
+    );                
+    GL.vertexAttribDivisor(SHADER.attribute.position, 1);
+    GL.uniform1f(SHADER.uniform.use_position, 1.0);
+  }
+
+  function update_bond_vertex_data(reference_geometry, bonds) {
+    const geom = reference_geometry;
+    const N = geom.count;
+    var stride = N * DIMENSION;
+    const positions = geom.position.subarray(CURRENT_FRAME * stride, 
+                                             (CURRENT_FRAME + 1) * stride);
+    const neighbors = bonds.max_neighbors;
+
+    var vertex_count = 0;
+    var vertices = bonds.vertices;
+    var normals = bonds.normals;
+
+    for (var i = 0 ; i < N ; i++) {
+      var r_i = positions.subarray(i * DIMENSION, (i + 1) * DIMENSION);
+      for (var j = 0 ; j < neighbors ; j++) {
+        const idx = i * neighbors + j; 
+        const nbr_idx = Math.round(bonds.neighbor_idx[idx]);
+
+        if (nbr_idx < i) {
+          var r_j = positions.subarray(nbr_idx * DIMENSION, (nbr_idx + 1) * DIMENSION);
+          vertex_count = push_bond(vertices, normals, vertex_count, r_i, r_j, 0.1); //bonds.diameter / 2.0);
+        }
+      }
+    }
+
+    GL.bindBuffer(GL.ARRAY_BUFFER, bonds.vertex_buffer);
+    GL.bufferData(GL.ARRAY_BUFFER, vertices, GL.DYNAMIC_DRAW);
+
+    GL.bindBuffer(GL.ARRAY_BUFFER, bonds.vertex_normal_buffer);
+    GL.bufferData(GL.ARRAY_BUFFER, normals, GL.DYNAMIC_DRAW);
+
+    GL.uniform1f(SHADER.uniform.use_position, 0.0);
+    GL.uniform1i(SHADER.uniform.use_global_size, 1);
+    GL.uniform1i(SHADER.uniform.use_global_color, 1);
+
+    return vertex_count;
+  }
+
+  BOND_C_TABLE = [];
+  BOND_S_TABLE = [];
+  for (var i = 0 ; i < BOND_SEGMENTS ; i++)
+  {
+    BOND_C_TABLE.push(Math.cos(2 * i * Math.PI / BOND_SEGMENTS));
+    BOND_S_TABLE.push(Math.sin(2 * i * Math.PI / BOND_SEGMENTS));
+  }
+
+  function push_bond(vertices, normals, vertex_count, r_i, r_j, radius) {
+    var dr = vec3.fromValues(r_i[0] - r_j[0], 
+                             r_i[1] - r_j[1], 
+                             r_i[2] - r_j[2]);
+
+    if (Math.abs(dr[0]) > BOX_SIZE / 2.0 || 
+        Math.abs(dr[1]) > BOX_SIZE / 2.0 ||
+        Math.abs(dr[2]) > BOX_SIZE / 2.0 )
+      return vertex_count;
+
+    var up = vec3.fromValues(0.0, 1.0, 0.0);
+    var left = vec3.fromValues(0.0, 1.0, 0.0);
+
+    vec3.cross(left, up, dr);
+    vec3.normalize(left, left);
+
+    vec3.cross(up, left, dr);
+    vec3.normalize(up, up);
+
+    var normal = vec3.fromValues(0.0, 0.0, 0.0);
+ 
+    for (var i = 0 ; i < BOND_SEGMENTS ; i++) {
+      const c1 = radius * BOND_C_TABLE[i];
+      const c2 = radius * BOND_C_TABLE[(i + 1) % BOND_SEGMENTS];
+      const s1 = radius * BOND_S_TABLE[i];
+      const s2 = radius * BOND_S_TABLE[(i + 1) % BOND_SEGMENTS];
+
+      vertices.set([
+        r_j[0] + left[0] * c1 + up[0] * s1,
+        r_j[1] + left[1] * c1 + up[1] * s1,
+        r_j[2] + left[2] * c1 + up[2] * s1,
+
+        r_i[0] + left[0] * c1 + up[0] * s1,
+        r_i[1] + left[1] * c1 + up[1] * s1,
+        r_i[2] + left[2] * c1 + up[2] * s1,
+
+        r_j[0] + left[0] * c2 + up[0] * s2,
+        r_j[1] + left[1] * c2 + up[1] * s2,
+        r_j[2] + left[2] * c2 + up[2] * s2,
+
+        r_i[0] + left[0] * c1 + up[0] * s1,
+        r_i[1] + left[1] * c1 + up[1] * s1,
+        r_i[2] + left[2] * c1 + up[2] * s1,
+
+        r_i[0] + left[0] * c2 + up[0] * s2,
+        r_i[1] + left[1] * c2 + up[1] * s2,
+        r_i[2] + left[2] * c2 + up[2] * s2,
+
+        r_j[0] + left[0] * c2 + up[0] * s2,
+        r_j[1] + left[1] * c2 + up[1] * s2,
+        r_j[2] + left[2] * c2 + up[2] * s2,        
+      ], 3 * (vertex_count + 6 * i));
+
+      vec3.cross(normal, 
+                 [r_j[0] - r_i[0] + left[0] * c1 + up[0] * s1, 
+                  r_j[1] - r_i[1] + left[1] * c1 + up[1] * s1, 
+                  r_j[2] - r_i[2] + left[2] * c1 + up[2] * s1],
+                 [left[0] * (c1 - c2) + up[0] * (s1 - s2), 
+                  left[1] * (c1 - c2) + up[1] * (s1 - s2), 
+                  left[2] * (c1 - c2) + up[2] * (s1 - s2)]);
+      vec3.normalize(normal, normal);
+
+      normals.set([
+        normal[0], normal[1], normal[2],
+        normal[0], normal[1], normal[2],
+        normal[0], normal[1], normal[2],
+        normal[0], normal[1], normal[2],
+        normal[0], normal[1], normal[2],
+        normal[0], normal[1], normal[2],
+      ], 3 * (vertex_count + 6 * i));
+    }
+    return vertex_count + 6 * BOND_SEGMENTS;
+  }
+
+  // SHADER CODE
+
+  const VERTEX_SHADER_SOURCE_2D = `#version 300 es
+    // Vertex Shader Program.
+    in vec2 vertex_position;
+    in vec2 position;
+    in float size;
+    in vec3 color;
+
+    out vec4 v_color;
+
+    uniform float use_position;
+
+    uniform vec2 screen_position;
+    uniform vec2 screen_size;
+
+    uniform float global_size;
+    uniform bool use_global_size;
+
+    uniform vec3 global_color;
+    uniform bool use_global_color;
+
+    void main() {
+      float _size = use_global_size ? global_size : size;
+      vec2 v = (_size * vertex_position + position - screen_position) / screen_size;
+      gl_Position = vec4(v, 0.0, 1.0);
+      v_color = vec4(use_global_color ? global_color : color, 1.0f);
+    }
+  `;
+
+  const FRAGMENT_SHADER_SOURCE_2D = `#version 300 es
+    precision mediump float;
+
+    in vec4 v_color;
+
+    out vec4 outColor;
+
+    void main() {
+      outColor = v_color;
+    }
+  `;
+
+   const VERTEX_SHADER_SOURCE_3D = `#version 300 es
+    // Vertex Shader Program.
+    in vec3 vertex_position;
+    in vec3 vertex_normal;
+
+    in vec3 position;
+    in float size;
+    in vec3 color;
+
+    out vec4 v_color;
+    out vec3 v_normal;
+
+    uniform mat4 perspective;
+
+    uniform float use_position;
+
+    uniform float global_size;
+    uniform bool use_global_size;
+
+    uniform vec3 global_color;
+    uniform bool use_global_color;
+
+    void main() {
+      vec3 pos = use_position * position;
+      float _size = use_global_size ? global_size : size;
+
+      vec3 v = (_size * vertex_position + pos);
+      gl_Position = perspective * vec4(v, 1.0);
+
+      v_color = vec4(use_global_color ? global_color : color, 1.0f);
+      v_normal = vertex_normal;
+    }
+  `;
+
+  const FRAGMENT_SHADER_SOURCE_3D = `#version 300 es
+    precision mediump float;
+
+    in vec4 v_color;
+    in vec3 v_normal;
+
+    uniform vec3 light_direction;
+
+    out vec4 outColor;
+
+    void main() {
+      float diffuse_magnitude = clamp(-dot(v_normal, light_direction), 0.0, 1.0) + 0.2;
+
+      outColor = vec4(vec3(v_color) * diffuse_magnitude, v_color.a);
+    }
+  `;
+
+  function initialize_shader(gl, vertex_shader_source, fragment_shader_source) {
+
+    const vertex_shader = compile_shader(
+      gl, gl.VERTEX_SHADER, vertex_shader_source);
+    const fragment_shader = compile_shader(
+      gl, gl.FRAGMENT_SHADER, fragment_shader_source);
+
+    const shader_program = gl.createProgram();
+    gl.attachShader(shader_program, vertex_shader);
+    gl.attachShader(shader_program, fragment_shader);
+    gl.linkProgram(shader_program);
+
+    if (!gl.getProgramParameter(shader_program, gl.LINK_STATUS)) {
+      alert(
+        'Unable to initialize shader program: ' + 
+        gl.getProgramInfoLog(shader_program)
+        );
+        return null;
+    }
+    return shader_program;
+  }
+
+  function compile_shader(gl, type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      alert('An error occured compiling shader: ' + gl.getShaderInfoLog(shader));
+      gl.deleteShader(shader);
+      return null;
+    }
+
+    return shader;
+  }
+
+  // UI
+
+  var DRAG_START;
+  var DRAG_CURRENT;
+  var DRAGGING = false;
+
+  CANVAS.addEventListener('mousedown', function(e) {
+    DRAG_START = [e.offsetX, e.offsetY];
+    DRAGGING = true;
+  });
+
+  CANVAS.addEventListener('mousemove', function(e) {
+    DRAG_CURRENT = [e.offsetX, e.offsetY];
+  });
+
+  CANVAS.addEventListener('mouseup', function(e) {
+    const delta = get_drag_offset();
+    if (DIMENSION == 2) {
+      SCREEN_POSITION = [SCREEN_POSITION[0] + delta[0],
+                         SCREEN_POSITION[1] + delta[1]];
+    } else if (DIMENSION == 3) {
+      YAW -= delta[0];
+      PITCH -= delta[1];
+
+      if (PITCH > Math.PI / 2.1)
+        PITCH = Math.PI / 2.1;
+      if (PITCH < -Math.PI / 2.1)
+        PITCH = -Math.PI / 2.1;
+
+      make_look_at();
+    }
+
+    DRAGGING = false;
+  });
+
+  function toggle_play() {
+    IS_PLAYING = !IS_PLAYING;
+    console.log(PLAY_PAUSE_BUTTON);
+    if(IS_PLAYING)
+      PLAY_PAUSE_BUTTON.innerHTML = '||';
+    else
+      PLAY_PAUSE_BUTTON.innerHTML = '>';
+  }
+
+  function change_frame(value) {
+    if (!IS_LOADED)
+      return;
+    CURRENT_FRAME = value;
+    FRAME_RANGE.innerHTML = value;
+  }
+
+  function get_drag_offset() {
+    var delta = [DRAG_START[0] - DRAG_CURRENT[0],
+                 -DRAG_START[1] + DRAG_CURRENT[1]];
+    delta = [delta[0] / canvas.width * 2, delta[1] / canvas.height * 2];
+    if (DIMENSION == 2) {
+      delta = [delta[0] * CAMERA_SIZE[0],
+               delta[1] * CAMERA_SIZE[1]];
+    }
+    return delta;
+  }
+
+  const SCALE_SPEED = 0.1;
+  CANVAS.addEventListener('mousewheel', function(e) {
+    var delta = Math.sign(e.wheelDeltaY);
+    if (navigator.appVersion.indexOf('Mac'))
+      delta *= -0.1;
+    if (DIMENSION == 2) {
+      CAMERA_SIZE[0] = CAMERA_SIZE[0] * (1 + delta * SCALE_SPEED);
+      CAMERA_SIZE[1] = CAMERA_SIZE[1] * (1 + delta * SCALE_SPEED);
+    } else if (DIMENSION == 3) {
+      VIEW_DISTANCE = VIEW_DISTANCE * (1 + delta * SCALE_SPEED);
+      make_look_at();
+    }
+    e.preventDefault();
+  }, false);
+  CANVAS.addEventListener('DOMMouseScroll', function(e) {
+    const delta = Math.sign(e.detail);
+    if (DIMENSION == 2) {
+      CAMERA_SIZE[0] = CAMERA_SIZE[0] * (1 + delta * SCALE_SPEED);
+      CAMERA_SIZE[1] = CAMERA_SIZE[1] * (1 + delta * SCALE_SPEED);
+    } else if (DIMENSION == 3) {
+      VIEW_DISTANCE = VIEW_DISTANCE * (1 + delta * SCALE_SPEED);
+      make_look_at();
+    }
+    e.preventDefault();
+  }, false);
+
+
+  // SERIALIZATION UTILITIES
+  function decode(sBase64, nBlocksSize) {
+    var chrs = atob(sBase64);
+    var array = new Uint8Array(new ArrayBuffer(chrs.length));
+
+    for(var i = 0 ; i < chrs.length ; i++) {
+      array[i] = chrs.charCodeAt(i);
+    }
+
+    return new Float32Array(array.buffer);
+  }
+
+  function from_json(data) { 
+    data = data.data['application/json'];
+
+    if (typeof data == 'string') {
+      return JSON.parse(data);
+    }
+
+    return data;
+  }
+
+  // RUN CELL
+
+  load_simulation();
+  update_frame();
+</script>
