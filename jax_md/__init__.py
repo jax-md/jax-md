@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from jax_md import colab_tools
 from jax_md import space
 from jax_md import energy
 from jax_md import minimize
@@ -23,3 +22,5 @@ from jax_md import dataclasses
 from jax_md import nn
 from jax_md import interpolate
 from jax_md import util
+try:
+  from jax_md import colab_tools

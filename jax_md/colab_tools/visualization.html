@@ -1,5 +1,5 @@
 <!--
-  Copyright 2019 Google LLC
+  Copyright 2020 Google LLC
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
   You may obtain a copy of the License at
@@ -78,7 +78,7 @@
   var VIEW_DISTANCE = 0.0;
 
   function make_look_at() {
-    var center = [BOX_SIZE / 2.0, BOX_SIZE / 2.0, BOX_SIZE / 2.0];
+    var center = [BOX_SIZE[0] / 2.0, BOX_SIZE[1] / 2.0, BOX_SIZE[2] / 2.0];
     var direction = [Math.cos(YAW) * Math.cos(PITCH),
                      Math.sin(PITCH),
                      Math.sin(YAW) * Math.cos(PITCH)];
@@ -166,16 +166,17 @@
     initialize_gl();
 
     if (DIMENSION == 2) {
-      SCREEN_POSITION = [BOX_SIZE / 2.0, BOX_SIZE / 2.0];
-      CAMERA_SIZE = [aspect_ratio * BOX_SIZE / 2.0, BOX_SIZE / 2.0];
+      SCREEN_POSITION = [BOX_SIZE[0] / 2.0, BOX_SIZE[1] / 2.0];
+      CAMERA_SIZE = [aspect_ratio * BOX_SIZE[0] / 2.0, BOX_SIZE[1] / 2.0];
     } else if (DIMENSION == 3) {
       const fovy = 45.0 / 180.0 * Math.PI;
+      const max_box_size = Math.max(BOX_SIZE[0], BOX_SIZE[1], BOX_SIZE[2]);
       PERSPECTIVE = mat4.perspective(PERSPECTIVE, 
                                      fovy,            // Field of view.
                                      aspect_ratio,    // Aspect ratio.
-                                     BOX_SIZE / 10.0, // Near clip plane.
-                                     100 * BOX_SIZE); // Far clip plane.
-      VIEW_DISTANCE = 2 * BOX_SIZE;
+                                     max_box_size / 10.0, // Near clip plane.
+                                     100 * max_box_size); // Far clip plane.
+      VIEW_DISTANCE = 2 * max_box_size;
       make_look_at();
     } else {
       ERROR.innerHTML += 'ERROR: Invalid dimension specified: ' + DIMENSION + '.<br>';
