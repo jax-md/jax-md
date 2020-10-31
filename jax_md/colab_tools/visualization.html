@@ -731,9 +731,9 @@
                              r_i[1] - r_j[1], 
                              r_i[2] - r_j[2]);
 
-    if (Math.abs(dr[0]) > BOX_SIZE / 2.0 || 
-        Math.abs(dr[1]) > BOX_SIZE / 2.0 ||
-        Math.abs(dr[2]) > BOX_SIZE / 2.0 )
+    if (Math.abs(dr[0]) > BOX_SIZE[0] / 2.0 || 
+        Math.abs(dr[1]) > BOX_SIZE[1] / 2.0 ||
+        Math.abs(dr[2]) > BOX_SIZE[2] / 2.0)
       return vertex_count;
 
     var up = vec3.fromValues(0.0, 1.0, 0.0);
