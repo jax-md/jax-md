@@ -281,4 +281,4 @@ def render(box_size,
 
   SIMULATION_IDX += 1
 
-  display(renderer_code)
+  IPython.display.display(renderer_code)
