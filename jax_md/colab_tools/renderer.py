@@ -29,9 +29,8 @@ import numpy as onp
 
 import time
 
-
 renderer_code = IPython.display.HTML(
-  url=('https://raw.githubusercontent.com/google/jax-md/visualization_2/'
+  url=('https://raw.githubusercontent.com/google/jax-md/master/'
        'jax_md/colab_tools/visualization.html')
 )
 
