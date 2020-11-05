@@ -365,7 +365,11 @@ def gupta_potential(displacement,
     dR = space.map_product(displacement)(R, R)
     dr = space.distance(dR)
     first_term = A * np.sum(_gupta_term1(dr, p, r_0n, cutoff), axis=1)
-    second_term = np.sqrt(np.sum(_gupta_term2(dr, q, r_0n, cutoff), axis=1))
+    # Safe sqrt used in order to ensure that force calculations are not nan
+    # when the particles are too widely separated at initialization
+    # (corresponding to the case where the attractive term is 0.).
+    attractive_term = np.sum(_gupta_term2(dr, q, r_0n, cutoff), axis=1)
+    second_term = util.safe_mask(attractive_term > 0, np.sqrt, attractive_term)
     return U_n / 2.0 * np.sum(first_term - second_term)
 
   return compute_fn
