@@ -143,18 +143,19 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
     etas = np.linspace(1., 2., N_etas, dtype=dtype)
     gr = nn.angular_symmetry_functions(displacement,
                                        species,
-                                       etas=etas, 
-                                       lambdas=np.array([-1.0] * N_etas, dtype), 
+                                       etas=etas,
+                                       lambdas=np.array([-1.0] * N_etas, dtype),
                                        zetas=np.array([1.0] * N_etas, dtype),
                                        cutoff_distance=r_cutoff)
-    
-    gr_neigh = nn.angular_symmetry_functions_neighbor_list(displacement,
-                                                           species,
-                                                           etas=etas, 
-                                                           lambdas=np.array([-1.0] * N_etas, dtype), 
-                                                           zetas=np.array([1.0] * N_etas, dtype),
-                                                           cutoff_distance=r_cutoff)
-    
+
+    gr_neigh = nn.angular_symmetry_functions_neighbor_list(
+      displacement,
+      species,
+      etas=etas,
+      lambdas=np.array([-1.0] * N_etas, dtype),
+      zetas=np.array([1.0] * N_etas, dtype),
+      cutoff_distance=r_cutoff)
+
     nbrs = neighbor_fn(R)
     gr_exact = gr(R)
     gr_nbrs = gr_neigh(R, neighbor=nbrs)
@@ -206,6 +207,36 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
     R = np.array([[0,0,0], [1,1,1], [1,1,0]], dtype)
     gr_out = gr(R)
     self.assertAllClose(gr_out.shape, (3, N_etas *  (N_types + N_types * (N_types + 1) // 2)))
+    self.assertAllClose(gr_out[2, 0], dtype(1.885791), rtol=1e-6, atol=1e-6)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_N_types={}_N_etas={}_d_type={}'.format(
+              N_types, N_etas, dtype.__name__),
+          'dtype': dtype,
+          'N_types': N_types,
+          'N_etas': N_etas,
+      } for N_types in N_TYPES_TO_TEST
+        for N_etas in N_ETAS_TO_TEST
+        for dtype in DTYPES))
+  def test_behler_parrinello_symmetry_functions_neighbor_list(self,
+                                                              N_types,
+                                                              N_etas,
+                                                              dtype):
+    displacement, shift = space.free()
+    neighbor_fn = partition.neighbor_list(displacement, 10.0, 8.0, 0.0)
+    gr = nn.behler_parrinello_symmetry_functions_neighbor_list(
+            displacement,np.array([1, 1, N_types]),
+            radial_etas=np.array([1e-4/(0.529177 ** 2)] * N_etas, dtype),
+            angular_etas=np.array([1e-4/(0.529177 ** 2)] * N_etas, dtype),
+            lambdas=np.array([-1.0] * N_etas, dtype),
+            zetas=np.array([1.0] * N_etas, dtype),
+            cutoff_distance=8.0)
+    R = np.array([[0,0,0], [1,1,1], [1,1,0]], dtype)
+    nbrs = neighbor_fn(R)
+    gr_out = gr(R, neighbor=nbrs)
+    self.assertAllClose(gr_out.shape,
+                        (3, N_etas *  (N_types + N_types * (N_types + 1) // 2)))
     self.assertAllClose(gr_out[2, 0], dtype(1.885791), rtol=1e-6, atol=1e-6)
 
 def _graph_network(graph_tuple):
