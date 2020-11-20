@@ -32,7 +32,7 @@ from jax_md import util
 f32 = util.f32
 f64 = util.f64
 
-# 
+#
 
 
 def constant(f):

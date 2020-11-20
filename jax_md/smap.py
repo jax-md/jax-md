@@ -132,7 +132,7 @@ def bond(fn: Callable[..., Array],
     Rb = R[bonds[:, 1]]
     _kwargs = merge_dicts(static_kwargs, dynamic_kwargs)
     _kwargs = _kwargs_to_bond_parameters(bond_types, _kwargs)
-    # NOTE(schsam): This pattern is needed due to JAX issue #912. 
+    # NOTE(schsam): This pattern is needed due to JAX issue #912.
     d = vmap(partial(displacement_or_metric, **dynamic_kwargs), 0, 0)
     dr = d(Ra, Rb)
     return high_precision_sum(fn(dr, **_kwargs))
