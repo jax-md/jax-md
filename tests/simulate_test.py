@@ -14,10 +14,6 @@
 
 """Tests for google3.third_party.py.jax_md.ensemble."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import functools
 
 from absl.testing import absltest
@@ -35,7 +31,10 @@ from jax_md import quantity
 from jax_md import simulate
 from jax_md import space
 from jax_md import energy
+from jax_md import util
 from jax_md.util import *
+
+from functools import partial
 
 jax_config.parse_flags_with_absl()
 jax_config.enable_omnistaging()
@@ -184,55 +183,55 @@ class SimulateTest(jtu.JaxTestCase):
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}_'
+                            f'sy_steps={sy_steps}'),
           'spatial_dimension': dim,
-          'dtype': dtype
-      } for dim in SPATIAL_DIMENSION for dtype in DTYPE))
-  def test_nvt_nose_hoover_ensemble(self, spatial_dimension, dtype):
+          'dtype': dtype,
+          'sy_steps': sy_steps,
+      } for dim in SPATIAL_DIMENSION
+        for dtype in DTYPE
+        for sy_steps in [1, 3, 5, 7]))
+  def test_nvt_nose_hoover(self, spatial_dimension, dtype, sy_steps):
     key = random.PRNGKey(0)
 
-    def invariant(T, state):
-      """The conserved quantity for Nose-Hoover thermostat."""
-      accum = \
-          E(state.position) + quantity.kinetic_energy(state.velocity, state.mass)
-      DOF = spatial_dimension * PARTICLE_COUNT
-      accum = accum + (state.v_xi[0]) ** 2 * state.Q[0] * 0.5 + \
-          DOF * T * state.xi[0]
-      for xi, v_xi, Q in zip(
-          state.xi[1:], state.v_xi[1:], state.Q[1:]):
-        accum = accum + v_xi ** 2 * Q * 0.5 + T * xi
-      return accum
+    box_size = quantity.box_size_at_number_density(PARTICLE_COUNT,
+                                                   f32(1.2),
+                                                   spatial_dimension)
+    displacement_fn, shift_fn = space.periodic(box_size)
+
+    bonds_i = np.arange(PARTICLE_COUNT)
+    bonds_j = np.roll(bonds_i, 1)
+    bonds = np.stack([bonds_i, bonds_j])
+
+    E = energy.simple_spring_bond(displacement_fn, bonds)
+
+    invariant = partial(simulate.nose_hoover_invariant, E)
 
     for _ in range(STOCHASTIC_SAMPLES):
-      key, pos_key, center_key, vel_key, T_key, masses_key = \
-          random.split(key, 6)
+      key, pos_key, vel_key, T_key, masses_key = random.split(key, 5)
 
-      R = random.normal(
+      R = box_size * random.uniform(
         pos_key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
-      R0 = random.normal(
-        center_key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
-      _, shift = space.free()
-
-      E = functools.partial(
-          lambda R, R0, **kwargs: np.sum((R - R0) ** 2), R0=R0)
-
       T = random.uniform(T_key, (), minval=0.3, maxval=1.4, dtype=dtype)
-      mass = random.uniform(
-          masses_key, (PARTICLE_COUNT,), minval=0.1, maxval=10.0, dtype=dtype)
-      init_fn, apply_fn = simulate.nvt_nose_hoover(E, shift, 1e-3, T, tau=10)
+      mass = 1 + random.uniform(masses_key, (PARTICLE_COUNT,), dtype=dtype)
+      init_fn, apply_fn = simulate.nvt_nose_hoover(E,
+                                                   shift_fn,
+                                                   1e-3,
+                                                   T,
+                                                   sy_steps=sy_steps)
       apply_fn = jit(apply_fn)
 
-      state = init_fn(vel_key, R, mass=mass, T_initial=dtype(1.0))
+      state = init_fn(vel_key, R, mass=mass)
 
-      initial = invariant(T, state)
+      initial = invariant(state, T)
 
       for _ in range(DYNAMICS_STEPS):
         state = apply_fn(state)
 
-      assert np.abs(
-          quantity.temperature(state.velocity, state.mass) - T) < 0.1
-      assert np.abs(invariant(T, state) - initial) < initial * 0.01
-      assert state.position.dtype == dtype
+      T_final = quantity.temperature(state.velocity, state.mass)
+      assert np.abs(T_final - T) / T < 0.1
+      self.assertAllClose(invariant(state, T), initial, rtol=1e-4)
+      self.assertEqual(state.position.dtype, dtype)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {

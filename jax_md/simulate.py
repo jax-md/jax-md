@@ -37,6 +37,7 @@ from typing import Callable, TypeVar, Union, Tuple
 from jax import ops
 from jax import random
 import jax.numpy as np
+from jax import lax
 
 from jax_md import quantity, interpolate, util, space, dataclasses
 
@@ -134,6 +135,22 @@ def nve(energy_or_force: Callable[..., Array],
 # Constant Temperature Simulations
 
 
+# Suzuki-Yoshida weights for integrators of different order.
+# These are copied from OpenMM at
+# https://github.com/openmm/openmm/blob/master/openmmapi/src/NoseHooverChain.cpp 
+
+
+SUZUKI_YOSHIDA_WEIGHTS = {
+    1: [1],
+    3: [0.828981543588751, -0.657963087177502, 0.828981543588751],
+    5: [0.2967324292201065, 0.2967324292201065, -0.186929716880426, 
+        0.2967324292201065, 0.2967324292201065],
+    7: [0.784513610477560, 0.235573213359357, -1.17767998417887, 
+        1.31518632068391, -1.17767998417887, 0.235573213359357,
+        0.784513610477560]
+}
+
+
 @dataclasses.dataclass
 class NVTNoseHooverState:
   """A tuple containing state information for the Nose-Hoover chain thermostat.
@@ -143,6 +160,8 @@ class NVTNoseHooverState:
       with shape [n, spatial_dimension].
     velocity: The velocity of particles. An ndarray of floats
       with shape [n, spatial_dimension].
+    force: The current force on the particles. An ndarray of floats with shape
+      [n, spatial_dimension].
     mass: The mass of the particles. Can either be a float or an ndarray
       of floats with shape [n].
     kinetic_energy: A float that stores the current kinetic energy of the
@@ -156,6 +175,7 @@ class NVTNoseHooverState:
   """
   position: Array
   velocity: Array
+  force: Array
   mass: Array
   kinetic_energy: Array
   xi: Array
@@ -166,19 +186,27 @@ class NVTNoseHooverState:
 def nvt_nose_hoover(energy_or_force: Callable[..., Array],
                     shift_fn: ShiftFn,
                     dt: float,
-                    T_schedule: Schedule,
+                    kT: float,
                     chain_length: int=5,
-                    tau: float=100.0) -> Simulator:
+                    chain_steps: int=2,
+                    sy_steps: int=3,
+                    tau: float=None) -> Simulator:
   """Simulation in the NVT ensemble using a Nose Hoover Chain thermostat.
 
   Samples from the canonical ensemble in which the number of particles (N),
   the system volume (V), and the temperature (T) are held constant. We use a
-  Nose Hoover Chain thermostat described in [1, 2, 3]. We employ a similar
+  Nose Hoover Chain (NHC) thermostat described in [1, 2, 3]. We employ a similar
   notation to [2] and the interested reader might want to look at that paper as
   a reference.
 
-  Currently, the implementation only does a single timestep per Nose-Hoover
-  step. At some point we should support the multi-step case.
+  As described in [3], the NHC evolves on a faster timescale than the rest of
+  the simulation. Therefore, it often desirable to integrate the chain over
+  several substeps for each step of MD. To do this we follow the Suzuki-Yoshida
+  scheme. Specifically, we subdivide our chain simulation into $n_c$ substeps.
+  These substeps are further subdivided into $n_sy$ steps. Each $n_sy$ step has
+  length $\delta_i = \Delta t w_i / n_c$ where $w_i$ are constants such that
+  $\sum_i w_i = 1$. See the table of Suzuki_Yoshida weights above for specific
+  values.
 
   Args:
     energy_or_force: A function that produces either an energy or a force from
@@ -188,11 +216,11 @@ def nvt_nose_hoover(energy_or_force: Callable[..., Array],
       and dR should be ndarrays of shape [n, spatial_dimension].
     dt: Floating point number specifying the timescale (step size) of the
       simulation.
-    T_schedule: Either a floating point number specifying a constant temperature
-      or a function specifying temperature as a function of time.
-    quant: Either a quantity.Energy or a quantity.Force specifying whether
-      energy_or_force is an energy or force respectively.
-    chain_length: An integer specifying the length of the Nose-Hoover chain.
+    chain_length: An integer specifying the number of particles in
+      the Nose-Hoover chain.
+    chain_steps: An integer specifying the number, $n_c$, of outer substeps.
+    sy_steps: An integer specifying the number of Suzuki-Yoshida steps. This
+      must be either 1, 3, 5, or 7.
     tau: A floating point timescale over which temperature equilibration occurs.
       Measured in units of dt. The performance of the Nose-Hoover chain
       thermostat can be quite sensitive to this choice.
@@ -212,22 +240,21 @@ def nvt_nose_hoover(energy_or_force: Callable[..., Array],
       Journal of Physics A: Mathematical and General 39, no. 19 (2006): 5629.
   """
 
-  force = quantity.canonicalize_force(energy_or_force)
+  force_fn = quantity.canonicalize_force(energy_or_force)
 
-  tau = tau * dt
-  dt_2 = dt / 2.0
-  dt_4 = dt_2 / 2.0
-  dt_8 = dt_4 / 2.0
-  dt, dt_2, dt_4, dt_8, tau = static_cast(dt, dt_2, dt_4, dt_8, tau)
+  dt = f32(dt)
+  if tau is None:
+    tau = dt * 100
+  tau = f32(tau)
+  dt_2 = dt / f32(2.0)
 
-  T_schedule = interpolate.canonicalize(T_schedule)
+  kT = f32(kT)
 
-  def init_fun(key, R, mass=f32(1.0), T_initial=None):
-    if T_initial is None:
-      T_initial = T_schedule(0.0)
+  def init_fn(key, R, mass=f32(1.0), **kwargs):
+    _kT = kT if 'kT' not in kwargs else kwargs['kT']
 
     mass = quantity.canonicalize_mass(mass)
-    V = np.sqrt(T_initial / mass) * random.normal(key, R.shape, dtype=R.dtype)
+    V = np.sqrt(_kT / mass) * random.normal(key, R.shape, dtype=R.dtype)
     V = V - np.mean(V, axis=0, keepdims=True)
     KE = quantity.kinetic_energy(V, mass)
 
@@ -237,64 +264,124 @@ def nvt_nose_hoover(energy_or_force: Callable[..., Array],
 
     # TODO(schsam): Really, it seems like Q should be set by the goal
     # temperature rather than the initial temperature.
-    DOF, = static_cast(R.shape[0] * R.shape[1])
-    Q = T_initial * tau ** f32(2) * np.ones(chain_length, dtype=R.dtype)
+    DOF = f32(R.shape[0] * R.shape[1])
+    Q = _kT * tau ** f32(2) * np.ones(chain_length, dtype=R.dtype)
     Q = ops.index_update(Q, 0, Q[0] * DOF)
 
-    return NVTNoseHooverState(R, V, mass, KE, xi, v_xi, Q)  # pytype: disable=wrong-arg-count
-  def step_chain(KE, V, xi, v_xi, Q, DOF, T):
+    F = force_fn(R, **kwargs)
+
+    return NVTNoseHooverState(R, V, F, mass, KE, xi, v_xi, Q)  # pytype: disable=wrong-arg-count
+
+  def substep_chain_fn(delta, KE, V, xi, v_xi, Q, DOF, T):
     """Applies a single update to the chain parameters and rescales velocity."""
+    delta_2 = delta   / f32(2.0)
+    delta_4 = delta_2 / f32(2.0)
+    delta_8 = delta_4 / f32(2.0)
+
     M = chain_length - 1
-    # TODO(schsam): We can probably cache the G parameters from the previous
-    # update.
 
-    t = xi.dtype
-    G = np.concatenate((np.array([(KE * f32(2) - DOF * T) / Q[0]], dtype=t),
-                        (Q[:-1] * v_xi[:-1] ** f32(2) - T) / Q[1:],))
-    scale = np.concatenate((np.exp(-dt_8 * v_xi[1:]), np.ones((1,), dtype=t)))
-    v_xi = scale * (scale * v_xi + dt_4 * G)
+    G = (Q[M - 1] * v_xi[M - 1] ** f32(2) - T) / Q[M]
+    v_xi = ops.index_add(v_xi, M, delta_4 * G)
 
-    scale = np.exp(-dt_2 * v_xi[0])
+    def backward_loop_fn(v_xi_new, m): 
+      G = (Q[m - 1] * v_xi[m - 1] ** 2 - T) / Q[m]
+      scale = np.exp(-delta_8 * v_xi_new)
+      v_xi_new = scale * (scale * v_xi[m] + delta_4 * G)
+      return v_xi_new, v_xi_new
+    idx = np.arange(M - 1, 0, -1)
+    _, v_xi_update = lax.scan(backward_loop_fn, v_xi[M], idx, unroll=2)
+    v_xi = ops.index_update(v_xi, idx, v_xi_update)
+    
+    G = (f32(2.0) * KE - DOF * T) / Q[0]
+    scale = np.exp(-delta_8 * v_xi[1])
+    v_xi = ops.index_update(v_xi, 0, scale * (scale * v_xi[0] + delta_4 * G))
+
+    scale = np.exp(-delta_2 * v_xi[0])
     KE = KE * scale ** f32(2)
     V = V * scale
 
-    xi = xi + dt_2 * v_xi
+    xi = xi + delta_2 * v_xi
 
-    scale = np.concatenate((np.exp(-dt_8 * v_xi[1:]), np.ones((1,), dtype=t)))
-    v_xi = scale ** 2 * v_xi
     G = (f32(2) * KE - DOF * T) / Q[0]
-    for m in range(M):
-      v_xi = ops.index_add(v_xi, m, scale[m] * dt_4 * G)
-      G = (Q[m] * v_xi[m] ** f32(2) - T) / Q[m + 1]
-    v_xi = ops.index_add(v_xi, M, dt_4 * G)
+    def forward_loop_fn(G, m):
+      scale = np.exp(-delta_8 * v_xi[m + 1])
+      v_xi_update = scale * (scale * v_xi[m] + delta_4 * G)
+      G = (Q[m] * v_xi_update ** f32(2) - T) / Q[m + 1]
+      return G, v_xi_update
+    idx = np.arange(M)
+    G, v_xi_update = lax.scan(forward_loop_fn, G, idx, unroll=2)
+    v_xi = ops.index_update(v_xi, idx, v_xi_update)
+    v_xi = ops.index_add(v_xi, M, delta_4 * G)
 
-    return KE, V, xi, v_xi
-  def apply_fun(state, t=f32(0), **kwargs):
-    T = T_schedule(t)
+    return KE, V, xi, v_xi, Q, DOF, T
 
-    R, V, mass, KE, xi, v_xi, Q = dataclasses.astuple(state)
+  def half_step_chain_fn(*chain_state):
+    if chain_steps == 1 and sy_steps == 1:
+      return substep_chain_fn(dt, *chain_state)
 
-    DOF, = static_cast(R.shape[0] * R.shape[1])
+    delta = dt / chain_steps
+    ws = np.array(SUZUKI_YOSHIDA_WEIGHTS[sy_steps], dtype=chain_state[1].dtype)
+    return lax.scan(lambda chain_state, i:
+                    (substep_chain_fn(delta * ws[i % sy_steps], *chain_state),
+                     0),
+                    chain_state,
+                    np.arange(chain_steps * sy_steps))[0]
 
-    Q = T * tau ** f32(2) * np.ones(chain_length, dtype=R.dtype)
+  def apply_fn(state, **kwargs):
+    _kT = kT if 'kT' not in kwargs else kwargs['kT']
+
+    R, V, F, mass, KE, xi, v_xi, Q = dataclasses.astuple(state)
+
+    DOF = R.size
+
+    Q = _kT * tau ** f32(2) * np.ones(chain_length, dtype=R.dtype)
     Q = ops.index_update(Q, 0, Q[0] * DOF)
 
-    KE, V, xi, v_xi = step_chain(KE, V, xi, v_xi, Q, DOF, T)
-    R = shift_fn(R, V * dt_2, t=t, **kwargs)
+    KE, V, xi, v_xi, *_ = half_step_chain_fn(KE, V, xi, v_xi, Q, DOF, _kT)
 
-    F = force(R, t=t, **kwargs)
+    R = shift_fn(R, V * dt + F * dt ** 2 / (2 * mass), **kwargs)
 
-    V = V + dt * F / mass
-    # NOTE(schsam): Do we need to mean subtraction here?
+    F_new = force_fn(R, **kwargs)
+
+    V = V + dt_2 * (F_new + F) / mass
+
     V = V - np.mean(V, axis=0, keepdims=True)
     KE = quantity.kinetic_energy(V, mass)
-    R = shift_fn(R, V * dt_2, t=t, **kwargs)
 
-    KE, V, xi, v_xi = step_chain(KE, V, xi, v_xi, Q, DOF, T)
+    KE, V, xi, v_xi, *_ = half_step_chain_fn(KE, V, xi, v_xi, Q, DOF, _kT)
 
-    return NVTNoseHooverState(R, V, mass, KE, xi, v_xi, Q)  # pytype: disable=wrong-arg-count
+    return NVTNoseHooverState(R, V, F_new, mass, KE, xi, v_xi, Q)
 
-  return init_fun, apply_fun
+  return init_fn, apply_fn
+
+
+def nose_hoover_invariant(energy_fn: Callable[..., Array],
+                          state: NVTNoseHooverState,
+                          kT: float,
+                          **kwargs) -> float:
+  """The conserved quantity for the Nose-Hoover thermostat.
+
+  This function is normally used for debugging the Nose-Hoover thermostat.
+
+  Arguments:
+    energy_fn: The energy function of the Nose-Hoover system.
+    state: The current state of the system.
+    kT: The current goal temperature of the system.
+
+  Returns:
+    The Hamiltonian of the extended NVT dynamics. 
+  """
+
+  PE = energy_fn(state.position, **kwargs)
+  KE = quantity.kinetic_energy(state.velocity, state.mass)
+
+  DOF = state.position.size
+  E = PE + KE
+
+  E += state.v_xi[0] ** 2 * state.Q[0] * 0.5 + DOF * kT * state.xi[0]
+  for xi, v_xi, Q in zip(state.xi[1:], state.v_xi[1:], state.Q[1:]):
+    E += v_xi ** 2 * Q * 0.5 + kT * xi
+  return E
 
 
 @dataclasses.dataclass
@@ -321,7 +408,7 @@ class NVTLangevinState:
 def nvt_langevin(energy_or_force: Callable[..., Array],
                  shift: ShiftFn,
                  dt: float,
-                 T_schedule: Schedule,
+                 kT: float,
                  gamma: float=0.1) -> Simulator:
   """Simulation in the NVT ensemble using the Langevin thermostat.
 
@@ -359,30 +446,29 @@ def nvt_langevin(energy_or_force: Callable[..., Array],
 
   force_fn = quantity.canonicalize_force(energy_or_force)
 
-  dt_2 = dt / 2
-  dt2 = dt ** 2 / 2
-  dt32 = dt ** (3.0 / 2.0) / 2
+  dt_2 = f32(dt / 2)
+  dt2 = f32(dt ** 2 / 2)
+  dt32 = f32(dt ** (3.0 / 2.0) / 2)
 
-  dt, dt_2, dt2, dt32, gamma = static_cast(dt, dt_2, dt2, dt32, gamma)
+  kT = f32(kT)
 
-  T_schedule = interpolate.canonicalize(T_schedule)
+  gamma = f32(gamma)
 
-  def init_fn(key, R, mass=f32(1), T_initial=None, **kwargs):
-    if T_initial is None:
-      T_initial = T_schedule(0.0)
-
+  def init_fn(key, R, mass=f32(1), **kwargs):
+    _kT = kT if 'kT' not in kwargs else kwargs['kT']
     mass = quantity.canonicalize_mass(mass)
 
     key, split = random.split(key)
 
-    V = np.sqrt(T_initial / mass) * random.normal(split, R.shape, dtype=R.dtype)
+    V = np.sqrt(_kT / mass) * random.normal(split, R.shape, dtype=R.dtype)
     V = V - np.mean(V, axis=0, keepdims=True)
 
     return NVTLangevinState(R, V, force_fn(R, t=f32(0), **kwargs), mass, key)  # pytype: disable=wrong-arg-count
 
-  def apply_fn(state, t=f32(0), **kwargs):
+  def apply_fn(state, **kwargs):
     R, V, F, mass, key = dataclasses.astuple(state)
 
+    _kT = kT if 'kT' not in kwargs else kwargs['kT']
     N, dim = R.shape
 
     key, xi_key, theta_key = random.split(key, 3)
@@ -393,11 +479,11 @@ def nvt_langevin(energy_or_force: Callable[..., Array],
     # is nonconstant. @Optimization
     # TODO(schsam): Check that this is really valid in the case that the masses
     # are non identical for all particles.
-    sigma = np.sqrt(f32(2) * T_schedule(t) * gamma / mass)
+    sigma = np.sqrt(f32(2) * _kT * gamma / mass)
     C = dt2 * (F - gamma * V) + sigma * dt32 * (xi + theta)
 
-    R = shift(R, dt * V + F + C, t=t, **kwargs)
-    F_new = force_fn(R, t=t, **kwargs)
+    R = shift(R, dt * V + F + C, **kwargs)
+    F_new = force_fn(R, **kwargs)
     V = (f32(1) - dt * gamma) * V + dt_2 * (F_new + F)
     V = V + sigma * np.sqrt(dt) * xi - gamma * C
 
