@@ -34,6 +34,8 @@ from jax_md import energy
 from jax_md import util
 from jax_md.util import *
 
+from functools import partial
+
 jax_config.parse_flags_with_absl()
 jax_config.enable_omnistaging()
 FLAGS = jax_config.FLAGS
@@ -192,18 +194,6 @@ class SimulateTest(jtu.JaxTestCase):
   def test_nvt_nose_hoover(self, spatial_dimension, dtype, sy_steps):
     key = random.PRNGKey(0)
 
-    def invariant(T, state):
-      """The conserved quantity for Nose-Hoover thermostat."""
-      accum = (E(state.position) + 
-               quantity.kinetic_energy(state.velocity, state.mass))
-      DOF = spatial_dimension * PARTICLE_COUNT
-      accum = accum + (state.v_xi[0]) ** 2 * state.Q[0] * 0.5 + \
-          DOF * T * state.xi[0]
-      for xi, v_xi, Q in zip(
-          state.xi[1:], state.v_xi[1:], state.Q[1:]):
-        accum = accum + v_xi ** 2 * Q * 0.5 + T * xi
-      return accum
-
     box_size = quantity.box_size_at_number_density(PARTICLE_COUNT,
                                                    f32(1.2),
                                                    spatial_dimension)
@@ -214,6 +204,8 @@ class SimulateTest(jtu.JaxTestCase):
     bonds = np.stack([bonds_i, bonds_j])
 
     E = energy.simple_spring_bond(displacement_fn, bonds)
+
+    invariant = partial(simulate.nose_hoover_invariant, E)
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, pos_key, vel_key, T_key, masses_key = random.split(key, 5)
@@ -231,14 +223,14 @@ class SimulateTest(jtu.JaxTestCase):
 
       state = init_fn(vel_key, R, mass=mass)
 
-      initial = invariant(T, state)
+      initial = invariant(state, T)
 
       for _ in range(DYNAMICS_STEPS):
         state = apply_fn(state)
 
       T_final = quantity.temperature(state.velocity, state.mass)
       assert np.abs(T_final - T) / T < 0.1
-      self.assertAllClose(invariant(T, state), initial, rtol=1e-4)
+      self.assertAllClose(invariant(state, T), initial, rtol=1e-4)
       self.assertEqual(state.position.dtype, dtype)
 
   @parameterized.named_parameters(jtu.cases_from_list(

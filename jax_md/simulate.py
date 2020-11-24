@@ -355,6 +355,35 @@ def nvt_nose_hoover(energy_or_force: Callable[..., Array],
   return init_fn, apply_fn
 
 
+def nose_hoover_invariant(energy_fn: Callable[..., Array],
+                          state: NVTNoseHooverState,
+                          kT: float,
+                          **kwargs) -> float:
+  """The conserved quantity for the Nose-Hoover thermostat.
+
+  This function is normally used for debugging the Nose-Hoover thermostat.
+
+  Arguments:
+    energy_fn: The energy function of the Nose-Hoover system.
+    state: The current state of the system.
+    kT: The current goal temperature of the system.
+
+  Returns:
+    The Hamiltonian of the extended NVT dynamics. 
+  """
+
+  PE = energy_fn(state.position, **kwargs)
+  KE = quantity.kinetic_energy(state.velocity, state.mass)
+
+  DOF = state.position.size
+  E = PE + KE
+
+  E += state.v_xi[0] ** 2 * state.Q[0] * 0.5 + DOF * kT * state.xi[0]
+  for xi, v_xi, Q in zip(state.xi[1:], state.v_xi[1:], state.Q[1:]):
+    E += v_xi ** 2 * Q * 0.5 + kT * xi
+  return E
+
+
 @dataclasses.dataclass
 class NVTLangevinState:
   """A struct containing state information for the Langevin thermostat.
