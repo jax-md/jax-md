@@ -790,7 +790,7 @@ class SMapTest(jtu.JaxTestCase):
       square = lambda dR, param: param * np.sum(np.square(dR))
       params = f32(np.array([[[1., 1.], [2., 0.]], [[0., 2.], [1., 1.]]]))
 
-      count = PARTICLE_COUNT // 250
+      count = PARTICLE_COUNT // 50
       key, split = random.split(key)
       species = random.randint(split, (count,), 0, 2)
       displacement, _ = space.free()
