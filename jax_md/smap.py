@@ -16,7 +16,7 @@
 
 from functools import reduce, partial
 
-from typing import Dict, Callable, Tuple, Union
+from typing import Dict, Callable, List, Tuple, Union
 
 from collections import namedtuple
 import math
@@ -462,4 +462,121 @@ def pair_neighbor_list(fn: Callable[..., Array],
       mask = jnp.reshape(mask, mask.shape + (1,) * ddim)
     out = jnp.where(mask, out, 0.)
     return high_precision_sum(out, reduce_axis, keepdims) / 2.
+  return fn_mapped
+
+def triplet(
+    fn, metric, species=None, reduce_axis=None, keepdims=False, **kwargs):
+  """Promotes a function that acts on triples of particles to one on a system.
+
+  Many empirical potentials in jax_md include three-body angular terms (e.g.
+  Stillinger Weber). This utility function simplifies the loss computation
+  in such cases by converting a function that takes in two pairwise displacements
+  or distances to one that only requires the system as input.
+
+  Args:
+    fn: A function that takes an ndarray of two distances or displacements
+        from a central atom, both of shape [n, m] or [n, m, d_in] respectively,
+        as well as kwargs specifying parameters for the function.
+    metric: A function that takes two ndarray of positions of shape
+        [spatial_dimensions] and [spatial_dimensions] respectively and
+        returns an ndarray of distances or displacements of shape [] or [d_in]
+        respectively. The metric can optionally take a floating point time as a
+        third argument.
+    species: A list of species for the different particles. This should either
+        be None (in which case it is assumed that all particles have the same
+        species), an integer of shape [n] with species data, or Dynamic in
+        which case the species data will be specified dynamically. Note:
+        that dynamic species specification is less efficient, because we cannot
+        specialize shape information.
+    reduce_axis: A list of axis to reduce over. This is supplied to np.sum and
+        the same convention is used.
+    keepdims: A boolean specifying whether the empty dimensions should be kept
+        upon reduction. This is supplied to np.sum and so the same convention
+        is used.
+    kwargs: Arguement providing parameters to the mapped function. In cases
+        where no species information is provided, these should either be 1)
+        a scalar, 2) an ndarray of shape [n] based on the central atom,
+        3) an ndarray of shape [n, n, n] defining triplet interactions.
+        If species information is provided, then the parameters should
+        be specified as either 1) a scalar,  2) an ndarray of shape
+        [max_species], 3) an ndarray of shape [max_species, max_species,
+        max_species] defining triplet interactions.
+
+  Returns:
+    A function fn_mapped.
+
+    If species is None or statically specified, then fn_mapped takes as
+    arguments an ndarray of positions of shape [n, spatial_dimension].
+
+    If species is Dynamic then fn_mapped takes as input an ndarray of shape
+    [n, spatial_dimension], an integer ndarray of species of shape [n], and
+    an integer specifying the maximum species.
+
+    The mapped function can also optionally take keyword arguments that get
+    threaded through the metric.
+  """
+  def extract_parameters_by_dim(kwargs, dim: Union[int, List[int]] = 0):
+    """Helper function that extract parameters from a dictionary via dimension.
+
+    Args:
+      kwargs: dictionary where values are all ndarrays
+      dim: dimension of parameters to extract
+
+    Returns:
+      A dictionary with the extracted elements of kwargs of the correct
+      dimension.
+    """
+    if isinstance(dim, int):
+      dim = [dim]
+    return {name: value for name, value in kwargs.items() if value.ndim in dim}
+
+  if species is None:
+    def fn_mapped(R, **dynamic_kwargs) -> Array:
+      d = space.map_product(partial(metric, **dynamic_kwargs))
+      _kwargs = merge_dicts(kwargs, dynamic_kwargs)
+      _kwargs = _kwargs_to_parameters(species, **_kwargs)
+      dR = d(R, R)
+      compute_triplet = partial(fn, **_kwargs)
+      output = vmap(vmap(vmap(compute_triplet, (None, 0)), (0, None)), 0)(dR, dR)
+      return high_precision_sum(output,
+                                axis=reduce_axis,
+                                keepdims=keepdims) / 2.
+  elif isinstance(species, jnp.ndarray):
+    def fn_mapped(R, **dynamic_kwargs):
+      d = partial(metric, **dynamic_kwargs)
+      idx = onp.tile(onp.arange(R.shape[0]), [R.shape[0], 1])
+      dR = vmap(vmap(d, (None, 0)))(R, R[idx])
+
+      _kwargs = merge_dicts(kwargs, dynamic_kwargs)
+
+      mapped_args = extract_parameters_by_dim(_kwargs, [1, 3])
+      mapped_args = {arg_name: jnp.take(
+          arg_value, species, axis=0) for arg_name, arg_value in mapped_args.items()}
+      # While we support 2 dimensional inputs, these often make less sense
+      # as the parameters do not depend on the central atom
+      unmapped_args = extract_parameters_by_dim(_kwargs, [0, 2])
+
+      def compute_triplet(dR, mapped_args, unmapped_args):
+        paired_args = extract_parameters_by_dim(mapped_args, 2)
+        paired_args.update(extract_parameters_by_dim(unmapped_args, 2))
+
+        unpaired_args = extract_parameters_by_dim(mapped_args, 0)
+        unpaired_args.update(extract_parameters_by_dim(unmapped_args, 0))
+
+        output_fn = lambda dR1, dR2, paired_args: fn(dR1, dR2, **unpaired_args, **paired_args)
+        neighbor_args = _neighborhood_kwargs_to_params(idx, species, **paired_args)
+        output_fn = vmap(vmap(output_fn, (None, 0, 0)), (0, None, 0))
+        return output_fn(dR, dR, neighbor_args)
+
+      output_fn = partial(compute_triplet, unmapped_args=unmapped_args)
+      output = vmap(output_fn)(dR, mapped_args)
+      return high_precision_sum(output,
+                                axis=reduce_axis,
+                                keepdims=keepdims) / 2.
+  elif species is quantity.Dynamic:
+    raise NotImplementedError
+  else:
+    raise ValueError(
+        'Species must be None, an ndarray, or Dynamic. Found {}.'.format(
+            species))
   return fn_mapped
