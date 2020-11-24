@@ -71,8 +71,9 @@ how the BP-NN works.
 representation of high-dimensional potential-energy surfaces." Physical
 Review Letters 98.14 (2007): 146401.
 
-[2] Artrith, Nongnuch, Björn Hiller, and Jörg Behler. "Neural network potentials
-for metals and oxides–First applications to copper clusters at zinc oxide."
+[2] Artrith, Nongnuch, Björn Hiller, and Jörg Behler. "Neural network
+potentials for metals and oxides–First applications to copper clusters at zinc
+oxide."
 Physica Status Solidi (b) 250.6 (2013): 1191-1203.
 """
 
@@ -108,9 +109,9 @@ def radial_symmetry_functions(displacement_or_metric: DisplacementOrMetricFn,
 
   Returns:
     A function that computes the radial symmetry function from input `[N_atoms,
-    spatial_dimension]` and returns `[N_etas, N_atoms * N_types]` where N_etas is
-    the number of eta parameters, N_types is the number of types of particles 
-    in the system.
+    spatial_dimension]` and returns `[N_etas, N_atoms * N_types]` where N_etas
+    is the number of eta parameters, N_types is the number of types of
+    particles in the system.
   """
   metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
 
@@ -161,9 +162,9 @@ def radial_symmetry_functions_neighbor_list(
 
   Returns:
     A function that computes the radial symmetry function from input `[N_atoms,
-    spatial_dimension]` and returns `[N_etas, N_atoms * N_types]` where N_etas is
-    the number of eta parameters, N_types is the number of types of particles 
-    in the system.
+    spatial_dimension]` and returns `[N_etas, N_atoms * N_types]` where N_etas
+    is the number of eta parameters, N_types is the number of types of
+    particles in the system.
   """
   metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
 
@@ -322,9 +323,10 @@ def angular_symmetry_functions_neighbor_list(
       neighbor to the symmetry function and its derivative goes to zero at this
       distance.
   Returns:
-    A function that computes the angular symmetry function from input `[N_atoms,
-    spatial_dimension]` and returns `[N_atoms, N_types * (N_types + 1) / 2]`
-    where N_types is the number of types of particles in the system.
+    A function that computes the angular symmetry function from input
+    `[N_atoms, spatial_dimension]` and returns
+    `[N_atoms, N_types * (N_types + 1) / 2]` where N_types is the number of
+    types of particles in the system.
   """
 
   _angular_fn = vmap(single_pair_angular_symmetry_function,
