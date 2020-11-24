@@ -21,7 +21,7 @@ import os
 from jax.config import config as jax_config
 from jax import random
 from jax import jit, vmap
-from jax.experimental import optix
+import optax
 import jax.numpy as np
 
 import numpy as onp
@@ -637,16 +637,16 @@ class EnergyTest(jtu.JaxTestCase):
     @jit
     def loss(params, R):
       return np.mean((vmap(energy_fn, (None, 0))(params, R) - E_gt(R, dr0)) ** 2)
-    
-    opt = optix.chain(optix.clip_by_global_norm(1.0), optix.adam(1e-4))
+
+    opt = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(1e-4))
 
 
     @jit
     def update(params, opt_state, R):
       updates, opt_state = opt.update(grad(loss)(params, R),
                                       opt_state)
-      return optix.apply_updates(params, updates), opt_state
-    
+      return optax.apply_updates(params, updates), opt_state
+
     opt_state = opt.init(params)
 
     l0 = loss(params, R)

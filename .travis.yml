@@ -2,9 +2,12 @@ language: python
 python:
   - "3.6"
   - "3.7"
+  - "3.8"
 install:
   - pip install --upgrade pip
-  - git clone https://github.com/google/jax-md
-  - pip install -e jax-md
+  - pip install more-itertools numpy jaxlib optax --upgrade
+  - pip install git+https://github.com/google/jax.git
+  - pip install -e .
 script:
-  - for f in jax-md/tests/*.py; do python $f --jax_enable_x64; done
+  - set -e
+  - for f in tests/*.py; do python $f; done
