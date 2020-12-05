@@ -777,7 +777,7 @@ def load_lammps_eam_parameters(file: TextIO) -> Tuple[Callable[[Array], Array],
   num_drho, num_dr = int(temp_params[0]), int(temp_params[2])
   drho, dr, cutoff = float(temp_params[1]), float(temp_params[3]), float(
       temp_params[4])
-  data = np.array(map(float, raw_text[6:-1]))
+  data = np.array([float(i) for i in raw_text[6:-1]])
   embedding_fn = interpolate.spline(data[:num_drho], drho)
   charge_fn = interpolate.spline(data[num_drho:num_drho + num_dr], dr)
   # LAMMPS EAM parameters file lists pairwise energies after multiplying by
@@ -787,7 +787,7 @@ def load_lammps_eam_parameters(file: TextIO) -> Tuple[Callable[[Array], Array],
   # affect the calculation
   distances = np.where(distances == 0, f32(0.001), distances)
   pairwise_fn = interpolate.spline(
-      data[num_dr + num_drho:num_drho + f32(2) * num_dr] / distances,
+      data[num_dr + num_drho:num_drho + 2 * num_dr] / distances,
       dr)
   return charge_fn, embedding_fn, pairwise_fn, cutoff
 
