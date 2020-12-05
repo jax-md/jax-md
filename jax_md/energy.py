@@ -645,6 +645,24 @@ def _sw_angle_interaction(dR12,
                           gamma=1.2, 
                           sigma=2.0951, 
                           cutoff=1.8*2.0951):
+  """The angular interaction for the Stillinger-Weber potential.
+  This function is defined only for interaction with a pair of
+  neighbors. We then vmap this function three times below to make
+  it work on the whole system of atoms.
+  Args:
+    dR12: A d-dimensional vector that specifies the displacement
+    of the first neighbor. This potential is usually used in three
+    dimensions.
+    dR13: A d-dimensional vector that specifies the displacement
+    of the second neighbor.
+    gamma: A scalar used to fit the angle interaction.
+    sigma: A scalar that sets the distance scale between neighbors.
+    cutoff: The cutoff beyond which the interactions are not
+    considered. The default value should not be changed for the 
+    default SW potential.
+  Returns:
+    Angular interaction energy for one pair of neighbors.
+    """
   a = cutoff / sigma
   dr12 = space.distance(dR12)
   dr13 = space.distance(dR13)
@@ -655,7 +673,8 @@ def _sw_angle_interaction(dR12,
   term2 = (cos_angle + 1./3)**2 
   within_cutoff = (dr12>0) & (dr13>0) & (np.linalg.norm(dR12-dR13)>1e-5)
   return np.where(within_cutoff, term1 * term2, 0)
-sw_three_body_term = vmap(vmap(vmap(_sw_angle_interaction, (0, None)), (None, 0)), 0)
+sw_three_body_term = vmap(vmap(vmap(
+    _sw_angle_interaction, (0, None)), (None, 0)), 0)
 
 
 def _sw_radial_interaction(r, 
@@ -663,6 +682,7 @@ def _sw_radial_interaction(r,
                            B=0.6022245584, 
                            p=4, 
                            cutoff=1.8*2.0951):
+  """The two body term of the Stillinger-Weber potential."""
   a = cutoff / sigma
   term1 = (B*(r/sigma)**(-p) - 1.0)
   within_cutoff = (r > 0) & (r < cutoff)
@@ -674,13 +694,44 @@ def _sw_radial_interaction(r,
 def stillinger_weber_energy(displacement, 
                             A=7.049556277, 
                             lam=21.0, 
-                            epsilon=2.16826):
+                            epsilon=2.16826,
+                            three_body_strength=1.0):
+  """Stillinger-Weber (SW) potential [1] which is commonly used to model 
+  silicon and similar systems. This function uses the default SW parameters
+  from the original paper. The SW potential was originally proposed to 
+  model diamond in the diamond crystal phase and the liquid phase, and is 
+  known to give unphysical amorphous configurations [2, 3]. For this reason, 
+  we provide a three_body_strength parameter. Changing this number to 1.5
+  or 2.0 has been know to produce more physical amorphous phase, preventing
+  most atoms from having more than four nearest neighbors. Note that this 
+  function currently assumes nearest-image-convention.
+  Args:
+    displacement: The displacement function for the space.
+    A: A scalar that determines the scale of two-body term.
+    lam: A scalar that determines the scale of the three-body term.
+    epsilon: A scalar that sets the total energy scale.
+    three_body_strength: A scalar that determines the relative strength 
+    of the angular interaction. Default value is 1.0, which works well
+    for the diamond crystal and liquid phases. 1.5 and 2.0 have been used
+    to model amorphous silicon.
+    unused_kwargs: Allows extra data (e.g. time) to be passed to the energy.
+  Returns:
+    A function that computes the total energy.
+  [1] Stillinger, Frank H., and Thomas A. Weber. "Computer simulation of 
+  local order in condensed phases of silicon." Physical review B 31.8 
+  (1985): 5262.
+  [2] Holender, J. M., and G. J. Morgan. "Generation of a large structure 
+  (105 atoms) of amorphous Si using molecular dynamics." Journal of 
+  Physics: Condensed Matter 3.38 (1991): 7241.
+  [3] Barkema, G. T., and Normand Mousseau. "Event-based relaxation of 
+  continuous disordered systems." Physical review letters 77.21 (1996): 4358.
+  """
   def compute_fn(R):
     dR = space.map_product(displacement)(R, R)
     dr = space.distance(dR)
     first_term = np.sum(_sw_radial_interaction(dr)) / 2.0 * A 
     second_term = lam *  np.sum(sw_three_body_term(dR, dR))/2.0
-    return epsilon * (first_term + second_term)
+    return epsilon * (first_term + three_body_strength * second_term)
   return compute_fn
 
 
