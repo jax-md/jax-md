@@ -113,6 +113,35 @@ def make_eam_test_splines():
   return charge_fn, embedding_fn, pairwise_fn
 
 
+def lattice(R_unit_cell, copies, lattice_vectors):
+  # Given a cell of positions, tile it.   
+  lattice_vectors = onp.array(lattice_vectors, f32)
+ 
+  N, d = R_unit_cell.shape
+  if isinstance(copies, int):
+    copies = (copies,) * d
+ 
+  if lattice_vectors.ndim == 0 or lattice_vectors.ndim == 1:
+    cartesian = True
+    L = onp.eye(d) * lattice_vectors[onp.newaxis, ...] 
+  elif lattice_vectors.ndim == 2:
+    assert lattice_vectors.shape[0] == lattice_vectors.shape[1]
+    cartesian = False
+    L = onp.eye(d) / onp.array(copies)[onp.newaxis, ...]
+    R_unit_cell /= onp.array(copies)[onp.newaxis, ...]
+  else:
+    raise ValueError()
+ 
+  Rs = []
+  for indices in onp.ndindex(copies):
+    dR = 0.
+    for idx, i in enumerate(indices):
+      dR += i * L[idx]
+    R = R_unit_cell + dR[onp.newaxis, :]
+    Rs += [R]
+  
+  return onp.concatenate(Rs)
+
 class EnergyTest(jtu.JaxTestCase):
 
   @parameterized.named_parameters(jtu.cases_from_list(
@@ -243,6 +272,21 @@ class EnergyTest(jtu.JaxTestCase):
           dist_fun, LATCON, species=species)
       nbrs = neighbor_fn(R_f)
       self.assertAllClose(-857939.528386092, energy_nei(R_f, nbrs))
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': 'dtype={}_num_repetitions={}'.format(dtype.__name__, num_repetitions),
+          'dtype': dtype,
+          'num_repetitions': num_repetitions,
+      } for dtype in POSITION_DTYPE for num_repetitions in [2, 3]))
+  def test_stillinger_weber(self, dtype, num_repetitions):
+      lattice_vectors = lattice_vectors = np.array([[0, .5, .5], [.5, 0, .5], [.5, .5, 0]]) * 5.428
+      positions = np.array([[0,0,0], [0.25, 0.25, 0.25]])
+      positions = lattice(positions, num_repetitions, lattice_vectors)
+      lattice_vectors *= num_repetitions
+      displacement, shift = space.periodic_general(lattice_vectors)
+      energy_fn = jit(energy.stillinger_weber_energy(displacement))
+      self.assertAllClose(energy_fn(positions)/positions.shape[0], -4.336503)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {

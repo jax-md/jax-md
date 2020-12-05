@@ -639,9 +639,52 @@ def bks_silica_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
 
   return neighbor_fn, energy_fn
 
+# Stillinger-Weber Potential
+def _sw_angle_interaction(dR12, 
+                          dR13, 
+                          gamma=1.2, 
+                          sigma=2.0951, 
+                          cutoff=1.8*2.0951):
+  a = cutoff / sigma
+  dr12 = space.distance(dR12)
+  dr13 = space.distance(dR13)
+  dr12 = np.where(dr12<cutoff, dr12, 0)
+  dr13 = np.where(dr13<cutoff, dr13, 0)
+  term1 = np.exp(gamma/(dr12/sigma-a) + gamma/(dr13/sigma-a))
+  cos_angle = quantity.angle_between_two_vectors(dR12, dR13)
+  term2 = (cos_angle + 1./3)**2 
+  within_cutoff = (dr12>0) & (dr13>0) & (np.linalg.norm(dR12-dR13)>1e-5)
+  return np.where(within_cutoff, term1 * term2, 0)
+sw_three_body_term = vmap(vmap(vmap(_sw_angle_interaction, (0, None)), (None, 0)), 0)
+
+
+def _sw_radial_interaction(r, 
+                           sigma=2.0951, 
+                           B=0.6022245584, 
+                           p=4, 
+                           cutoff=1.8*2.0951):
+  a = cutoff / sigma
+  term1 = (B*(r/sigma)**(-p) - 1.0)
+  within_cutoff = (r > 0) & (r < cutoff)
+  r = np.where(within_cutoff, r, 0)
+  term2 = np.exp(1/(r/sigma-a))
+  return np.where(within_cutoff, term1 * term2, 0.0)
+
+
+def stillinger_weber_energy(displacement, 
+                            A=7.049556277, 
+                            lam=21.0, 
+                            epsilon=2.16826):
+  def compute_fn(R):
+    dR = space.map_product(displacement)(R, R)
+    dr = space.distance(dR)
+    first_term = np.sum(_sw_radial_interaction(dr)) / 2.0 * A 
+    second_term = lam *  np.sum(sw_three_body_term(dR, dR))/2.0
+    return epsilon * (first_term + second_term)
+  return compute_fn
+
 
 # Embedded Atom Method
-
 
 def load_lammps_eam_parameters(file: TextIO) -> Tuple[Callable[[Array], Array],
                                                       Callable[[Array], Array],
