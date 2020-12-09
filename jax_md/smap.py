@@ -516,16 +516,7 @@ def triplet(
     threaded through the metric.
   """
   def extract_parameters_by_dim(kwargs, dim: Union[int, List[int]] = 0):
-    """Helper function that extract parameters from a dictionary via dimension.
-
-    Args:
-      kwargs: dictionary where values are all ndarrays
-      dim: dimension of parameters to extract
-
-    Returns:
-      A dictionary with the extracted elements of kwargs of the correct
-      dimension.
-    """
+    """Helper function that extract parameters from a dictionary via dimension."""
     if isinstance(dim, int):
       dim = [dim]
     return {name: value for name, value in kwargs.items() if value.ndim in dim}
