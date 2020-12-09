@@ -545,8 +545,8 @@ def triplet(fn: Callable[..., Array],
       _kwargs = merge_dicts(kwargs, dynamic_kwargs)
 
       mapped_args = extract_parameters_by_dim(_kwargs, [1, 3])
-      mapped_args = {arg_name: jnp.take(
-          arg_value, species, axis=0) for arg_name, arg_value in mapped_args.items()}
+      mapped_args = {arg_name: arg_value[species]
+          for arg_name, arg_value in mapped_args.items()}
       # While we support 2 dimensional inputs, these often make less sense
       # as the parameters do not depend on the central atom
       unmapped_args = extract_parameters_by_dim(_kwargs, [0, 2])
