@@ -544,12 +544,15 @@ def triplet(fn: Callable[..., Array],
 
       _kwargs = merge_dicts(kwargs, dynamic_kwargs)
 
-      mapped_args = extract_parameters_by_dim(_kwargs, [1, 3])
+      mapped_args = extract_parameters_by_dim(_kwargs, [3])
       mapped_args = {arg_name: arg_value[species]
           for arg_name, arg_value in mapped_args.items()}
       # While we support 2 dimensional inputs, these often make less sense
       # as the parameters do not depend on the central atom
-      unmapped_args = extract_parameters_by_dim(_kwargs, [0, 2])
+      unmapped_args = extract_parameters_by_dim(_kwargs, [0])
+
+      if extract_parameters_by_dim(_kwargs, [1, 2]):
+        assert ValueError('Improper argument dimensions (1 or 2) not well defined for triplets.')
 
       def compute_triplet(dR, mapped_args, unmapped_args):
         paired_args = extract_parameters_by_dim(mapped_args, 2)
