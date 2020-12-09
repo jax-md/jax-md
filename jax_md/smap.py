@@ -464,8 +464,12 @@ def pair_neighbor_list(fn: Callable[..., Array],
     return high_precision_sum(out, reduce_axis, keepdims) / 2.
   return fn_mapped
 
-def triplet(
-    fn, metric, species=None, reduce_axis=None, keepdims=False, **kwargs):
+def triplet(fn: Callable[..., Array],
+            displacement_or_metric: DisplacementOrMetricFn,
+            species: Array=None,
+            reduce_axis: Tuple[int, ...]=None,
+            keepdims: bool=False,
+            **kwargs) -> Callable[..., Array]:
   """Promotes a function that acts on triples of particles to one on a system.
 
   Many empirical potentials in jax_md include three-body angular terms (e.g.
@@ -523,7 +527,7 @@ def triplet(
 
   if species is None:
     def fn_mapped(R, **dynamic_kwargs) -> Array:
-      d = space.map_product(partial(metric, **dynamic_kwargs))
+      d = space.map_product(partial(displacement_or_metric, **dynamic_kwargs))
       _kwargs = merge_dicts(kwargs, dynamic_kwargs)
       _kwargs = _kwargs_to_parameters(species, **_kwargs)
       dR = d(R, R)
@@ -534,7 +538,7 @@ def triplet(
                                 keepdims=keepdims) / 2.
   elif isinstance(species, jnp.ndarray):
     def fn_mapped(R, **dynamic_kwargs):
-      d = partial(metric, **dynamic_kwargs)
+      d = partial(displacement_or_metric, **dynamic_kwargs)
       idx = onp.tile(onp.arange(R.shape[0]), [R.shape[0], 1])
       dR = vmap(vmap(d, (None, 0)))(R, R[idx])
 
