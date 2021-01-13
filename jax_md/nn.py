@@ -96,7 +96,7 @@ def radial_symmetry_functions(displacement_or_metric: DisplacementOrMetricFn,
 
   Args:
     displacement: A function that produces an `[N_atoms, M_atoms,
-    spatial_dimension]` of particle displacements from particle positions
+      spatial_dimension]` of particle displacements from particle positions
       specified as an `[N_atoms, spatial_dimension] and `[M_atoms,
       spatial_dimension]` respectively.
     species: An `[N_atoms]` that contains the species of each particle.
@@ -109,7 +109,7 @@ def radial_symmetry_functions(displacement_or_metric: DisplacementOrMetricFn,
 
   Returns:
     A function that computes the radial symmetry function from input `[N_atoms,
-    spatial_dimension]` and returns `[N_etas, N_atoms * N_types]` where N_etas
+    spatial_dimension]` and returns `[N_atoms, N_etas * N_types]` where N_etas
     is the number of eta parameters, N_types is the number of types of
     particles in the system.
   """
@@ -149,7 +149,7 @@ def radial_symmetry_functions_neighbor_list(
 
   Args:
     displacement: A function that produces an `[N_atoms, M_atoms,
-    spatial_dimension]` of particle displacements from particle positions
+      spatial_dimension]` of particle displacements from particle positions
       specified as an `[N_atoms, spatial_dimension] and `[M_atoms,
       spatial_dimension]` respectively.
     species: An `[N_atoms]` that contains the species of each particle.
@@ -162,7 +162,7 @@ def radial_symmetry_functions_neighbor_list(
 
   Returns:
     A function that computes the radial symmetry function from input `[N_atoms,
-    spatial_dimension]` and returns `[N_etas, N_atoms * N_types]` where N_etas
+    spatial_dimension]` and returns `[N_atoms, N_etas * N_types]` where N_etas
     is the number of eta parameters, N_types is the number of types of
     particles in the system.
   """
@@ -242,7 +242,7 @@ def angular_symmetry_functions(displacement: DisplacementFn,
 
   Args:
     displacement: A function that produces an `[N_atoms, M_atoms,
-    spatial_dimension]` of particle displacements from particle positions
+      spatial_dimension]` of particle displacements from particle positions
       specified as an `[N_atoms, spatial_dimension] and `[M_atoms,
       spatial_dimension]` respectively.
     species: An `[N_atoms]` that contains the species of each particle.
@@ -310,7 +310,7 @@ def angular_symmetry_functions_neighbor_list(
 
   Args:
     displacement: A function that produces an `[N_atoms, M_atoms,
-    spatial_dimension]` of particle displacements from particle positions
+      spatial_dimension]` of particle displacements from particle positions
       specified as an `[N_atoms, spatial_dimension] and `[M_atoms,
       spatial_dimension]` respectively.
     species: An `[N_atoms]` that contains the species of each particle.
