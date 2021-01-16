@@ -89,10 +89,11 @@ def _behler_parrinello_cutoff_fn(dr: Array,
 def radial_symmetry_functions(displacement_or_metric: DisplacementOrMetricFn,
                               species: Optional[Array],
                               etas: Array,
-                              cutoff_distance: float
+                              Rcs: Array=None,
+                              cutoff_distance: float=4.,
+                              num_species: int=None
                               ) -> Callable[[Array], Array]:
   """Returns a function that computes radial symmetry functions.
-
 
   Args:
     displacement: A function that produces an `[N_atoms, M_atoms,
@@ -102,42 +103,71 @@ def radial_symmetry_functions(displacement_or_metric: DisplacementOrMetricFn,
     species: An `[N_atoms]` that contains the species of each particle.
     etas: List of radial symmetry function parameters that control the spatial
       extension.
+    Rcs: List of radial symmetry function parameters that control the center
+      of the examined range.
     cutoff_distance: Neighbors whose distance is larger than cutoff_distance do
       not contribute to each others symmetry functions. The contribution of a
       neighbor to the symmetry function and its derivative goes to zero at this
       distance.
+    num_species: Number of species present in the dataset. May be higher than
+      the number of unique values in the species argument, but defaults to that
+      if a value is not provided. Needed to produce an AEV of the same
+      dimensionality for all molecules in the dataset.
 
   Returns:
     A function that computes the radial symmetry function from input `[N_atoms,
-    spatial_dimension]` and returns `[N_atoms, N_etas * N_types]` where N_etas
-    is the number of eta parameters, N_types is the number of types of
-    particles in the system.
+    spatial_dimension]` and returns `[N_atoms, N_etas * N_Rcs * N_types]` where
+    N_etas is the number of eta parameters, N_Rcs is the number of Rc
+    parameters, and N_types is the number of types of particles in the system.
   """
   metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
+  
+  if Rcs is None:
+    Rcs = np.array([0.])
+  
+  def single_pair_radial_symmetry_function(dR: Array,
+                                           eta: Array,
+                                           Rc: Array,
+                                           cutoff_distance: float
+                                           ) -> Array:
+    return np.exp(-eta * (dR - Rc)**2) * _behler_parrinello_cutoff_fn(dR, cutoff_distance)
+  
+  _radial_fn = reduce(
+    lambda x, y: vmap(x, y),
+    [(None, 0, None, None),
+     (None, None, 0, None)], single_pair_radial_symmetry_function)
+  
+  _batched_radial_fn = lambda dR: _radial_fn(dR, etas, Rcs, cutoff_distance).ravel()
 
-  radial_fn = lambda eta, dr: (np.exp(-eta * dr**2) *
-                               _behler_parrinello_cutoff_fn(dr, cutoff_distance))
-  radial_fn = vmap(radial_fn, (0, None))
+  _all_atoms_radial = vmap(vmap(_batched_radial_fn, 0), 1)
 
   if species is None:
     def compute_fn(R: Array, **kwargs) -> Array:
       _metric = partial(metric, **kwargs)
       _metric = space.map_product(_metric)
-      return util.high_precision_sum(radial_fn(etas, _metric(R, R)), axis=1).T
+      dr = _metric(R, R)
+      return util.high_precision_sum(_all_atoms_radial(dr), axis=1)
   elif isinstance(species, np.ndarray):
-    species = onp.array(species)
     def compute_fn(R: Array, **kwargs) -> Array:
+      num_atoms = R.shape[0]
       _metric = partial(metric, **kwargs)
       _metric = space.map_product(_metric)
+      dr = _metric(R, R)
+      _all_atoms_radial_values = _all_atoms_radial(dr)
+
       def return_radial(atom_type):
         """Returns the radial symmetry functions for neighbor type atom_type."""
-        R_neigh = R[species == atom_type, :]
-        dr = _metric(R, R_neigh)
-        return util.high_precision_sum(radial_fn(etas, dr), axis=1).T
-      return np.hstack([return_radial(atom_type) for
-                        atom_type in onp.unique(species)])
-  return compute_fn
+        mask = np.broadcast_to(atom_type == species,
+                                (len(etas) * len(Rcs), num_atoms, num_atoms)).transpose()
+        return util.high_precision_sum(np.where(mask, _all_atoms_radial_values, 0), axis = [0])
 
+      if num_species is None:
+        return np.hstack([return_radial(atom_type) for
+                          atom_type in onp.unique(species)])
+      else:
+        return np.hstack([return_radial(atom_type) for
+                          atom_type in range(num_species)])
+  return compute_fn
 
 def radial_symmetry_functions_neighbor_list(
     displacement_or_metric: DisplacementOrMetricFn,
@@ -385,6 +415,120 @@ def angular_symmetry_functions_neighbor_list(
     return np.hstack(out)
   return compute_fn
 
+def single_pair_angular_symmetry_function_ani(dR12: Array,
+                                          dR13: Array,
+                                          eta: Array,
+                                          theta: Array,
+                                          R: Array,
+                                          zeta: Array,
+                                          cutoff_distance: float
+                                          ) -> Array:
+  """Computes the angular symmetry function due to one pair of neighbors,
+  using the ANI method."""
+  dr12_2 = space.square_distance(dR12)
+  dr13_2 = space.square_distance(dR13)
+  dr12 = space.distance(dR12)
+  dr13 = space.distance(dR13)
+  dr23_2 = space.square_distance(dR12 - dR13)
+  factor = np.count_nonzero(np.array([dr23_2]))
+  cos_angle_between_two_vectors = quantity.angle_between_two_vectors(dR12, dR13)
+  sin_angle_between_two_vectors = np.sqrt(1 - cos_angle_between_two_vectors ** 2)
+  doublet_cutoff = reduce(
+      lambda x, y: x * _behler_parrinello_cutoff_fn(y, cutoff_distance),
+      [dr12, dr13], 1.0)
+  result = 2.0 ** (1.0 - zeta) * (
+      1.0 + (cos_angle_between_two_vectors * np.cos(theta)
+             + sin_angle_between_two_vectors * np.sin(theta))) ** zeta * \
+      np.exp(-eta * (0.5 * (dr12 + dr13) - R) ** 2) * doublet_cutoff
+  return result * factor
+
+def angular_symmetry_functions_ani(displacement: DisplacementFn,
+                                   species: Array,
+                                   etas: Array,
+                                   thetas: Array,
+                                   Rcs,
+                                   zetas: Array,
+                                   cutoff_distance: float,
+                                   num_species: int
+                                   ) -> Callable[[Array], Array]:
+  """Returns a function that computes angular symmetry functions
+  using the ANI method.
+  
+  Args:
+    displacement: A function that produces an `[N_atoms, M_atoms,
+    spatial_dimension]` of particle displacements from particle positions
+      specified as an `[N_atoms, spatial_dimension] and `[M_atoms,
+      spatial_dimension]` respectively.
+    species: An `[N_atoms]` that contains the species of each particle.
+    etas: List of parameters that control the range of the angular range 
+      examined.
+    thetas: List of parameters that control the center of the angular range 
+      examined.
+    Rcs: List of parameters that control the distance of the examined range.
+    zetas: List of parameters that control the width of the peaks in the
+      angular symmetry function.
+    cutoff_distance: Neighbors whose distance is larger than cutoff_distance do
+      not contribute to each others symmetry functions. The contribution of a
+      neighbor to the symmetry function and its derivative goes to zero at this
+      distance.
+    num_species: Number of species present in the dataset. May be higher than
+      the number of unique values in the species argument. Needed to produce
+      an AEV of the same dimensionality for all molecules in the dataset.
+  Returns:
+    A function that computes the angular symmetry function from input `[N_atoms,
+    spatial_dimension]` and returns `[N_atoms, N_etas * N_thetas * N_Rcs
+    * N_zetas * N_types * (N_types + 1) / 2]` where N_types is the number of types of particles in the system.  
+  """
+  _angular_fn = reduce(
+    lambda x, y: vmap(x, y),
+    [(None, None, 0, None, None, None, None),
+     (None, None, None, 0, None, None, None),
+     (None, None, None, None, 0, None, None)], single_pair_angular_symmetry_function_ani)
+  
+  _batched_angular_fn = lambda dR12, dR13: _angular_fn(dR12,
+                                                       dR13,
+                                                       etas,
+                                                       thetas,
+                                                       Rcs,
+                                                       zetas,
+                                                       cutoff_distance).ravel()
+  
+  _all_pairs_angular = vmap(
+    vmap(vmap(_batched_angular_fn, (0, None)), (None, 0)), 0)
+  
+  if species is None:
+    def compute_fn(R, **kwargs):
+      D_fn = partial(displacement, **kwargs)
+      D_fn = space.map_product(D_fn)
+      dR = D_fn(R, R)
+      return np.sum(_all_pairs_angular(dR, dR), axis=[1, 2])
+    return compute_fn
+    
+  def compute_fn(R, **kwargs):
+    num_atoms = R.shape[0]
+    atom_types = range(num_species)
+    D_fn = partial(displacement, **kwargs)
+    D_fn = space.map_product(D_fn)
+    dr = D_fn(R, R)
+    _all_pairs_angular_values = _all_pairs_angular(dr, dr)
+
+    def get_asf_pair(type_i, type_j):
+      """Returns the angular symmetry function values for neighbor types i and j."""
+      mask_i = np.array(np.reshape(type_i == species, (num_atoms,)), dtype=R.dtype)
+      mask_j = np.array(np.reshape(type_j == species, (num_atoms,)), dtype=R.dtype)
+      mask = mask_i[:, np.newaxis] * mask_j[np.newaxis, :]
+      if type_i == type_j:
+        mask = mask * 0.5
+      full_mask = np.broadcast_to(mask, (len(etas) * len(thetas) * len(Rcs) * len(zetas),
+                                         num_atoms, num_atoms, num_atoms)).transpose()
+      full_mask = np.swapaxes(full_mask, 0, 1)
+      full_mask = np.swapaxes(full_mask, 0, 2)
+      return util.high_precision_sum(full_mask * _all_pairs_angular_values, axis=[1, 2])
+
+    return np.hstack([get_asf_pair(i, j) for i in range(num_species)
+                      for j in range(i, num_species)])
+
+  return compute_fn
 
 def behler_parrinello_symmetry_functions_neighbor_list(
     displacement: DisplacementFn,
@@ -428,7 +572,8 @@ def behler_parrinello_symmetry_functions_neighbor_list(
 
 def behler_parrinello_symmetry_functions(displacement: DisplacementFn,
                                          species: Array=None,
-                                         radial_etas: Array=None, 
+                                         radial_etas: Array=None,
+                                         radial_Rcs: Array=None,
                                          angular_etas: Array=None, 
                                          lambdas: Array=None,
                                          zetas: Array=None, 
@@ -437,6 +582,9 @@ def behler_parrinello_symmetry_functions(displacement: DisplacementFn,
   if radial_etas is None:
     radial_etas = np.array([9e-4, 0.01, 0.02, 0.035, 0.06, 0.1, 0.2, 0.4],
                     f32) / f32(0.529177 ** 2)
+
+  if radial_Rcs is None:
+    radial_Rcs = np.array([0.])
   
   if angular_etas is None:
     angular_etas = np.array([1e-4] * 4 + [0.003] * 4 + [0.008] * 2 + 
@@ -452,6 +600,7 @@ def behler_parrinello_symmetry_functions(displacement: DisplacementFn,
   radial_fn = radial_symmetry_functions(displacement, 
                                         species, 
                                         etas=radial_etas,
+                                        Rcs=radial_Rcs,
                                         cutoff_distance=cutoff_distance)
   angular_fn = angular_symmetry_functions(displacement, 
                                           species, 
