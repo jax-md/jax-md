@@ -41,6 +41,9 @@ else:
 
 N_TYPES_TO_TEST = [1, 2]
 N_ETAS_TO_TEST = [1, 2]
+N_RCS_TO_TEST = [1, 2, 3]
+N_THETAS_TO_TEST = [1, 2, 3]
+N_ZETAS_TO_TEST = [1, 2]
 
 class SymmetryFunctionTest(jtu.JaxTestCase):
   @parameterized.named_parameters(jtu.cases_from_list(
@@ -50,18 +53,43 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
           'dtype': dtype,
           'N_types': N_types,
           'N_etas': N_etas,
-      } for N_types in N_TYPES_TO_TEST 
+      } for N_types in N_TYPES_TO_TEST
         for N_etas in N_ETAS_TO_TEST 
         for dtype in DTYPES))
   def test_radial_symmetry_functions(self, N_types, N_etas, dtype):
     displacement, shift = space.free()
     gr = nn.radial_symmetry_functions(displacement, 
                                       np.array([1, 1, N_types]), 
-                                      np.linspace(1.0, 2.0, N_etas, dtype=dtype), 
-                                      4)
+                                      np.linspace(1.0, 2.0, N_etas, dtype=dtype),
+                                      cutoff_distance=4)
     R = np.array([[0,0,0], [1,1,1], [1,1,0]], dtype)
     gr_out = gr(R)
     self.assertAllClose(gr_out.shape, (3, N_types * N_etas))
+    self.assertAllClose(gr_out[2, 0], dtype(0.411717), rtol=1e-6, atol=1e-6)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_N_types={}_N_etas={}_N_Rcs={}_d_type={}'.format(
+              N_types, N_etas, N_Rcs, dtype.__name__),
+          'dtype': dtype,
+          'N_types': N_types,
+          'N_etas': N_etas,
+          'N_Rcs': N_Rcs,
+      } for N_types in N_TYPES_TO_TEST
+        for N_etas in N_ETAS_TO_TEST
+        for N_Rcs in N_RCS_TO_TEST
+        for dtype in DTYPES))
+  def test_radial_symmetry_functions_ani(self, N_types, N_etas, N_Rcs, dtype):
+    displacement, shift = space.free()
+    gr = nn.radial_symmetry_functions(displacement,
+                                      np.array([0, 0, N_types - 1]),
+                                      np.linspace(1.0, 2.0, N_etas, dtype=dtype),
+                                      np.linspace(0.0, 4.0, N_Rcs, dtype=dtype),
+                                      4,
+                                      N_types)
+    R = np.array([[0,0,0], [1,1,1], [1,1,0]], dtype)
+    gr_out = gr(R)
+    self.assertAllClose(gr_out.shape, (3, N_types * N_etas * N_Rcs))
     self.assertAllClose(gr_out[2, 0], dtype(0.411717), rtol=1e-6, atol=1e-6)
 
   @parameterized.named_parameters(jtu.cases_from_list(
@@ -97,7 +125,7 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
     gr = nn.radial_symmetry_functions(displacement,
                                       species, 
                                       np.linspace(1.0, 2.0, N_etas, dtype=dtype), 
-                                      r_cutoff)
+                                      cutoff_distance=r_cutoff)
     gr_neigh = nn.radial_symmetry_functions_neighbor_list(
       displacement,
       species,
@@ -170,7 +198,7 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
           'dtype': dtype,
           'N_types': N_types,
           'N_etas': N_etas,
-      } for N_types in N_TYPES_TO_TEST 
+      } for N_types in N_TYPES_TO_TEST
         for N_etas in N_ETAS_TO_TEST
         for dtype in DTYPES))
   def test_angular_symmetry_functions(self, N_types, N_etas, dtype):
@@ -184,6 +212,38 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
     gr_out = gr(R)
     self.assertAllClose(gr_out.shape, (3, N_etas *  N_types * (N_types + 1) // 2))
     self.assertAllClose(gr_out[2, 0], dtype(1.577944), rtol=1e-6, atol=1e-6)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_N_types={}_N_etas={}_N_thetas={}_N_Rcs={}_N_zetas={}_d_type={}'.format(
+              N_types, N_etas, N_thetas, N_Rcs, N_zetas, dtype.__name__),
+          'dtype': dtype,
+          'N_types': N_types,
+          'N_etas': N_etas,
+          'N_thetas': N_thetas,
+          'N_Rcs': N_Rcs,
+          'N_zetas': N_zetas,
+      } for N_types in N_TYPES_TO_TEST
+        for N_etas in N_ETAS_TO_TEST
+        for N_thetas in N_THETAS_TO_TEST
+        for N_Rcs in N_RCS_TO_TEST
+        for N_zetas in N_ZETAS_TO_TEST
+        for dtype in DTYPES))
+  def test_angular_symmetry_functions_ani(self, N_types, N_etas, N_thetas,
+                                          N_Rcs, N_zetas, dtype):
+    displacement, shift = space.free()
+    gr = nn.angular_symmetry_functions_ani(displacement,
+                                           np.array([0, 0, N_types - 1]),
+                                           etas=np.linspace(1.0, 2.0, N_etas, dtype),
+                                           thetas=np.linspace(0.0, 1.57, N_thetas, dtype=dtype),
+                                           Rcs=np.linspace(0.0, 4.0, N_Rcs, dtype=dtype),
+                                           zetas=np.linspace(1., 2., N_zetas, dtype=dtype),
+                                           cutoff_distance=8.0,
+                                           num_species=N_types)
+    R = np.array([[0,0,0], [1,1,1], [1,1,0]], dtype)
+    gr_out = gr(R)
+    self.assertAllClose(gr_out.shape, (3, N_etas * N_thetas * N_Rcs * N_zetas *  N_types * (N_types + 1) // 2))
+    self.assertAllClose(gr_out[2, 0], dtype(0.207209), rtol=1e-6, atol=1e-6)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
