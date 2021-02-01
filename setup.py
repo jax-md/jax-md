@@ -32,7 +32,7 @@ INSTALL_REQUIRES = [
 
 setuptools.setup(
     name='jax-md',
-    version='0.1.10',
+    version='0.1.11',
     license='Apache 2.0',
     author='Google',
     author_email='jax-md-dev@google.com',
