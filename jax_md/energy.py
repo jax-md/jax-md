@@ -26,6 +26,7 @@ import haiku as hk
 from jax.scipy.special import erfc  # error function
 from jax_md import space, smap, partition, nn, quantity, interpolate, util
 
+maybe_downcast = util.maybe_downcast
 
 # Types
 
@@ -66,9 +67,9 @@ def simple_spring_bond(displacement_or_metric: DisplacementOrMetricFn,
                        epsilon: Array=1,
                        alpha: Array=2) -> Callable[[Array], Array]:
   """Convenience wrapper to compute energy of particles bonded by springs."""
-  length = np.array(length, f32)
-  epsilon = np.array(epsilon, f32)
-  alpha = np.array(alpha, f32)
+  length = maybe_downcast(length)
+  epsilon = maybe_downcast(epsilon)
+  alpha = maybe_downcast(alpha)
   return smap.bond(
     simple_spring,
     space.canonicalize_displacement_or_metric(displacement_or_metric),
@@ -111,9 +112,9 @@ def soft_sphere_pair(displacement_or_metric: DisplacementOrMetricFn,
                      alpha: Array=2.0,
                      per_particle: bool=False):
   """Convenience wrapper to compute soft sphere energy over a system."""
-  sigma = np.array(sigma, dtype=f32)
-  epsilon = np.array(epsilon, dtype=f32)
-  alpha = np.array(alpha, dtype=f32)
+  sigma = maybe_downcast(sigma)
+  epsilon = maybe_downcast(epsilon)
+  alpha = maybe_downcast(alpha)
   return smap.pair(
       soft_sphere,
       space.canonicalize_displacement_or_metric(displacement_or_metric),
@@ -135,11 +136,11 @@ def soft_sphere_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                               ) -> Tuple[NeighborFn,
                                          Callable[[Array, NeighborList], Array]]:
   """Convenience wrapper to compute soft spheres using a neighbor list."""
-  sigma = np.array(sigma, dtype=f32)
-  epsilon = np.array(epsilon, dtype=f32)
-  alpha = np.array(alpha, dtype=f32)
-  list_cutoff = f32(np.max(sigma))
-  dr_threshold = f32(list_cutoff * dr_threshold)
+  sigma = maybe_downcast(sigma)
+  epsilon = maybe_downcast(epsilon)
+  alpha = maybe_downcast(alpha)
+  list_cutoff = np.max(sigma)
+  dr_threshold = list_cutoff * maybe_downcast(dr_threshold)
 
   neighbor_fn = partition.neighbor_list(
     displacement_or_metric, box_size, list_cutoff, dr_threshold)
@@ -188,10 +189,10 @@ def lennard_jones_pair(displacement_or_metric: DisplacementOrMetricFn,
                        r_cutoff: Array=2.5,
                        per_particle: bool=False) -> Callable[[Array], Array]:
   """Convenience wrapper to compute Lennard-Jones energy over a system."""
-  sigma = np.array(sigma, dtype=f32)
-  epsilon = np.array(epsilon, dtype=f32)
-  r_onset = r_onset * np.max(sigma)
-  r_cutoff = r_cutoff * np.max(sigma)
+  sigma = maybe_downcast(sigma)
+  epsilon = maybe_downcast(epsilon)
+  r_onset = maybe_downcast(r_onset) * np.max(sigma)
+  r_cutoff = maybe_downcast(r_cutoff) * np.max(sigma)
   return smap.pair(
     multiplicative_isotropic_cutoff(lennard_jones, r_onset, r_cutoff),
     space.canonicalize_displacement_or_metric(displacement_or_metric),
@@ -215,11 +216,11 @@ def lennard_jones_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                                            Callable[[Array, NeighborList],
                                                     Array]]:
   """Convenience wrapper to compute lennard-jones using a neighbor list."""
-  sigma = np.array(sigma, f32)
-  epsilon = np.array(epsilon, f32)
-  r_onset = np.array(r_onset * np.max(sigma), f32)
-  r_cutoff = np.array(r_cutoff * np.max(sigma), f32)
-  dr_threshold = np.array(np.max(sigma) * dr_threshold, f32)
+  sigma = maybe_downcast(sigma)
+  epsilon = maybe_downcast(epsilon)
+  r_onset = maybe_downcast(r_onset) * np.max(sigma)
+  r_cutoff = maybe_downcast(r_cutoff) * np.max(sigma)
+  dr_threshold = np.max(sigma) * maybe_downcast(dr_threshold)
 
   neighbor_fn = partition.neighbor_list(
     displacement_or_metric, box_size, r_cutoff, dr_threshold)
@@ -265,9 +266,9 @@ def morse_pair(displacement_or_metric: DisplacementOrMetricFn,
                r_cutoff: float=2.5,
                per_particle: bool=False) -> Callable[[Array], Array]:
   """Convenience wrapper to compute Morse energy over a system."""
-  sigma = np.array(sigma, dtype=f32)
-  epsilon = np.array(epsilon, dtype=f32)
-  alpha = np.array(alpha, dtype=f32)
+  sigma = maybe_downcast(sigma)
+  epsilon = maybe_downcast(epsilon)
+  alpha = maybe_downcast(alpha)
   return smap.pair(
     multiplicative_isotropic_cutoff(morse, r_onset, r_cutoff),
     space.canonicalize_displacement_or_metric(displacement_or_metric),
@@ -291,12 +292,12 @@ def morse_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                         ) -> Tuple[NeighborFn,
                                    Callable[[Array, NeighborList], Array]]: 
   """Convenience wrapper to compute Morse using a neighbor list."""
-  sigma = np.array(sigma, f32)
-  epsilon = np.array(epsilon, f32)
-  alpha = np.array(alpha, f32)
-  r_onset = np.array(r_onset, f32)
-  r_cutoff = np.array(r_cutoff, f32)
-  dr_threshold = np.array(dr_threshold, f32)
+  sigma = maybe_downcast(sigma)
+  epsilon = maybe_downcast(epsilon)
+  alpha = maybe_downcast(alpha)
+  r_onset = maybe_downcast(r_onset)
+  r_cutoff = maybe_downcast(r_cutoff)
+  dr_threshold = maybe_downcast(dr_threshold)
 
   neighbor_fn = partition.neighbor_list(
     displacement_or_metric, box_size, r_cutoff, dr_threshold)
@@ -312,36 +313,30 @@ def morse_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
   return neighbor_fn, energy_fn
 
 
-def gupta_potential(displacement,
-                    p,
-                    q,
-                    r_0n,
-                    U_n,
-                    A,
-                    cutoff):
+def gupta_potential(displacement, p, q, r_0n, U_n, A, cutoff):
   """Gupta potential with default parameters for Au_55 cluster. Gupta
   potential was introduced by R. P. Gupta [1]. This potential uses parameters
-  that were fit for bulk gold by Jellinek [2]. This particular implementation 
-  of the Gupta potential was introduced by Garzon and Posada-Amarillas [3]. 
-  
-  Args: 
+  that were fit for bulk gold by Jellinek [2]. This particular implementation
+  of the Gupta potential was introduced by Garzon and Posada-Amarillas [3].
+
+  Args:
     displacement: Function to compute displacement between two positions.
-    p: Gupta potential parameter of the repulsive term that was fitted for 
+    p: Gupta potential parameter of the repulsive term that was fitted for
     bulk gold.
-    q: Gupta potential parameter of the attractive term that was fitted for 
+    q: Gupta potential parameter of the attractive term that was fitted for
     bulk gold.
     r_0n: Parameter that determines the length scale of the potential. This
     value was particularly fit for gold clusters of size 55 atoms.
     U_n: Parameter that determines the energy scale, fit particularly for
     gold clusters of size 55 atoms.
-    A: Parameter that was obtained using the cohesive energy of the fcc gold 
+    A: Parameter that was obtained using the cohesive energy of the fcc gold
     metal.
     cutoff: Pairwise interactions that are farther than the cutoff distance
     will be ignored.
-  
+
   Returns:
-    A function that takes in positions of gold atoms (shape [n, 3] where n is 
-    the number of atoms) and returns the total energy of the system in units 
+    A function that takes in positions of gold atoms (shape [n, 3] where n is
+    the number of atoms) and returns the total energy of the system in units
     of eV.
 
   [1] R.P. Gupta, Phys. Rev. B 23, 6265 (1981)
@@ -507,11 +502,11 @@ def bks_pair(displacement_or_metric: DisplacementOrMetricFn,
              coulomb_alpha: Array,
              cutoff: float) -> Callable[[Array], Array]:
   """Convenience wrapper to compute BKS energy over a system."""
-  Q_sq = np.array(Q_sq, f32)
-  exp_coeff = np.array(exp_coeff, f32)
-  exp_decay = np.array(exp_decay, f32)
-  attractive_coeff = np.array(attractive_coeff, f32)
-  repulsive_coeff = np.array(repulsive_coeff, f32)
+  Q_sq = maybe_downcast(Q_sq)
+  exp_coeff = maybe_downcast(exp_coeff)
+  exp_decay = maybe_downcast(exp_decay)
+  attractive_coeff = maybe_downcast(attractive_coeff)
+  repulsive_coeff = maybe_downcast(repulsive_coeff)
 
   return smap.pair(bks, displacement_or_metric, 
                    species=species, 
@@ -522,7 +517,7 @@ def bks_pair(displacement_or_metric: DisplacementOrMetricFn,
                    repulsive_coeff=repulsive_coeff,
                    coulomb_alpha=coulomb_alpha,
                    cutoff=cutoff)
-  
+
 
 def bks_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                       box_size: Box, 
@@ -538,28 +533,28 @@ def bks_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                       ) -> Tuple[NeighborFn,
                                  Callable[[Array, NeighborList], Array]]:
   """Convenience wrapper to compute BKS energy using a neighbor list."""
-  Q_sq = np.array(Q_sq, f32)
-  exp_coeff = np.array(exp_coeff, f32)
-  exp_decay = np.array(exp_decay, f32)
-  attractive_coeff = np.array(attractive_coeff, f32)
-  repulsive_coeff = np.array(repulsive_coeff, f32)
-  dr_threshold = f32(dr_threshold)
+  Q_sq = maybe_downcast(Q_sq)
+  exp_coeff = maybe_downcast(exp_coeff)
+  exp_decay = maybe_downcast(exp_decay)
+  attractive_coeff = maybe_downcast(attractive_coeff)
+  repulsive_coeff = maybe_downcast(repulsive_coeff)
+  dr_threshold = maybe_downcast(dr_threshold)
 
   neighbor_fn = partition.neighbor_list(
       displacement_or_metric, box_size, cutoff, dr_threshold)
-  
+
   energy_fn = smap.pair_neighbor_list(
-      bks, 
+      bks,
       space.canonicalize_displacement_or_metric(displacement_or_metric),
-      species=species, 
-      Q_sq=Q_sq, 
-      exp_coeff=exp_coeff, 
-      exp_decay=exp_decay, 
-      attractive_coeff=attractive_coeff, 
+      species=species,
+      Q_sq=Q_sq,
+      exp_coeff=exp_coeff,
+      exp_decay=exp_decay,
+      attractive_coeff=attractive_coeff,
       repulsive_coeff=repulsive_coeff,
       coulomb_alpha=coulomb_alpha,
       cutoff=cutoff)
-  
+
   return neighbor_fn, energy_fn
 
 # BKS Potential Parameters.
@@ -569,25 +564,25 @@ CHARGE_OXYGEN = -0.977476019
 CHARGE_SILICON = 1.954952037
 
 BKS_SILICA_DICT = {
-    'Q_sq' : [[CHARGE_SILICON**2, CHARGE_SILICON*CHARGE_OXYGEN], 
-              [CHARGE_SILICON*CHARGE_OXYGEN, CHARGE_OXYGEN**2]], 
-    'exp_coeff' : [[0, 471671.1243 ], 
+    'Q_sq' : [[CHARGE_SILICON**2, CHARGE_SILICON*CHARGE_OXYGEN],
+              [CHARGE_SILICON*CHARGE_OXYGEN, CHARGE_OXYGEN**2]],
+    'exp_coeff' : [[0, 471671.1243 ],
                    [471671.1243, 23138.64826]],
-    'exp_decay' : [[1, 0.19173537], 
+    'exp_decay' : [[1, 0.19173537],
                    [0.19173537, 0.356855265]],
-    'attractive_coeff' : [[0, -2156.074422], 
+    'attractive_coeff' : [[0, -2156.074422],
                           [-2156.074422, -1879.223108]],
     'repulsive_coeff' : [[78940848.06, 668.7557239],
                          [668.7557239, 2605.841269]],
     'coulomb_alpha' : 0.25,
 }
-                   
+
 def _bks_silica_self(Q_sq: Array, alpha: Array, cutoff: float) -> Array:
   """Function for computing the self-energy contributions to BKS."""
   cutoffsq = cutoff * cutoff
   erfcc = erfc(alpha * cutoff)
   erfcd = np.exp(-alpha * alpha * cutoffsq)
-  f_shift = -(erfcc / cutoffsq + 2.0 / np.sqrt(np.pi) * alpha * erfcd / cutoff) 
+  f_shift = -(erfcc / cutoffsq + 2.0 / np.sqrt(np.pi) * alpha * erfcd / cutoff)
   e_shift = erfcc / cutoff - f_shift * cutoff
   qqr2e = 332.06371 #kcal/mol #coulmbic conversion factor:1/(4*pi*epo)
   return -(e_shift / 2.0 + alpha / np.sqrt(np.pi)) * Q_sq * qqr2e
@@ -596,7 +591,7 @@ def bks_silica_pair(displacement_or_metric: DisplacementOrMetricFn,
                     species: Array,
                     cutoff: float=8.0):
   """Convenience wrapper to compute BKS energy for SiO2."""
-  bks_pair_fn = bks_pair(displacement_or_metric, 
+  bks_pair_fn = bks_pair(displacement_or_metric,
                          species,
                          cutoff=cutoff,
                          **BKS_SILICA_DICT)
@@ -670,17 +665,17 @@ def _sw_angle_interaction(dR12,
   dr13 = np.where(dr13<cutoff, dr13, 0)
   term1 = np.exp(gamma/(dr12/sigma-a) + gamma/(dr13/sigma-a))
   cos_angle = quantity.angle_between_two_vectors(dR12, dR13)
-  term2 = (cos_angle + 1./3)**2 
+  term2 = (cos_angle + 1./3)**2
   within_cutoff = (dr12>0) & (dr13>0) & (np.linalg.norm(dR12-dR13)>1e-5)
   return np.where(within_cutoff, term1 * term2, 0)
 sw_three_body_term = vmap(vmap(vmap(
     _sw_angle_interaction, (0, None)), (None, 0)), 0)
 
 
-def _sw_radial_interaction(r, 
-                           sigma=2.0951, 
-                           B=0.6022245584, 
-                           p=4, 
+def _sw_radial_interaction(r,
+                           sigma=2.0951,
+                           B=0.6022245584,
+                           p=4,
                            cutoff=1.8*2.0951):
   """The two body term of the Stillinger-Weber potential."""
   a = cutoff / sigma
@@ -691,45 +686,45 @@ def _sw_radial_interaction(r,
   return np.where(within_cutoff, term1 * term2, 0.0)
 
 
-def stillinger_weber_energy(displacement, 
-                            A=7.049556277, 
-                            lam=21.0, 
+def stillinger_weber_energy(displacement,
+                            A=7.049556277,
+                            lam=21.0,
                             epsilon=2.16826,
                             three_body_strength=1.0):
-  """Stillinger-Weber (SW) potential [1] which is commonly used to model 
+  """Stillinger-Weber (SW) potential [1] which is commonly used to model
   silicon and similar systems. This function uses the default SW parameters
-  from the original paper. The SW potential was originally proposed to 
-  model diamond in the diamond crystal phase and the liquid phase, and is 
-  known to give unphysical amorphous configurations [2, 3]. For this reason, 
+  from the original paper. The SW potential was originally proposed to
+  model diamond in the diamond crystal phase and the liquid phase, and is
+  known to give unphysical amorphous configurations [2, 3]. For this reason,
   we provide a three_body_strength parameter. Changing this number to 1.5
   or 2.0 has been know to produce more physical amorphous phase, preventing
-  most atoms from having more than four nearest neighbors. Note that this 
+  most atoms from having more than four nearest neighbors. Note that this
   function currently assumes nearest-image-convention.
   Args:
     displacement: The displacement function for the space.
     A: A scalar that determines the scale of two-body term.
     lam: A scalar that determines the scale of the three-body term.
     epsilon: A scalar that sets the total energy scale.
-    three_body_strength: A scalar that determines the relative strength 
+    three_body_strength: A scalar that determines the relative strength
     of the angular interaction. Default value is 1.0, which works well
     for the diamond crystal and liquid phases. 1.5 and 2.0 have been used
     to model amorphous silicon.
     unused_kwargs: Allows extra data (e.g. time) to be passed to the energy.
   Returns:
     A function that computes the total energy.
-  [1] Stillinger, Frank H., and Thomas A. Weber. "Computer simulation of 
-  local order in condensed phases of silicon." Physical review B 31.8 
+  [1] Stillinger, Frank H., and Thomas A. Weber. "Computer simulation of
+  local order in condensed phases of silicon." Physical review B 31.8
   (1985): 5262.
-  [2] Holender, J. M., and G. J. Morgan. "Generation of a large structure 
-  (105 atoms) of amorphous Si using molecular dynamics." Journal of 
+  [2] Holender, J. M., and G. J. Morgan. "Generation of a large structure
+  (105 atoms) of amorphous Si using molecular dynamics." Journal of
   Physics: Condensed Matter 3.38 (1991): 7241.
-  [3] Barkema, G. T., and Normand Mousseau. "Event-based relaxation of 
+  [3] Barkema, G. T., and Normand Mousseau. "Event-based relaxation of
   continuous disordered systems." Physical review letters 77.21 (1996): 4358.
   """
   def compute_fn(R):
     dR = space.map_product(displacement)(R, R)
     dr = space.distance(dR)
-    first_term = np.sum(_sw_radial_interaction(dr)) / 2.0 * A 
+    first_term = np.sum(_sw_radial_interaction(dr)) / 2.0 * A
     second_term = lam *  np.sum(sw_three_body_term(dR, dR))/2.0
     return epsilon * (first_term + three_body_strength * second_term)
   return compute_fn
@@ -777,7 +772,7 @@ def load_lammps_eam_parameters(file: TextIO) -> Tuple[Callable[[Array], Array],
   num_drho, num_dr = int(temp_params[0]), int(temp_params[2])
   drho, dr, cutoff = float(temp_params[1]), float(temp_params[3]), float(
       temp_params[4])
-  data = np.array([float(i) for i in raw_text[6:-1]])
+  data = maybe_downcast([float(i) for i in raw_text[6:-1]])
   embedding_fn = interpolate.spline(data[:num_drho], drho)
   charge_fn = interpolate.spline(data[num_drho:num_drho + num_dr], dr)
   # LAMMPS EAM parameters file lists pairwise energies after multiplying by

@@ -66,3 +66,10 @@ def high_precision_sum(X: Array,
   """Sums over axes at 64-bit precision then casts back to original dtype."""
   return jnp.array(
       jnp.sum(X, axis=axis, dtype=f64, keepdims=keepdims), dtype=X.dtype)
+
+
+def maybe_downcast(x):
+  if isinstance(x, jnp.ndarray) and x.dtype is f64:
+    return x
+  else:
+    return jnp.array(x, f32)
