@@ -48,10 +48,15 @@ def register_pytree_namedtuple(cls):
       lambda _, xs: cls(*xs))
 
 
-def merge_dicts(a, b):
-  # TODO(schsam): Replace by {**a, **b} when Python 2 is depricated.
+def merge_dicts(a, b, ignore_unused_parameters=False):
+  if not ignore_unused_parameters:
+    return {**a, **b}
+
   merged = dict(a)
-  merged.update(b)
+  for key in merged.keys():
+    b_val = b.get(key)
+    if b_val is not None:
+      merged[key] = b_val
   return merged
 
 

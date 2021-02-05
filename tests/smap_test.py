@@ -172,7 +172,7 @@ class SMapTest(jtu.JaxTestCase):
 
     sigma = np.array([1.0, 2.0], f32)
 
-    mapped = smap.bond(harmonic, metric)
+    mapped = smap.bond(harmonic, metric, sigma=1.0)
     bonds = np.array([[0, 1], [0, 2]], i32)
 
     key = random.PRNGKey(0)
@@ -280,7 +280,7 @@ class SMapTest(jtu.JaxTestCase):
     metric = lambda Ra, Rb, **kwargs: \
         np.sum(displacement(Ra, Rb, **kwargs) ** 2, axis=-1)
 
-    mapped_square = smap.pair(square, metric)
+    mapped_square = smap.pair(square, metric, epsilon=1.0)
     metric = space.map_product(metric)
 
     key = random.PRNGKey(0)
@@ -370,7 +370,7 @@ class SMapTest(jtu.JaxTestCase):
     metric = lambda Ra, Rb, **kwargs: \
         np.sum(displacement(Ra, Rb, **kwargs) ** 2, axis=-1)
 
-    mapped_square = smap.pair(square, metric, species=species)
+    mapped_square = smap.pair(square, metric, species=species, param=1.0)
 
     metric = space.map_product(metric)
 
@@ -535,8 +535,9 @@ class SMapTest(jtu.JaxTestCase):
     disp, _ = space.periodic(box_size)
     d = space.metric(disp)
 
-    neighbor_square = jit(smap.pair_neighbor_list(truncated_square, d))
-    mapped_square = jit(smap.pair(truncated_square, d))
+    neighbor_square = smap.pair_neighbor_list(truncated_square, d, sigma=1.0)
+    neighbor_square = jit(neighbor_square)
+    mapped_square = jit(smap.pair(truncated_square, d, sigma=1.0))
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split = random.split(key)
@@ -568,8 +569,8 @@ class SMapTest(jtu.JaxTestCase):
     disp, _ = space.periodic(box_size)
     d = space.metric(disp)
 
-    neighbor_square = jit(smap.pair_neighbor_list(potential, d))
-    mapped_square = jit(smap.pair(potential, d))
+    neighbor_square = jit(smap.pair_neighbor_list(potential, d, sigma=1.0))
+    mapped_square = jit(smap.pair(potential, d, sigma=1.0))
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split = random.split(key)
@@ -601,8 +602,9 @@ class SMapTest(jtu.JaxTestCase):
     disp, _ = space.periodic(box_size)
     d = space.metric(disp)
 
-    neighbor_square = jit(quantity.force(smap.pair_neighbor_list(potential, d)))
-    mapped_square = jit(quantity.force(smap.pair(potential, d)))
+    neighbor_square = smap.pair_neighbor_list(potential, d, sigma=1.0)
+    neighbor_square = jit(quantity.force(neighbor_square))
+    mapped_square = jit(quantity.force(smap.pair(potential, d, sigma=1.0)))
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split = random.split(key)
@@ -634,8 +636,9 @@ class SMapTest(jtu.JaxTestCase):
     disp, _ = space.periodic(box_size)
     d = space.metric(disp)
 
-    neighbor_square = jit(smap.pair_neighbor_list(truncated_square, d))
-    mapped_square = jit(smap.pair(truncated_square, d))
+    neighbor_square = smap.pair_neighbor_list(truncated_square, d, sigma=1.0)
+    neighbor_square = jit(neighbor_square)
+    mapped_square = jit(smap.pair(truncated_square, d, sigma=1.0))
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split = random.split(key)
@@ -666,8 +669,9 @@ class SMapTest(jtu.JaxTestCase):
     disp, _ = space.periodic(box_size)
     d = space.metric(disp)
 
-    neighbor_square = jit(smap.pair_neighbor_list(truncated_square, d))
-    mapped_square = jit(smap.pair(truncated_square, d))
+    neighbor_square = smap.pair_neighbor_list(truncated_square, d, sigma=1.0)
+    neighbor_square = jit(neighbor_square)
+    mapped_square = jit(smap.pair(truncated_square, d, sigma=1.0))
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split = random.split(key)
@@ -702,9 +706,11 @@ class SMapTest(jtu.JaxTestCase):
     disp, _ = space.periodic(box_size)
     d = space.metric(disp)
 
-    neighbor_square = jit(
-      smap.pair_neighbor_list(truncated_square, d, species=species))
-    mapped_square = jit(smap.pair(truncated_square, d, species=species))
+    neighbor_square = smap.pair_neighbor_list(truncated_square,
+                                              d, species=species, sigma=1.0)
+    neighbor_square = jit(neighbor_square)
+    mapped_square = smap.pair(truncated_square, d, species=species, sigma=1.0)
+    mapped_square = jit(mapped_square)
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split = random.split(key)
@@ -736,8 +742,9 @@ class SMapTest(jtu.JaxTestCase):
     disp, _ = space.periodic(box_size)
 
     neighbor_square = jit(smap.pair_neighbor_list(
-      truncated_square, disp, reduce_axis=(1,)))
-    mapped_square = jit(smap.pair(truncated_square, disp, reduce_axis=(1,)))
+      truncated_square, disp, sigma=1.0, reduce_axis=(1,)))
+    mapped_square = jit(smap.pair(truncated_square,
+                                  disp, sigma=1.0, reduce_axis=(1,)))
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split = random.split(key)
@@ -796,7 +803,11 @@ class SMapTest(jtu.JaxTestCase):
       displacement, _ = space.free()
       metric = lambda Ra, Rb, **kwargs: \
         np.sum(displacement(Ra, Rb, **kwargs) ** 2, axis=-1)
-      triplet_square = smap.triplet(angle_fn, displacement, species=species, param=params, reduce_axis=None)
+      triplet_square = smap.triplet(angle_fn,
+                                    displacement,
+                                    species=species,
+                                    param=params,
+                                    reduce_axis=None)
 
       metric = space.map_product(metric)
       for _ in range(STOCHASTIC_SAMPLES):

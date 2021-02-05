@@ -75,6 +75,7 @@ def simple_spring_bond(displacement_or_metric: DisplacementOrMetricFn,
     space.canonicalize_displacement_or_metric(displacement_or_metric),
     bond,
     bond_type,
+    ignore_unused_parameters=True,
     length=length,
     epsilon=epsilon,
     alpha=alpha)
@@ -118,6 +119,7 @@ def soft_sphere_pair(displacement_or_metric: DisplacementOrMetricFn,
   return smap.pair(
       soft_sphere,
       space.canonicalize_displacement_or_metric(displacement_or_metric),
+      ignore_unused_parameters=True,
       species=species,
       sigma=sigma,
       epsilon=epsilon,
@@ -147,6 +149,7 @@ def soft_sphere_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
   energy_fn = smap.pair_neighbor_list(
     soft_sphere,
     space.canonicalize_displacement_or_metric(displacement_or_metric),
+    ignore_unused_parameters=True,
     species=species,
     sigma=sigma,
     epsilon=epsilon,
@@ -196,6 +199,7 @@ def lennard_jones_pair(displacement_or_metric: DisplacementOrMetricFn,
   return smap.pair(
     multiplicative_isotropic_cutoff(lennard_jones, r_onset, r_cutoff),
     space.canonicalize_displacement_or_metric(displacement_or_metric),
+    ignore_unused_parameters=True,
     species=species,
     sigma=sigma,
     epsilon=epsilon,
@@ -227,6 +231,7 @@ def lennard_jones_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
   energy_fn = smap.pair_neighbor_list(
     multiplicative_isotropic_cutoff(lennard_jones, r_onset, r_cutoff),
     space.canonicalize_displacement_or_metric(displacement_or_metric),
+    ignore_unused_parameters=True,
     species=species,
     sigma=sigma,
     epsilon=epsilon,
@@ -272,6 +277,7 @@ def morse_pair(displacement_or_metric: DisplacementOrMetricFn,
   return smap.pair(
     multiplicative_isotropic_cutoff(morse, r_onset, r_cutoff),
     space.canonicalize_displacement_or_metric(displacement_or_metric),
+    ignore_unused_parameters=True,
     species=species,
     sigma=sigma,
     epsilon=epsilon,
@@ -304,6 +310,7 @@ def morse_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
   energy_fn = smap.pair_neighbor_list(
     multiplicative_isotropic_cutoff(morse, r_onset, r_cutoff),
     space.canonicalize_displacement_or_metric(displacement_or_metric),
+    ignore_unused_parameters=True,
     species=species,
     sigma=sigma,
     epsilon=epsilon,
@@ -442,9 +449,9 @@ def dsf_coulomb(r: Array,
   cutoffsq = cutoff*cutoff
   erfcc = erfc(alpha*cutoff)
   erfcd = np.exp(-alpha*alpha*cutoffsq)
-  f_shift = -(erfcc/cutoffsq + 2.0/np.sqrt(np.pi)*alpha*erfcd/cutoff) 
-  e_shift = erfcc/cutoff - f_shift*cutoff 
-  
+  f_shift = -(erfcc/cutoffsq + 2.0/np.sqrt(np.pi)*alpha*erfcd/cutoff)
+  e_shift = erfcc/cutoff - f_shift*cutoff
+
   coulomb_en = qqr2e*Q_sq/r * (erfc(alpha*r) - r*e_shift - r**2*f_shift)
   return np.where(r < cutoff, coulomb_en, 0.0)
 
@@ -508,12 +515,13 @@ def bks_pair(displacement_or_metric: DisplacementOrMetricFn,
   attractive_coeff = maybe_downcast(attractive_coeff)
   repulsive_coeff = maybe_downcast(repulsive_coeff)
 
-  return smap.pair(bks, displacement_or_metric, 
-                   species=species, 
-                   Q_sq=Q_sq, 
-                   exp_coeff=exp_coeff, 
-                   exp_decay=exp_decay, 
-                   attractive_coeff=attractive_coeff, 
+  return smap.pair(bks, displacement_or_metric,
+                   species=species,
+                   ignore_unused_parameters=True,
+                   Q_sq=Q_sq,
+                   exp_coeff=exp_coeff,
+                   exp_decay=exp_decay,
+                   attractive_coeff=attractive_coeff,
                    repulsive_coeff=repulsive_coeff,
                    coulomb_alpha=coulomb_alpha,
                    cutoff=cutoff)
@@ -547,6 +555,7 @@ def bks_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
       bks,
       space.canonicalize_displacement_or_metric(displacement_or_metric),
       species=species,
+      ignore_unused_parameters=True,
       Q_sq=Q_sq,
       exp_coeff=exp_coeff,
       exp_decay=exp_decay,

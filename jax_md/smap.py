@@ -31,12 +31,9 @@ import jax.numpy as jnp
 
 from jax_md import quantity, space, util
 
-
-merge_dicts = util.merge_dicts
 high_precision_sum = util.high_precision_sum
 
 # Typing
-
 
 Array = util.Array
 f32 = util.f32
@@ -85,6 +82,7 @@ def bond(fn: Callable[..., Array],
          displacement_or_metric: DisplacementOrMetricFn,
          static_bonds: Array=None,
          static_bond_types: Array=None,
+         ignore_unused_parameters: bool=False,
          **kwargs) -> Callable[..., Array]:
   """Promotes a function that acts on a single pair to one on a set of bonds.
 
@@ -108,6 +106,10 @@ def bond(fn: Callable[..., Array],
       of each bond. Only specify bond types if you want to specify bond
       parameters by type. One can also specify constant or per-bond parameters
       (see below).
+    ignore_unused_parameters: A boolean that denotes whether dynamically
+      specified keyword arguments passed to the mapped function get ignored
+      if they were not first specified as keyword arguments when calling
+      `smap.bond(...)`.
     kwargs: Arguments providing parameters to the mapped function. In cases
       where no bond type information is provided these should be either 1) a
       scalar or 2) an ndarray of shape [b]. If bond type information is
@@ -126,6 +128,9 @@ def bond(fn: Callable[..., Array],
   # promote the metric function from one that computes the distance /
   # displacement between two vectors to one that acts on two lists of vectors.
   # Thus, we apply a single application of vmap.
+
+  merge_dicts = partial(util.merge_dicts,
+                        ignore_unused_parameters=ignore_unused_parameters)
 
   def compute_fn(R, bonds, bond_types, static_kwargs, dynamic_kwargs):
     Ra = R[bonds[:, 0]]
@@ -234,6 +239,7 @@ def pair(fn: Callable[..., Array],
          species: Array=None,
          reduce_axis: Tuple[int, ...]=None,
          keepdims: bool=False,
+         ignore_unused_parameters: bool=False,
          **kwargs) -> Callable[..., Array]:
   """Promotes a function that acts on a pair of particles to one on a system.
 
@@ -258,6 +264,10 @@ def pair(fn: Callable[..., Array],
     keepdims: A boolean specifying whether the empty dimensions should be kept
       upon reduction. This is supplied to jnp.sum and so the same convention is
       used.
+    ignore_unused_parameters: A boolean that denotes whether dynamically
+      specified keyword arguments passed to the mapped function get ignored
+      if they were not first specified as keyword arguments when calling
+      `smap.pair(...)`.
     kwargs: Arguments providing parameters to the mapped function. In cases
       where no species information is provided these should be either 1) a
       scalar, 2) an ndarray of shape [n], 3) an ndarray of shape [n, n]. If
@@ -284,6 +294,9 @@ def pair(fn: Callable[..., Array],
   # one that acts over the cartesian product of two sets of vectors. This is
   # equivalent to two applications of vmap adding one batch dimension for the
   # first set and then one for the second.
+
+  merge_dicts = partial(util.merge_dicts,
+                        ignore_unused_parameters=ignore_unused_parameters)
 
   if species is None:
     def fn_mapped(R: Array, **dynamic_kwargs) -> Array:
@@ -410,6 +423,7 @@ def pair_neighbor_list(fn: Callable[..., Array],
                        species: Union[Array, int]=None,
                        reduce_axis: Tuple[int, ...]=None,
                        keepdims: bool=False,
+                       ignore_unused_parameters: bool=False,
                        **kwargs) -> Callable[..., Array]:
   """Promotes a function acting on pairs of particles to use neighbor lists.
 
@@ -435,6 +449,10 @@ def pair_neighbor_list(fn: Callable[..., Array],
     keepdims: A boolean specifying whether the empty dimensions should be kept
       upon reduction. This is supplied to jnp.sum and so the same convention is
       used.
+    ignore_unused_parameters: A boolean that denotes whether dynamically
+      specified keyword arguments passed to the mapped function get ignored
+      if they were not first specified as keyword arguments when calling
+      `smap.pair_neighbor_list(...)`.
     kwargs: Arguments providing parameters to the mapped function. In cases
       where no species information is provided these should be either 1) a
       scalar, 2) an ndarray of shape [n], 3) an ndarray of shape [n, n]. If
@@ -446,6 +464,10 @@ def pair_neighbor_list(fn: Callable[..., Array],
     positions and and ndarray of integers of shape [N, max_neighbors]
     specifying neighbors.
   """
+
+  merge_dicts = partial(util.merge_dicts,
+                        ignore_unused_parameters=ignore_unused_parameters)
+
   def fn_mapped(R, neighbor, **dynamic_kwargs):
     d = partial(displacement_or_metric, **dynamic_kwargs)
     d = vmap(vmap(d, (None, 0)))
@@ -469,6 +491,7 @@ def triplet(fn: Callable[..., Array],
             species: Array=None,
             reduce_axis: Tuple[int, ...]=None,
             keepdims: bool=False,
+            ignore_unused_parameters: bool=False,
             **kwargs) -> Callable[..., Array]:
   """Promotes a function that acts on triples of particles to one on a system.
 
@@ -497,6 +520,10 @@ def triplet(fn: Callable[..., Array],
     keepdims: A boolean specifying whether the empty dimensions should be kept
         upon reduction. This is supplied to np.sum and so the same convention
         is used.
+    ignore_unused_parameters: A boolean that denotes whether dynamically
+      specified keyword arguments passed to the mapped function get ignored
+      if they were not first specified as keyword arguments when calling
+      `smap.triplet(...)`.
     kwargs: Arguement providing parameters to the mapped function. In cases
         where no species information is provided, these should either be 1)
         a scalar, 2) an ndarray of shape [n] based on the central atom,
@@ -519,6 +546,9 @@ def triplet(fn: Callable[..., Array],
     The mapped function can also optionally take keyword arguments that get
     threaded through the metric.
   """
+  merge_dicts = partial(util.merge_dicts,
+                        ignore_unused_parameters=ignore_unused_parameters)
+
   def extract_parameters_by_dim(kwargs, dim: Union[int, List[int]] = 0):
     """Helper function that extract parameters from a dictionary via dimension."""
     if isinstance(dim, int):
