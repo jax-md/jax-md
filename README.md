@@ -1,8 +1,9 @@
-# JAX, M.D. [[arXiv](https://arxiv.org/abs/1912.04232)]
+# JAX, M.D. [[NeurIPS 2020](https://neurips.cc/virtual/2020/public/poster_83d3d4b6c9579515e1679aca8cbc8033.html)]
 
 ### Accelerated, Differentiable, Molecular Dynamics
 [**Quickstart**](#getting-started)
 | [**Reference docs**](https://jax-md.readthedocs.io/en/latest/)
+| [**Paper**](https://arxiv.org/pdf/1912.04232.pdf)
 
 [![Build Status](https://travis-ci.org/google/jax-md.svg?branch=master)](https://travis-ci.org/google/jax-md) [![PyPI](https://img.shields.io/pypi/v/jax-md)](https://pypi.org/project/jax-md/) [![PyPI - License](https://img.shields.io/pypi/l/jax_md)](https://github.com/google/jax-md/blob/master/LICENSE)
 
@@ -212,14 +213,14 @@ config.update("jax_enable_x64", True)
 If you use the code in a publication, please cite the repo using the .bib,
 
 ```
-@misc{jaxmd2019,
-    title={JAX M.D.: End-to-End Differentiable, Hardware Accelerated, Molecular Dynamics in Pure Python},
-    author={Samuel S. Schoenholz and Ekin D. Cubuk},
-    year={2019},
-    eprint={1912.04232},
-    archivePrefix={arXiv},
-    primaryClass={stat.ML},
-    howpublished={\url{https://github.com/google/jax-md}, \url{https://arxiv.org/abs/1912.04232}},
+@inproceedings{jaxmd2020,
+ author = {Schoenholz, Samuel S. and Cubuk, Ekin D.},
+ booktitle = {Advances in Neural Information Processing Systems},
+ publisher = {Curran Associates, Inc.},
+ title = {JAX M.D. A Framework for Differentiable Physics},
+ url = {https://papers.nips.cc/paper/2020/file/83d3d4b6c9579515e1679aca8cbc8033-Paper.pdf},
+ volume = {33},
+ year = {2020}
 }
 ```
 
