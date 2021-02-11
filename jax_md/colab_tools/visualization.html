@@ -525,8 +525,8 @@
       var stride = SIZE[name] * geometry.count;
       GL.bindBuffer(GL.ARRAY_BUFFER, geometry[name + '_buffer']);
       if (geometry[name + '_type'] == GL.DYNAMIC_DRAW) {
-        const data = geometry[name].slice(FRAME_COUNT * stride, 
-                                          (FRAME_COUNT + 1) * stride);
+        const data = geometry[name].slice(CURRENT_FRAME * stride, 
+                                          (CURRENT_FRAME + 1) * stride);
         GL.bufferSubData(GL.ARRAY_BUFFER, 0, data);
       }
       GL.vertexAttribPointer(
