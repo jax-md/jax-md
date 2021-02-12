@@ -587,7 +587,7 @@
                           mat4.multiply(EYE, PERSPECTIVE, LOOK_AT));
     }
 
-    if (CURRENT_FRAME >= FRAME_COUNT - 1) {
+    if (CURRENT_FRAME > FRAME_COUNT - 1) {
       loops++;
       CURRENT_FRAME = 0;
     }
