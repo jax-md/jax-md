@@ -484,7 +484,7 @@ def nvt_langevin(energy_or_force: Callable[..., Array],
     sigma = np.sqrt(f32(2) * _kT * gamma / mass)
     C = dt2 * (F - gamma * V) + sigma * dt32 * (xi + theta)
 
-    R = shift(R, dt * V + F + C, **kwargs)
+    R = shift(R, dt * V + C, **kwargs)
     F_new = force_fn(R, **kwargs)
     V = (f32(1) - dt * gamma) * V + dt_2 * (F_new + F)
     V = V + sigma * np.sqrt(dt) * xi - gamma * C
