@@ -1,9 +1,10 @@
-# JAX, M.D. [[NeurIPS 2020](https://neurips.cc/virtual/2020/public/poster_83d3d4b6c9579515e1679aca8cbc8033.html)]
+# JAX, M.D.
 
 ### Accelerated, Differentiable, Molecular Dynamics
 [**Quickstart**](#getting-started)
 | [**Reference docs**](https://jax-md.readthedocs.io/en/latest/)
 | [**Paper**](https://arxiv.org/pdf/1912.04232.pdf)
+| [**NeurIPS 2020**](https://neurips.cc/virtual/2020/public/poster_83d3d4b6c9579515e1679aca8cbc8033.html)
 
 [![Build Status](https://travis-ci.org/google/jax-md.svg?branch=master)](https://travis-ci.org/google/jax-md) [![PyPI](https://img.shields.io/pypi/v/jax-md)](https://pypi.org/project/jax-md/) [![PyPI - License](https://img.shields.io/pypi/l/jax_md)](https://github.com/google/jax-md/blob/master/LICENSE)
 
