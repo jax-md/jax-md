@@ -12,22 +12,35 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Code to define different spaces in which particles are simulated.
+"""Spaces in which particles are simulated.
 
 Spaces are pairs of functions containing:
 
   * `displacement_fn(Ra, Rb, **kwargs)`
     Computes displacements between pairs of particles. Ra and Rb should
     be ndarrays of shape [spatial_dim]. Returns an ndarray of shape
-    [spatial_dim]. To compute displacements over sets of positions, use
-    vmap. Soon (TODO) we will add convenience functions to do this where
-    needed.
+    [spatial_dim]. To compute the displacement over more than one particle
+    at a time see the `map_product`, `map_bond`, and `map_neighbor` functions.
 
   * `shift_fn(R, dR, **kwargs)` Moves points at position R by an amount dR.
 
-In each case, **kwargs is optional keyword arguments that can be supplied to
-the different functions. In cases where the space features time dependence
-this will be passed through a "t" keyword argument.
+Spaces can accept keyword arguments allowing the space to be changed over the
+course of a simulation. For an example of this use see `periodic_general`.
+
+Although displacement functions are compute the displacement between two
+points, it is often useful to compute displacements between multiple particles
+in a vectorized fashion. To do this we provide three functions: `map_product`,
+`map_bond`, and `map_neighbor`.
+  * `map_pair` computes displacements betweeen all pairs of points such that if
+    Ra has shape [n, spatial_dim] and Rb has shape `[m, spatial_dim]` then the
+    output has shape `[n, m, spatial_dim]`.
+  * `map_bond` computes displacements between all points in a list such that if
+    Ra has shape [n, spatial_dim] and Rb has shape [m, spatial_dim] then the
+    otuput has shape [n, spatial_dim].
+  * `map_neighbor` computes displacements between points and all of their
+    neighbors such that if Ra has shape [n, spatial_dim] and Rb has shape
+    [n, neighbors, spatial_dim] then the output has shape
+    [n, neighbors, spatial_dim].
 """
 
 from typing import Callable, Union, Tuple, Any
@@ -65,54 +78,54 @@ Box = Union[float, Array]
 # Primitive Spatial Transforms
 
 
-def _check_transform_shapes(T: Array, v: Array=None):
-  """Check whether a transform and collection of vectors have valid shape."""
-  if len(T.shape) != 2:
-    raise ValueError(
-        ('Transform has invalid rank.'
-         ' Found rank {}, expected rank 2.'.format(len(T.shape))))
-
-  if T.shape[0] != T.shape[1]:
-    raise ValueError('Found non-square transform.')
-
-  if v is not None and v.shape[-1] != T.shape[1]:
-    raise ValueError(
-        ('Transform and vectors have incommensurate spatial dimension. '
-         'Found {} and {} respectively.'.format(T.shape[1], v.shape[-1])))
+def inverse(box: Box) -> Box:
+  """Compute the inverse of an affine transformation."""
+  if jnp.isscalar(box) or box.size == 1:
+    return 1 / box
+  elif box.ndim == 1:
+    return 1 / box
+  elif box.ndim == 2:
+    return jnp.linalg.inv(box)
+  raise ValueError(('Box must be either: a scalar, a vector, or a matrix. '
+                    f'Found {box}.'))
 
 
-def _small_inverse(T: Array) -> Array:
-  """Compute the inverse of a small matrix."""
-  _check_transform_shapes(T)
-  dim = T.shape[0]
-  # TODO(schsam): Check whether matrices are singular. @ErrorChecking
-  return jnp.linalg.inv(T)
+def _get_free_indices(n: int) -> str:
+  return ''.join([chr(ord('a') + i) for i in range(n)])
 
 
 @custom_jvp
-def transform(T: Array, v: Array) -> Array:
-  """Apply a linear transformation, T, to a collection of vectors, v.
+def transform(box: Box, R: Array) -> Array:
+  """Apply an affine transformation to positions.
 
-  Transform is written such that it acts as the identity during gradient
-  backpropagation.
+  See `periodic_general` for a description of the semantics of `box`.
 
   Args:
-    T: Transformation; ndarray(shape=[spatial_dim, spatial_dim]).
-    v: Collection of vectors; ndarray(shape=[..., spatial_dim]).
+    box: An affine transformation described in `periodic_general`.
+    R: Array of positions. Should have  shape `(..., spatial_dimension)`.
 
   Returns:
-    Transformed vectors; ndarray(shape=[..., spatial_dim]).
+    A transformed array positions of shape `(..., spatial_dimension)`.
   """
-  _check_transform_shapes(T, v)
-  return jnp.dot(v, T)
+  if jnp.isscalar(box) or box.size == 1:
+    return R * box
+  elif box.ndim == 1:
+    indices = _get_free_indices(R.ndim - 1) + 'i'
+    return jnp.einsum(f'i,{indices}->{indices}', box, R)
+  elif box.ndim == 2:
+    free_indices = _get_free_indices(R.ndim - 1)
+    left_indices = free_indices + 'j'
+    right_indices = free_indices + 'i'
+    return jnp.einsum(f'ij,{left_indices}->{right_indices}', box, R)
+  raise ValueError(('Box must be either: a scalar, a vector, or a matrix. '
+                    f'Found {box}.'))
 
 
 @transform.defjvp
-def transform_jvp(primals: Tuple[Array, Array],
-                  tangents: Tuple[Array, Array]) -> Tuple[Array, Array]:
-  T, v = primals
-  dT, dv = tangents
-  return transform(T, v), dv
+def transform_jvp(primals, tangents):
+  box, R = primals
+  dbox, dR = tangents
+  return (transform(box, R), dR + transform(dbox, R))
 
 
 def pairwise_displacement(Ra: Array, Rb: Array) -> Array:
@@ -215,57 +228,141 @@ def periodic(side: Box, wrapped: bool=True) -> Space:
   return displacement_fn, shift_fn
 
 
-def periodic_general(T: Union[Array, Callable[..., Array]],
+def periodic_general(box: Box,
+                     fractional_coordinates: bool=True,
                      wrapped: bool=True) -> Space:
   """Periodic boundary conditions on a parallelepiped.
 
-  This function defines a simulation on a parellelepiped formed by applying an
-  affine transformation to the unit hypercube [0, 1]^spatial_dimension.
+  This function defines a simulation on a parallelepiped, $X$, formed by
+  applying an affine transformation, $T$, to the unit hypercube
+  $U = [0, 1]^d$ along with periodic boundary conditions across all
+  of the faces.
 
-  When using periodic_general, particles positions should be stored in the unit
-  hypercube. To get real positions from the simulation you should call
-  R_sim = space.transform(T, R_unit_cube).
+  Formally, the space is defined such that $X = {Tu : u \in [0, 1]^d}$.
 
-  The affine transformation can feature time dependence (if T is a function
-  instead of a scalar). In this case the resulting space will also be time
-  dependent. This can be useful for simulating systems under mechanical strain.
+  The affine transformation, $T$, can be specified in a number of different
+  ways. For a parallelepiped that is: 1) a cube of side length $L$, the affine
+  transformation can simply be a scalar; 2) an orthorhombic unit cell can be
+  specified by a vector `[Lx, Ly, Lz]` of lengths for each axis; 3) a general
+  triclinic cell can be specified by an upper triangular matrix.
+
+  There are a number of ways to parameterize a simulation on $X$.
+  `periodic_general` supports two parametrizations of $X$ that can be selected
+  using the `fractional_coordinates` keyword argument.
+    1) When `fractional_coordinates=True`, particle positions are stored in the
+       unit cube, $u\in U$. Here, the displacement function computes the
+       displacement between $x, y \in X$ as $d_X(x, y) = Td_U(u, v)$ where
+       $d_U$ is the displacement function on the unit cube, $U$, $x = Tu$, and
+       $v = Tv$ with $u, v\in U$. The derivative of the displacement function
+       is defined so that derivatives live in $X$ (as opposed to being
+       backpropagated to $U$). The shift function, `shift_fn(R, dR)` is defined
+       so that $R$ is expected to lie in $U$ while $dR$ should lie in $X$. This
+       combination enables code such as `shift_fn(R, force_fn(R))` to work as
+       intended.
+
+    2) When `fractional_coordinates=False`, particle positions are stored in
+       the parallelepiped $X$. Here, for $x, y\in X$, the displacement function
+       is defined as $d_X(x, y) = Td_U(T^{-1}x, T^{-1}y)$. Since there is an
+       extra multiplication by $T^{-1}$, this parameterization is typically
+       slower than `fractional_coordinates=False`. As in 1), the displacement
+       function is defined to compute derivatives in $X$. The shift function
+       is defined so that $R$ and $dR$ should both lie in $X$.
+
+
+  Example:
+  ```python
+    from jax import random
+    side_length = 10.0
+    disp_frac, shift_frac = periodic_general(side_length,
+                                             fractional_coordinates=True)
+    disp_real, shift_real = periodic_general(side_length,
+                                             fractional_coordinates=False)
+
+    # Instantiate random positions in both parameterizations.
+    R_frac = random.uniform(random.PRNGKey(0), (4, 3))
+    R_real = side_length * R_frac
+
+    # Make some shfit vectors.
+    dR = random.normal(random.PRNGKey(0), (4, 3))
+
+    disp_real(R_real[0], R_real[1]) == disp_frac(R_frac[0], R_frac[1])
+    transform(side_length, shift_frac(R_frac, 1.0)) == shift_real(R_real, 1.0)
+  ```
+
+  It is often desirable to deform a simulation cell either: using a finite
+  deformation during a simulation, or using an infinitesimal deformation while
+  computing elastic constants. To do this using fractional coordinates, we can
+  supply a new affine transformation as `displacement_fn(Ra, Rb, box=new_box)`.
+  When using real coordinates, we can specify positions in a space $X$ defined
+  by an affine transformation $T$ and compute displacements in a deformed space
+  $X'$ defined by an affine transformation $T'$. This is done by writing
+  `displacement_fn(Ra, Rb, new_box=new_box)`.
+
+  There are a few caveats when using `periodic_general`. `periodic_general`
+  uses the minimum image convention, and so it will fail for potentials whose
+  cutoff is longer than the half of the side-length of the box. It will also
+  fail to find the correct image when the box is too deformed. We hope to add a
+  more robust box for small simulations soon (TODO) along with better error
+  checking. In the meantime caution is recommended.
 
   Args:
-    T: An affine transformation.
-       Either:
-         1) An ndarray of shape [spatial_dim, spatial_dim].
-         2) A function that takes floating point times and produces ndarrays of
-            shape [spatial_dim, spatial_dim].
+    box: A `(spatial_dim, spatial_dim)` affine transformation.
+    fractional_coordinates: A boolean specifying whether positions are stored
+      in the parallelepiped or the unit cube.
     wrapped: A boolean specifying whether or not particle positions are
       remapped back into the box after each step
   Returns:
     (displacement_fn, shift_fn) tuple.
   """
-  if callable(T):
-    def displacement(Ra: Array, Rb: Array, **kwargs) -> Array:
-      dR = periodic_displacement(f32(1.0), pairwise_displacement(Ra, Rb))
-      return transform(T(**kwargs), dR)
-    # Can we cache the inverse? @Optimization
+  inv_box = inverse(box)
+
+  def displacement_fn(Ra, Rb, **kwargs):
+    _box, _inv_box = box, inv_box
+
+    if 'box' in kwargs:
+      _box = kwargs['box']
+
+      if not fractional_coordinates:
+        _inv_box = inverse(_box)
+
+    if 'new_box' in kwargs:
+      _box = kwargs['new_box']
+
+    if not fractional_coordinates:
+      Ra = transform(_inv_box, Ra)
+      Rb = transform(_inv_box, Rb)
+
+    dR = periodic_displacement(f32(1.0), pairwise_displacement(Ra, Rb))
+    return transform(_box, dR)
+
+  def u(R, dR):
     if wrapped:
-      def shift(R: Array, dR: Array, **kwargs) -> Array:
-        return periodic_shift(f32(1.0),
-                              R,
-                              transform(_small_inverse(T(**kwargs)), dR))
-    else:
-      def shift(R: Array, dR: Array, **kwargs) -> Array:
-        return R + transform(_small_inverse(T(**kwargs)), dR)
-  else:
-    T_inv = _small_inverse(T)
-    def displacement(Ra: Array, Rb: Array, **unused_kwargs) -> Array:
-      dR = periodic_displacement(f32(1.0), pairwise_displacement(Ra, Rb))
-      return transform(T, dR)
-    if wrapped:
-      def shift(R: Array, dR: Array, **unused_kwargs) -> Array:
-        return periodic_shift(f32(1.0), R, transform(T_inv, dR))
-    else:
-      def shift(R: Array, dR: Array, **unused_kwargs) -> Array:
-        return R + transform(T_inv, dR)
-  return displacement, shift
+      return periodic_shift(f32(1.0), R, dR)
+    return R + dR
+
+  def shift_fn(R, dR, **kwargs):
+    if not fractional_coordinates and not wrapped:
+      return R + dR
+
+    _box, _inv_box = box, inv_box
+    if 'box' in kwargs:
+      _box = kwargs['box']
+      _inv_box = inverse(_box)
+
+    if 'new_box' in kwargs:
+      _box = kwargs['new_box']
+
+    dR = transform(_inv_box, dR)
+    if not fractional_coordinates:
+      R = transform(_inv_box, R)
+
+    R = u(R, dR)
+
+    if not fractional_coordinates:
+      R = transform(_box, R)
+    return R
+
+  return displacement_fn, shift_fn
 
 
 def metric(displacement: DisplacementFn) -> MetricFn:
@@ -273,15 +370,21 @@ def metric(displacement: DisplacementFn) -> MetricFn:
   return lambda Ra, Rb, **kwargs: distance(displacement(Ra, Rb, **kwargs))
 
 
-def map_product(metric_or_displacement: DisplacementOrMetricFn) -> DisplacementOrMetricFn:
+def map_product(metric_or_displacement: DisplacementOrMetricFn
+                ) -> DisplacementOrMetricFn:
+  """Vectorizes a metric or displacement function over all pairs."""
   return vmap(vmap(metric_or_displacement, (0, None), 0), (None, 0), 0)
 
 
-def map_bond(metric_or_displacement: DisplacementOrMetricFn) -> DisplacementOrMetricFn:
+def map_bond(metric_or_displacement: DisplacementOrMetricFn
+             ) -> DisplacementOrMetricFn:
+  """Vectorizes a metric or displacement function over bonds."""
   return vmap(metric_or_displacement, (0, 0), 0)
 
 
-def map_neighbor(metric_or_displacement: DisplacementOrMetricFn) -> DisplacementOrMetricFn:
+def map_neighbor(metric_or_displacement: DisplacementOrMetricFn
+                 ) -> DisplacementOrMetricFn:
+  """Vectorizes a metric or displacement function over neighborhoods."""
   def wrapped_fn(Ra, Rb, **kwargs):
     return vmap(vmap(metric_or_displacement, (None, 0)))(-Ra, -Rb, **kwargs)
   return wrapped_fn
