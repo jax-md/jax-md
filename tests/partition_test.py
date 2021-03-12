@@ -14,10 +14,6 @@
 
 """Tests for google3.third_party.py.jax_md.mapping."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 from absl.testing import absltest
 from absl.testing import parameterized
 
@@ -244,7 +240,7 @@ class NeighborListTest(jtu.JaxTestCase):
     # TODO(schsam): Get cell-list working with anisotropic cell sizes.
     cell_size = cutoff / min_length
 
-    displacement, _ = space.periodic_general(box_fn)
+    displacement, _ = space.periodic_general(box_fn(0.0))
     metric = space.metric(displacement)
 
     R = random.uniform(key, (PARTICLE_COUNT, dim), dtype=dtype)
@@ -253,11 +249,11 @@ class NeighborListTest(jtu.JaxTestCase):
                                                1.1, cell_size=cell_size,
                                                t=np.array(0.))
 
-    idx = neighbor_list_fn(R, t=np.array(0.25)).idx
+    idx = neighbor_list_fn(R, box=box_fn(np.array(0.25))).idx
     R_neigh = R[idx]
     mask = idx < N
 
-    metric = partial(metric, t=f32(0.25))
+    metric = partial(metric, box=box_fn(0.25))
     d = vmap(vmap(metric, (None, 0)))
     dR = d(R, R_neigh)
 
