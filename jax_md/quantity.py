@@ -129,7 +129,8 @@ def is_integer(x: Array) -> bool:
 def pair_correlation(displacement_or_metric: Union[DisplacementFn, MetricFn],
                      radii: Array,
                      sigma: float,
-                     species: Array=None):
+                     species: Array = None,
+                     eps: float = 1e-7):
   """Computes the pair correlation function at a mesh of distances.
 
   The pair correlation function measures the number of particles at a given
@@ -146,6 +147,8 @@ def pair_correlation(displacement_or_metric: Union[DisplacementFn, MetricFn],
     species: An optional array specifying the species of each particle. If
       species is None then we compute a single g(r) for all particles,
       otherwise we compute one g(r) for each species.
+    eps: A small additive constant used to ensure stability if the radius is
+      zero.
 
   Returns:
     A function `g_fn` that computes the pair correlation function for a
@@ -153,8 +156,11 @@ def pair_correlation(displacement_or_metric: Union[DisplacementFn, MetricFn],
   """
   d = space.canonicalize_displacement_or_metric(displacement_or_metric)
   d = space.map_product(d)
+
+  inv_rad = 1 / (radii + eps)
+
   def pairwise(dr, dim):
-    return jnp.exp(-f32(0.5) * (dr - radii)**2 / sigma**2) / radii**(dim - 1)
+    return jnp.exp(-f32(0.5) * (dr - radii)**2 / sigma**2) * inv_rad**(dim - 1)
   pairwise = vmap(vmap(pairwise, (0, None)), (0, None))
 
   if species is None:
@@ -184,8 +190,9 @@ def pair_correlation_neighbor_list(
     box_size: Box,
     radii: Array,
     sigma: float,
-    species: Array=None,
-    dr_threshold: float=0.5):
+    species: Array = None,
+    dr_threshold: float = 0.5,
+    eps: float = 1e-7):
   """Computes the pair correlation function at a mesh of distances.
 
   The pair correlation function measures the number of particles at a given
@@ -206,6 +213,8 @@ def pair_correlation_neighbor_list(
       species is None then we compute a single g(r) for all particles,
       otherwise we compute one g(r) for each species.
     dr_threshold: A float specifying the halo size of the neighobr list.
+    eps: A small additive constant used to ensure stability if the radius is
+      zero.
 
   Returns:
     A pair of functions: `neighbor_fn` that constructs a neighbor list (see
@@ -215,8 +224,9 @@ def pair_correlation_neighbor_list(
   """
   d = space.canonicalize_displacement_or_metric(displacement_or_metric)
   d = space.map_neighbor(d)
+  inv_rad = 1 / (radii + eps)
   def pairwise(dr, dim):
-    return jnp.exp(-f32(0.5) * (dr - radii)**2 / sigma**2) / radii**(dim - 1)
+    return jnp.exp(-f32(0.5) * (dr - radii)**2 / sigma**2) * inv_rad**(dim - 1)
   pairwise = vmap(vmap(pairwise, (0, None)), (0, None))
 
   neighbor_fn = partition.neighbor_list(displacement_or_metric,
