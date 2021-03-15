@@ -14,10 +14,6 @@
 
 """Tests for google3.third_party.py.jax_md.energy."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 from absl.testing import absltest
 from absl.testing import parameterized
 
@@ -254,6 +250,14 @@ class QuantityTest(jtu.JaxTestCase):
         phop_state.phop,
         np.array([(float(i) / half_window) ** (3. / 2)], dtype=dtype))
 
+
+  def test_maybe_downcast(self):
+    if not FLAGS.jax_enable_x64:
+      self.skipTest('Maybe downcast only works for float32 mode.')
+
+    x = np.array([1, 2, 3], np.float64)
+    x = maybe_downcast(x)
+    self.assertEqual(x.dtype, np.float64)
 
 if __name__ == '__main__':
   absltest.main()

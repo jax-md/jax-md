@@ -74,7 +74,6 @@ def high_precision_sum(X: Array,
 
 
 def maybe_downcast(x):
-  if isinstance(x, jnp.ndarray) and x.dtype is f64:
+  if isinstance(x, jnp.ndarray) and x.dtype is jnp.dtype('float64'):
     return x
-  else:
-    return jnp.array(x, f32)
+  return jnp.array(x, f32)
