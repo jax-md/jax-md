@@ -498,6 +498,11 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
     `neighbor_list_fn(R, neighbor_list)` can be `jit` since it keeps array
     shapes fixed.
   """
+
+  box_size = lax.stop_gradient(box_size)
+  r_cutoff = lax.stop_gradient(r_cutoff)
+  dr_threshold = lax.stop_gradient(dr_threshold)
+
   box_size = f32(box_size)
 
   cutoff = r_cutoff + dr_threshold
