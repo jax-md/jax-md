@@ -159,6 +159,76 @@ def bond(fn: Callable[..., Array],
   return mapped_fn
 
 
+def bond_triple(fn: Callable[..., Array],
+                displacement: DisplacementOrMetricFn,
+                static_triples: Array=None,
+                static_triple_types: Array=None, 
+                ignore_unused_parameters: bool=False,
+                **kwargs) -> Callable[..., Array]:
+  """Promotes a function that acts on a single triple to one that acts on a set
+      of triples.
+  Args:
+    fn: A function that takes two ndarray of displacement vectors of shape
+      [b, d_in] and [b, d_in], as well as kwargs specifying parameters
+      for the function. fn returns an ndarray of evaluations of shape
+      [b, d_out].
+    displacement: A function that takes two ndarray of positions of shape
+      [spatial_dimension] and [spatial_dimension] respectively and returns the
+      displacement vector as an ndarray of shape [d_in]. This function can
+      optionally take a floating point time as a third argument.
+    static_triples: An ndarray of integer triples with shape [b, 3] specifying
+      the particle indices to be used. static_triples are baked into the
+      returned compute function statically and cannot be changed after the fact.
+    static_triple_types: An ndarray of integers of shape [b] specifying the type
+      of each triple. Only specify triple types if you want to specify triple
+      parameters by type. One can also specify constant or per-triple parameters
+      (see below).
+    kwargs: Arguments providing parameters to the mapped function. In cases
+      where no triple type information is provided these should be either 1) a
+      scalar or 2) an ndarray of shape [b]. If triple type information is
+      provided then the parameters should be specified as either 1) a scalar or
+      2) an ndarray of shape [max_triple_type].
+
+  """
+
+  merge_dicts = partial(util.merge_dicts,
+                        ignore_unused_parameters=ignore_unused_parameters)
+
+  def compute_fn(R, triples, triple_types, static_kwargs, dynamic_kwargs):
+    Ra = R[triples[:, 0]]
+    Rb = R[triples[:, 1]]
+    Rc = R[triples[:, 2]]
+
+    _kwargs = merge_dicts(static_kwargs, dynamic_kwargs)
+    _kwargs = _kwargs_to_bond_parameters(triple_types, _kwargs)
+    # NOTE(schsam): This pattern is needed due to JAX issue #912.
+    _displacement = vmap(partial(displacement, **dynamic_kwargs), 0, 0)
+    dRab = _displacement(Ra, Rb)
+    dRbc = _displacement(Rb, Rc)
+
+    return high_precision_sum(fn(dRab, dRbc, **_kwargs))
+
+  def mapped_fn(R: Array, 
+                triples: Array=None, 
+                triple_types: Array=None, 
+                **dynamic_kwargs) -> Array:
+    accum = f32(0) #Maybe the type should be taken from R?
+
+    if triples is not None:
+      accum = accum + compute_fn(R, triples, triple_types, kwargs, dynamic_kwargs)
+
+    if static_triples is not None:
+      accum = accum + compute_fn(
+          R, static_triples, static_triple_types, kwargs, dynamic_kwargs)
+
+    return accum
+  return mapped_fn
+
+
+
+
+
+
 # Mapping potential functional forms to pairwise interactions.
 
 
