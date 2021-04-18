@@ -662,7 +662,7 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     KE_box = quantity.kinetic_energy(box_velocity, box_mass)
 
     if np.isscalar(box) or box.ndim == 0:
-      # TODO(schsam): This is necessary because of JAX issue #XXXX.
+      # TODO(schsam): This is necessary because of JAX issue #5849.
       box = np.eye(R.shape[-1]) * box
 
     return NPTNoseHooverState(R, V, force_fn(R, box=box, **kwargs), mass, box,
@@ -707,7 +707,7 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     return V * np.exp(-x) + dt_2 * A * sinhV * np.exp(-x_2)
 
   def inner_step(state, **kwargs):
-    _pressure = pressure
+    _pressure = pressure if 'pressure' not in kwargs else kwargs['pressure']
 
     R, V, M, F = state.position, state.velocity, state.mass, state.force
     R_b, V_b, M_b = state.box_position, state.box_velocity, state.box_mass
