@@ -132,10 +132,10 @@ class NVEState:
     mass: A float or an ndarray of shape [n] containing the masses of the
       particles.
   """
-  position: np.ndarray
-  velocity: np.ndarray
-  force: np.ndarray
-  mass: np.ndarray
+  position: Array
+  velocity: Array
+  force: Array
+  mass: Array
 
 
 # pylint: disable=invalid-name
@@ -212,11 +212,11 @@ class NoseHooverChain:
     degrees_of_freedom: An integer specifying the number of degrees of freedom
       that the chain is coupled to.
   """
-  position: np.ndarray
-  velocity: np.ndarray
-  mass: np.ndarray
-  tau: np.ndarray
-  kinetic_energy: np.ndarray
+  position: Array
+  velocity: Array
+  mass: Array
+  tau: Array
+  kinetic_energy: Array
   degrees_of_freedom: int=dataclasses.static_field()
 
 
