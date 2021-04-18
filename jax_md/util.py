@@ -19,6 +19,9 @@ from typing import Tuple, Union
 from jax.tree_util import register_pytree_node
 from jax.lib import xla_bridge
 import jax.numpy as jnp
+from jax.api import jit
+
+from functools import partial
 
 import numpy as onp
 
@@ -60,6 +63,7 @@ def merge_dicts(a, b, ignore_unused_parameters=False):
   return merged
 
 
+@partial(jit, static_argnums=(1,))
 def safe_mask(mask, fn, operand, placeholder=0):
   masked = jnp.where(mask, operand, 0)
   return jnp.where(mask, fn(masked), placeholder)

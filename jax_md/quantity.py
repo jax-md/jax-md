@@ -68,6 +68,17 @@ def canonicalize_force(energy_or_force_fn: Union[EnergyFn, ForceFn]) -> ForceFn:
   return force_fn
 
 
+def volume(dimension: int, box: Box) -> float:
+  if jnp.isscalar(box) or not box.ndim:
+    return box ** dimension
+  elif box.ndim == 1:
+    return jnp.prod(box)
+  elif box.ndim == 2:
+    return jnp.linalg.det(box)
+  raise ValueError(('Box must be either: a scalar, a vector, or a matrix. '
+                    f'Found {box}.'))
+
+
 def kinetic_energy(velocity: Array, mass: Array=1.0) -> float:
   """Computes the kinetic energy of a system with some velocities."""
   return 0.5 * util.high_precision_sum(mass * velocity ** 2)
@@ -77,6 +88,32 @@ def temperature(velocity: Array, mass: Array=1.0) -> float:
   """Computes the temperature of a system with some velocities."""
   N, dim = velocity.shape
   return util.high_precision_sum(mass * velocity ** 2) / (N * dim)
+
+
+def pressure(energy_fn: EnergyFn, position: Array, box: Box,
+             kinetic_energy: float=0.0) -> float:
+  """Computes the internal pressure of a system.
+
+  Note: This function requires that `energy_fn` take a `box` keyword argument.
+  Most frequently, this is accomplished by using `periodic_general` boundary
+  conditions combined with any of the energy functions in `energy.py`. This
+  will not work with `space.periodic`.
+  """
+  dim = position.shape[1]
+
+  vol_0 = volume(dim, box)
+  box_fn = lambda vol: (vol / vol_0) ** (1 / dim) * box
+
+  def U(vol):
+    return energy_fn(position, box=box_fn(vol))
+
+  dUdV = grad(U)
+  KE = kinetic_energy
+  F = force(energy_fn)(position, box=box)
+  R = space.transform(box, position)
+  RdotF = util.high_precision_sum(R * F)
+
+  return 1 / (dim * vol_0) * (KE + RdotF - dim * vol_0 * dUdV(vol_0))
 
 
 def canonicalize_mass(mass: Union[float, Array]) -> Union[float, Array]:
