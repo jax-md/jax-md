@@ -91,7 +91,7 @@ def temperature(velocity: Array, mass: Array=1.0) -> float:
 
 
 def pressure(energy_fn: EnergyFn, position: Array, box: Box,
-             kinetic_energy: float=0.0) -> float:
+             kinetic_energy: float=0.0, **kwargs) -> float:
   """Computes the internal pressure of a system.
 
   Note: This function requires that `energy_fn` take a `box` keyword argument.
@@ -105,7 +105,7 @@ def pressure(energy_fn: EnergyFn, position: Array, box: Box,
   box_fn = lambda vol: (vol / vol_0) ** (1 / dim) * box
 
   def U(vol):
-    return energy_fn(position, box=box_fn(vol))
+    return energy_fn(position, box=box_fn(vol), **kwargs)
 
   dUdV = grad(U)
   KE = kinetic_energy
