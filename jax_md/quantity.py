@@ -109,7 +109,7 @@ def pressure(energy_fn: EnergyFn, position: Array, box: Box,
 
   dUdV = grad(U)
   KE = kinetic_energy
-  F = force(energy_fn)(position, box=box)
+  F = force(energy_fn)(position, box=box, **kwargs)
   R = space.transform(box, position)
   RdotF = util.high_precision_sum(R * F)
 
