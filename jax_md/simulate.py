@@ -676,7 +676,8 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     box_mass = np.array(dim * (N + 1) * kT * state.barostat.tau ** 2, dtype)
     return dataclasses.replace(state, box_mass=box_mass)
 
-  def box_force(alpha, vol, box_fn, position, velocity, mass, force, pressure):
+  def box_force(alpha, vol, box_fn, position, velocity, mass, force, pressure,
+                **kwargs):
     N, dim = position.shape
 
     def U(vol):
@@ -717,7 +718,7 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     vol, box_fn = _npt_box_info(state)
 
     alpha = 1 + 1 / N
-    G_e = box_force(alpha, vol, box_fn, R, V, M, F, _pressure)
+    G_e = box_force(alpha, vol, box_fn, R, V, M, F, _pressure, **kwargs)
     V_b = V_b + dt_2 * G_e / M_b
     V = exp_iL2(alpha, V, F / M, V_b)
 
@@ -731,7 +732,7 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     F = force_fn(R, box=box, **kwargs)
 
     V = exp_iL2(alpha, V, F / M, V_b)
-    G_e = box_force(alpha, vol, box_fn, R, V, M, F, _pressure)
+    G_e = box_force(alpha, vol, box_fn, R, V, M, F, _pressure, **kwargs)
     V_b = V_b + dt_2 * G_e / M_b
 
     return dataclasses.replace(state,
