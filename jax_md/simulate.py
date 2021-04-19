@@ -681,7 +681,7 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     N, dim = position.shape
 
     def U(vol):
-      return energy_fn(position, box=box_fn(vol))
+      return energy_fn(position, box=box_fn(vol), **kwargs)
 
     dUdV = grad(U)
     KE2 = util.high_precision_sum(velocity ** 2 * mass)
