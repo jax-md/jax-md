@@ -428,9 +428,9 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                   r_cutoff: float,
                   dr_threshold: float,
                   capacity_multiplier: float=1.25,
-                  cell_size: float=None,
                   disable_cell_list: bool=False,
                   mask_self: bool=True,
+                  fractional_coordinates: bool=False,
                   **static_kwargs) -> NeighborFn:
   """Returns a function that builds a list neighbors for collections of points.
 
@@ -478,13 +478,15 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
     capacity_multiplier: A floating point scalar specifying the fractional
       increase in maximum neighborhood occupancy we allocate compared with the
       maximum in the example positions.
-    cell_size: An optional scalar specifying the size of cells in the cell list
-      used in an intermediate step.
     disable_cell_list: An optional boolean. If set to True then the neighbor
       list is constructed using only distances. This can be useful for
       debugging but should generally be left as False.
     mask_self: An optional boolean. Determines whether points can consider
       themselves to be their own neighbors.
+    fractional_coordinates: An optional boolean. Specifies whether positions
+      will be supplied in fractional coordinates in the unit cube, [0, 1]^d.
+      If this is set to True then the box_size will be set to 1.0 and the
+      cell size used in the cell list will be set to cutoff / box_size.
     **static_kwargs: kwargs that get threaded through the calculation of
       example positions.
   Returns:
@@ -505,8 +507,10 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
   threshold_sq = (dr_threshold / f32(2)) ** 2
   metric_sq = _displacement_or_metric_to_metric_sq(displacement_or_metric)
 
-  if cell_size is None:
-    cell_size = cutoff
+  cell_size = cutoff
+  if fractional_coordinates:
+    cell_size = cutoff / box_size
+    box_size = f32(1)
 
   use_cell_list = np.all(cell_size < box_size / 3.) and not disable_cell_list
 

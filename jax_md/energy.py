@@ -134,7 +134,8 @@ def soft_sphere_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                               epsilon: Array=1.0,
                               alpha: Array=2.0,
                               dr_threshold: float=0.2,
-                              per_particle: bool=False
+                              per_particle: bool=False,
+                              fractional_coordinates: bool=False,
                               ) -> Tuple[NeighborFn,
                                          Callable[[Array, NeighborList], Array]]:
   """Convenience wrapper to compute soft spheres using a neighbor list."""
@@ -145,7 +146,11 @@ def soft_sphere_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
   dr_threshold = list_cutoff * maybe_downcast(dr_threshold)
 
   neighbor_fn = partition.neighbor_list(
-    displacement_or_metric, box_size, list_cutoff, dr_threshold)
+    displacement_or_metric,
+    box_size,
+    list_cutoff,
+    dr_threshold,
+    fractional_coordinates=fractional_coordinates)
   energy_fn = smap.pair_neighbor_list(
     soft_sphere,
     space.canonicalize_displacement_or_metric(displacement_or_metric),
@@ -215,7 +220,8 @@ def lennard_jones_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                                 r_onset: float=2.0,
                                 r_cutoff: float=2.5,
                                 dr_threshold: float=0.5,
-                                per_particle: bool=False
+                                per_particle: bool=False,
+                                fractional_coordinates: bool=False
                                 ) -> Tuple[NeighborFn,
                                            Callable[[Array, NeighborList],
                                                     Array]]:
@@ -227,7 +233,11 @@ def lennard_jones_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
   dr_threshold = np.max(sigma) * maybe_downcast(dr_threshold)
 
   neighbor_fn = partition.neighbor_list(
-    displacement_or_metric, box_size, r_cutoff, dr_threshold)
+    displacement_or_metric,
+    box_size,
+    r_cutoff,
+    dr_threshold,
+    fractional_coordinates=fractional_coordinates)
   energy_fn = smap.pair_neighbor_list(
     multiplicative_isotropic_cutoff(lennard_jones, r_onset, r_cutoff),
     space.canonicalize_displacement_or_metric(displacement_or_metric),
@@ -294,7 +304,8 @@ def morse_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                         r_onset: float=2.0,
                         r_cutoff: float=2.5,
                         dr_threshold: float=0.5,
-                        per_particle: bool=False
+                        per_particle: bool=False,
+                        fractional_coordinates: bool=False,
                         ) -> Tuple[NeighborFn,
                                    Callable[[Array, NeighborList], Array]]: 
   """Convenience wrapper to compute Morse using a neighbor list."""
@@ -306,7 +317,11 @@ def morse_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
   dr_threshold = maybe_downcast(dr_threshold)
 
   neighbor_fn = partition.neighbor_list(
-    displacement_or_metric, box_size, r_cutoff, dr_threshold)
+    displacement_or_metric,
+    box_size,
+    r_cutoff,
+    dr_threshold,
+    fractional_coordinates=fractional_coordinates)
   energy_fn = smap.pair_neighbor_list(
     multiplicative_isotropic_cutoff(morse, r_onset, r_cutoff),
     space.canonicalize_displacement_or_metric(displacement_or_metric),
@@ -528,16 +543,17 @@ def bks_pair(displacement_or_metric: DisplacementOrMetricFn,
 
 
 def bks_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
-                      box_size: Box, 
-                      species: Array, 
-                      Q_sq: Array, 
-                      exp_coeff: Array, 
-                      exp_decay: Array, 
-                      attractive_coeff: Array, 
-                      repulsive_coeff: Array, 
-                      coulomb_alpha: Array, 
+                      box_size: Box,
+                      species: Array,
+                      Q_sq: Array,
+                      exp_coeff: Array,
+                      exp_decay: Array,
+                      attractive_coeff: Array,
+                      repulsive_coeff: Array,
+                      coulomb_alpha: Array,
                       cutoff: float,
-                      dr_threshold: float=0.8
+                      dr_threshold: float=0.8,
+                      fractional_coordinates: bool=False,
                       ) -> Tuple[NeighborFn,
                                  Callable[[Array, NeighborList], Array]]:
   """Convenience wrapper to compute BKS energy using a neighbor list."""
@@ -549,7 +565,11 @@ def bks_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
   dr_threshold = maybe_downcast(dr_threshold)
 
   neighbor_fn = partition.neighbor_list(
-      displacement_or_metric, box_size, cutoff, dr_threshold)
+    displacement_or_metric,
+    box_size,
+    cutoff,
+    dr_threshold,
+    fractional_coordinates=fractional_coordinates)
 
   energy_fn = smap.pair_neighbor_list(
       bks,
@@ -621,16 +641,19 @@ def bks_silica_pair(displacement_or_metric: DisplacementOrMetricFn,
 def bks_silica_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                              box_size: Box,
                              species: Array,
-                             cutoff: float=8.0
+                             cutoff: float=8.0,
+                             fractional_coordinates=False
                              ) -> Tuple[NeighborFn,
                                         Callable[[Array, NeighborList], Array]]:
   """Convenience wrapper to compute BKS energy over a system using neighbor lists."""
-  neighbor_fn, bks_pair_fn = bks_neighbor_list(displacement_or_metric,
-                                               box_size,
-                                               species,
-                                               cutoff=cutoff,
-                                               dr_threshold=0.8,
-                                               **BKS_SILICA_DICT)
+  neighbor_fn, bks_pair_fn = bks_neighbor_list(
+    displacement_or_metric,
+    box_size,
+    species,
+    cutoff=cutoff,
+    dr_threshold=0.8,
+    fractional_coordinates=fractional_coordinates,
+    **BKS_SILICA_DICT)
   N_0 = np.sum(species==0)
   N_1 = np.sum(species==1)
 
@@ -695,11 +718,11 @@ def _sw_radial_interaction(r,
   return np.where(within_cutoff, term1 * term2, 0.0)
 
 
-def stillinger_weber_energy(displacement,
-                            A=7.049556277,
-                            lam=21.0,
-                            epsilon=2.16826,
-                            three_body_strength=1.0):
+def stillinger_weber(displacement,
+                     A=7.049556277,
+                     lam=21.0,
+                     epsilon=2.16826,
+                     three_body_strength=1.0):
   """Stillinger-Weber (SW) potential [1] which is commonly used to model
   silicon and similar systems. This function uses the default SW parameters
   from the original paper. The SW potential was originally proposed to
@@ -900,7 +923,8 @@ def behler_parrinello_neighbor_list(displacement: DisplacementFn,
                                     mlp_sizes: Tuple[int, ...]=(30, 30),
                                     mlp_kwargs: Dict[str, Any]=None,
                                     sym_kwargs: Dict[str, Any]=None,
-                                    dr_threshold: float=0.5
+                                    dr_threshold: float=0.5,
+                                    fractional_coordinates=False,
                                     ) -> Tuple[NeighborFn,
                                                nn.InitFn,
                                                Callable[[PyTree,
@@ -918,10 +942,12 @@ def behler_parrinello_neighbor_list(displacement: DisplacementFn,
   if 'cutoff_distance' in sym_kwargs:
     cutoff_distance = sym_kwargs['cutoff_distance']
 
-  neighbor_fn = partition.neighbor_list(displacement,
-                                        box_size,
-                                        cutoff_distance,
-                                        dr_threshold)
+  neighbor_fn = partition.neighbor_list(
+    displacement,
+    box_size,
+    cutoff_distance,
+    dr_threshold,
+    fractional_coordinates=fractional_coordinates)
 
   sym_fn = nn.behler_parrinello_symmetry_functions_neighbor_list(displacement,
                                                                  species,
@@ -1051,7 +1077,8 @@ def graph_network_neighbor_list(displacement_fn: DisplacementFn,
                                 nodes: Array=None,
                                 n_recurrences: int=2,
                                 mlp_sizes: Tuple[int, ...]=(64, 64),
-                                mlp_kwargs: Dict[str, Any]=None
+                                mlp_kwargs: Dict[str, Any]=None,
+                                fractional_coordinates=False,
                                 ) -> Tuple[NeighborFn,
                                            nn.InitFn,
                                            Callable[[PyTree,
@@ -1107,11 +1134,13 @@ def graph_network_neighbor_list(displacement_fn: DisplacementFn,
     net = EnergyGraphNet(n_recurrences, mlp_sizes, mlp_kwargs)
     return net(nn.GraphTuple(_nodes, dR, _globals, edge_idx))  # pytype: disable=wrong-arg-count
 
-  neighbor_fn = partition.neighbor_list(displacement_fn,
-                                        box_size,
-                                        r_cutoff,
-                                        dr_threshold,
-                                        mask_self=False)
+  neighbor_fn = partition.neighbor_list(
+    displacement_fn,
+    box_size,
+    r_cutoff,
+    dr_threshold,
+    mask_self=False,
+    fractional_coordinates=fractional_coordinates)
   init_fn, apply_fn = model.init, model.apply
 
   return neighbor_fn, init_fn, apply_fn
