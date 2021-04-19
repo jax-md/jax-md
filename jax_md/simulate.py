@@ -708,7 +708,7 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     return V * np.exp(-x) + dt_2 * A * sinhV * np.exp(-x_2)
 
   def inner_step(state, **kwargs):
-    _pressure = pressure if 'pressure' not in kwargs else kwargs['pressure']
+    _pressure = kwargs.pop('pressure', pressure)
 
     R, V, M, F = state.position, state.velocity, state.mass, state.force
     R_b, V_b, M_b = state.box_position, state.box_velocity, state.box_mass
