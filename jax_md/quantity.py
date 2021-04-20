@@ -113,7 +113,7 @@ def pressure(energy_fn: EnergyFn, position: Array, box: Box,
   R = space.transform(box, position)
   RdotF = util.high_precision_sum(R * F)
 
-  return 1 / (dim * vol_0) * (KE + RdotF - dim * vol_0 * dUdV(vol_0))
+  return 1 / (dim * vol_0) * (2 * KE + RdotF - dim * vol_0 * dUdV(vol_0))
 
 
 def canonicalize_mass(mass: Union[float, Array]) -> Union[float, Array]:
