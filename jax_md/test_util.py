@@ -15,8 +15,10 @@
 """Defines testing utility functions."""
 
 import jax.test_util as jtu
-import jax.numpy as np
+import jax.numpy as jnp
 import numpy as onp
+
+from jax_md import dataclasses
 
 def update_test_tolerance(f32_tolerance=None, f64_tolerance=None):
   if f32_tolerance is not None:
@@ -30,3 +32,29 @@ def update_test_tolerance(f32_tolerance=None, f64_tolerance=None):
     tol[onp.dtype(onp.float32)] = 5e-2
     return tol
   jtu.default_tolerance = default_tolerance
+
+
+
+@dataclasses.dataclass
+class SimulationTestState:
+  fractional_position: jnp.ndarray
+  real_position: jnp.ndarray
+  species: jnp.ndarray
+  sigma: jnp.ndarray
+  box: jnp.ndarray
+  energy: jnp.ndarray
+  pressure: jnp.ndarray
+
+
+def load_test_state(filename: str, dtype) -> SimulationTestState:
+  filename = f'tests/data/{filename}'
+  with open(filename, 'rb') as f:
+    return SimulationTestState(
+      fractional_position=onp.load(f).astype(dtype),
+      real_position=onp.load(f).astype(dtype),
+      species=onp.load(f),
+      sigma=onp.load(f).astype(dtype),
+      box=onp.load(f).astype(dtype),
+      energy=onp.load(f).astype(dtype),
+      pressure=onp.load(f).astype(dtype),
+    )

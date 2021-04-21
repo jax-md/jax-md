@@ -40,6 +40,7 @@ To get started playing around with JAX MD check out the following colab notebook
 - [Minimization](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/minimization.ipynb)
 - [NVE Simulation](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/nve_simulation.ipynb)
 - [NVT Simulation](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/nvt_simulation.ipynb)
+- [NPT Simulation](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/npt_simulation.ipynb)
 - [NVE with Neighbor Lists](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/nve_neighbor_list.ipynb)
 - [Custom Potentials](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/customizing_potentials_cookbook.ipynb)
 - [Neural Network Potentials](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/neural_networks.ipynb)
@@ -137,6 +138,7 @@ include the FIRE algorithm which often sees significantly faster convergence. Mo
 We provide the following dynamics:
 - `simulate.nve` Constant energy simulation; numerically integrates Newton's laws directly.
 - `simulate.nvt_nose_hoover` Uses Nose-Hoover chain to simulate a constant temperature system.
+- `simulate.npt_nose_hoover` Uses Nose-Hoover chain to simulate a system at constant pressure and temperature.
 - `simulate.nvt_langevin` Simulates a system by numerically integrating the Langevin stochistic differential equation.
 - `simulate.brownian` Simulates brownian motion.
 - `minimize.gradient_descent` Mimimizes a system using gradient descent.

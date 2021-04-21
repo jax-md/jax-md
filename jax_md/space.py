@@ -218,12 +218,21 @@ def periodic(side: Box, wrapped: bool=True) -> Space:
     (displacement_fn, shift_fn) tuple.
   """
   def displacement_fn(Ra: Array, Rb: Array, **unused_kwargs) -> Array:
+    if 'box' in unused_kwargs:
+      raise ValueError(('`space.periodic` does not accept a box argument.'
+                        'Perhaps you maent to use `space.periodic_general`?'))
     return periodic_displacement(side, pairwise_displacement(Ra, Rb))
   if wrapped:
     def shift_fn(R: Array, dR: Array, **unused_kwargs) -> Array:
+      if 'box' in unused_kwargs:
+        raise ValueError(('`space.periodic` does not accept a box argument.'
+                          'Perhaps you maent to use `space.periodic_general`?'))
       return periodic_shift(side, R, dR)
   else:
     def shift_fn(R: Array, dR: Array, **unused_kwargs) -> Array:
+      if 'box' in unused_kwargs:
+        raise ValueError(('`space.periodic` does not accept a box argument.'
+                          'Perhaps you maent to use `space.periodic_general`?'))
       return R + dR
   return displacement_fn, shift_fn
 
