@@ -22,7 +22,7 @@ from jax import random
 import jax.numpy as np
 
 from jax.api import jit, grad, vmap
-from jax_md import space, quantity, test_util
+from jax_md import space, quantity, test_util, energy
 from jax_md.util import *
 
 from jax import test_util as jtu
@@ -37,7 +37,7 @@ PARTICLE_COUNT = 10
 STOCHASTIC_SAMPLES = 10
 SPATIAL_DIMENSION = [2, 3]
 DTYPES = [f32, f64] if FLAGS.jax_enable_x64 else [f32]
-
+COORDS = ['fractional', 'real']
 
 class QuantityTest(jtu.JaxTestCase):
 
@@ -118,6 +118,23 @@ class QuantityTest(jtu.JaxTestCase):
          [[1, 1], [1, 1]]], dtype=dtype)
     self.assertAllClose(cangles, true_cangles)
 
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': f'_dtype={dtype.__name__}_coordinates={coords}',
+          'dtype': dtype,
+          'coords': coords
+      } for dtype in DTYPES for coords in COORDS))
+  def test_pressure_jammed(self, dtype, coords):
+    key = random.PRNGKey(0)
+
+    state = test_util.load_test_state('simulation_test_state.npy', dtype)
+    displacement_fn, shift_fn = space.periodic_general(state.box,
+                                                       coords == 'fractional')
+
+    E = energy.soft_sphere_pair(displacement_fn, state.species, state.sigma)
+    pos = getattr(state, coords + '_position')
+
+    self.assertAllClose(quantity.pressure(E, pos, state.box), state.pressure)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {

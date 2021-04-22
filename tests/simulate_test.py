@@ -23,6 +23,7 @@ from jax import jit
 from jax import random
 from jax import test_util as jtu
 from jax import lax
+from jax import ops
 
 from jax.config import config as jax_config
 import jax.numpy as np
@@ -32,6 +33,7 @@ from jax_md import simulate
 from jax_md import space
 from jax_md import energy
 from jax_md import util
+from jax_md import test_util
 from jax_md.util import *
 
 from functools import partial
@@ -46,6 +48,7 @@ DYNAMICS_STEPS = 800
 SHORT_DYNAMICS_STEPS = 20
 STOCHASTIC_SAMPLES = 5
 SPATIAL_DIMENSION = [2, 3]
+COORDS = ['fractional', 'real']
 
 LANGEVIN_PARTICLE_COUNT = 8000
 LANGEVIN_DYNAMICS_STEPS = 8000
@@ -84,7 +87,7 @@ class SimulateTest(jtu.JaxTestCase):
     init_fn, apply_fn = simulate.nve(E, shift, 1e-3)
     apply_fn = jit(apply_fn)
 
-    state = init_fn(vel_key, R, mass=mass)
+    state = init_fn(vel_key, R, kT=0.5, mass=mass)
 
     E_T = lambda state: \
         E(state.position) + quantity.kinetic_energy(state.velocity, state.mass)
@@ -95,6 +98,115 @@ class SimulateTest(jtu.JaxTestCase):
       E_total = E_T(state)
       assert np.abs(E_total - E_initial) < E_initial * 0.01
       assert state.position.dtype == dtype
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in DTYPE))
+  def test_nve_jammed(self, spatial_dimension, dtype):
+    key = random.PRNGKey(0)
+
+    state = test_util.load_test_state('simulation_test_state.npy', dtype)
+    displacement_fn, shift_fn = space.periodic(state.box[0, 0])
+
+    E = energy.soft_sphere_pair(displacement_fn, state.species, state.sigma)
+
+    init_fn, apply_fn = simulate.nve(E, shift_fn, 1e-3)
+    apply_fn = jit(apply_fn)
+
+    state = init_fn(key, state.real_position, kT=1e-3)
+
+    E_T = lambda state: \
+        E(state.position) + quantity.kinetic_energy(state.velocity, state.mass)
+    E_initial = E_T(state) * np.ones((DYNAMICS_STEPS,))
+
+    def step_fn(i, state_and_energy):
+      state, energy = state_and_energy
+      state = apply_fn(state)
+      energy = ops.index_update(energy, i, E_T(state))
+      return state, energy
+
+    Es = np.zeros((DYNAMICS_STEPS,))
+    state, Es = lax.fori_loop(0, DYNAMICS_STEPS, step_fn, (state, Es))
+
+    tol = 1e-3 if dtype is f32 else 1e-7
+    self.assertEqual(state.position.dtype, dtype)
+    self.assertAllClose(Es, E_initial, rtol=tol, atol=tol)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in DTYPE))
+  def test_nve_jammed(self, spatial_dimension, dtype):
+    key = random.PRNGKey(0)
+
+    state = test_util.load_test_state('simulation_test_state.npy', dtype)
+    displacement_fn, shift_fn = space.periodic(state.box[0, 0])
+
+    E = energy.soft_sphere_pair(displacement_fn, state.species, state.sigma)
+
+    init_fn, apply_fn = simulate.nve(E, shift_fn, 1e-3)
+    apply_fn = jit(apply_fn)
+
+    state = init_fn(key, state.real_position, kT=1e-3)
+
+    E_T = lambda state: \
+        E(state.position) + quantity.kinetic_energy(state.velocity, state.mass)
+    E_initial = E_T(state) * np.ones((DYNAMICS_STEPS,))
+
+    def step_fn(i, state_and_energy):
+      state, energy = state_and_energy
+      state = apply_fn(state)
+      energy = ops.index_update(energy, i, E_T(state))
+      return state, energy
+
+    Es = np.zeros((DYNAMICS_STEPS,))
+    state, Es = lax.fori_loop(0, DYNAMICS_STEPS, step_fn, (state, Es))
+
+    tol = 1e-3 if dtype is f32 else 1e-7
+    self.assertEqual(state.position.dtype, dtype)
+    self.assertAllClose(Es, E_initial, rtol=tol, atol=tol)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': f'_dtype={dtype.__name__}_coordinates={coords}',
+          'dtype': dtype,
+          'coords': coords
+      } for dtype in DTYPE for coords in COORDS))
+  def test_nve_jammed_periodic_general(self, dtype, coords):
+    key = random.PRNGKey(0)
+
+    state = test_util.load_test_state('simulation_test_state.npy', dtype)
+    displacement_fn, shift_fn = space.periodic_general(state.box,
+                                                       coords == 'fractional')
+
+    E = energy.soft_sphere_pair(displacement_fn, state.species, state.sigma)
+
+    init_fn, apply_fn = simulate.nve(E, shift_fn, 1e-3)
+    apply_fn = jit(apply_fn)
+
+    state = init_fn(key, getattr(state, coords + '_position'), kT=1e-3)
+
+    E_T = lambda state: \
+        E(state.position) + quantity.kinetic_energy(state.velocity, state.mass)
+    E_initial = E_T(state) * np.ones((DYNAMICS_STEPS,))
+
+    def step_fn(i, state_and_energy):
+      state, energy = state_and_energy
+      state = apply_fn(state)
+      energy = ops.index_update(energy, i, E_T(state))
+      return state, energy
+
+    Es = np.zeros((DYNAMICS_STEPS,))
+    state, Es = lax.fori_loop(0, DYNAMICS_STEPS, step_fn, (state, Es))
+
+    tol = 1e-3 if dtype is f32 else 1e-7
+    self.assertEqual(state.position.dtype, dtype)
+    self.assertAllClose(Es, E_initial, rtol=tol, atol=tol)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -125,8 +237,8 @@ class SimulateTest(jtu.JaxTestCase):
     exact_init_fn, exact_apply_fn = simulate.nve(exact_energy_fn, shift, 1e-3)
 
     nbrs = neighbor_fn(R)
-    state = init_fn(random.PRNGKey(0), R, neighbor=nbrs)
-    exact_state = exact_init_fn(random.PRNGKey(0), R)
+    state = init_fn(random.PRNGKey(0), R, kT=0.5, neighbor=nbrs)
+    exact_state = exact_init_fn(random.PRNGKey(0), R, kT=0.5)
 
     def body_fn(i, state):
       state, nbrs, exact_state = state
@@ -149,42 +261,7 @@ class SimulateTest(jtu.JaxTestCase):
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
-          'spatial_dimension': dim,
-          'dtype': dtype
-      } for dim in SPATIAL_DIMENSION for dtype in DTYPE))
-  def test_nve_ensemble_time_dependence(self, spatial_dimension, dtype):
-    key = random.PRNGKey(0)
-    pos_key, center_key, vel_key, mass_key = random.split(key, 4)
-    R = random.normal(
-      pos_key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
-    R0 = random.normal(
-      center_key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
-    mass = random.uniform(
-      mass_key, (PARTICLE_COUNT,), minval=0.1, maxval=5.0, dtype=dtype)
-    displacement, shift = space.free()
-
-    E = energy.soft_sphere_pair(displacement)
-
-    init_fn, apply_fn = simulate.nve(E, shift, 1e-3)
-    apply_fn = jit(apply_fn)
-
-    state = init_fn(vel_key, R, mass=mass)
-
-    E_T = lambda state: \
-        E(state.position) + quantity.kinetic_energy(state.velocity, state.mass)
-    E_initial = E_T(state)
-
-    for t in range(SHORT_DYNAMICS_STEPS):
-      state = apply_fn(state, t=t*1e-3)
-      E_total = E_T(state)
-      assert np.abs(E_total - E_initial) < E_initial * 0.01
-      assert state.position.dtype == dtype
-
-  @parameterized.named_parameters(jtu.cases_from_list(
-      {
-          'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}_'
-                            f'sy_steps={sy_steps}'),
+          'testcase_name': f'_dim={dim}_dtype={dtype.__name__}_sy_steps={sy_steps}',
           'spatial_dimension': dim,
           'dtype': dtype,
           'sy_steps': sy_steps,
@@ -205,7 +282,7 @@ class SimulateTest(jtu.JaxTestCase):
 
     E = energy.simple_spring_bond(displacement_fn, bonds)
 
-    invariant = partial(simulate.nose_hoover_invariant, E)
+    invariant = partial(simulate.nvt_nose_hoover_invariant, E)
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, pos_key, vel_key, T_key, masses_key = random.split(key, 5)
@@ -232,6 +309,93 @@ class SimulateTest(jtu.JaxTestCase):
       assert np.abs(T_final - T) / T < 0.1
       self.assertAllClose(invariant(state, T), initial, rtol=1e-4)
       self.assertEqual(state.position.dtype, dtype)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': f'dtype={dtype.__name__}_sy_steps={sy_steps}',
+          'dtype': dtype,
+          'sy_steps': sy_steps,
+      } for dtype in DTYPE
+        for sy_steps in [1, 3, 5, 7]))
+  def test_nvt_nose_hoover_jammed(self, dtype, sy_steps):
+    key = random.PRNGKey(0)
+
+    state = test_util.load_test_state('simulation_test_state.npy', dtype)
+    displacement_fn, shift_fn = space.periodic(state.box[0, 0])
+
+    E = energy.soft_sphere_pair(displacement_fn, state.species, state.sigma)
+    invariant = partial(simulate.nvt_nose_hoover_invariant, E)
+
+    kT = 1e-3
+    init_fn, apply_fn = simulate.nvt_nose_hoover(E, shift_fn, 1e-3,
+                                                 kT=kT, sy_steps=sy_steps)
+    apply_fn = jit(apply_fn)
+
+    state = init_fn(key, state.real_position)
+
+    E_initial = invariant(state, kT) * np.ones((DYNAMICS_STEPS,))
+
+    def step_fn(i, state_and_energy):
+      state, energy = state_and_energy
+      state = apply_fn(state)
+      energy = ops.index_update(energy, i, invariant(state, kT))
+      return state, energy
+
+    Es = np.zeros((DYNAMICS_STEPS,))
+    state, Es = lax.fori_loop(0, DYNAMICS_STEPS, step_fn, (state, Es))
+
+    tol = 1e-3 if dtype is f32 else 1e-7
+    self.assertEqual(state.position.dtype, dtype)
+    self.assertAllClose(Es, E_initial, rtol=tol, atol=tol)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': f'dtype={dtype.__name__}_sy_steps={sy_steps}',
+          'dtype': dtype,
+          'sy_steps': sy_steps,
+      } for dtype in DTYPE
+        for sy_steps in [1, 3, 5, 7]))
+  def test_npt_nose_hoover_jammed(self, dtype, sy_steps):
+    key = random.PRNGKey(0)
+
+    state = test_util.load_test_state('simulation_test_state.npy', dtype)
+    displacement_fn, shift_fn = space.periodic_general(state.box)
+
+    E = energy.soft_sphere_pair(displacement_fn, state.species, state.sigma)
+    invariant = partial(simulate.npt_nose_hoover_invariant, E)
+    pressure_fn = partial(quantity.pressure, E)
+
+    nhc_kwargs = {sy_steps: sy_steps}
+    kT = 1e-3
+    P = state.pressure
+    init_fn, apply_fn = simulate.npt_nose_hoover(E, shift_fn, 1e-3, P, kT,
+                                                 nhc_kwargs, nhc_kwargs)
+    apply_fn = jit(apply_fn)
+
+    state = init_fn(key, state.fractional_position, state.box)
+
+    E_initial = invariant(state, P, kT) * np.ones((DYNAMICS_STEPS,))
+    P_target = P * np.ones((DYNAMICS_STEPS,))
+
+    def step_fn(i, state_energy_pressure):
+      state, energy, pressure = state_energy_pressure
+      state = apply_fn(state)
+      energy = ops.index_update(energy, i, invariant(state, P, kT))
+      box = simulate.npt_box(state)
+      KE = quantity.kinetic_energy(state.velocity, state.mass)
+      p = pressure_fn(state.position, box, KE)
+      pressure = ops.index_update(pressure, i, p)
+      return state, energy, pressure
+
+    Es = np.zeros((DYNAMICS_STEPS,))
+    Ps = np.zeros((DYNAMICS_STEPS,))
+    state, Es, Ps = lax.fori_loop(0, DYNAMICS_STEPS, step_fn, (state, Es, Ps))
+
+    tol = 1e-3 if dtype is f32 else 1e-7
+    self.assertEqual(state.position.dtype, dtype)
+    self.assertAllClose(Es, E_initial, rtol=tol, atol=tol)
+    self.assertAllClose(Ps, P_target, rtol=0.05, atol=0.05)
+
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {

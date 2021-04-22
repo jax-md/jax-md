@@ -285,7 +285,7 @@ class EnergyTest(jtu.JaxTestCase):
       positions = lattice(positions, num_repetitions, lattice_vectors)
       lattice_vectors *= num_repetitions
       displacement, shift = space.periodic_general(lattice_vectors)
-      energy_fn = jit(energy.stillinger_weber_energy(displacement))
+      energy_fn = jit(energy.stillinger_weber(displacement))
       self.assertAllClose(energy_fn(positions)/positions.shape[0], -4.336503)
 
   @parameterized.named_parameters(jtu.cases_from_list(
