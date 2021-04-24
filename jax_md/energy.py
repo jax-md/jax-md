@@ -629,8 +629,8 @@ def bks_silica_pair(displacement_or_metric: DisplacementOrMetricFn,
 
   e_self = partial(_bks_silica_self, alpha=0.25, cutoff=cutoff)
 
-  def energy_fn(R, **unused_kwargs):
-    return (bks_pair_fn(R) +
+  def energy_fn(R, **kwargs):
+    return (bks_pair_fn(R, **kwargs) +
             N_0 * e_self(CHARGE_SILICON**2) +
             N_1 * e_self(CHARGE_OXYGEN**2))
 
@@ -659,8 +659,8 @@ def bks_silica_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
 
   e_self = partial(_bks_silica_self, alpha=0.25, cutoff=cutoff)
 
-  def energy_fn(R, neighbor, **unused_kwargs):
-    return (bks_pair_fn(R, neighbor) +
+  def energy_fn(R, neighbor, **kwargs):
+    return (bks_pair_fn(R, neighbor, **kwargs) +
             N_0 * e_self(CHARGE_SILICON ** 2) +
             N_1 * e_self(CHARGE_OXYGEN ** 2))
 
@@ -753,8 +753,9 @@ def stillinger_weber(displacement,
   [3] Barkema, G. T., and Normand Mousseau. "Event-based relaxation of
   continuous disordered systems." Physical review letters 77.21 (1996): 4358.
   """
-  def compute_fn(R):
-    dR = space.map_product(displacement)(R, R)
+  def compute_fn(R, **kwargs):
+    d = partial(displacement, **kwargs)
+    dR = space.map_product(d)(R, R)
     dr = space.distance(dR)
     first_term = np.sum(_sw_radial_interaction(dr)) / 2.0 * A
     second_term = lam *  np.sum(sw_three_body_term(dR, dR))/2.0
