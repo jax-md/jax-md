@@ -1,10 +1,4 @@
-
-
-
-
-
-
-
+from typing import Dict, Callable, List, Tuple, Union
 
 import jax
 import jax.numpy as jnp
@@ -124,15 +118,9 @@ def _convert_responses_to_elastic_constants(response_all: Array) -> Array:
   return C
 
 def AthermalElasticModulusTensor(energy_fn: Callable[..., Array], 
-<<<<<<< HEAD
-                                 tether_strength float=1e-10,
-                                 gradient_check Array=None, 
-                                 cg_tol float=1e-7
-=======
-                                 tether_strength Array=1e-10,
-                                 gradient_check Array=None, 
-                                 cg_tol Array=1e-7
->>>>>>> 2898c5826426e2665ea4559de3092c35a0978fd2
+                                 tether_strength: float=1e-10,
+                                 gradient_check: Array=None, 
+                                 cg_tol: float=1e-7
                                  ) -> Callable[..., Array]:
   """ Setup calculation of elastic modulus tensor for a 2d or 3d athermal system.
 
@@ -280,7 +268,7 @@ def AthermalElasticModulusTensor(energy_fn: Callable[..., Array],
 
 
 
-def extract_elements(C: Array, as_dict bool=True) -> Union[dict,Array]:
+def extract_elements(C: Array, as_dict: bool=True) -> Union[Dict,Array]:
   """ Convert an elastic modulus tensor into a list of 6 (21) unique elements
         in 2 (3) dimensions
       
@@ -462,7 +450,7 @@ def mandel_to_tensor(M: Array) -> Array:
   return T
 
 
-def extract_isotropic_moduli(C: Array) -> dict:
+def extract_isotropic_moduli(C: Array) -> Dict:
   """ There are a number of important constants used to describe the linear 
         elastic behavior of isotropic systems, including the bulk modulud, B, 
         the shear modulus, G, the longitudinal modulus, M, the Young's modulus,
