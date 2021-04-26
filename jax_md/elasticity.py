@@ -124,9 +124,15 @@ def _convert_responses_to_elastic_constants(response_all: Array) -> Array:
   return C
 
 def AthermalElasticModulusTensor(energy_fn: Callable[..., Array], 
+<<<<<<< HEAD
                                  tether_strength float=1e-10,
                                  gradient_check Array=None, 
                                  cg_tol float=1e-7
+=======
+                                 tether_strength Array=1e-10,
+                                 gradient_check Array=None, 
+                                 cg_tol Array=1e-7
+>>>>>>> 2898c5826426e2665ea4559de3092c35a0978fd2
                                  ) -> Callable[..., Array]:
   """ Setup calculation of elastic modulus tensor for a 2d or 3d athermal system.
 
