@@ -1,7 +1,9 @@
+from functools import partial
 from typing import Dict, Callable, List, Tuple, Union
 
 import jax
 import jax.numpy as jnp
+import jax.scipy as jsp
 from jax import jit, lax, grad, vmap, jacfwd, jacrev, jvp
 
 from jax_md.util import Array
