@@ -452,6 +452,55 @@ def mandel_to_tensor(M: Array) -> Array:
   return T
 
 
+
+@partial(jit,static_argnums=(1,))
+def _extract_elements(C, as_dict):
+  """ Convert an elastic modulus tensor into a list of 6 (21) unique elements
+        in 2 (3) dimensions
+      
+      in 2d, these are:
+      cxxxx,cyyyy,cxyxy,cxxyy,cxxxy,cyyxy
+
+      in 3d, these are:
+      cxxxx,cyyyy,czzzz,cyzyz,cxzxz,cxyxy,cyyzz,cxxzz,cxxyy,cxxyz,cxxxz,cxxxy,cyyyz,cyyxz,cyyxy,czzyz,czzxz,czzxy,cyzxz,cyzxy,cxzxy
+
+  Args:
+    C: A previously calculated elastic modulus tensor represented as an 
+      array of shape (spatial_dimension,spatial_dimension,spatial_dimension,
+      spatial_dimension), where spatial_dimension is either 2 or 3. C must 
+      satisfy both the major and minor symmetries, but this is not checked.
+    as_dict: boolean. If true, return a dictionary with interpretable keys.
+      If false, return an array that follows an internal convention.
+  """
+  if C.shape[0] == 2:
+    indices = ( [0, 1, 0, 0, 0, 0],
+                [0, 1, 1, 0, 0, 1],
+                [0, 1, 0, 1, 0, 1],
+                [0, 1, 1, 1, 1, 1])
+    clist = C[ indices ] 
+    if as_dict==True:
+      names = ['cxxxx','cyyyy','cxyxy','cxxyy','cxxxy','cyyxy']
+      return dict(zip(names, clist))
+    else:
+      return clist
+
+  elif C.shape[0] == 3:
+    indices = ( [0, 1, 2, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0],
+                [0, 1, 2, 2, 2, 1, 1, 0, 0, 0, 0, 0, 1, 2, 1, 2, 2, 1, 2, 1, 1],
+                [0, 1, 2, 1, 0, 0, 2, 2, 1, 1, 0, 0, 1, 1, 1, 2, 2, 2, 1, 1, 0],
+                [0, 1, 2, 2, 2, 1, 2, 2, 1, 2, 2, 1, 2, 1, 1, 2, 2, 2, 2, 2, 2])
+    clist = C[ indices ] 
+    if as_dict:
+      names = ['cxxxx','cyyyy','czzzz','cyzyz','cxzxz','cxyxy','cyyzz','cxxzz','cxxyy','cxxyz','cxxxz','cxxxy','cyyyz','cyyxz','cyyxy','czzyz','czzxz','czzxy','cyzxz','cyzxy','cxzxy']
+      return dict(zip(names, clist))
+    else:
+      return clist
+  else:
+    raise AssertionError('C has wrong shape')
+
+def extract_elements(C):
+  return _extract_elements(C,True)
+
 def extract_isotropic_moduli(C: Array) -> Dict:
   """ There are a number of important constants used to describe the linear 
         elastic behavior of isotropic systems, including the bulk modulud, B, 
@@ -510,7 +559,7 @@ def extract_isotropic_moduli(C: Array) -> Dict:
 
   """
   if C.shape[0] == 2:
-    cxxxx,cyyyy,cxyxy,cxxyy,cxxxy,cyyxy = extract_elements(C,False)
+    cxxxx,cyyyy,cxyxy,cxxyy,cxxxy,cyyxy = _extract_elements(C,False)
     B = (cxxxx+cyyyy+2.*cxxyy) / 4.
     G = (4.*cxyxy + cxxxx+cyyyy-2.*cxxyy) / 8.
     M = B + G
@@ -518,7 +567,7 @@ def extract_isotropic_moduli(C: Array) -> Dict:
     nu = (B - G) / (B + G)
     
   elif C.shape[0] == 3:
-    cxxxx,cyyyy,czzzz,cyzyz,cxzxz,cxyxy,cyyzz,cxxzz,cxxyy,cxxyz,cxxxz,cxxxy,cyyyz,cyyxz,cyyxy,czzyz,czzxz,czzxy,cyzxz,cyzxy,cxzxy = extract_elements(C,False)
+    cxxxx,cyyyy,czzzz,cyzyz,cxzxz,cxyxy,cyyzz,cxxzz,cxxyy,cxxyz,cxxxz,cxxxy,cyyyz,cyyxz,cyyxy,czzyz,czzxz,czzxy,cyzxz,cyzxy,cxzxy = _extract_elements(C,False)
     B = (cxxxx + 2*cxxyy + 2*cxxzz + cyyyy + 2*cyyzz + czzzz) / 9.
     G = (cxxxx - cxxyy - cxxzz + 3*cxyxy + 3*cxzxz + cyyyy - cyyzz + 3*cyzyz + czzzz) / 15.
     M = B + 4 * G / 3
