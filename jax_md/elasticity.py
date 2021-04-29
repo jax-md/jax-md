@@ -11,10 +11,6 @@ from jax_md.util import f32
 from jax_md.util import f64
 
 
-
-
-
-
 def _get_strain_tensor_list(box: Array) -> Array:
   if box.shape == (2,2):
     strain_tensors = jnp.array([[[1., 0.],[0., 0.]],
@@ -175,15 +171,17 @@ def AthermalElasticModulusTensor(energy_fn: Callable[..., Array],
       to guarantee that the maximum component of the gradient is less than
       gradient_check. In other words, that
         jnp.amax(jnp.abs(grad(energy_fn)(R, box=box))) < gradient_check == True
-      ***** Currently not implemented! *****
+      NOTE: JAX currently does not support proper runtime error handling.
+      Therefore, if this check fails, the calculation will return an array
+      of jnp.nan's. It is the users responsibility, if they want to use this
+      check, to then ensure that the returned array is not full of nans.
     cg_tol: scalar. Tolorance used when solving for the non-affine response.
   
   Return: A function to calculate the elastic modulus tensor
 
     
   TODO:
-    - generalize to work with force_fn functions?
-    - proper gradient check
+    - generalize to work with force_fn functions? I'm not sure this is possible
 
   """
 
@@ -215,18 +213,6 @@ def AthermalElasticModulusTensor(energy_fn: Callable[..., Array],
 
     if not (R.shape[-1] == 2 or R.shape[-1] == 3):
       raise AssertionError('Only implemented for 2d and 3d systems.')
-
-    if gradient_check is not None:
-      maxgrad = jnp.amax(jnp.abs(grad(energy_fn)(R, box=box)))
-      #def check_grad()
-
-      # This isn't jit-able... is there a way to do this???
-      # if maxgrad > gradient_check:
-      #   raise AssertionError('max gradient ({}) larger than designated threshold ({})'\
-      #                        .format(maxgrad, gradient_check))
-
-
-
 
     def setup_energy_fn_general(strain_tensor):
       @jit
@@ -262,7 +248,17 @@ def AthermalElasticModulusTensor(energy_fn: Callable[..., Array],
 
     volume = box.diagonal().prod()
     response_all = response_all / volume
-    return _convert_responses_to_elastic_constants(response_all)
+    C = _convert_responses_to_elastic_constants(response_all)
+    
+    #JAX does not allow proper runtime error handling in jitted function. 
+    # Instead, if the user requests a gradient check and the check fails,
+    # we convert C into jnp.nan's. While this doesn't raise an exception,
+    # it at least is very "loud". 
+    if gradient_check is not None:
+      maxgrad = jnp.amax(jnp.abs(grad(energy_fn)(R, box=box, **kwargs)))
+      C = lax.cond(maxgrad > gradient_check, lambda _: jnp.nan * C, lambda _: C, None)
+
+    return C
 
   return calculate_EMT
 
@@ -498,7 +494,7 @@ def _extract_elements(C, as_dict):
   else:
     raise AssertionError('C has wrong shape')
 
-def extract_elements(C):
+def extract_elements(C: Array) -> Dict:
   return _extract_elements(C,True)
 
 def extract_isotropic_moduli(C: Array) -> Dict:
