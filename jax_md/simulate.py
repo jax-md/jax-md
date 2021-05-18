@@ -658,7 +658,7 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     one = np.ones((), dtype=R.dtype)
     box_position = zero
     box_velocity = zero
-    box_mass = dim * (N + 1) * kT * barostat_kwargs['tau'] ** 2 * one
+    box_mass = (N + dim) * kT * barostat_kwargs['tau'] ** 2 * one
     KE_box = quantity.kinetic_energy(box_velocity, box_mass)
 
     if np.isscalar(box) or box.ndim == 0:
@@ -667,13 +667,13 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
 
     return NPTNoseHooverState(R, V, force_fn(R, box=box, **kwargs), mass, box,
                               box_position, box_velocity, box_mass,
-                              barostat.initialize(1, KE_box, _kT),
+                              barostat.initialize(dim ** 2, KE_box, _kT),
                               thermostat.initialize(R.size, KE, _kT))
 
   def update_box_mass(state, kT):
     N, dim = state.position.shape
     dtype = state.position.dtype
-    box_mass = np.array(dim * (N + 1) * kT * state.barostat.tau ** 2, dtype)
+    box_mass = np.array((N + dim) * kT * state.barostat.tau ** 2, dtype)
     return dataclasses.replace(state, box_mass=box_mass)
 
   def box_force(alpha, vol, box_fn, position, velocity, mass, force, pressure,
