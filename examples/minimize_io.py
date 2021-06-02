@@ -66,7 +66,7 @@ def main(unused_argv):
   opt_state = init_fn(R)
 
   # Minimize the system.
-  minimize_steps = 100
+  minimize_steps = 10
   print_every = 1
 
   print('Minimizing.')
