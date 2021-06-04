@@ -1,4 +1,4 @@
-# Copyright 2019 Google LLC
+# Copyright 2021 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,10 +13,6 @@
 # limitations under the License.
 
 """Example showing the simple minimization of a two-dimensional system."""
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 from absl import app
 
@@ -38,8 +34,8 @@ def main(unused_argv):
 
   # Setup some variables describing the system.
   N = 500
-  dimension = 3
-  box_size = f32(8.0)
+  dimension = 2
+  box_size = f32(20.0)
 
   # Create helper functions to define a periodic box of some size.
   displacement, shift = space.periodic(box_size)
@@ -66,7 +62,7 @@ def main(unused_argv):
   opt_state = init_fn(R)
 
   # Minimize the system.
-  minimize_steps = 10
+  minimize_steps = 50
   print_every = 1
 
   print('Minimizing.')
