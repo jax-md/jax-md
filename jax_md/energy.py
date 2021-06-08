@@ -645,7 +645,7 @@ def bks_silica_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                              fractional_coordinates=False
                              ) -> Tuple[NeighborFn,
                                         Callable[[Array, NeighborList], Array]]:
-  """Convenience wrapper to compute BKS energy over a system using neighbor lists."""
+  """Convenience wrapper to compute BKS energy using neighbor lists."""
   neighbor_fn, bks_pair_fn = bks_neighbor_list(
     displacement_or_metric,
     box_size,

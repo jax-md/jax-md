@@ -473,7 +473,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
     box_size: Either a float specifying the size of the box or an array of
       shape [spatial_dim] specifying the box size in each spatial dimension.
     r_cutoff: A scalar specifying the neighborhood radius.
-    dr_threshold: A scalar specifying the maximum distance particles can move 
+    dr_threshold: A scalar specifying the maximum distance particles can move
       before rebuilding the neighbor list.
     capacity_multiplier: A floating point scalar specifying the fractional
       increase in maximum neighborhood occupancy we allocate compared with the
@@ -491,7 +491,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
       example positions.
   Returns:
     A pair. The first element is a NeighborList containing the current neighbor
-    list. The second element contains a function 
+    list. The second element contains a function
     `neighbor_list_fn(R, neighbor_list=None)` that will update the neighbor
     list. If neighbor_list is None then the function will construct a new
     neighbor list whose capacity is inferred from R. If neighbor_list is given
@@ -598,6 +598,8 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
       idx, occupancy = prune_neighbor_list(R, idx, **kwargs)
       if max_occupancy is None:
         max_occupancy = int(occupancy * capacity_multiplier + extra_capacity)
+        if max_occupancy > R.shape[0]:
+          max_occupancy = R.shape[0]
         padding = max_occupancy - occupancy
         N = R.shape[0]
         if max_occupancy > occupancy:

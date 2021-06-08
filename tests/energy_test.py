@@ -114,13 +114,13 @@ def make_eam_test_splines():
 
 
 def lattice(R_unit_cell, copies, lattice_vectors):
-  # Given a cell of positions, tile it.   
+  # Given a cell of positions, tile it.
   lattice_vectors = onp.array(lattice_vectors, f32)
- 
+
   N, d = R_unit_cell.shape
   if isinstance(copies, int):
     copies = (copies,) * d
- 
+
   if lattice_vectors.ndim == 0 or lattice_vectors.ndim == 1:
     cartesian = True
     L = onp.eye(d) * lattice_vectors[onp.newaxis, ...] 
@@ -131,7 +131,7 @@ def lattice(R_unit_cell, copies, lattice_vectors):
     R_unit_cell /= onp.array(copies)[onp.newaxis, ...]
   else:
     raise ValueError()
- 
+
   Rs = []
   for indices in onp.ndindex(copies):
     dR = 0.
@@ -139,7 +139,6 @@ def lattice(R_unit_cell, copies, lattice_vectors):
       dR += i * L[idx]
     R = R_unit_cell + dR[onp.newaxis, :]
     Rs += [R]
-  
   return onp.concatenate(Rs)
 
 class EnergyTest(jtu.JaxTestCase):
@@ -163,8 +162,8 @@ class EnergyTest(jtu.JaxTestCase):
     bonds = np.array([[0, 1]], np.int32)
     for _ in range(STOCHASTIC_SAMPLES):
       key, l_key, a_key = random.split(key, 3)
-      length = random.uniform(key, (), minval=0.1, maxval=3.0)
-      alpha = random.uniform(key, (), minval=2., maxval=4.)
+      length = random.uniform(key, (), minval=0.1, maxval=3.0, dtype=dtype)
+      alpha = random.uniform(key, (), minval=2., maxval=4., dtype=dtype)
       E = energy.simple_spring_bond(disp, bonds, length=length, alpha=alpha)
       E_exact = dtype((dist - length) ** alpha / alpha)
       self.assertAllClose(E(R), E_exact)
