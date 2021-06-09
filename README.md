@@ -211,6 +211,15 @@ from jax.config import config
 config.update("jax_enable_x64", True)
 ```
 
+# Publications
+
+JAX MD has been used in the following publications. If you don't see your paper on the list, but you used JAX MD let us know and we'll add it to the list!
+
+1. [Efficient and Modular Implicit Differentiation.](https://arxiv.org/abs/2105.15183)
+2. [Learning neural network potentials from experimental data via Differentiable Trajectory Reweighting.](https://arxiv.org/abs/2106.01138)
+3. [Learn2Hop: Learned Optimization on Rough Landscapes. (ICML 2021)](https://icml.cc/Conferences/2021/AcceptedPapersInitial)
+4. [Designing self-assembling kinetics with differentiable statistical physics models. (PNAS 2021)](https://www.pnas.org/content/118/10/e2024083118.short)
+
 # Citation
 
 If you use the code in a publication, please cite the repo using the .bib,
@@ -226,4 +235,3 @@ If you use the code in a publication, please cite the repo using the .bib,
  year = {2020}
 }
 ```
-
