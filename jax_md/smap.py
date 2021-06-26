@@ -176,31 +176,37 @@ def _get_species_parameters(params: Array, species: Array) -> Array:
   return params
 
 
-def _get_matrix_parameters(params: Array) -> Array:
+def _get_matrix_parameters(params: Array, combinator: Callable) -> Array:
   """Get an NxN parameter matrix from per-particle parameters."""
   if isinstance(params, jnp.ndarray):
     if len(params.shape) == 1:
-      # NOTE(schsam): get_parameter_matrix only supports additive parameters.
-      return 0.5 * (params[:, jnp.newaxis] + params[jnp.newaxis, :])
+      return combinator(params[:, jnp.newaxis], params[jnp.newaxis, :])
     elif len(params.shape) == 0 or len(params.shape) == 2:
       return params
     else:
       raise NotImplementedError
   elif(isinstance(params, int) or isinstance(params, float) or
-       jnp.issubdtype(params, jnp.integer) or jnp.issubdtype(params, jnp.floating)):
+       jnp.issubdtype(params, jnp.integer) or
+       jnp.issubdtype(params, jnp.floating)):
     return params
   else:
     raise NotImplementedError
 
 
-def _kwargs_to_parameters(species: Array=None, **kwargs) -> Dict[str, Array]:
+def _kwargs_to_parameters(species: Array,
+                          kwargs: Dict[str, Array],
+                          combinators: Dict[str, Callable]
+                          ) -> Dict[str, Array]:
   """Extract parameters from keyword arguments."""
   # NOTE(schsam): We could pull out the species case from the generic case.
-  s_kwargs = kwargs
-  for k, v in s_kwargs.items():
+  s_kwargs = {}
+  for k, v in kwargs.items():
     if species is None:
-      s_kwargs[k] = _get_matrix_parameters(v)
+      combinator = combinators.get(k, lambda x, y: 0.5 * (x + y))
+      s_kwargs[k] = _get_matrix_parameters(v, combinator)
     else:
+      if k in combinators:
+        raise ValueError('Cannot specify custom combinator with species.')
       s_kwargs[k] = _get_species_parameters(v, species)
   return s_kwargs
 
@@ -232,6 +238,22 @@ def _check_species_dtype(species):
   msg = 'Species has wrong dtype. Expected integer but found {}.'.format(
       species.dtype)
   raise ValueError(msg)
+
+
+def _split_params_and_combinators(kwargs):
+  combinators = {}
+  params = {}
+
+  for k, v in kwargs.items():
+    if isinstance(v, Callable):
+      combinators[k] = v
+    elif isinstance(v, tuple) and isinstance(v[0], Callable):
+      assert len(v) == 2
+      combinators[k] = v[0]
+      params[k] = v[1]
+    else:
+      params[k] = v
+  return params, combinators
 
 
 def pair(fn: Callable[..., Array],
@@ -270,9 +292,13 @@ def pair(fn: Callable[..., Array],
       `smap.pair(...)`.
     kwargs: Arguments providing parameters to the mapped function. In cases
       where no species information is provided these should be either 1) a
-      scalar, 2) an ndarray of shape [n], 3) an ndarray of shape [n, n]. If
-      species information is provided then the parameters should be specified as
-      either 1) a scalar or 2) an ndarray of shape [max_species, max_species].
+      scalar, 2) an ndarray of shape [n], 3) an ndarray of shape [n, n],
+      3) a binary function that determines how per-particle parameters are to
+      be combined, 4) a binary function as well as a default set of parameters
+      as in 2). If unspecified then this is taken to be the average of the
+      two per-particle parameters. If species information is provided then the
+      parameters should be specified as either 1) a scalar or 2) an ndarray of
+      shape [max_species, max_species].
 
   Returns:
     A function fn_mapped.
@@ -295,6 +321,8 @@ def pair(fn: Callable[..., Array],
   # equivalent to two applications of vmap adding one batch dimension for the
   # first set and then one for the second.
 
+  kwargs, param_combinators = _split_params_and_combinators(kwargs)
+
   merge_dicts = partial(util.merge_dicts,
                         ignore_unused_parameters=ignore_unused_parameters)
 
@@ -302,7 +330,7 @@ def pair(fn: Callable[..., Array],
     def fn_mapped(R: Array, **dynamic_kwargs) -> Array:
       d = space.map_product(partial(displacement_or_metric, **dynamic_kwargs))
       _kwargs = merge_dicts(kwargs, dynamic_kwargs)
-      _kwargs = _kwargs_to_parameters(species, **_kwargs)
+      _kwargs = _kwargs_to_parameters(None, _kwargs, param_combinators)
       dr = d(R, R)
       # NOTE(schsam): Currently we place a diagonal mask no matter what function
       # we are mapping. Should this be an option?
@@ -321,7 +349,7 @@ def pair(fn: Callable[..., Array],
       for i in range(species_count + 1):
         for j in range(i, species_count + 1):
           _kwargs = merge_dicts(kwargs, dynamic_kwargs)
-          s_kwargs = _kwargs_to_parameters((i, j), **_kwargs)
+          s_kwargs = _kwargs_to_parameters((i, j), _kwargs, param_combinators)
           Ra = R[species == i]
           Rb = R[species == j]
           dr = d(Ra, Rb)
@@ -343,7 +371,7 @@ def pair(fn: Callable[..., Array],
       dr = d(R, R)
       for i in range(species_count):
         for j in range(species_count):
-          s_kwargs = _kwargs_to_parameters((i, j), **_kwargs)
+          s_kwargs = _kwargs_to_parameters((i, j), _kwargs, param_combinators)
           mask_a = jnp.array(jnp.reshape(species == i, (N,)), dtype=R.dtype)
           mask_b = jnp.array(jnp.reshape(species == j, (N,)), dtype=R.dtype)
           mask = mask_a[:, jnp.newaxis] * mask_b[jnp.newaxis, :]
@@ -354,17 +382,19 @@ def pair(fn: Callable[..., Array],
       return U / f32(2.0)
   else:
     raise ValueError(
-        'Species must be None, an ndarray, or Dynamic. Found {}.'.format(
+        'Species must be None, an ndarray, or an integer. Found {}.'.format(
           species))
   return fn_mapped
 
 
 # Mapping pairwise functional forms to systems using neighbor lists.
 
-def _get_neighborhood_matrix_params(idx: Array, params: Array) -> Array:
+def _get_neighborhood_matrix_params(idx: Array,
+                                    params: Array,
+                                    combinator: Callable) -> Array:
   if isinstance(params, jnp.ndarray):
     if len(params.shape) == 1:
-      return 0.5 * (jnp.reshape(params, params.shape + (1,)) + params[idx])
+      return combinator(jnp.reshape(params, params.shape + (1,)), params[idx])
     elif len(params.shape) == 2:
       def query(id_a, id_b):
         return params[id_a, id_b]
@@ -401,14 +431,19 @@ def _get_neighborhood_species_params(idx: Array,
   return params
 
 def _neighborhood_kwargs_to_params(idx: Array,
-                                   species: Array=None,
-                                   **kwargs) -> Dict[str, Array]:
+                                   species: Array,
+                                   kwargs: Dict[str, Array],
+                                   combinators: Dict[str, Callable]
+                                   ) -> Dict[str, Array]:
   out_dict = {}
   for k in kwargs:
     if species is None or (
         isinstance(kwargs[k], jnp.ndarray) and kwargs[k].ndim == 1):
-      out_dict[k] = _get_neighborhood_matrix_params(idx, kwargs[k])
+      combinator = combinators.get(k, lambda x, y: 0.5 * (x + y))
+      out_dict[k] = _get_neighborhood_matrix_params(idx, kwargs[k], combinator)
     else:
+      if k in combinators:
+        raise ValueError()
       out_dict[k] = _get_neighborhood_species_params(idx, species, kwargs[k])
   return out_dict
 
@@ -430,8 +465,8 @@ def pair_neighbor_list(fn: Callable[..., Array],
   Args:
     fn: A function that takes an ndarray of pairwise distances or displacements
       of shape [n, m] or [n, m, d_in] respectively as well as kwargs specifying
-      parameters for the function. fn returns an ndarray of evaluations of shape
-      [n, m, d_out].
+      parameters for the function. fn returns an ndarray of evaluations of
+      shape [n, m, d_out].
     metric: A function that takes two ndarray of positions of shape
       [spatial_dimension] and [spatial_dimension] respectively and returns
       an ndarray of distances or displacements of shape [] or [d_in]
@@ -455,9 +490,12 @@ def pair_neighbor_list(fn: Callable[..., Array],
       `smap.pair_neighbor_list(...)`.
     kwargs: Arguments providing parameters to the mapped function. In cases
       where no species information is provided these should be either 1) a
-      scalar, 2) an ndarray of shape [n], 3) an ndarray of shape [n, n]. If
-      species information is provided then the parameters should be specified as
-      either 1) a scalar or 2) an ndarray of shape [max_species, max_species].
+      scalar, 2) an ndarray of shape [n], 3) an ndarray of shape [n, n],
+      3) a binary function that determines how per-particle parameters are to
+      be combined. If unspecified then this is taken to be the average of the
+      two per-particle parameters. If species information is provided then the
+      parameters should be specified as either 1) a scalar or 2) an ndarray of
+      shape [max_species, max_species].
 
   Returns:
     A function fn_mapped that takes an ndarray of floats of shape [N, d_in] of
@@ -465,6 +503,7 @@ def pair_neighbor_list(fn: Callable[..., Array],
     specifying neighbors.
   """
 
+  kwargs, param_combinators = _split_params_and_combinators(kwargs)
   merge_dicts = partial(util.merge_dicts,
                         ignore_unused_parameters=ignore_unused_parameters)
 
@@ -477,7 +516,8 @@ def pair_neighbor_list(fn: Callable[..., Array],
     merged_kwargs = merge_dicts(kwargs, dynamic_kwargs)
     merged_kwargs = _neighborhood_kwargs_to_params(neighbor.idx,
                                                    species,
-                                                   **merged_kwargs)
+                                                   merged_kwargs,
+                                                   param_combinators)
     out = fn(dR, **merged_kwargs)
     if out.ndim > mask.ndim:
       ddim = out.ndim - mask.ndim
@@ -550,7 +590,7 @@ def triplet(fn: Callable[..., Array],
                         ignore_unused_parameters=ignore_unused_parameters)
 
   def extract_parameters_by_dim(kwargs, dim: Union[int, List[int]] = 0):
-    """Helper function that extract parameters from a dictionary via dimension."""
+    """Extract parameters from a dictionary via dimension."""
     if isinstance(dim, int):
       dim = [dim]
     return {name: value for name, value in kwargs.items() if value.ndim in dim}
@@ -559,10 +599,11 @@ def triplet(fn: Callable[..., Array],
     def fn_mapped(R, **dynamic_kwargs) -> Array:
       d = space.map_product(partial(displacement_or_metric, **dynamic_kwargs))
       _kwargs = merge_dicts(kwargs, dynamic_kwargs)
-      _kwargs = _kwargs_to_parameters(species, **_kwargs)
+      _kwargs = _kwargs_to_parameters(species, _kwargs, {})
       dR = d(R, R)
       compute_triplet = partial(fn, **_kwargs)
-      output = vmap(vmap(vmap(compute_triplet, (None, 0)), (0, None)), 0)(dR, dR)
+      output = vmap(vmap(vmap(
+        compute_triplet, (None, 0)), (0, None)), 0)(dR, dR)
       return high_precision_sum(output,
                                 axis=reduce_axis,
                                 keepdims=keepdims) / 2.
@@ -582,7 +623,8 @@ def triplet(fn: Callable[..., Array],
       unmapped_args = extract_parameters_by_dim(_kwargs, [0])
 
       if extract_parameters_by_dim(_kwargs, [1, 2]):
-        assert ValueError('Improper argument dimensions (1 or 2) not well defined for triplets.')
+        assert ValueError('Improper argument dimensions (1 or 2) not well '
+                          'defined for triplets.')
 
       def compute_triplet(dR, mapped_args, unmapped_args):
         paired_args = extract_parameters_by_dim(mapped_args, 2)
@@ -591,8 +633,11 @@ def triplet(fn: Callable[..., Array],
         unpaired_args = extract_parameters_by_dim(mapped_args, 0)
         unpaired_args.update(extract_parameters_by_dim(unmapped_args, 0))
 
-        output_fn = lambda dR1, dR2, paired_args: fn(dR1, dR2, **unpaired_args, **paired_args)
-        neighbor_args = _neighborhood_kwargs_to_params(idx, species, **paired_args)
+        output_fn = lambda dR1, dR2, paired_args: fn(dR1, dR2,
+                                                     **unpaired_args,
+                                                     **paired_args)
+        neighbor_args = _neighborhood_kwargs_to_params(idx, species,
+                                                       paired_args, {})
         output_fn = vmap(vmap(output_fn, (None, 0, 0)), (0, None, 0))
         return output_fn(dR, dR, neighbor_args)
 

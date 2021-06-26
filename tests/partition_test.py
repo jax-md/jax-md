@@ -274,5 +274,6 @@ class NeighborListTest(jtu.JaxTestCase):
       dR_exact_row = dR_exact_row[dR_exact_row > 0.]
 
       self.assertAllClose(dR_row, dR_exact_row)
+
 if __name__ == '__main__':
   absltest.main()
