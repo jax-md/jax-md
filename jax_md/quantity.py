@@ -53,6 +53,17 @@ def force(energy_fn: EnergyFn) -> ForceFn:
   return grad(lambda R, *args, **kwargs: -energy_fn(R, *args, **kwargs))
 
 
+def clipped_force(energy_fn: EnergyFn, max_force: float) -> ForceFn:
+  force_fn = force(energy_fn)
+  def wrapped_force_fn(R, *args, **kwargs):
+    force = force_fn(R, *args, **kwargs)
+    force_norm = jnp.linalg.norm(force, axis=-1, keepdims=True)
+    return jnp.where(force_norm > max_force,
+                     force / force_norm * max_force,
+                     force)
+
+  return wrapped_force_fn
+
 def canonicalize_force(energy_or_force_fn: Union[EnergyFn, ForceFn]) -> ForceFn:
   _force_fn = None
   def force_fn(R, **kwargs):
