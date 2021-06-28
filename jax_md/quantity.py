@@ -19,6 +19,7 @@ from typing import TypeVar, Callable, Union, Tuple
 
 from jax.api import grad, vmap, eval_shape
 import jax.numpy as jnp
+from jax.tree_util import tree_map, tree_multimap, tree_reduce, tree_flatten, tree_unflatten
 
 from jax_md import space, dataclasses, partition, util
 
@@ -64,6 +65,7 @@ def clipped_force(energy_fn: EnergyFn, max_force: float) -> ForceFn:
 
   return wrapped_force_fn
 
+
 def canonicalize_force(energy_or_force_fn: Union[EnergyFn, ForceFn]) -> ForceFn:
   _force_fn = None
   def force_fn(R, **kwargs):
@@ -90,15 +92,35 @@ def volume(dimension: int, box: Box) -> float:
                     f'Found {box}.'))
 
 
-def kinetic_energy(velocity: Array, mass: Array=1.0) -> float:
-  """Computes the kinetic energy of a system with some velocities."""
-  return 0.5 * util.high_precision_sum(mass * velocity ** 2)
+class MVTuple:
+  mass: float
+  velocity: float
+
+  def __init__(self, mass, velocity):
+    self.mass = mass
+    self.velocity = velocity
+
+
+def kinetic_energy(velocity: Array, mass: Array=1.0) -> float: 
+  MV = tree_multimap(lambda m, v: MVTuple(m, v), mass, velocity)
+  def accum_fn(accum, m_v):
+    ke =  0.5 * util.high_precision_sum(m_v.mass * m_v.velocity**2)
+    return accum + ke
+  return tree_reduce(accum_fn, MV, 0.0)
 
 
 def temperature(velocity: Array, mass: Array=1.0) -> float:
   """Computes the temperature of a system with some velocities."""
-  N, dim = velocity.shape
-  return util.high_precision_sum(mass * velocity ** 2) / (N * dim)
+  dof = count_dof(velocity)
+  MV = tree_multimap(lambda m, v: MVTuple(m, v), mass, velocity)
+  def accum_fn(accum, m_v):
+    kT =  util.high_precision_sum(m_v.mass * m_v.velocity**2) / dof
+    return accum + kT
+  return tree_reduce(accum_fn, MV, 0.0)
+
+
+def count_dof(position):
+  return tree_reduce(lambda accum, x: accum + x.size, position, 0)
 
 
 def pressure(energy_fn: EnergyFn, position: Array, box: Box,
@@ -322,9 +344,11 @@ class PHopState:
     position_buffer: jnp.ndarray
     phop: jnp.ndarray
 
+
 InitFn = Callable[[Array], PHopState]
 ApplyFn = Callable[[PHopState, Array], PHopState]
 PHopCalculator = Tuple[InitFn, ApplyFn]
+
 
 def phop(displacement: DisplacementFn, window_size: int) -> PHopCalculator:
   """Computes the phop indicator of rearrangements.

@@ -343,6 +343,32 @@ class SMapTest(jtu.JaxTestCase):
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+  def test_pair_nonadditive_(self, spatial_dimension, dtype):
+    square = lambda dr, params: params * np.sum(dr ** 2, axis=2)
+    disp, _ = space.free()
+
+    mapped_square = smap.pair(square, disp, params=lambda x, y: x * y)
+
+    disp = space.map_product(disp)
+    key = random.PRNGKey(0)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, R_key, params_key = random.split(key, 3)
+      R = random.uniform(
+        R_key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+      params = random.uniform(
+        params_key, (PARTICLE_COUNT,), dtype=dtype, minval=0.1, maxval=1.5)
+      pp_params = params[None, :] * params[:, None]
+      mapped_ref = np.array(0.5 * np.sum(square(disp(R, R), pp_params)),
+                            dtype=dtype)
+      self.assertAllClose(mapped_square(R, params=params), mapped_ref)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
           'dtype': dtype,
       } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
   def test_pair_static_species_scalar(self, spatial_dimension, dtype):

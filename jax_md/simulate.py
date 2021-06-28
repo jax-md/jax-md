@@ -39,6 +39,7 @@ from jax import ops
 from jax import random
 import jax.numpy as np
 from jax import lax
+from jax.tree_util import tree_map, tree_multimap, tree_reduce, tree_flatten, tree_unflatten
 
 from jax_md import quantity, interpolate, util, space, dataclasses
 
@@ -461,13 +462,25 @@ def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
   def init_fn(key, R, mass=f32(1.0), **kwargs):
     _kT = kT if 'kT' not in kwargs else kwargs['kT']
 
-    mass = quantity.canonicalize_mass(mass)
-    V = np.sqrt(_kT / mass) * random.normal(key, R.shape, dtype=R.dtype)
-    V = V - np.mean(V, axis=0, keepdims=True)
-    KE = quantity.kinetic_energy(V, mass)
+    mass = tree_map(quantity.canonicalize_mass, mass)
 
-    return NVTNoseHooverState(R, V, force_fn(R, **kwargs), mass, 
-                              chain_fns.initialize(R.size, KE, _kT))
+    V, V_structure = tree_flatten(R)
+    flat_mass, _ = tree_flatten(mass)
+
+    keys = random.split(key, len(V))
+    V = [
+        np.sqrt(_kT / m) * random.normal(k, v.shape, dtype=v.dtype)
+        for k, v, m in zip(keys, V, flat_mass)
+    ]
+
+    V = [v - np.mean(v, axis=0, keepdims=True) for v in V]
+
+    V = tree_unflatten(V_structure, V)
+
+    KE = quantity.kinetic_energy(V, mass)
+    chain = chain_fns.initialize(quantity.count_dof(R), KE, _kT)
+
+    return NVTNoseHooverState(R, V, force_fn(R, **kwargs), mass, chain)
 
   def apply_fn(state, **kwargs):
     _kT = kT if 'kT' not in kwargs else kwargs['kT']
