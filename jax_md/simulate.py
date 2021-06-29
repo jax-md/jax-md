@@ -40,6 +40,8 @@ from jax import random
 import jax.numpy as jnp
 from jax import lax
 
+from jax.tree_util import tree_map, tree_flatten, tree_unflatten
+
 from jax_md import quantity
 from jax_md import interpolate
 from jax_md import util
@@ -97,8 +99,8 @@ interesting simulations that involve e.g. temperature gradients.
 def velocity_verlet(force_fn: Callable[..., Array],
                     shift_fn: ShiftFn,
                     dt: float,
-                    state: T,
-                    **kwargs) -> T:
+                    state,
+                    **kwargs):
   """Apply a single step of velocity verlet integration to a state."""
   dt = f32(dt)
   dt_2 = f32(dt / 2)
@@ -106,11 +108,17 @@ def velocity_verlet(force_fn: Callable[..., Array],
 
   R, V, F, M = state.position, state.velocity, state.force, state.mass
 
-  Minv = 1 / M
+  Minv = tree_map(lambda m: 1 / m, M)
 
-  R = shift_fn(R, V * dt + F * dt2_2 * Minv, **kwargs)
+  R = tree_map(
+      lambda shift, r, v, f, m: shift(r, v * dt + f * dt2_2 * m, **kwargs),
+      shift_fn, R, V, F, Minv)
+
   F_new = force_fn(R, **kwargs)
-  V += (F + F_new) * dt_2 * Minv
+
+  V = tree_map(lambda v, f, f_old, m: v + dt * f32(0.5) * (f_old + f) * m,
+                     V, F_new, F, Minv)
+
   return dataclasses.replace(state,
                              position=R,
                              velocity=V,
@@ -467,13 +475,26 @@ def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
   def init_fn(key, R, mass=f32(1.0), **kwargs):
     _kT = kT if 'kT' not in kwargs else kwargs['kT']
 
-    mass = quantity.canonicalize_mass(mass)
-    V = jnp.sqrt(_kT / mass) * random.normal(key, R.shape, dtype=R.dtype)
-    V = V - jnp.mean(V, axis=0, keepdims=True)
+    mass = tree_map(quantity.canonicalize_mass, mass)
+
+    V, V_structure = tree_flatten(R)
+    flat_mass, _ = tree_flatten(mass)
+
+    keys = random.split(key, len(V))
+    V = [
+        jnp.sqrt(_kT / m) * random.normal(k, v.shape, dtype=v.dtype)
+        for k, v, m in zip(keys, V, flat_mass)
+    ]
+
+    V = [v - jnp.mean(v, axis=0, keepdims=True) for v in V]
+
+    V = tree_unflatten(V_structure, V)
+
     KE = quantity.kinetic_energy(V, mass)
 
-    return NVTNoseHooverState(R, V, force_fn(R, **kwargs), mass, 
-                              chain_fns.initialize(R.size, KE, _kT))
+    dof = quantity.count_dof(R)
+    return NVTNoseHooverState(R, V, force_fn(R, **kwargs), mass,
+                              chain_fns.initialize(dof, KE, _kT))
 
   def apply_fn(state, **kwargs):
     _kT = kT if 'kT' not in kwargs else kwargs['kT']
@@ -516,12 +537,12 @@ def nvt_nose_hoover_invariant(energy_fn: Callable[..., Array],
   PE = energy_fn(state.position, **kwargs)
   KE = quantity.kinetic_energy(state.velocity, state.mass)
 
-  DOF = state.position.size
+  dof = quantity.count_dof(state.position)
   E = PE + KE
 
   c = state.chain
 
-  E += c.mass[0] * c.velocity[0] ** 2 / 2 + DOF * kT * c.position[0]
+  E += c.mass[0] * c.velocity[0] ** 2 / 2 + dof * kT * c.position[0]
   for r, v, m in zip(c.position[1:], c.velocity[1:], c.mass[1:]):
     E += m * v ** 2 / 2 + kT * r
   return E

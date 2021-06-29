@@ -15,10 +15,11 @@
 """Describes different physical quantities."""
 
 
-from typing import TypeVar, Callable, Union, Tuple
+from typing import TypeVar, Callable, Union, Tuple, Any
 
 from jax.api import grad, vmap, eval_shape
 import jax.numpy as jnp
+from jax.tree_util import tree_map, tree_reduce
 
 from jax_md import space, dataclasses, partition, util
 
@@ -27,7 +28,7 @@ from functools import partial
 
 # Types
 
-
+PyTree = Any
 Array = util.Array
 f32 = util.f32
 f64 = util.f64
@@ -64,6 +65,7 @@ def clipped_force(energy_fn: EnergyFn, max_force: float) -> ForceFn:
 
   return wrapped_force_fn
 
+
 def canonicalize_force(energy_or_force_fn: Union[EnergyFn, ForceFn]) -> ForceFn:
   _force_fn = None
   def force_fn(R, **kwargs):
@@ -90,15 +92,34 @@ def volume(dimension: int, box: Box) -> float:
                     f'Found {box}.'))
 
 
-def kinetic_energy(velocity: Array, mass: Array=1.0) -> float:
+class MVTuple:
+  mass: float
+  velocity: float
+
+  def __init__(self, mass, velocity):
+    self.mass = mass
+    self.velocity = velocity
+
+
+def kinetic_energy(velocity: PyTree, mass: PyTree=1.0) -> float:
   """Computes the kinetic energy of a system with some velocities."""
-  return 0.5 * util.high_precision_sum(mass * velocity ** 2)
+  MV = tree_map(lambda m, v: MVTuple(m, v), mass, velocity)
+  def accum_fn(accum, m_v):
+    return accum + 0.5 * util.high_precision_sum(m_v.mass * m_v.velocity**2)
+  return tree_reduce(accum_fn, MV, 0.0)
 
 
-def temperature(velocity: Array, mass: Array=1.0) -> float:
+def temperature(velocity: PyTree, mass: PyTree=1.0) -> float:
   """Computes the temperature of a system with some velocities."""
-  N, dim = velocity.shape
-  return util.high_precision_sum(mass * velocity ** 2) / (N * dim)
+  dof = count_dof(velocity)
+  MV = tree_map(lambda m, v: MVTuple(m, v), mass, velocity)
+  def accum_fn(accum, m_v):
+     return accum + util.high_precision_sum(m_v.mass * m_v.velocity ** 2) / dof
+  return tree_reduce(accum_fn, MV, 0.0)
+
+
+def count_dof(position: PyTree) -> int:
+  return tree_reduce(lambda accum, x: accum + x.size, position, 0)
 
 
 def pressure(energy_fn: EnergyFn, position: Array, box: Box,
