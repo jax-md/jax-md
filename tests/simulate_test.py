@@ -357,6 +357,48 @@ class SimulateTest(jtu.JaxTestCase):
           'sy_steps': sy_steps,
       } for dtype in DTYPE
         for sy_steps in [1, 3, 5, 7]))
+  def test_nvt_nose_hoover_jammed_in_pytree(self, dtype, sy_steps):
+    key = random.PRNGKey(0)
+
+    state = test_util.load_test_state('simulation_test_state.npy', dtype)
+    displacement_fn, shift_fn = space.periodic(state.box[0, 0])
+
+    E = energy.soft_sphere_pair(displacement_fn, state.species, state.sigma)
+    E_dbl = lambda R, **kwargs: E(R[0]) + E(R[1])
+    invariant = partial(simulate.nvt_nose_hoover_invariant, E_dbl)
+
+    kT = 1e-3
+    init_fn, apply_fn = simulate.nvt_nose_hoover(E_dbl, 2 * (shift_fn,), 1e-3,
+                                                 kT=kT, sy_steps=sy_steps)
+    apply_fn = jit(apply_fn)
+
+    R = state.real_position
+    state = init_fn(key, (R, R), mass=(1.0, 1.0))
+
+    E_initial = invariant(state, kT) * np.ones((DYNAMICS_STEPS,))
+
+    def step_fn(i, state_and_energy):
+      state, energy = state_and_energy
+      state = apply_fn(state)
+      energy = ops.index_update(energy, i, invariant(state, kT))
+      return state, energy
+
+    Es = np.zeros((DYNAMICS_STEPS,))
+    state, Es = lax.fori_loop(0, DYNAMICS_STEPS, step_fn, (state, Es))
+
+    tol = 1e-3 if dtype is f32 else 1e-7
+    R = state.position
+    self.assertEqual(R[0].dtype, dtype)
+    self.assertEqual(R[1].dtype, dtype)
+    self.assertAllClose(Es, E_initial, rtol=tol, atol=tol)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': f'dtype={dtype.__name__}_sy_steps={sy_steps}',
+          'dtype': dtype,
+          'sy_steps': sy_steps,
+      } for dtype in DTYPE
+        for sy_steps in [1, 3, 5, 7]))
   def test_npt_nose_hoover_jammed(self, dtype, sy_steps):
     key = random.PRNGKey(0)
 

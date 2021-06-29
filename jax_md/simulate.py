@@ -332,7 +332,7 @@ def nose_hoover_chain(dt: float,
 
     scale = jnp.exp(-delta_2 * v_xi[0])
     KE = KE * scale ** f32(2)
-    V = V * scale
+    V = tree_map(lambda v: v * scale, V)
 
     xi = xi + delta_2 * v_xi
 
@@ -355,7 +355,11 @@ def nose_hoover_chain(dt: float,
       return P, state
 
     delta = dt / chain_steps
-    ws = jnp.array(SUZUKI_YOSHIDA_WEIGHTS[sy_steps], dtype=V.dtype)
+    # Right now we infer the dtype of the weights from the first element of the
+    # velocity pytree. At some point we should might want to check for
+    # consistency.
+    V_dtype = V.dtype if isinstance(V, Array) else tree_flatten(V)[0][0].dtype
+    ws = jnp.array(SUZUKI_YOSHIDA_WEIGHTS[sy_steps], dtype=V_dtype)
     def body_fn(cs, i):
       d = f32(delta * ws[i % sy_steps])
       return substep_fn(d, *cs), 0
