@@ -37,10 +37,16 @@ from typing import Callable, TypeVar, Union, Tuple, Dict
 from jax.api import grad
 from jax import ops
 from jax import random
-import jax.numpy as np
+import jax.numpy as jnp
 from jax import lax
 
-from jax_md import quantity, interpolate, util, space, dataclasses
+from jax_md import quantity
+from jax_md import interpolate
+from jax_md import util
+from jax_md import space
+from jax_md import  dataclasses
+from jax_md import partition
+from jax_md import smap
 
 static_cast = util.static_cast
 
@@ -165,8 +171,8 @@ def nve(energy_or_force_fn: Callable[..., Array],
 
   def init_fn(key, R, kT, mass=f32(1.0), **kwargs):
     mass = quantity.canonicalize_mass(mass)
-    V = np.sqrt(kT / mass) * random.normal(key, R.shape, dtype=R.dtype)
-    V = V - np.mean(V, axis=0, keepdims=True)
+    V = jnp.sqrt(kT / mass) * random.normal(key, R.shape, dtype=R.dtype)
+    V = V - jnp.mean(V, axis=0, keepdims=True)
     return NVEState(R, V, force_fn(R, **kwargs), mass)
 
   def step_fn(state, **kwargs):
@@ -282,10 +288,10 @@ def nose_hoover_chain(dt: float,
   """
 
   def init_fn(degrees_of_freedom, KE, kT):
-    xi = np.zeros(chain_length, KE.dtype)
-    v_xi = np.zeros(chain_length, KE.dtype)
+    xi = jnp.zeros(chain_length, KE.dtype)
+    v_xi = jnp.zeros(chain_length, KE.dtype)
 
-    Q = kT * tau ** f32(2) * np.ones(chain_length, dtype=f32)
+    Q = kT * tau ** f32(2) * jnp.ones(chain_length, dtype=f32)
     Q = ops.index_update(Q, 0, Q[0] * degrees_of_freedom)
     return NoseHooverChain(xi, v_xi, Q, tau, KE, degrees_of_freedom)
 
@@ -305,18 +311,18 @@ def nose_hoover_chain(dt: float,
 
     def backward_loop_fn(v_xi_new, m): 
       G = (v_xi[m - 1] ** 2 * Q[m - 1] - kT) / Q[m]
-      scale = np.exp(-delta_8 * v_xi_new)
+      scale = jnp.exp(-delta_8 * v_xi_new)
       v_xi_new = scale * (scale * v_xi[m] + delta_4 * G)
       return v_xi_new, v_xi_new
-    idx = np.arange(M - 1, 0, -1)
+    idx = jnp.arange(M - 1, 0, -1)
     _, v_xi_update = lax.scan(backward_loop_fn, v_xi[M], idx, unroll=2)
     v_xi = ops.index_update(v_xi, idx, v_xi_update)
 
     G = (f32(2.0) * KE - DOF * kT) / Q[0]
-    scale = np.exp(-delta_8 * v_xi[1])
+    scale = jnp.exp(-delta_8 * v_xi[1])
     v_xi = ops.index_update(v_xi, 0, scale * (scale * v_xi[0] + delta_4 * G))
 
-    scale = np.exp(-delta_2 * v_xi[0])
+    scale = jnp.exp(-delta_2 * v_xi[0])
     KE = KE * scale ** f32(2)
     V = V * scale
 
@@ -324,11 +330,11 @@ def nose_hoover_chain(dt: float,
 
     G = (f32(2) * KE - DOF * kT) / Q[0]
     def forward_loop_fn(G, m):
-      scale = np.exp(-delta_8 * v_xi[m + 1])
+      scale = jnp.exp(-delta_8 * v_xi[m + 1])
       v_xi_update = scale * (scale * v_xi[m] + delta_4 * G)
       G = (v_xi_update ** 2 * Q[m] - kT) / Q[m + 1]
       return G, v_xi_update
-    idx = np.arange(M)
+    idx = jnp.arange(M)
     G, v_xi_update = lax.scan(forward_loop_fn, G, idx, unroll=2)
     v_xi = ops.index_update(v_xi, idx, v_xi_update)
     v_xi = ops.index_add(v_xi, M, delta_4 * G)
@@ -341,19 +347,19 @@ def nose_hoover_chain(dt: float,
       return P, state
 
     delta = dt / chain_steps
-    ws = np.array(SUZUKI_YOSHIDA_WEIGHTS[sy_steps], dtype=V.dtype)
+    ws = jnp.array(SUZUKI_YOSHIDA_WEIGHTS[sy_steps], dtype=V.dtype)
     def body_fn(cs, i):
       d = f32(delta * ws[i % sy_steps])
       return substep_fn(d, *cs), 0
     V, state, _ = lax.scan(body_fn,
                            (V, state, kT),
-                           np.arange(chain_steps * sy_steps))[0]
+                           jnp.arange(chain_steps * sy_steps))[0]
     return V, state
 
   def update_chain_mass_fn(state, kT):
     xi, v_xi, Q, _tau, KE, DOF = dataclasses.astuple(state)
 
-    Q = kT * _tau ** f32(2) * np.ones(chain_length, dtype=f32)
+    Q = kT * _tau ** f32(2) * jnp.ones(chain_length, dtype=f32)
     Q = ops.index_update(Q, 0, Q[0] * DOF)
 
     return NoseHooverChain(xi, v_xi, Q, _tau, KE, DOF)
@@ -462,8 +468,8 @@ def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
     _kT = kT if 'kT' not in kwargs else kwargs['kT']
 
     mass = quantity.canonicalize_mass(mass)
-    V = np.sqrt(_kT / mass) * random.normal(key, R.shape, dtype=R.dtype)
-    V = V - np.mean(V, axis=0, keepdims=True)
+    V = jnp.sqrt(_kT / mass) * random.normal(key, R.shape, dtype=R.dtype)
+    V = V - jnp.mean(V, axis=0, keepdims=True)
     KE = quantity.kinetic_energy(V, mass)
 
     return NVTNoseHooverState(R, V, force_fn(R, **kwargs), mass, 
@@ -568,7 +574,7 @@ def _npt_box_info(state: NPTNoseHooverState) -> Tuple[float,
   dim = state.position.shape[1]
   ref = state.reference_box
   V_0 = quantity.volume(dim, ref)
-  V = V_0 * np.exp(dim * state.box_position)
+  V = V_0 * jnp.exp(dim * state.box_position)
   return V, lambda V: (V / V_0) ** (1 / dim) * ref
 
 
@@ -577,7 +583,7 @@ def npt_box(state: NPTNoseHooverState) -> Box:
   dim = state.position.shape[1]
   ref = state.reference_box
   V_0 = quantity.volume(dim, ref)
-  V = V_0 * np.exp(dim * state.box_position)
+  V = V_0 * jnp.exp(dim * state.box_position)
   return (V / V_0) ** (1 / dim) * ref
 
 
@@ -649,21 +655,21 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
 
     _kT = kT if 'kT' not in kwargs else kwargs['kT']
 
-    V = np.sqrt(_kT / mass) * random.normal(key, R.shape, dtype=R.dtype)
-    V = V - np.mean(V, axis=0, keepdims=True)
+    V = jnp.sqrt(_kT / mass) * random.normal(key, R.shape, dtype=R.dtype)
+    V = V - jnp.mean(V, axis=0, keepdims=True)
     KE = quantity.kinetic_energy(V, mass)
 
     # The box position is defined via pos = (1 / d) log V / V_0.
-    zero = np.zeros((), dtype=R.dtype)
-    one = np.ones((), dtype=R.dtype)
+    zero = jnp.zeros((), dtype=R.dtype)
+    one = jnp.ones((), dtype=R.dtype)
     box_position = zero
     box_velocity = zero
     box_mass = dim * (N + 1) * kT * barostat_kwargs['tau'] ** 2 * one
     KE_box = quantity.kinetic_energy(box_velocity, box_mass)
 
-    if np.isscalar(box) or box.ndim == 0:
+    if jnp.isscalar(box) or box.ndim == 0:
       # TODO(schsam): This is necessary because of JAX issue #5849.
-      box = np.eye(R.shape[-1]) * box
+      box = jnp.eye(R.shape[-1]) * box
 
     return NPTNoseHooverState(R, V, force_fn(R, box=box, **kwargs), mass, box,
                               box_position, box_velocity, box_mass,
@@ -673,7 +679,7 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
   def update_box_mass(state, kT):
     N, dim = state.position.shape
     dtype = state.position.dtype
-    box_mass = np.array(dim * (N + 1) * kT * state.barostat.tau ** 2, dtype)
+    box_mass = jnp.array(dim * (N + 1) * kT * state.barostat.tau ** 2, dtype)
     return dataclasses.replace(state, box_mass=box_mass)
 
   def box_force(alpha, vol, box_fn, position, velocity, mass, force, pressure,
@@ -697,15 +703,15 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
   def exp_iL1(box, R, V, V_b, **kwargs):
     x = V_b * dt
     x_2 = x / 2
-    sinhV = sinhx_x(x_2)  # np.sinh(x_2) / x_2
-    return shift_fn(R * np.exp(x), dt * V * np.exp(x_2) * sinhV, box=box,
+    sinhV = sinhx_x(x_2)  # jnp.sinh(x_2) / x_2
+    return shift_fn(R * jnp.exp(x), dt * V * jnp.exp(x_2) * sinhV, box=box,
                     **kwargs)
 
   def exp_iL2(alpha, V, A, V_b):
     x = alpha * V_b * dt_2
     x_2 = x / 2
-    sinhV = sinhx_x(x_2)  # np.sinh(x_2) / x_2
-    return V * np.exp(-x) + dt_2 * A * sinhV * np.exp(-x_2)
+    sinhV = sinhx_x(x_2)  # jnp.sinh(x_2) / x_2
+    return V * jnp.exp(-x) + dt_2 * A * sinhV * jnp.exp(-x_2)
 
   def inner_step(state, **kwargs):
     _pressure = kwargs.pop('pressure', pressure)
@@ -891,8 +897,8 @@ def nvt_langevin(energy_or_force: Callable[..., Array],
 
     key, split = random.split(key)
 
-    V = np.sqrt(_kT / mass) * random.normal(split, R.shape, dtype=R.dtype)
-    V = V - np.mean(V, axis=0, keepdims=True)
+    V = jnp.sqrt(_kT / mass) * random.normal(split, R.shape, dtype=R.dtype)
+    V = V - jnp.mean(V, axis=0, keepdims=True)
 
     return NVTLangevinState(R, V, force_fn(R, **kwargs), mass, key)  # pytype: disable=wrong-arg-count
 
@@ -904,19 +910,19 @@ def nvt_langevin(energy_or_force: Callable[..., Array],
 
     key, xi_key, theta_key = random.split(key, 3)
     xi = random.normal(xi_key, (N, dim), dtype=R.dtype)
-    theta = random.normal(theta_key, (N, dim), dtype=R.dtype) / np.sqrt(f32(3))
+    theta = random.normal(theta_key, (N, dim), dtype=R.dtype) / jnp.sqrt(f32(3))
 
     # NOTE(schsam): We really only need to recompute sigma if the temperature
     # is nonconstant. @Optimization
     # TODO(schsam): Check that this is really valid in the case that the masses
     # are non identical for all particles.
-    sigma = np.sqrt(f32(2) * _kT * gamma / mass)
+    sigma = jnp.sqrt(f32(2) * _kT * gamma / mass)
     C = dt2 * (F - gamma * V) + sigma * dt32 * (xi + theta)
 
     R = shift(R, dt * V + C, **kwargs)
     F_new = force_fn(R, **kwargs)
     V = (f32(1) - dt * gamma) * V + dt_2 * (F_new + F)
-    V = V + sigma * np.sqrt(dt) * xi - gamma * C
+    V = V + sigma * jnp.sqrt(dt) * xi - gamma * C
 
     return NVTLangevinState(R, V, F_new, mass, key)  # pytype: disable=wrong-arg-count
   return init_fn, apply_fn
@@ -994,9 +1000,158 @@ def brownian(energy_or_force: Callable[..., Array],
 
     nu = f32(1) / (mass * gamma)
 
-    dR = F * dt * nu + np.sqrt(f32(2) * _kT * dt * nu) * xi
+    dR = F * dt * nu + jnp.sqrt(f32(2) * _kT * dt * nu) * xi
     R = shift(R, dR, **kwargs)
 
     return BrownianState(R, mass, key)  # pytype: disable=wrong-arg-count
 
   return init_fn, apply_fn
+
+
+"""Experimental Simulations.
+
+
+Below are simulation environments whose implementation is somewhat
+experimental / preliminary. These environments might not be as ergonomic
+as the more polished environments above.
+"""
+
+
+@dataclasses.dataclass
+class SwapMCState:
+  """A struct containing state information about a Hybrid Swap MC simulation.
+
+  Attributes:
+    md: A NVTNoseHooverState containing continuous molecular dynamics data.
+    sigma: An [n,] array of particle radii.
+    key: A JAX PRGNKey used for random number generation.
+    neighbor: A NeighborList for the system.
+  """
+  md: NVTNoseHooverState
+  sigma: Array
+  key: Array
+  neighbor: partition.NeighborList
+
+
+def hybrid_swap_mc(space_fns: space.Space,
+                   energy_fn: Callable[[Array, Array], Array],
+                   neighbor_fn: partition.NeighborFn,
+                   dt: float,
+                   kT: float,
+                   t_md: float,
+                   N_swap: int,
+                   sigma_fn: Callable[[Array], Array]=None) -> Simulator:
+  """Simulation of Hybrid Swap Monte-Carlo.
+
+  This code simulates the hybrid Swap Monte Carlo algorithm introduced in [1].
+  Here an NVT simulation is performed for `t_md` time and then `N_swap` MC
+  moves are performed that swap the radii of randomly chosen particles. The
+  random swaps are accepted with Metropolis-Hastings step. Each call to the
+  step function runs molecular dynamics for `t_md` and then performs the swaps.
+
+  Note that this code doesn't feature some of the convenience functions in the
+  other simulations. In particular, there is no support for dynamics keyword
+  arguments and the energy function must be a simple callable of two variables:
+  the distance between adjacent particles and the diameter of the particles.
+  If you want support for a better notion of potential or dynamic keyword
+  arguments, please file an issue!
+
+  Args:
+    space_fns: A tuple of a displacement function and a shift function defined
+      in `space.py`.
+    energy_fn: A function that computes the energy between one pair of
+      particles as a function of the distance between the particles and the
+      diameter. This function should not have been passed to `smap.xxx`.
+    neighbor_fn: A function to construct neighbor lists outlined in
+      `partition.py`.
+    dt: The timestep used for the continuous time MD portion of the simulation.
+    kT: The temperature of heat bath that the system is coupled to during MD.
+    t_md: The time of each MD block.
+    N_swap: The number of swapping moves between MD blocks.
+    sigma_fn: An optional function for combining radii if they are to be
+      non-additive.
+
+  Returns:
+    See above.
+
+  [1] L. Berthier, E. Flenner, C. J. Fullerton, C. Scalliet, and M. Singh.
+      "Efficient swap algorithms for molecular dynamics simulations of
+       equilibrium supercooled liquids"
+      J. Stat. Mech. (2019) 064004
+  """
+  displacement_fn, shift_fn = space_fns
+  metric_fn = space.metric(displacement_fn)
+  nbr_metric_fn = space.map_neighbor(metric_fn)
+
+  md_steps = int(t_md // dt)
+
+  # Canonicalize the argument names to be dr and sigma.
+  wrapped_energy_fn = lambda dr, sigma: energy_fn(dr, sigma)
+  if sigma_fn is None:
+    sigma_fn = lambda si, sj: 0.5 * (si + sj)
+  nbr_energy_fn = smap.pair_neighbor_list(wrapped_energy_fn,
+                                          metric_fn,
+                                          sigma=sigma_fn)
+
+  nvt_init_fn, nvt_step_fn = nvt_nose_hoover(nbr_energy_fn,
+                                             shift_fn,
+                                             dt,
+                                             kT=kT,
+                                             chain_length=3)
+  def init_fn(key, position, sigma, nbrs=None):
+    key, sim_key = random.split(key)
+    nbrs = neighbor_fn(position, nbrs)
+    md_state = nvt_init_fn(sim_key, position, neighbor=nbrs, sigma=sigma)
+    return SwapMCState(md_state, sigma, key, nbrs)
+
+  def md_step_fn(i, state):
+    md, sigma, key, nbrs = dataclasses.unpack(state)
+    md = nvt_step_fn(md, neighbor=nbrs, sigma=sigma)
+    nbrs = neighbor_fn(md.position, nbrs)
+    return SwapMCState(md, sigma, key, nbrs)
+
+  def swap_step_fn(i, state):
+    md, sigma, key, nbrs = dataclasses.unpack(state)
+
+    N = md.position.shape[0]
+
+    # Swap a random pair of particle radii.
+    key, particle_key, accept_key = random.split(key, 3)
+    ij = random.randint(particle_key, (2,), jnp.array(0), jnp.array(N))
+    new_sigma = sigma.at[ij].set([sigma[ij[1]], sigma[ij[0]]])
+
+
+    # Collect neighborhoods around the two swapped particles.
+    nbrs_ij = nbrs.idx[ij]
+    R_ij = md.position[ij]
+    R_neigh = md.position[nbrs_ij]
+
+    sigma_ij = sigma[ij][:, None]
+    sigma_neigh = sigma[nbrs_ij]
+
+    new_sigma_ij = new_sigma[ij][:, None]
+    new_sigma_neigh = new_sigma[nbrs_ij]
+
+    dR = nbr_metric_fn(R_ij, R_neigh)
+
+    # Compute the energy before the swap.
+    energy = energy_fn(dR, sigma_fn(sigma_ij, sigma_neigh))
+    energy = jnp.sum(energy * (nbrs_ij < N))
+
+    # Compute the energy after the swap.
+    new_energy = energy_fn(dR, sigma_fn(new_sigma_ij, new_sigma_neigh))
+    new_energy = jnp.sum(new_energy * (nbrs_ij < N))
+
+    # Accept or reject with a metropolis probability.
+    p = random.uniform(accept_key, ())
+    accept_prob = jnp.minimum(1, jnp.exp(-(new_energy - energy) / kT))
+    sigma = jnp.where(p < accept_prob, new_sigma, sigma)
+
+    return SwapMCState(md, sigma, key, nbrs)
+
+  def block_fn(state):
+    state = lax.fori_loop(0, md_steps, md_step_fn, state)
+    state = lax.fori_loop(0, N_swap, swap_step_fn, state)
+    return state
+
+  return init_fn, block_fn

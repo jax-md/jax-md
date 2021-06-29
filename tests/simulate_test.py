@@ -34,6 +34,8 @@ from jax_md import space
 from jax_md import energy
 from jax_md import util
 from jax_md import test_util
+from jax_md import partition
+from jax_md import smap
 from jax_md.util import *
 
 from functools import partial
@@ -472,6 +474,56 @@ class SimulateTest(jtu.JaxTestCase):
     th_msd = dtype(2 * T / (mass * gamma) * sim_t)
     assert np.abs(msd - th_msd) / msd < 1e-2
     assert state.position.dtype == dtype
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': f'_dtype={dtype.__name__}',
+          'dtype': dtype,
+      } for dtype in DTYPE))
+  def test_swap_mc_jammed(self, dtype):
+    key = random.PRNGKey(0)
+
+    state = test_util.load_test_state('simulation_test_state.npy', dtype)
+    space_fn = space.periodic(state.box[0, 0])
+    displacement_fn, shift_fn = space_fn
+
+    sigma = np.diag(state.sigma)[state.species]
+
+    energy_fn = lambda dr, sigma: energy.soft_sphere(dr, sigma=sigma)
+    neighbor_fn = partition.neighbor_list(displacement_fn,
+                                          state.box[0, 0],
+                                          np.max(sigma) + 0.1,
+                                          dr_threshold=0.5)
+
+    kT = 1e-2
+    t_md = 0.1
+    N_swap = 10
+    init_fn, apply_fn = simulate.hybrid_swap_mc(space_fn,
+                                                energy_fn,
+                                                neighbor_fn,
+                                                1e-3,
+                                                kT,
+                                                t_md,
+                                                N_swap)
+    state = init_fn(key, state.real_position, sigma)
+
+    Ts = np.zeros((DYNAMICS_STEPS,))
+
+    def step_fn(i, state_and_temp):
+      state, temp = state_and_temp
+      state = apply_fn(state)
+      temp = temp.at[i].set(quantity.temperature(state.md.velocity))
+      return state, temp
+
+    state, Ts = lax.fori_loop(0, DYNAMICS_STEPS, step_fn, (state, Ts))
+
+    tol = 5e-4
+    self.assertAllClose(Ts[10:],
+                        kT * np.ones((DYNAMICS_STEPS - 10)),
+                        rtol=5e-1,
+                        atol=5e-3)
+    self.assertAllClose(np.mean(Ts[10:]), kT, rtol=tol, atol=tol)
+    self.assertTrue(not np.all(state.sigma == sigma))
 
 if __name__ == '__main__':
   absltest.main()
