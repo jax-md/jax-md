@@ -422,8 +422,10 @@ class SimulateTest(jtu.JaxTestCase):
 
       T = random.uniform(T_key, (), minval=0.3, maxval=1.4, dtype=dtype)
       mass = random.uniform(
-        masses_key, (LANGEVIN_PARTICLE_COUNT,), minval=0.1, maxval=10.0, dtype=dtype)
-      init_fn, apply_fn = simulate.nvt_langevin(E, shift, f32(1e-2), T, gamma=f32(0.3))
+        masses_key, (LANGEVIN_PARTICLE_COUNT,),
+        minval=0.1, maxval=10.0, dtype=dtype)
+      init_fn, apply_fn = simulate.nvt_langevin(
+        E, shift, f32(1e-2), T, gamma=f32(0.3))
       apply_fn = jit(apply_fn)
 
       state = init_fn(key, R, mass=mass, T_initial=dtype(1.0))

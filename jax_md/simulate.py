@@ -149,9 +149,9 @@ def nve(energy_or_force_fn: Callable[..., Array],
         dt: float) -> Simulator:
   """Simulates a system in the NVE ensemble.
 
-  Samples from the microcanonical ensemble in which the number of particles (N),
-  the system volume (V), and the energy (E) are held constant. We use a standard
-  velocity verlet integration scheme.
+  Samples from the microcanonical ensemble in which the number of particles
+  (N), the system volume (V), and the energy (E) are held constant. We use a
+  standard velocity verlet integration scheme.
 
   Args:
     energy_or_force: A function that produces either an energy or a force from
@@ -191,9 +191,9 @@ def nve(energy_or_force_fn: Callable[..., Array],
 SUZUKI_YOSHIDA_WEIGHTS = {
     1: [1],
     3: [0.828981543588751, -0.657963087177502, 0.828981543588751],
-    5: [0.2967324292201065, 0.2967324292201065, -0.186929716880426, 
+    5: [0.2967324292201065, 0.2967324292201065, -0.186929716880426,
         0.2967324292201065, 0.2967324292201065],
-    7: [0.784513610477560, 0.235573213359357, -1.17767998417887, 
+    7: [0.784513610477560, 0.235573213359357, -1.17767998417887,
         1.31518632068391, -1.17767998417887, 0.235573213359357,
         0.784513610477560]
 }
@@ -471,9 +471,8 @@ def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
     V = V - jnp.mean(V, axis=0, keepdims=True)
     KE = quantity.kinetic_energy(V, mass)
 
-    return NVTNoseHooverState(R, V, force_fn(R, **kwargs), mass, 
+    return NVTNoseHooverState(R, V, force_fn(R, **kwargs), mass,
                               chain_fns.initialize(R.size, KE, _kT))  # pytype: disable=wrong-arg-count
-
   def apply_fn(state, **kwargs):
     _kT = kT if 'kT' not in kwargs else kwargs['kT']
 
@@ -909,7 +908,7 @@ def nvt_langevin(energy_or_force: Callable[..., Array],
 
     key, xi_key, theta_key = random.split(key, 3)
     xi = random.normal(xi_key, (N, dim), dtype=R.dtype)
-    theta = random.normal(theta_key, (N, dim), dtype=R.dtype) / jnp.sqrt(f32(3))
+    theta = random.normal(theta_key, (N, dim), dtype=R.dtype) / jnp.sqrt(3)
 
     # NOTE(schsam): We really only need to recompute sigma if the temperature
     # is nonconstant. @Optimization
@@ -950,7 +949,7 @@ def brownian(energy_or_force: Callable[..., Array],
              gamma: float=0.1) -> Simulator:
   """Simulation of Brownian dynamics.
 
-  This code simulates Brownian dynamics which are synonymous with the overdamped
+  Simulates Brownian dynamics which are synonymous with the overdamped
   regime of Langevin dynamics. However, in this case we don't need to take into
   account velocity information and the dynamics simplify. Consequently, when
   Brownian dynamics can be used they will be faster than Langevin. As in the
