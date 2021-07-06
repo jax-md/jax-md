@@ -16,7 +16,7 @@
 
 from functools import reduce, partial
 
-from typing import Dict, Callable, List, Tuple, Union
+from typing import Dict, Callable, List, Tuple, Union, Optional
 
 from collections import namedtuple
 import math
@@ -62,8 +62,10 @@ def _get_bond_type_parameters(params: Array, bond_type: Array) -> Array:
     else:
       raise ValueError(
           'Params must be a scalar or a 1d array if using a bond-type lookup.')
-  elif(isinstance(params, int) or isinstance(params, float) or
-       jnp.issubdtype(params, jnp.integer) or jnp.issubdtype(params, jnp.floating)):
+  elif(isinstance(params, int) or
+       isinstance(params, float) or
+       jnp.issubdtype(params, jnp.integer) or
+       jnp.issubdtype(params, jnp.floating)):
     return params
   raise NotImplementedError
 
@@ -80,8 +82,8 @@ def _kwargs_to_bond_parameters(bond_type: Array,
 
 def bond(fn: Callable[..., Array],
          displacement_or_metric: DisplacementOrMetricFn,
-         static_bonds: Array=None,
-         static_bond_types: Array=None,
+         static_bonds: Optional[Array]=None,
+         static_bond_types: Optional[Array]=None,
          ignore_unused_parameters: bool=False,
          **kwargs) -> Callable[..., Array]:
   """Promotes a function that acts on a single pair to one on a set of bonds.
@@ -143,8 +145,8 @@ def bond(fn: Callable[..., Array],
     return high_precision_sum(fn(dr, **_kwargs))
 
   def mapped_fn(R: Array,
-                bonds: Array=None,
-                bond_types: Array=None,
+                bonds: Optional[Array]=None,
+                bond_types: Optional[Array]=None,
                 **dynamic_kwargs) -> Array:
     accum = f32(0)
 
@@ -258,8 +260,8 @@ def _split_params_and_combinators(kwargs):
 
 def pair(fn: Callable[..., Array],
          displacement_or_metric: DisplacementOrMetricFn,
-         species: Array=None,
-         reduce_axis: Tuple[int, ...]=None,
+         species: Optional[Array]=None,
+         reduce_axis: Optional[Tuple[int, ...]]=None,
          keepdims: bool=False,
          ignore_unused_parameters: bool=False,
          **kwargs) -> Callable[..., Array]:
@@ -277,8 +279,9 @@ def pair(fn: Callable[..., Array],
       third argument.
     species: A list of species for the different particles. This should either
       be None (in which case it is assumed that all the particles have the same
-      species), an integer ndarray of shape [n] with species data, or Dynamic
-      in which case the species data will be specified dynamically. Note: that
+      species), an integer ndarray of shape [n] with species data, or an
+      integer in which case the species data will be specified dynamically with
+      `species` giving the naximum number of types of particles. Note: that
       dynamic species specification is less efficient, because we cannot
       specialize shape information.
     reduce_axis: A list of axes to reduce over. This is supplied to jnp.sum and
@@ -306,7 +309,7 @@ def pair(fn: Callable[..., Array],
     If species is None or statically specified then fn_mapped takes as arguments
     an ndarray of positions of shape [n, spatial_dimension].
 
-    If species is Dynamic then fn_mapped takes as ijnput an ndarray of shape
+    If species is dynamic then fn_mapped takes as input an ndarray of shape
     [n, spatial_dimension], an integer ndarray of species of shape [n], and an
     integer specifying the maximum species.
 
@@ -456,7 +459,7 @@ def _vectorized_cond(pred: Array,
 def pair_neighbor_list(fn: Callable[..., Array],
                        displacement_or_metric: DisplacementOrMetricFn,
                        species: Union[Array, int]=None,
-                       reduce_axis: Tuple[int, ...]=None,
+                       reduce_axis: Optional[Tuple[int, ...]]=None,
                        keepdims: bool=False,
                        ignore_unused_parameters: bool=False,
                        **kwargs) -> Callable[..., Array]:
@@ -528,8 +531,8 @@ def pair_neighbor_list(fn: Callable[..., Array],
 
 def triplet(fn: Callable[..., Array],
             displacement_or_metric: DisplacementOrMetricFn,
-            species: Array=None,
-            reduce_axis: Tuple[int, ...]=None,
+            species: Optional[Array]=None,
+            reduce_axis: Optional[Tuple[int, ...]]=None,
             keepdims: bool=False,
             ignore_unused_parameters: bool=False,
             **kwargs) -> Callable[..., Array]:
@@ -550,11 +553,12 @@ def triplet(fn: Callable[..., Array],
         respectively. The metric can optionally take a floating point time as a
         third argument.
     species: A list of species for the different particles. This should either
-        be None (in which case it is assumed that all particles have the same
-        species), an integer of shape [n] with species data, or Dynamic in
-        which case the species data will be specified dynamically. Note:
-        that dynamic species specification is less efficient, because we cannot
-        specialize shape information.
+      be None (in which case it is assumed that all the particles have the same
+      species), an integer ndarray of shape [n] with species data, or an
+      integer in which case the species data will be specified dynamically with
+      `species` giving the naximum number of types of particles. Note: that
+      dynamic species specification is less efficient, because we cannot
+      specialize shape information.
     reduce_axis: A list of axis to reduce over. This is supplied to np.sum and
         the same convention is used.
     keepdims: A boolean specifying whether the empty dimensions should be kept
@@ -579,7 +583,7 @@ def triplet(fn: Callable[..., Array],
     If species is None or statically specified, then fn_mapped takes as
     arguments an ndarray of positions of shape [n, spatial_dimension].
 
-    If species is Dynamic then fn_mapped takes as input an ndarray of shape
+    If species is dynamic then fn_mapped takes as input an ndarray of shape
     [n, spatial_dimension], an integer ndarray of species of shape [n], and
     an integer specifying the maximum species.
 
@@ -646,7 +650,7 @@ def triplet(fn: Callable[..., Array],
       return high_precision_sum(output,
                                 axis=reduce_axis,
                                 keepdims=keepdims) / 2.
-  elif species is quantity.Dynamic:
+  elif isinstance(species, int):
     raise NotImplementedError
   else:
     raise ValueError(

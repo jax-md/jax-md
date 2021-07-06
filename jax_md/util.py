@@ -14,7 +14,7 @@
 
 """Defines utility functions."""
 
-from typing import Tuple, Union
+from typing import Iterable, Union, Optional
 
 from jax.tree_util import register_pytree_node
 from jax.lib import xla_bridge
@@ -70,7 +70,7 @@ def safe_mask(mask, fn, operand, placeholder=0):
 
 
 def high_precision_sum(X: Array,
-                       axis: Union[Tuple[int, ...], int]=None,
+                       axis: Optional[Union[Iterable[int], int]]=None,
                        keepdims: bool=False):
   """Sums over axes at 64-bit precision then casts back to original dtype."""
   return jnp.array(
