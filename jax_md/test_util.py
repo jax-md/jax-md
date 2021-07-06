@@ -17,8 +17,12 @@
 import jax.test_util as jtu
 import jax.numpy as jnp
 import numpy as onp
+from jax.config import config as jax_config
 
 from jax_md import dataclasses
+
+FLAGS = jax_config.FLAGS
+
 
 def update_test_tolerance(f32_tolerance=None, f64_tolerance=None):
   if f32_tolerance is not None:
@@ -34,9 +38,23 @@ def update_test_tolerance(f32_tolerance=None, f64_tolerance=None):
   jtu.default_tolerance = default_tolerance
 
 
+def _load_silica_data(filename: str) -> jnp.ndarray:
+  filename = FLAGS.test_srcdir + filename
+  with open(filename, 'rb') as f:
+    return jnp.array(onp.load(f))
+
+
+def load_silica_data() -> jnp.ndarray:
+  try:
+    filename = 'tests/data/silica_positions.npy'
+    return _load_silica_data(filename)
+  except FileNotFoundError:
+    filename = '/google3/third_party/py/jax_md/tests/data/silica_positions.npy'
+    return _load_silica_data(filename)
+
 
 @dataclasses.dataclass
-class SimulationTestState:
+class JammedTestState:
   fractional_position: jnp.ndarray
   real_position: jnp.ndarray
   species: jnp.ndarray
@@ -46,15 +64,24 @@ class SimulationTestState:
   pressure: jnp.ndarray
 
 
-def load_test_state(filename: str, dtype) -> SimulationTestState:
-  filename = f'tests/data/{filename}'
+def _load_jammed_state(filename: str, dtype) -> JammedTestState:
+  filename = FLAGS.test_srcdir + filename
   with open(filename, 'rb') as f:
-    return SimulationTestState(
-      fractional_position=onp.load(f).astype(dtype),
-      real_position=onp.load(f).astype(dtype),
-      species=onp.load(f),
-      sigma=onp.load(f).astype(dtype),
-      box=onp.load(f).astype(dtype),
-      energy=onp.load(f).astype(dtype),
-      pressure=onp.load(f).astype(dtype),
+    return JammedTestState(
+        fractional_position=onp.load(f).astype(dtype),
+        real_position=onp.load(f).astype(dtype),
+        species=onp.load(f),
+        sigma=onp.load(f).astype(dtype),
+        box=onp.load(f).astype(dtype),
+        energy=onp.load(f).astype(dtype),
+        pressure=onp.load(f).astype(dtype),  # pytype: disable=wrong-keyword-args
     )
+
+
+def load_jammed_state(filename: str, dtype) -> JammedTestState:
+  try:
+    full_filename = f'tests/data/{filename}'
+    return _load_jammed_state(full_filename, dtype)
+  except FileNotFoundError:
+    full_filename = f'/google3/third_party/py/jax_md/tests/data/{filename}'
+    return _load_jammed_state(full_filename, dtype)

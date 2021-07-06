@@ -584,7 +584,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
     return np.where(self_mask, idx.shape[0], idx)
 
   def neighbor_list_fn(R: Array,
-                       neighbor_list: NeighborList=None,
+                       neighbor_list: Optional[NeighborList]=None,
                        extra_capacity: int=0,
                        **kwargs) -> NeighborList:
     nbrs = neighbor_list

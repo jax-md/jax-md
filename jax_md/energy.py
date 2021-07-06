@@ -62,7 +62,7 @@ def simple_spring(dr: Array,
 
 def simple_spring_bond(displacement_or_metric: DisplacementOrMetricFn,
                        bond: Array,
-                       bond_type: Array=None,
+                       bond_type: Optional[Array]=None,
                        length: Array=1,
                        epsilon: Array=1,
                        alpha: Array=2) -> Callable[[Array], Array]:
@@ -107,7 +107,7 @@ def soft_sphere(dr: Array,
 
 
 def soft_sphere_pair(displacement_or_metric: DisplacementOrMetricFn,
-                     species: Array=None,
+                     species: Optional[Array]=None,
                      sigma: Array=1.0,
                      epsilon: Array=1.0,
                      alpha: Array=2.0,
@@ -129,7 +129,7 @@ def soft_sphere_pair(displacement_or_metric: DisplacementOrMetricFn,
 
 def soft_sphere_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                               box_size: Box,
-                              species: Array=None,
+                              species: Optional[Array]=None,
                               sigma: Array=1.0,
                               epsilon: Array=1.0,
                               alpha: Array=2.0,
@@ -190,7 +190,7 @@ def lennard_jones(dr: Array,
 
 
 def lennard_jones_pair(displacement_or_metric: DisplacementOrMetricFn,
-                       species: Array=None,
+                       species: Optional[Array]=None,
                        sigma: Array=1.0,
                        epsilon: Array=1.0,
                        r_onset: Array=2.0,
@@ -213,7 +213,7 @@ def lennard_jones_pair(displacement_or_metric: DisplacementOrMetricFn,
 
 def lennard_jones_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                                 box_size: Box,
-                                species: Array=None,
+                                species: Optional[Array]=None,
                                 sigma: Array=1.0,
                                 epsilon: Array=1.0,
                                 alpha: Array=2.0,
@@ -273,7 +273,7 @@ def morse(dr: Array,
   return np.nan_to_num(np.array(U, dtype=dr.dtype))
 
 def morse_pair(displacement_or_metric: DisplacementOrMetricFn,
-               species: Array=None,
+               species: Optional[Array]=None,
                sigma: Array=1.0,
                epsilon: Array=5.0,
                alpha: Array=5.0,
@@ -297,7 +297,7 @@ def morse_pair(displacement_or_metric: DisplacementOrMetricFn,
 
 def morse_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                         box_size: Box,
-                        species: Array=None,
+                        species: Optional[Array]=None,
                         sigma: Array=1.0,
                         epsilon: Array=5.0,
                         alpha: Array=5.0,
@@ -642,7 +642,7 @@ def bks_silica_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                              box_size: Box,
                              species: Array,
                              cutoff: float=8.0,
-                             fractional_coordinates=False
+                             fractional_coordinates: bool=False
                              ) -> Tuple[NeighborFn,
                                         Callable[[Array, NeighborList], Array]]:
   """Convenience wrapper to compute BKS energy using neighbor lists."""
@@ -824,7 +824,7 @@ def eam(displacement: DisplacementFn,
         charge_fn: Callable[[Array], Array],
         embedding_fn: Callable[[Array], Array],
         pairwise_fn: Callable[[Array], Array],
-        axis: Tuple[int, ...]=None) -> Callable[[Array], Array]:
+        axis: Optional[Tuple[int, ...]]=None) -> Callable[[Array], Array]:
   """Interatomic potential as approximated by embedded atom model (EAM).
 
   This code implements the EAM approximation to interactions between metallic
@@ -884,10 +884,10 @@ def eam_from_lammps_parameters(displacement: DisplacementFn,
 
 
 def behler_parrinello(displacement: DisplacementFn,
-                      species: Array=None,
+                      species: Optional[Array]=None,
                       mlp_sizes: Tuple[int, ...]=(30, 30), 
-                      mlp_kwargs: Dict[str, Any]=None, 
-                      sym_kwargs: Dict[str, Any]=None,
+                      mlp_kwargs: Optional[Dict[str, Any]]=None, 
+                      sym_kwargs: Optional[Dict[str, Any]]=None,
                       per_particle: bool=False
                       ) -> Tuple[nn.InitFn,
                                  Callable[[PyTree, Array], Array]]:
@@ -920,12 +920,12 @@ def behler_parrinello(displacement: DisplacementFn,
 
 def behler_parrinello_neighbor_list(displacement: DisplacementFn,
                                     box_size: float,
-                                    species: Array=None,
+                                    species: Optional[Array]=None,
                                     mlp_sizes: Tuple[int, ...]=(30, 30),
-                                    mlp_kwargs: Dict[str, Any]=None,
-                                    sym_kwargs: Dict[str, Any]=None,
+                                    mlp_kwargs: Optional[Dict[str, Any]]=None,
+                                    sym_kwargs: Optional[Dict[str, Any]]=None,
                                     dr_threshold: float=0.5,
-                                    fractional_coordinates=False,
+                                    fractional_coordinates: bool=False,
                                     ) -> Tuple[NeighborFn,
                                                nn.InitFn,
                                                Callable[[PyTree,
@@ -977,7 +977,7 @@ class EnergyGraphNet(hk.Module):
   def __init__(self,
                n_recurrences: int,
                mlp_sizes: Tuple[int, ...],
-               mlp_kwargs: Dict[str, Any]=None,
+               mlp_kwargs: Optional[Dict[str, Any]]=None,
                name: str='Energy'):
     super(EnergyGraphNet, self).__init__(name=name)
 
@@ -1015,10 +1015,10 @@ def _canonicalize_node_state(nodes: Optional[Array]) -> Optional[Array]:
 
 def graph_network(displacement_fn: DisplacementFn,
                   r_cutoff: float,
-                  nodes: Array=None,
+                  nodes: Optional[Array]=None,
                   n_recurrences: int=2,
                   mlp_sizes: Tuple[int, ...]=(64, 64),
-                  mlp_kwargs: Dict[str, Any]=None
+                  mlp_kwargs: Optional[Dict[str, Any]]=None
                   ) -> Tuple[nn.InitFn,
                              Callable[[PyTree, Array], Array]]:
   """Convenience wrapper around EnergyGraphNet model.
@@ -1075,11 +1075,11 @@ def graph_network_neighbor_list(displacement_fn: DisplacementFn,
                                 box_size: Box,
                                 r_cutoff: float,
                                 dr_threshold: float,
-                                nodes: Array=None,
+                                nodes: Optional[Array]=None,
                                 n_recurrences: int=2,
                                 mlp_sizes: Tuple[int, ...]=(64, 64),
-                                mlp_kwargs: Dict[str, Any]=None,
-                                fractional_coordinates=False,
+                                mlp_kwargs: Optional[Dict[str, Any]]=None,
+                                fractional_coordinates: bool=False,
                                 ) -> Tuple[NeighborFn,
                                            nn.InitFn,
                                            Callable[[PyTree,

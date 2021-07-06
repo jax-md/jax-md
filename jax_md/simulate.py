@@ -32,7 +32,7 @@
 
 from collections import namedtuple
 
-from typing import Callable, TypeVar, Union, Tuple, Dict
+from typing import Callable, TypeVar, Union, Tuple, Dict, Optional
 
 from jax.api import grad
 from jax import ops
@@ -41,10 +41,9 @@ import jax.numpy as jnp
 from jax import lax
 
 from jax_md import quantity
-from jax_md import interpolate
 from jax_md import util
 from jax_md import space
-from jax_md import  dataclasses
+from jax_md import dataclasses
 from jax_md import partition
 from jax_md import smap
 
@@ -173,7 +172,7 @@ def nve(energy_or_force_fn: Callable[..., Array],
     mass = quantity.canonicalize_mass(mass)
     V = jnp.sqrt(kT / mass) * random.normal(key, R.shape, dtype=R.dtype)
     V = V - jnp.mean(V, axis=0, keepdims=True)
-    return NVEState(R, V, force_fn(R, **kwargs), mass)
+    return NVEState(R, V, force_fn(R, **kwargs), mass)  # pytype: disable=wrong-arg-count
 
   def step_fn(state, **kwargs):
     return velocity_verlet(force_fn, shift_fn, dt, state, **kwargs)
@@ -293,7 +292,7 @@ def nose_hoover_chain(dt: float,
 
     Q = kT * tau ** f32(2) * jnp.ones(chain_length, dtype=f32)
     Q = ops.index_update(Q, 0, Q[0] * degrees_of_freedom)
-    return NoseHooverChain(xi, v_xi, Q, tau, KE, degrees_of_freedom)
+    return NoseHooverChain(xi, v_xi, Q, tau, KE, degrees_of_freedom)  # pytype: disable=wrong-arg-count
 
   def substep_fn(delta, V, state, kT):
     """Apply a single update to the chain parameters and rescales velocity."""
@@ -339,12 +338,12 @@ def nose_hoover_chain(dt: float,
     v_xi = ops.index_update(v_xi, idx, v_xi_update)
     v_xi = ops.index_add(v_xi, M, delta_4 * G)
 
-    return V, NoseHooverChain(xi, v_xi, Q, _tau, KE, DOF), kT
+    return V, NoseHooverChain(xi, v_xi, Q, _tau, KE, DOF), kT  # pytype: disable=wrong-arg-count
 
   def half_step_chain_fn(V, state, kT):
     if chain_steps == 1 and sy_steps == 1:
       V, state, _ = substep_fn(dt, V, state, kT)
-      return P, state
+      return V, state
 
     delta = dt / chain_steps
     ws = jnp.array(SUZUKI_YOSHIDA_WEIGHTS[sy_steps], dtype=V.dtype)
@@ -362,9 +361,9 @@ def nose_hoover_chain(dt: float,
     Q = kT * _tau ** f32(2) * jnp.ones(chain_length, dtype=f32)
     Q = ops.index_update(Q, 0, Q[0] * DOF)
 
-    return NoseHooverChain(xi, v_xi, Q, _tau, KE, DOF)
+    return NoseHooverChain(xi, v_xi, Q, _tau, KE, DOF)  # pytype: disable=wrong-arg-count
 
-  return NoseHooverChainFns(init_fn, half_step_chain_fn, update_chain_mass_fn)
+  return NoseHooverChainFns(init_fn, half_step_chain_fn, update_chain_mass_fn)  # pytype: disable=wrong-arg-count
 
 
 def default_nhc_kwargs(tau: float, overrides: Dict) -> Dict:
@@ -413,7 +412,7 @@ def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
                     chain_length: int=5,
                     chain_steps: int=2,
                     sy_steps: int=3,
-                    tau: float=None) -> Simulator:
+                    tau: Optional[float]=None) -> Simulator:
   """Simulation in the NVT ensemble using a Nose Hoover Chain thermostat.
 
   Samples from the canonical ensemble in which the number of particles (N),
@@ -473,7 +472,7 @@ def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
     KE = quantity.kinetic_energy(V, mass)
 
     return NVTNoseHooverState(R, V, force_fn(R, **kwargs), mass, 
-                              chain_fns.initialize(R.size, KE, _kT))
+                              chain_fns.initialize(R.size, KE, _kT))  # pytype: disable=wrong-arg-count
 
   def apply_fn(state, **kwargs):
     _kT = kT if 'kT' not in kwargs else kwargs['kT']
@@ -592,8 +591,8 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
                     dt: float,
                     pressure: float,
                     kT: float,
-                    barostat_kwargs: Dict=None,
-                    thermostat_kwargs: Dict=None) -> Simulator:
+                    barostat_kwargs: Optional[Dict]=None,
+                    thermostat_kwargs: Optional[Dict]=None) -> Simulator:
   """Simulation in the NPT ensemble using a pair of Nose Hoover Chains.
 
   Samples from the canonical ensemble in which the number of particles (N),
@@ -674,7 +673,7 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     return NPTNoseHooverState(R, V, force_fn(R, box=box, **kwargs), mass, box,
                               box_position, box_velocity, box_mass,
                               barostat.initialize(1, KE_box, _kT),
-                              thermostat.initialize(R.size, KE, _kT))
+                              thermostat.initialize(R.size, KE, _kT))  # pytype: disable=wrong-arg-count
 
   def update_box_mass(state, kT):
     N, dim = state.position.shape
@@ -705,7 +704,7 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     x_2 = x / 2
     sinhV = sinhx_x(x_2)  # jnp.sinh(x_2) / x_2
     return shift_fn(R * jnp.exp(x), dt * V * jnp.exp(x_2) * sinhV, box=box,
-                    **kwargs)
+                    **kwargs)  # pytype: disable=wrong-keyword-args
 
   def exp_iL2(alpha, V, A, V_b):
     x = alpha * V_b * dt_2
@@ -1033,6 +1032,8 @@ class SwapMCState:
   neighbor: partition.NeighborList
 
 
+# pytype: disable=wrong-arg-count
+# pytype: disable=wrong-keyword-args
 def hybrid_swap_mc(space_fns: space.Space,
                    energy_fn: Callable[[Array, Array], Array],
                    neighbor_fn: partition.NeighborFn,
@@ -1040,7 +1041,8 @@ def hybrid_swap_mc(space_fns: space.Space,
                    kT: float,
                    t_md: float,
                    N_swap: int,
-                   sigma_fn: Callable[[Array], Array]=None) -> Simulator:
+                   sigma_fn: Optional[Callable[[Array], Array]]=None
+                   ) -> Simulator:
   """Simulation of Hybrid Swap Monte-Carlo.
 
   This code simulates the hybrid Swap Monte Carlo algorithm introduced in [1].
@@ -1100,15 +1102,15 @@ def hybrid_swap_mc(space_fns: space.Space,
                                              chain_length=3)
   def init_fn(key, position, sigma, nbrs=None):
     key, sim_key = random.split(key)
-    nbrs = neighbor_fn(position, nbrs)
+    nbrs = neighbor_fn(position, nbrs)  # pytype: disable=wrong-arg-count
     md_state = nvt_init_fn(sim_key, position, neighbor=nbrs, sigma=sigma)
-    return SwapMCState(md_state, sigma, key, nbrs)
+    return SwapMCState(md_state, sigma, key, nbrs)  # pytype: disable=wrong-arg-count
 
   def md_step_fn(i, state):
     md, sigma, key, nbrs = dataclasses.unpack(state)
-    md = nvt_step_fn(md, neighbor=nbrs, sigma=sigma)
+    md = nvt_step_fn(md, neighbor=nbrs, sigma=sigma)  # pytype: disable=wrong-keyword-args
     nbrs = neighbor_fn(md.position, nbrs)
-    return SwapMCState(md, sigma, key, nbrs)
+    return SwapMCState(md, sigma, key, nbrs)  # pytype: disable=wrong-arg-count
 
   def swap_step_fn(i, state):
     md, sigma, key, nbrs = dataclasses.unpack(state)
@@ -1119,7 +1121,6 @@ def hybrid_swap_mc(space_fns: space.Space,
     key, particle_key, accept_key = random.split(key, 3)
     ij = random.randint(particle_key, (2,), jnp.array(0), jnp.array(N))
     new_sigma = sigma.at[ij].set([sigma[ij[1]], sigma[ij[0]]])
-
 
     # Collect neighborhoods around the two swapped particles.
     nbrs_ij = nbrs.idx[ij]
@@ -1147,7 +1148,7 @@ def hybrid_swap_mc(space_fns: space.Space,
     accept_prob = jnp.minimum(1, jnp.exp(-(new_energy - energy) / kT))
     sigma = jnp.where(p < accept_prob, new_sigma, sigma)
 
-    return SwapMCState(md, sigma, key, nbrs)
+    return SwapMCState(md, sigma, key, nbrs)  # pytype: disable=wrong-arg-count
 
   def block_fn(state):
     state = lax.fori_loop(0, md_steps, md_step_fn, state)
@@ -1155,3 +1156,5 @@ def hybrid_swap_mc(space_fns: space.Space,
     return state
 
   return init_fn, block_fn
+# pytype: enable=wrong-arg-count
+# pytype: enable=wrong-keyword-args
