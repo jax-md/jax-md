@@ -62,7 +62,7 @@ def simple_spring(dr: Array,
 
 def simple_spring_bond(displacement_or_metric: DisplacementOrMetricFn,
                        bond: Array,
-                       bond_type: Array=None,
+                       bond_type: Optional[Array]=None,
                        length: Array=1,
                        epsilon: Array=1,
                        alpha: Array=2) -> Callable[[Array], Array]:
@@ -107,7 +107,7 @@ def soft_sphere(dr: Array,
 
 
 def soft_sphere_pair(displacement_or_metric: DisplacementOrMetricFn,
-                     species: Array=None,
+                     species: Optional[Array]=None,
                      sigma: Array=1.0,
                      epsilon: Array=1.0,
                      alpha: Array=2.0,
@@ -129,7 +129,7 @@ def soft_sphere_pair(displacement_or_metric: DisplacementOrMetricFn,
 
 def soft_sphere_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                               box_size: Box,
-                              species: Array=None,
+                              species: Optional[Array]=None,
                               sigma: Array=1.0,
                               epsilon: Array=1.0,
                               alpha: Array=2.0,
@@ -137,7 +137,8 @@ def soft_sphere_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                               per_particle: bool=False,
                               fractional_coordinates: bool=False,
                               ) -> Tuple[NeighborFn,
-                                         Callable[[Array, NeighborList], Array]]:
+                                         Callable[[Array,
+                                                   NeighborList], Array]]:
   """Convenience wrapper to compute soft spheres using a neighbor list."""
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
@@ -190,7 +191,7 @@ def lennard_jones(dr: Array,
 
 
 def lennard_jones_pair(displacement_or_metric: DisplacementOrMetricFn,
-                       species: Array=None,
+                       species: Optional[Array]=None,
                        sigma: Array=1.0,
                        epsilon: Array=1.0,
                        r_onset: Array=2.0,
@@ -213,7 +214,7 @@ def lennard_jones_pair(displacement_or_metric: DisplacementOrMetricFn,
 
 def lennard_jones_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                                 box_size: Box,
-                                species: Array=None,
+                                species: Optional[Array]=None,
                                 sigma: Array=1.0,
                                 epsilon: Array=1.0,
                                 alpha: Array=2.0,
@@ -273,7 +274,7 @@ def morse(dr: Array,
   return np.nan_to_num(np.array(U, dtype=dr.dtype))
 
 def morse_pair(displacement_or_metric: DisplacementOrMetricFn,
-               species: Array=None,
+               species: Optional[Array]=None,
                sigma: Array=1.0,
                epsilon: Array=5.0,
                alpha: Array=5.0,
@@ -297,7 +298,7 @@ def morse_pair(displacement_or_metric: DisplacementOrMetricFn,
 
 def morse_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                         box_size: Box,
-                        species: Array=None,
+                        species: Optional[Array]=None,
                         sigma: Array=1.0,
                         epsilon: Array=5.0,
                         alpha: Array=5.0,
@@ -307,7 +308,7 @@ def morse_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                         per_particle: bool=False,
                         fractional_coordinates: bool=False,
                         ) -> Tuple[NeighborFn,
-                                   Callable[[Array, NeighborList], Array]]: 
+                                   Callable[[Array, NeighborList], Array]]:
   """Convenience wrapper to compute Morse using a neighbor list."""
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
@@ -480,16 +481,16 @@ def bks(dr: Array,
         coulomb_alpha: Array,
         cutoff: float,
         **unused_kwargs) -> Array:
-  """Beest-Kramer-van Santen (BKS) potential[1] which is commonly used to 
-  model silicas. This function computes the interaction between two 
+  """Beest-Kramer-van Santen (BKS) potential[1] which is commonly used to
+  model silicas. This function computes the interaction between two
   given atoms within the Buckingham form[2], following the implementation
   from Ref. [3]
   Args:
     dr: An ndarray of shape [n, m] of pairwise distances between particles.
-    Q_sq: An ndarray of shape [n, m] of pairwise product of partial charges. 
+    Q_sq: An ndarray of shape [n, m] of pairwise product of partial charges.
     exp_coeff: An ndarray of shape [n, m] that sets the scale of the
     exponential decay of the short-range interaction.
-    attractive_coeff: An ndarray of shape [n, m] for the coefficient of the 
+    attractive_coeff: An ndarray of shape [n, m] for the coefficient of the
     attractive 6th order term.
     repulsive_coeff: An ndarray of shape [n, m] for the coefficient of the
     repulsive 24th order term, to prevent the unphysical fusion of atoms.
@@ -500,12 +501,12 @@ def bks(dr: Array,
   Returns:
     Matrix of energies of shape [n, m].
   [1] Van Beest, B. W. H., Gert Jan Kramer, and R. A. Van Santen. "Force fields
-  for silicas and aluminophosphates based on ab initio calculations." Physical 
-  Review Letters 64.16 (1990): 1955. 
-  [2] Carré, Antoine, et al. "Developing empirical potentials from ab initio 
-  simulations: The case of amorphous silica." Computational Materials Science 
+  for silicas and aluminophosphates based on ab initio calculations." Physical
+  Review Letters 64.16 (1990): 1955.
+  [2] Carré, Antoine, et al. "Developing empirical potentials from ab initio
+  simulations: The case of amorphous silica." Computational Materials Science
   124 (2016): 323-334.
-  [3] Liu, Han, et al. "Machine learning Forcefield for silicate glasses." 
+  [3] Liu, Han, et al. "Machine learning Forcefield for silicate glasses."
   arXiv preprint arXiv:1902.03486 (2019).
   """
   energy = (dsf_coulomb(dr, Q_sq, coulomb_alpha, cutoff) + \
@@ -613,7 +614,7 @@ def _bks_silica_self(Q_sq: Array, alpha: Array, cutoff: float) -> Array:
   erfcd = np.exp(-alpha * alpha * cutoffsq)
   f_shift = -(erfcc / cutoffsq + 2.0 / np.sqrt(np.pi) * alpha * erfcd / cutoff)
   e_shift = erfcc / cutoff - f_shift * cutoff
-  qqr2e = 332.06371 #kcal/mol #coulmbic conversion factor:1/(4*pi*epo)
+  qqr2e = 332.06371  # kcal/mol coulmbic conversion factor: 1/(4*pi*epo)
   return -(e_shift / 2.0 + alpha / np.sqrt(np.pi)) * Q_sq * qqr2e
 
 def bks_silica_pair(displacement_or_metric: DisplacementOrMetricFn,
@@ -642,7 +643,7 @@ def bks_silica_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                              box_size: Box,
                              species: Array,
                              cutoff: float=8.0,
-                             fractional_coordinates=False
+                             fractional_coordinates: bool=False
                              ) -> Tuple[NeighborFn,
                                         Callable[[Array, NeighborList], Array]]:
   """Convenience wrapper to compute BKS energy using neighbor lists."""
@@ -667,10 +668,10 @@ def bks_silica_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
   return neighbor_fn, energy_fn
 
 # Stillinger-Weber Potential
-def _sw_angle_interaction(dR12, 
-                          dR13, 
-                          gamma=1.2, 
-                          sigma=2.0951, 
+def _sw_angle_interaction(dR12,
+                          dR13,
+                          gamma=1.2,
+                          sigma=2.0951,
                           cutoff=1.8*2.0951):
   """The angular interaction for the Stillinger-Weber potential.
   This function is defined only for interaction with a pair of
@@ -685,7 +686,7 @@ def _sw_angle_interaction(dR12,
     gamma: A scalar used to fit the angle interaction.
     sigma: A scalar that sets the distance scale between neighbors.
     cutoff: The cutoff beyond which the interactions are not
-    considered. The default value should not be changed for the 
+    considered. The default value should not be changed for the
     default SW potential.
   Returns:
     Angular interaction energy for one pair of neighbors.
@@ -824,7 +825,7 @@ def eam(displacement: DisplacementFn,
         charge_fn: Callable[[Array], Array],
         embedding_fn: Callable[[Array], Array],
         pairwise_fn: Callable[[Array], Array],
-        axis: Tuple[int, ...]=None) -> Callable[[Array], Array]:
+        axis: Optional[Tuple[int, ...]]=None) -> Callable[[Array], Array]:
   """Interatomic potential as approximated by embedded atom model (EAM).
 
   This code implements the EAM approximation to interactions between metallic
@@ -884,10 +885,10 @@ def eam_from_lammps_parameters(displacement: DisplacementFn,
 
 
 def behler_parrinello(displacement: DisplacementFn,
-                      species: Array=None,
-                      mlp_sizes: Tuple[int, ...]=(30, 30), 
-                      mlp_kwargs: Dict[str, Any]=None, 
-                      sym_kwargs: Dict[str, Any]=None,
+                      species: Optional[Array]=None,
+                      mlp_sizes: Tuple[int, ...]=(30, 30),
+                      mlp_kwargs: Optional[Dict[str, Any]]=None,
+                      sym_kwargs: Optional[Dict[str, Any]]=None,
                       per_particle: bool=False
                       ) -> Tuple[nn.InitFn,
                                  Callable[[PyTree, Array], Array]]:
@@ -920,12 +921,12 @@ def behler_parrinello(displacement: DisplacementFn,
 
 def behler_parrinello_neighbor_list(displacement: DisplacementFn,
                                     box_size: float,
-                                    species: Array=None,
+                                    species: Optional[Array]=None,
                                     mlp_sizes: Tuple[int, ...]=(30, 30),
-                                    mlp_kwargs: Dict[str, Any]=None,
-                                    sym_kwargs: Dict[str, Any]=None,
+                                    mlp_kwargs: Optional[Dict[str, Any]]=None,
+                                    sym_kwargs: Optional[Dict[str, Any]]=None,
                                     dr_threshold: float=0.5,
-                                    fractional_coordinates=False,
+                                    fractional_coordinates: bool=False,
                                     ) -> Tuple[NeighborFn,
                                                nn.InitFn,
                                                Callable[[PyTree,
@@ -977,7 +978,7 @@ class EnergyGraphNet(hk.Module):
   def __init__(self,
                n_recurrences: int,
                mlp_sizes: Tuple[int, ...],
-               mlp_kwargs: Dict[str, Any]=None,
+               mlp_kwargs: Optional[Dict[str, Any]]=None,
                name: str='Energy'):
     super(EnergyGraphNet, self).__init__(name=name)
 
@@ -1015,10 +1016,10 @@ def _canonicalize_node_state(nodes: Optional[Array]) -> Optional[Array]:
 
 def graph_network(displacement_fn: DisplacementFn,
                   r_cutoff: float,
-                  nodes: Array=None,
+                  nodes: Optional[Array]=None,
                   n_recurrences: int=2,
                   mlp_sizes: Tuple[int, ...]=(64, 64),
-                  mlp_kwargs: Dict[str, Any]=None
+                  mlp_kwargs: Optional[Dict[str, Any]]=None
                   ) -> Tuple[nn.InitFn,
                              Callable[[PyTree, Array], Array]]:
   """Convenience wrapper around EnergyGraphNet model.
@@ -1075,11 +1076,11 @@ def graph_network_neighbor_list(displacement_fn: DisplacementFn,
                                 box_size: Box,
                                 r_cutoff: float,
                                 dr_threshold: float,
-                                nodes: Array=None,
+                                nodes: Optional[Array]=None,
                                 n_recurrences: int=2,
                                 mlp_sizes: Tuple[int, ...]=(64, 64),
-                                mlp_kwargs: Dict[str, Any]=None,
-                                fractional_coordinates=False,
+                                mlp_kwargs: Optional[Dict[str, Any]]=None,
+                                fractional_coordinates: bool=False,
                                 ) -> Tuple[NeighborFn,
                                            nn.InitFn,
                                            Callable[[PyTree,

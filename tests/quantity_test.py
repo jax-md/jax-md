@@ -127,7 +127,7 @@ class QuantityTest(jtu.JaxTestCase):
   def test_pressure_jammed(self, dtype, coords):
     key = random.PRNGKey(0)
 
-    state = test_util.load_test_state('simulation_test_state.npy', dtype)
+    state = test_util.load_jammed_state('simulation_test_state.npy', dtype)
     displacement_fn, shift_fn = space.periodic_general(state.box,
                                                        coords == 'fractional')
 

@@ -29,7 +29,7 @@ import numpy as onp
 from jax.api import grad
 from jax_md import space
 from jax_md.util import *
-from jax_md.test_util import update_test_tolerance
+from jax_md import test_util 
 from jax_md import quantity
 
 from jax import test_util as jtu
@@ -54,7 +54,7 @@ if FLAGS.jax_enable_x64:
 else:
   POSITION_DTYPE = [f32]
 
-update_test_tolerance(2e-5, 1e-6)
+test_util.update_test_tolerance(2e-5, 1e-6)
 
 
 def lattice_repeater(small_cell_pos, latvec, no_rep):
@@ -246,10 +246,7 @@ class EnergyTest(jtu.JaxTestCase):
       displacement, shift = space.periodic(LATCON)
       dist_fun = space.metric(displacement)
       species = np.tile(np.array([0, 1, 1]), 1000)
-      current_dir = os.getcwd()
-      filename = os.path.join(current_dir, 'tests/data/silica_positions.npy')
-      with open(filename, 'rb') as f:
-        R_f = np.array(np.load(f))
+      R_f = test_util.load_silica_data()
       energy_fn = energy.bks_silica_pair(dist_fun, species=species)
       self.assertAllClose(-857939.528386092, energy_fn(R_f))
 
@@ -263,10 +260,7 @@ class EnergyTest(jtu.JaxTestCase):
       displacement, shift = space.periodic(LATCON)
       dist_fun = space.metric(displacement)
       species = np.tile(np.array([0, 1, 1]), 1000)
-      current_dir = os.getcwd()
-      filename = os.path.join(current_dir, 'tests/data/silica_positions.npy')
-      with open(filename, 'rb') as f:
-        R_f = np.array(np.load(f))
+      R_f = test_util.load_silica_data()
       neighbor_fn, energy_nei = energy.bks_silica_neighbor_list(
           dist_fun, LATCON, species=species)
       nbrs = neighbor_fn(R_f)

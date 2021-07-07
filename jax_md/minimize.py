@@ -114,7 +114,7 @@ def fire_descent(energy_or_force: Callable[..., Array],
                  f_inc: float=1.1,
                  f_dec: float=0.5,
                  alpha_start: float=0.1,
-                 f_alpha: float=0.99):
+                 f_alpha: float=0.99) -> Minimizer[FireDescentState]:
   """Defines FIRE minimization.
 
   This code implements the "Fast Inertial Relaxation Engine" from [1].

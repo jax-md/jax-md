@@ -389,17 +389,17 @@ def angular_symmetry_functions_neighbor_list(
 def behler_parrinello_symmetry_functions_neighbor_list(
     displacement: DisplacementFn,
     species: Array,
-    radial_etas: Array=None,
-    angular_etas: Array=None,
-    lambdas: Array=None,
-    zetas: Array=None,
+    radial_etas: Optional[Array]=None,
+    angular_etas: Optional[Array]=None,
+    lambdas: Optional[Array]=None,
+    zetas: Optional[Array]=None,
     cutoff_distance: float=8.0) -> Callable[[Array, NeighborList], Array]:
   if radial_etas is None:
     radial_etas = np.array([9e-4, 0.01, 0.02, 0.035, 0.06, 0.1, 0.2, 0.4],
                     f32) / f32(0.529177 ** 2)
 
   if angular_etas is None:
-    angular_etas = np.array([1e-4] * 4 + [0.003] * 4 + [0.008] * 2 + 
+    angular_etas = np.array([1e-4] * 4 + [0.003] * 4 + [0.008] * 2 +
                             [0.015] * 4 + [0.025] * 4 + [0.045] * 4,
                             f32) / f32(0.529177 ** 2)
 
@@ -427,11 +427,11 @@ def behler_parrinello_symmetry_functions_neighbor_list(
 
 
 def behler_parrinello_symmetry_functions(displacement: DisplacementFn,
-                                         species: Array=None,
-                                         radial_etas: Array=None, 
-                                         angular_etas: Array=None, 
-                                         lambdas: Array=None,
-                                         zetas: Array=None, 
+                                         species: Optional[Array]=None,
+                                         radial_etas: Optional[Array]=None,
+                                         angular_etas: Optional[Array]=None,
+                                         lambdas: Optional[Array]=None,
+                                         zetas: Optional[Array]=None,
                                          cutoff_distance: float=8.0
                                          ) -> Callable[[Array], Array]:
   if radial_etas is None:
@@ -664,7 +664,7 @@ class GraphNetEncoder(hk.Module):
   def __init__(self,
                n_recurrences: int,
                mlp_sizes: Tuple[int, ...],
-               mlp_kwargs: Dict[str, Any]=None,
+               mlp_kwargs: Optional[Dict[str, Any]]=None,
                name: str='GraphNetEncoder'):
     super(GraphNetEncoder, self).__init__(name=name)
 

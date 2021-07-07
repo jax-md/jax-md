@@ -110,7 +110,7 @@ class SimulateTest(jtu.JaxTestCase):
   def test_nve_jammed(self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 
-    state = test_util.load_test_state('simulation_test_state.npy', dtype)
+    state = test_util.load_jammed_state('simulation_test_state.npy', dtype)
     displacement_fn, shift_fn = space.periodic(state.box[0, 0])
 
     E = energy.soft_sphere_pair(displacement_fn, state.species, state.sigma)
@@ -146,7 +146,7 @@ class SimulateTest(jtu.JaxTestCase):
   def test_nve_jammed(self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 
-    state = test_util.load_test_state('simulation_test_state.npy', dtype)
+    state = test_util.load_jammed_state('simulation_test_state.npy', dtype)
     displacement_fn, shift_fn = space.periodic(state.box[0, 0])
 
     E = energy.soft_sphere_pair(displacement_fn, state.species, state.sigma)
@@ -182,7 +182,7 @@ class SimulateTest(jtu.JaxTestCase):
   def test_nve_jammed_periodic_general(self, dtype, coords):
     key = random.PRNGKey(0)
 
-    state = test_util.load_test_state('simulation_test_state.npy', dtype)
+    state = test_util.load_jammed_state('simulation_test_state.npy', dtype)
     displacement_fn, shift_fn = space.periodic_general(state.box,
                                                        coords == 'fractional')
 
@@ -322,7 +322,7 @@ class SimulateTest(jtu.JaxTestCase):
   def test_nvt_nose_hoover_jammed(self, dtype, sy_steps):
     key = random.PRNGKey(0)
 
-    state = test_util.load_test_state('simulation_test_state.npy', dtype)
+    state = test_util.load_jammed_state('simulation_test_state.npy', dtype)
     displacement_fn, shift_fn = space.periodic(state.box[0, 0])
 
     E = energy.soft_sphere_pair(displacement_fn, state.species, state.sigma)
@@ -360,7 +360,7 @@ class SimulateTest(jtu.JaxTestCase):
   def test_npt_nose_hoover_jammed(self, dtype, sy_steps):
     key = random.PRNGKey(0)
 
-    state = test_util.load_test_state('simulation_test_state.npy', dtype)
+    state = test_util.load_jammed_state('simulation_test_state.npy', dtype)
     displacement_fn, shift_fn = space.periodic_general(state.box)
 
     E = energy.soft_sphere_pair(displacement_fn, state.species, state.sigma)
@@ -422,8 +422,10 @@ class SimulateTest(jtu.JaxTestCase):
 
       T = random.uniform(T_key, (), minval=0.3, maxval=1.4, dtype=dtype)
       mass = random.uniform(
-        masses_key, (LANGEVIN_PARTICLE_COUNT,), minval=0.1, maxval=10.0, dtype=dtype)
-      init_fn, apply_fn = simulate.nvt_langevin(E, shift, f32(1e-2), T, gamma=f32(0.3))
+        masses_key, (LANGEVIN_PARTICLE_COUNT,),
+        minval=0.1, maxval=10.0, dtype=dtype)
+      init_fn, apply_fn = simulate.nvt_langevin(
+        E, shift, f32(1e-2), T, gamma=f32(0.3))
       apply_fn = jit(apply_fn)
 
       state = init_fn(key, R, mass=mass, T_initial=dtype(1.0))
@@ -483,7 +485,7 @@ class SimulateTest(jtu.JaxTestCase):
   def test_swap_mc_jammed(self, dtype):
     key = random.PRNGKey(0)
 
-    state = test_util.load_test_state('simulation_test_state.npy', dtype)
+    state = test_util.load_jammed_state('simulation_test_state.npy', dtype)
     space_fn = space.periodic(state.box[0, 0])
     displacement_fn, shift_fn = space_fn
 
