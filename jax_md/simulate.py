@@ -908,7 +908,8 @@ def nvt_langevin(energy_or_force: Callable[..., Array],
 
     key, xi_key, theta_key = random.split(key, 3)
     xi = random.normal(xi_key, (N, dim), dtype=R.dtype)
-    theta = random.normal(theta_key, (N, dim), dtype=R.dtype) / jnp.sqrt(3)
+    sqrt3 = f32(jnp.sqrt(3))
+    theta = random.normal(theta_key, (N, dim), dtype=R.dtype) / sqrt3
 
     # NOTE(schsam): We really only need to recompute sigma if the temperature
     # is nonconstant. @Optimization
