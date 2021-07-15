@@ -652,7 +652,8 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     N, dim = R.shape
 
     _kT = kT if 'kT' not in kwargs else kwargs['kT']
-
+    
+    mass = quantity.canonicalize_mass(mass)
     V = jnp.sqrt(_kT / mass) * random.normal(key, R.shape, dtype=R.dtype)
     V = V - jnp.mean(V, axis=0, keepdims=True)
     KE = quantity.kinetic_energy(V, mass)
