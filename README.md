@@ -2,7 +2,7 @@
 
 ### Accelerated, Differentiable, Molecular Dynamics
 [**Quickstart**](#getting-started)
-| [**Reference docs**](https://jax-md.readthedocs.io/en/latest/)
+| [**Reference docs**](https://jax-md.readthedocs.io/en/main/)
 | [**Paper**](https://arxiv.org/pdf/1912.04232.pdf)
 | [**NeurIPS 2020**](https://neurips.cc/virtual/2020/public/poster_83d3d4b6c9579515e1679aca8cbc8033.html)
 
