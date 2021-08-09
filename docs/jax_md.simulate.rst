@@ -14,6 +14,7 @@ Stochastic Simulation Environments
 --------------------------------------
 .. autofunction:: nvt_langevin
 .. autofunction:: brownian
+.. autofunction:: hybrid_swap_mc
 
 Helper Functions
 -----------------
