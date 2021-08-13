@@ -190,7 +190,7 @@ def render(box_size,
 
   for geom in geometry.values():
     if hasattr(geom, 'position'):
-      assert dimension is None or goem.position.shape[-1] == dimension
+      assert dimension is None or geom.position.shape[-1] == dimension
       dimension = geom.position.shape[-1]
 
       if geom.position.ndim == 3:
