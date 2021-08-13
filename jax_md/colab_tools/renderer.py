@@ -124,9 +124,11 @@ class Bond:
   count: int
   max_neighbors: int
 
-  def __init__(self, reference_geometry, idx, diameter=1.0, color=None):
+  def __init__(self, reference_geometry, idx, diameter=None, color=None):
     if color is None:
       color = jnp.array([0.8, 0.8, 1.0])
+    if diameter is None:
+      diameter = jnp.array([0.2])
 
     object.__setattr__(self, 'reference_geometry', reference_geometry)
     object.__setattr__(self, 'neighbor_idx', idx)
