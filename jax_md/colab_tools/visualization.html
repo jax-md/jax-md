@@ -699,9 +699,9 @@
         const nbr_idx = Math.round(bonds.neighbor_idx[idx]);
 
         if (nbr_idx < i) {
-          console.log(geom);
+          console.log(bonds);
           var r_j = positions.subarray(nbr_idx * DIMENSION, (nbr_idx + 1) * DIMENSION);
-          vertex_count = push_bond(vertices, normals, vertex_count, r_i, r_j, geom.diameter / 2.0);
+          vertex_count = push_bond(vertices, normals, vertex_count, r_i, r_j, bonds.diameter / 2.0);
         }
       }
     }
