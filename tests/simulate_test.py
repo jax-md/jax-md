@@ -20,6 +20,7 @@ from absl.testing import absltest
 from absl.testing import parameterized
 
 from jax import jit
+from jax import vmap
 from jax import random
 from jax import test_util as jtu
 from jax import lax
@@ -441,6 +442,57 @@ class SimulateTest(jtu.JaxTestCase):
       T_emp = np.mean(np.array(T_list))
       assert np.abs(T_emp - T) < 0.1
       assert state.position.dtype == dtype
+
+  def test_langevin_harmonic(self):
+    alpha = 1.0
+    E = lambda x: jnp.sum(0.5 * alpha * x ** 2)
+    displacement, shift = space.free()
+
+    N = 10000
+    steps = 1000
+    kT = 0.25
+    dt = 1e-4
+    gamma = 3
+    mass = 2.0
+    tol = 1e-3
+
+    X = jnp.ones((N, 1, 1))
+    key = random.split(random.PRNGKey(0), N)
+
+    init_fn, step_fn = simulate.nvt_langevin(E, shift, dt, kT, gamma, False)
+    step_fn = jit(vmap(step_fn))
+
+    state = vmap(init_fn, (0, 0, None))(key, X, mass)
+    v0 = state.velocity
+
+    for i in range(steps):
+      state = step_fn(state)
+
+    # Compare mean position and velocity autocorrelation with theoretical
+    # prediction.
+
+    d = jnp.sqrt(gamma ** 2 / 4 - alpha / mass)
+
+    beta_1 = gamma / 2 + d
+    beta_2 = gamma / 2 - d
+    A = -beta_2 / (beta_1 - beta_2)
+    B = beta_1 / (beta_1 - beta_2)
+    exp1 = lambda t: jnp.exp(-beta_1 * t)
+    exp2 = lambda t: jnp.exp(-beta_2 * t)
+    Z = kT / (2 * d * mass)
+
+    pos_fn = lambda t: A * exp1(t) + B * exp2(t)
+    vel_fn = lambda t: Z * (-beta_2 * exp2(t) + beta_1 * exp1(t))
+
+    t = steps * dt
+    self.assertAllClose(jnp.mean(state.position),
+                        pos_fn(t),
+                        rtol=tol,
+                        atol=tol)
+    self.assertAllClose(jnp.mean(state.velocity * v0),
+                        vel_fn(t),
+                        rtol=tol,
+                        atol=tol)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {

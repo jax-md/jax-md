@@ -846,7 +846,8 @@ def nvt_langevin(energy_or_force: Callable[..., Array],
                  shift: ShiftFn,
                  dt: float,
                  kT: float,
-                 gamma: float=0.1) -> Simulator:
+                 gamma: float=0.1,
+                 center_velocity: bool=True) -> Simulator:
   """Simulation in the NVT ensemble using the Langevin thermostat.
 
   Samples from the canonical ensemble in which the number of particles (N),
@@ -872,6 +873,8 @@ def nvt_langevin(energy_or_force: Callable[..., Array],
       should pass `kT` as a keyword argument to the step function.
     gamma: A float specifying the friction coefficient between the particles
       and the solvent.
+    center_velocity: A boolean specifying whether or not the center of mass
+      position should be subtracted.
   Returns:
     See above.
 
@@ -897,9 +900,10 @@ def nvt_langevin(energy_or_force: Callable[..., Array],
     key, split = random.split(key)
 
     V = jnp.sqrt(_kT / mass) * random.normal(split, R.shape, dtype=R.dtype)
-    V = V - jnp.mean(V, axis=0, keepdims=True)
+    if center_velocity:
+      V = V - jnp.mean(V, axis=0, keepdims=True)
 
-    return NVTLangevinState(R, V, force_fn(R, **kwargs), mass, key)  # pytype: disable=wrong-arg-count
+    return NVTLangevinState(R, V, force_fn(R, **kwargs) / mass, mass, key)  # pytype: disable=wrong-arg-count
 
   def apply_fn(state, **kwargs):
     R, V, F, mass, key = dataclasses.astuple(state)
@@ -920,7 +924,7 @@ def nvt_langevin(energy_or_force: Callable[..., Array],
     C = dt2 * (F - gamma * V) + sigma * dt32 * (xi + theta)
 
     R = shift(R, dt * V + C, **kwargs)
-    F_new = force_fn(R, **kwargs)
+    F_new = force_fn(R, **kwargs) / mass
     V = (f32(1) - dt * gamma) * V + dt_2 * (F_new + F)
     V = V + sigma * jnp.sqrt(dt) * xi - gamma * C
 
