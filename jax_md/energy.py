@@ -100,10 +100,14 @@ def soft_sphere(dr: Array,
   Returns:
     Matrix of energies whose shape is [n, m].
   """
+
   dr = dr / sigma
-  U = epsilon * np.where(
-    dr < 1.0, f32(1.0) / alpha * (f32(1.0) - dr) ** alpha, f32(0.0))
-  return U
+  fn = lambda dr: epsilon / alpha * (f32(1.0) - dr) ** alpha
+
+  if isinstance(alpha, int) or issubclass(type(alpha.dtype), np.integer):
+    return np.where(dr < 1.0, fn(dr), f32(0.0))
+
+  return util.safe_mask(dr < 1.0, fn, dr, f32(0.0))
 
 
 def soft_sphere_pair(displacement_or_metric: DisplacementOrMetricFn,
