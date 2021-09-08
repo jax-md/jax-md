@@ -46,7 +46,7 @@ STOCHASTIC_SAMPLES = 10
 SPATIAL_DIMENSION = [2, 3]
 UNIT_CELL_SIZE = [7, 8]
 
-SOFT_SPHERE_ALPHA = [2.0, 3.0]
+SOFT_SPHERE_ALPHA = [2.0, 2.5, 3.0]
 N_TYPES_TO_TEST = [1, 2]
 
 if FLAGS.jax_enable_x64:
@@ -196,8 +196,11 @@ class EnergyTest(jtu.JaxTestCase):
       self.assertAllClose(
         energy.soft_sphere(dtype(sigma), sigma, epsilon, alpha),
         np.array(0.0, dtype=dtype))
+      self.assertAllClose(
+        grad(energy.soft_sphere)(dtype(2 * sigma), sigma, epsilon, alpha),
+        np.array(0.0, dtype=dtype))
 
-      if alpha == 3.0:
+      if alpha > 2.0:
         grad_energy = grad(energy.soft_sphere)
         g = grad_energy(dtype(sigma), sigma, epsilon, alpha)
         self.assertAllClose(g, np.array(0, dtype=dtype))
