@@ -34,6 +34,10 @@ a broader set of simulations. JAX MD is a functional and data driven library. Da
 
 ### Getting Started
 
+For a video introducing JAX MD along with a demo, check out this talk from the Physics meets Machine Learning series:
+
+[![Science Meets ML Talk](https://img.youtube.com/vi/Bkm8tGET7-w/0.jpg)](https://www.youtube.com/watch?v=Bkm8tGET7-w)
+
 To get started playing around with JAX MD check out the following colab notebooks on Google Cloud without needing to install anything. For a very simple introduction, I would recommend the Minimization example. For an example of a bunch of the features of JAX MD, check out the JAX MD cookbook.
 
 - [JAX MD Cookbook](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/jax_md_cookbook.ipynb)
