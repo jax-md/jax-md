@@ -25,7 +25,7 @@ from jax import random
 import jax.numpy as np
 from jax import ops
 
-from jax.api import grad
+from jax import grad
 
 from jax import test_util as jtu
 from jax import jit, vmap
@@ -119,7 +119,7 @@ class CellListTest(jtu.JaxTestCase):
   def test_cell_list_random_emplace_rect(self, dtype, dim):
     key = random.PRNGKey(1)
 
-    box_size = np.array([9.0, 3.0, 7.25]) if dim is 3 else np.array([9.0, 3.25])
+    box_size = np.array([9.0, 3.0, 7.25]) if dim == 3 else np.array([9.0, 3.25])
     cell_size = f32(1.0)
 
     R = box_size * random.uniform(key, (PARTICLE_COUNT, dim))
@@ -142,7 +142,7 @@ class CellListTest(jtu.JaxTestCase):
   def test_cell_list_random_emplace_side_data(self, dtype, dim):
     key = random.PRNGKey(1)
 
-    box_size = (np.array([9.0, 4.0, 7.25], f32) if dim is 3 else
+    box_size = (np.array([9.0, 4.0, 7.25], f32) if dim == 3 else
                 np.array([9.0, 4.25], f32))
     cell_size = f32(1.23)
 
@@ -179,7 +179,7 @@ class NeighborListTest(jtu.JaxTestCase):
     key = random.PRNGKey(1)
 
     box_size = (
-      np.array([9.0, 4.0, 7.25], f32) if dim is 3 else
+      np.array([9.0, 4.0, 7.25], f32) if dim == 3 else
       np.array([9.0, 4.25], f32))
     cutoff = f32(1.23)
 

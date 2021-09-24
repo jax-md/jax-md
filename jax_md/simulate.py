@@ -34,7 +34,7 @@ from collections import namedtuple
 
 from typing import Callable, TypeVar, Union, Tuple, Dict, Optional
 
-from jax.api import grad
+from jax import grad
 from jax import ops
 from jax import random
 import jax.numpy as jnp

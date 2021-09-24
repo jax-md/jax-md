@@ -22,7 +22,7 @@ from jax.config import config as jax_config
 from jax import random
 import jax.numpy as np
 
-from jax.api import grad
+from jax import grad
 
 from jax import test_util as jtu
 from jax import jit, vmap
