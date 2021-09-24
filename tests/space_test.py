@@ -21,7 +21,7 @@ from jax.config import config as jax_config
 from jax import random
 import jax.numpy as jnp
 
-from jax.api import grad, jit, jacfwd
+from jax import grad, jit, jacfwd
 
 from jax import test_util as jtu
 

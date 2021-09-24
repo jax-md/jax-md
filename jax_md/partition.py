@@ -26,7 +26,7 @@ import numpy as onp
 
 from jax import lax
 from jax import ops
-from jax.api import jit, vmap, eval_shape
+from jax import jit, vmap, eval_shape
 from jax.abstract_arrays import ShapedArray
 from jax.interpreters import partial_eval as pe
 import jax.numpy as np
@@ -137,7 +137,7 @@ def count_cell_filling(R: Array,
 
 
 def _is_variable_compatible_with_positions(R: Array) -> bool:
-  if (isinstance(R, np.ndarray) and
+  if (util.is_array(R) and
       len(R.shape) == 2 and
       np.issubdtype(R.dtype, np.floating)):
     return True
@@ -179,11 +179,11 @@ def _unflatten_cell_buffer(arr: Array,
                            dim: int) -> Array:
   if (isinstance(cells_per_side, int) or
       isinstance(cells_per_side, float) or
-      (isinstance(cells_per_side, np.ndarray) and not cells_per_side.shape)):
+      (util.is_array(cells_per_side) and not cells_per_side.shape)):
     cells_per_side = (int(cells_per_side),) * dim
-  elif isinstance(cells_per_side, np.ndarray) and len(cells_per_side.shape) == 1:
+  elif util.is_array(cells_per_side) and len(cells_per_side.shape) == 1:
     cells_per_side = tuple([int(x) for x in cells_per_side[::-1]])
-  elif isinstance(cells_per_side, np.ndarray) and len(cells_per_side.shape) == 2:
+  elif util.is_array(cells_per_side) and len(cells_per_side.shape) == 2:
     cells_per_side = tuple([int(x) for x in cells_per_side[0][::-1]])
   else:
     raise ValueError() # TODO
@@ -264,12 +264,12 @@ def cell_list(box_size: Box,
     containing the partition.
   """
 
-  if isinstance(box_size, np.ndarray):
+  if util.is_array(box_size):
     box_size = onp.array(box_size)
     if len(box_size.shape) == 1:
       box_size = np.reshape(box_size, (1, -1))
 
-  if isinstance(minimum_cell_size, np.ndarray):
+  if util.is_array(minimum_cell_size):
     minimum_cell_size = onp.array(minimum_cell_size)
 
   cell_capacity = cell_capacity_or_example_R
@@ -318,7 +318,7 @@ def cell_list(box_size: Box,
     empty_kwarg_value = 10 ** 5
     cell_kwargs = {}
     for k, v in kwargs.items():
-      if not isinstance(v, np.ndarray):
+      if not util.is_array(v):
         raise ValueError((
           'Data must be specified as an ndarry. Found "{}" with '
           'type {}'.format(k, type(v))))

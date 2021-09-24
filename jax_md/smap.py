@@ -51,10 +51,10 @@ DisplacementOrMetricFn = space.DisplacementOrMetricFn
 def _get_bond_type_parameters(params: Array, bond_type: Array) -> Array:
   """Get parameters for interactions for bonds indexed by a bond-type."""
   # TODO(schsam): We should do better error checking here.
-  assert isinstance(bond_type, jnp.ndarray)
+  assert util.is_array(bond_type)
   assert len(bond_type.shape) == 1
 
-  if isinstance(params, jnp.ndarray):
+  if util.is_array(params):
     if len(params.shape) == 1:
       return params[bond_type]
     elif len(params.shape) == 0:
@@ -167,7 +167,7 @@ def bond(fn: Callable[..., Array],
 def _get_species_parameters(params: Array, species: Array) -> Array:
   """Get parameters for interactions between species pairs."""
   # TODO(schsam): We should do better error checking here.
-  if isinstance(params, jnp.ndarray):
+  if util.is_array(params):
     if len(params.shape) == 2:
       return params[species]
     elif len(params.shape) == 0:
@@ -180,7 +180,7 @@ def _get_species_parameters(params: Array, species: Array) -> Array:
 
 def _get_matrix_parameters(params: Array, combinator: Callable) -> Array:
   """Get an NxN parameter matrix from per-particle parameters."""
-  if isinstance(params, jnp.ndarray):
+  if util.is_array(params):
     if len(params.shape) == 1:
       return combinator(params[:, jnp.newaxis], params[jnp.newaxis, :])
     elif len(params.shape) == 0 or len(params.shape) == 2:
@@ -339,7 +339,7 @@ def pair(fn: Callable[..., Array],
       # we are mapping. Should this be an option?
       return high_precision_sum(_diagonal_mask(fn(dr, **_kwargs)),
                                 axis=reduce_axis, keepdims=keepdims) * f32(0.5)
-  elif isinstance(species, jnp.ndarray):
+  elif util.is_array(species):
     species = onp.array(species)
     _check_species_dtype(species)
     species_count = int(onp.max(species))
@@ -395,7 +395,7 @@ def pair(fn: Callable[..., Array],
 def _get_neighborhood_matrix_params(idx: Array,
                                     params: Array,
                                     combinator: Callable) -> Array:
-  if isinstance(params, jnp.ndarray):
+  if util.is_array(params):
     if len(params.shape) == 1:
       return combinator(jnp.reshape(params, params.shape + (1,)), params[idx])
     elif len(params.shape) == 2:
@@ -423,7 +423,7 @@ def _get_neighborhood_species_params(idx: Array,
   lookup = vmap(vmap(lookup, (None, 0, None)), (0, 0, None))
 
   neighbor_species = jnp.reshape(species[idx], idx.shape)
-  if isinstance(params, jnp.ndarray):
+  if util.is_array(params):
     if len(params.shape) == 2:
       return lookup(species, neighbor_species, params)
     elif len(params.shape) == 0:
@@ -441,7 +441,7 @@ def _neighborhood_kwargs_to_params(idx: Array,
   out_dict = {}
   for k in kwargs:
     if species is None or (
-        isinstance(kwargs[k], jnp.ndarray) and kwargs[k].ndim == 1):
+        util.is_array(kwargs[k]) and kwargs[k].ndim == 1):
       combinator = combinators.get(k, lambda x, y: 0.5 * (x + y))
       out_dict[k] = _get_neighborhood_matrix_params(idx, kwargs[k], combinator)
     else:
@@ -611,7 +611,7 @@ def triplet(fn: Callable[..., Array],
       return high_precision_sum(output,
                                 axis=reduce_axis,
                                 keepdims=keepdims) / 2.
-  elif isinstance(species, jnp.ndarray):
+  elif util.is_array(species):
     def fn_mapped(R, **dynamic_kwargs):
       d = partial(displacement_or_metric, **dynamic_kwargs)
       idx = onp.tile(onp.arange(R.shape[0]), [R.shape[0], 1])

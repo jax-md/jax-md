@@ -17,7 +17,7 @@
 
 from typing import TypeVar, Callable, Union, Tuple
 
-from jax.api import grad, vmap, eval_shape
+from jax import grad, vmap, eval_shape
 import jax.numpy as jnp
 
 from jax_md import space, dataclasses, partition, util
