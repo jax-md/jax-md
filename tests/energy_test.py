@@ -26,7 +26,7 @@ import jax.numpy as np
 
 import numpy as onp
 
-from jax.api import grad
+from jax import grad
 from jax_md import space
 from jax_md.util import *
 from jax_md import test_util 

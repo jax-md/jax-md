@@ -23,7 +23,7 @@ import jax.numpy as np
 
 import numpy as onp
 
-from jax.api import jit, grad
+from jax import jit, grad
 from jax_md import space, quantity, nn, dataclasses, partition
 from jax_md.util import f32, f64
 from jax_md.test_util import update_test_tolerance

@@ -21,7 +21,7 @@ from jax.config import config as jax_config
 from jax import random
 import jax.numpy as np
 
-from jax.api import jit, grad, vmap
+from jax import jit, grad, vmap
 from jax_md import space, quantity, test_util, energy
 from jax_md.util import *
 

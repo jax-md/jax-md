@@ -14,12 +14,12 @@
 
 """Defines utility functions."""
 
-from typing import Iterable, Union, Optional
+from typing import Iterable, Union, Optional, Any
 
 from jax.tree_util import register_pytree_node
 from jax.lib import xla_bridge
 import jax.numpy as jnp
-from jax.api import jit
+from jax import jit
 
 from functools import partial
 
@@ -81,3 +81,7 @@ def maybe_downcast(x):
   if isinstance(x, jnp.ndarray) and x.dtype is jnp.dtype('float64'):
     return x
   return jnp.array(x, f32)
+
+
+def is_array(x: Any) -> bool:
+  return isinstance(x, (onp.ndarray, jnp.ndarray))
