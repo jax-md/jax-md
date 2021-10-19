@@ -171,7 +171,7 @@ def nve(energy_or_force_fn: Callable[..., Array],
   def init_fn(key, R, kT, mass=f32(1.0), **kwargs):
     mass = quantity.canonicalize_mass(mass)
     V = jnp.sqrt(kT / mass) * random.normal(key, R.shape, dtype=R.dtype)
-    V = V - jnp.mean(V, axis=0, keepdims=True)
+    V = V - jnp.mean(V * mass, axis=0, keepdims=True) / mass
     return NVEState(R, V, force_fn(R, **kwargs), mass)  # pytype: disable=wrong-arg-count
 
   def step_fn(state, **kwargs):
@@ -468,7 +468,7 @@ def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
 
     mass = quantity.canonicalize_mass(mass)
     V = jnp.sqrt(_kT / mass) * random.normal(key, R.shape, dtype=R.dtype)
-    V = V - jnp.mean(V, axis=0, keepdims=True)
+    V = V - jnp.mean(V * mass, axis=0, keepdims=True) / mass
     KE = quantity.kinetic_energy(V, mass)
 
     return NVTNoseHooverState(R, V, force_fn(R, **kwargs), mass,
@@ -655,7 +655,7 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     
     mass = quantity.canonicalize_mass(mass)
     V = jnp.sqrt(_kT / mass) * random.normal(key, R.shape, dtype=R.dtype)
-    V = V - jnp.mean(V, axis=0, keepdims=True)
+    V = V - jnp.mean(V * mass, axis=0, keepdims=True) / mass
     KE = quantity.kinetic_energy(V, mass)
 
     # The box position is defined via pos = (1 / d) log V / V_0.
