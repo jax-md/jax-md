@@ -27,6 +27,7 @@ INSTALL_REQUIRES = [
     'jax>=0.1.73',
     'jaxlib>=0.1.52',
     'dm-haiku>=0.0.2',
+    'jraph',
     'dataclasses'
 ]
 
