@@ -19,6 +19,7 @@ from typing import TypeVar, Callable, Union, Tuple
 
 from jax import grad, vmap, eval_shape
 import jax.numpy as jnp
+from jax import ops
 
 from jax_md import space, dataclasses, partition, util
 
@@ -146,7 +147,7 @@ def canonicalize_mass(mass: Union[float, Array]) -> Union[float, Array]:
   raise ValueError(msg)
 
 
-def angle_between_two_vectors(dR_12: Array, dR_13: Array) -> Array:
+def cosine_angle_between_two_vectors(dR_12: Array, dR_13: Array) -> Array:
   dr_12 = space.distance(dR_12) + 1e-7
   dr_13 = space.distance(dR_13) + 1e-7
   cos_angle = jnp.dot(dR_12, dR_13) / dr_12 / dr_13
@@ -166,7 +167,7 @@ def cosine_angles(dR: Array) -> Array:
   """
 
   angles_between_all_triplets = vmap(
-      vmap(vmap(angle_between_two_vectors, (0, None)), (None, 0)), 0)
+      vmap(vmap(cosine_angle_between_two_vectors, (0, None)), (None, 0)), 0)
   return angles_between_all_triplets(dR, dR)
 
 
@@ -240,7 +241,9 @@ def pair_correlation_neighbor_list(
     sigma: float,
     species: Array = None,
     dr_threshold: float = 0.5,
-    eps: float = 1e-7):
+    eps: float = 1e-7,
+    fractional_coordinates: bool=False,
+    format: partition.NeighborListFormat=partition.Dense):
   """Computes the pair correlation function at a mesh of distances.
 
   The pair correlation function measures the number of particles at a given
@@ -263,6 +266,9 @@ def pair_correlation_neighbor_list(
     dr_threshold: A float specifying the halo size of the neighobr list.
     eps: A small additive constant used to ensure stability if the radius is
       zero.
+    fractional_coordinates: Bool determining whether positions are stored in
+      the unit cube or not.
+    format: The format of the neighbor lists. Must be `Dense` or `Sparse`.
 
   Returns:
     A pair of functions: `neighbor_fn` that constructs a neighbor list (see
@@ -270,39 +276,66 @@ def pair_correlation_neighbor_list(
     pair correlation function for a collection of particles given their
     position and a neighbor list.
   """
-  d = space.canonicalize_displacement_or_metric(displacement_or_metric)
-  d = space.map_neighbor(d)
+  metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
   inv_rad = 1 / (radii + eps)
   def pairwise(dr, dim):
     return jnp.exp(-f32(0.5) * (dr - radii)**2 / sigma**2) * inv_rad**(dim - 1)
-  pairwise = vmap(vmap(pairwise, (0, None)), (0, None))
 
   neighbor_fn = partition.neighbor_list(displacement_or_metric,
                                         box_size,
                                         jnp.max(radii) + sigma,
-                                        dr_threshold)
+                                        dr_threshold,
+                                        format=format)
 
   if species is None:
     def g_fn(R, neighbor):
-      dim = R.shape[-1]
-      R_neigh = R[neighbor.idx]
-      mask = neighbor.idx < R.shape[0]
-      return jnp.sum(mask[:, :, jnp.newaxis] *
-                     pairwise(d(R, R_neigh), dim), axis=(1,))
+      N, dim = R.shape
+      mask = partition.neighbor_list_mask(neighbor)
+      if neighbor.format is partition.Dense:
+        R_neigh = R[neighbor.idx]
+        d = space.map_neighbor(metric)
+        _pairwise = vmap(vmap(pairwise, (0, None)), (0, None))
+        return jnp.sum(mask[:, :, None] *
+                       _pairwise(d(R, R_neigh), dim), axis=(1,))
+      elif neighbor.format is partition.Sparse:
+        dr = space.map_bond(metric)(R[neighbor.idx[0]], R[neighbor.idx[1]])
+        _pairwise = vmap(pairwise, (0, None))
+        return ops.segment_sum(mask[:, None] * _pairwise(dr, dim),
+                               neighbor.idx[0],
+                               N)
+      else:
+        raise NotImplementedError('Pair correlation function does not support '
+                                  'OrderedSparse neighbor lists.')
+
   else:
     if not (isinstance(species, jnp.ndarray) and is_integer(species)):
       raise TypeError('Malformed species; expecting array of integers.')
     species_types = jnp.unique(species)
     def g_fn(R, neighbor):
-      dim = R.shape[-1]
+      N, dim = R.shape
       g_R = []
-      mask = neighbor.idx < R.shape[0]
-      neighbor_species = species[neighbor.idx]
-      R_neigh = R[neighbor.idx]
-      for s in species_types:
-        mask_s = mask * (neighbor_species == s)
-        g_R += [jnp.sum(mask_s[:, :, jnp.newaxis] *
-                        pairwise(d(R, R_neigh), dim), axis=(1,))]
+      mask = partition.neighbor_list_mask(neighbor)
+      if neighbor.format is partition.Dense:
+        neighbor_species = species[neighbor.idx]
+        R_neigh = R[neighbor.idx]
+        d = space.map_neighbor(metric)
+        _pairwise = vmap(vmap(pairwise, (0, None)), (0, None))
+        for s in species_types:
+          mask_s = mask * (neighbor_species == s)
+          g_R += [jnp.sum(mask_s[:, :, jnp.newaxis] *
+                          _pairwise(d(R, R_neigh), dim), axis=(1,))]
+      elif neighbor.format is partition.Sparse:
+        neighbor_species = species[neighbor.idx[1]]
+        dr = space.map_bond(metric)(R[neighbor.idx[0]], R[neighbor.idx[1]])
+        _pairwise = vmap(pairwise, (0, None))
+        for s in species_types:
+          mask_s = mask * (neighbor_species == s)
+          g_R += [ops.segment_sum(mask_s[:, None] *
+                                  _pairwise(dr, dim), neighbor.idx[0], N)]
+      else:
+        raise NotImplementedError('Pair correlation function does not support '
+                                  'OrderedSparse neighbor lists.')
+
       return g_R
   return neighbor_fn, g_fn
 

@@ -285,7 +285,7 @@ def _graph_network_no_global_update(graph_tuple):
 
 def _graph_independent(graph_tuple):
   id = lambda x: x
-  net = nn.GraphIndependent(id, id, id)
+  net = nn.GraphMapFeatures(id, id, id)
   return net(graph_tuple)
 
 GRAPH_NETWORKS = [
@@ -299,14 +299,14 @@ GRAPH_NETWORKS = [
 
 def _get_graphs():
     return [
-    nn.GraphTuple(
+    nn.GraphsTuple(
         nodes=np.array([[1.0], [2.0]]),
         edges=np.array([[[1.0], [2.0]],
                         [[3.0], [4.0]]]),
         globals=np.array([1.0]),
         edge_idx=np.array([[0, 1,], [0, 1]])
     ),
-    nn.GraphTuple(
+    nn.GraphsTuple(
         nodes=np.array([[1.0], [2.0]]),
         edges=np.array([[[1.0], [2.0]],
                         [[3.0], [4.0]]]),
@@ -332,12 +332,12 @@ class NeuralNetworkTest(jtu.JaxTestCase):
           globals=np.array(g.globals, dtype))
       with self.subTest('nojit'):
         out = network_fn(g)
-        self.assertGraphTuplesClose(out, g)
+        self.assertGraphsTuplesClose(out, g)
       with self.subTest('jit'):
         out = jit(network_fn)(g)
-        self.assertGraphTuplesClose(out, g)
+        self.assertGraphsTuplesClose(out, g)
 
-  def assertGraphTuplesClose(self, a, b, tol=1e-6):
+  def assertGraphsTuplesClose(self, a, b, tol=1e-6):
     a_mask = (a.edge_idx < a.nodes.shape[0]).reshape(a.edge_idx.shape + (1,))
     b_mask = (b.edge_idx < b.nodes.shape[0]).reshape(b.edge_idx.shape + (1,))
 

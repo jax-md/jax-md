@@ -35,6 +35,7 @@ from jax_md import quantity
 from jax import test_util as jtu
 
 from jax_md import energy
+from jax_md import partition
 from jax_md.interpolate import spline
 
 jax_config.parse_flags_with_absl()
@@ -53,6 +54,10 @@ if FLAGS.jax_enable_x64:
   POSITION_DTYPE = [f32, f64]
 else:
   POSITION_DTYPE = [f32]
+
+NEIGHBOR_LIST_FORMAT = [partition.Dense,
+                        partition.Sparse,
+                        partition.OrderedSparse]
 
 test_util.update_test_tolerance(2e-5, 1e-6)
 
@@ -110,7 +115,7 @@ def make_eam_test_splines():
   charge_fn = spline(density_data, dr[1] - dr[0])
   embedding_fn = spline(embedding_data, drho[1] - drho[0])
   pairwise_fn = spline(pairwise_data, dr[1] - dr[0])
-  return charge_fn, embedding_fn, pairwise_fn
+  return charge_fn, embedding_fn, pairwise_fn, cutoff
 
 
 def lattice(R_unit_cell, copies, lattice_vectors):
@@ -139,7 +144,7 @@ def lattice(R_unit_cell, copies, lattice_vectors):
       dR += i * L[idx]
     R = R_unit_cell + dR[onp.newaxis, :]
     Rs += [R]
-  return onp.concatenate(Rs)
+  return np.array(onp.concatenate(Rs))
 
 class EnergyTest(jtu.JaxTestCase):
 
@@ -255,19 +260,20 @@ class EnergyTest(jtu.JaxTestCase):
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': 'dtype={}'.format(dtype.__name__),
-          'dtype': dtype
-      } for dtype in POSITION_DTYPE))
-  def test_bks_neighbor_list(self, dtype):
-      LATCON = 3.5660930663857577e+01
-      displacement, shift = space.periodic(LATCON)
-      dist_fun = space.metric(displacement)
-      species = np.tile(np.array([0, 1, 1]), 1000)
-      R_f = test_util.load_silica_data()
-      neighbor_fn, energy_nei = energy.bks_silica_neighbor_list(
-          dist_fun, LATCON, species=species)
-      nbrs = neighbor_fn(R_f)
-      self.assertAllClose(-857939.528386092, energy_nei(R_f, nbrs))
+          'testcase_name': f'dtype={dtype.__name__}_format={format}',
+          'dtype': dtype,
+          'format': format
+      } for dtype in POSITION_DTYPE for format in NEIGHBOR_LIST_FORMAT))
+  def test_bks_neighbor_list(self, dtype, format):
+    LATCON = 3.5660930663857577e+01
+    displacement, shift = space.periodic(LATCON)
+    dist_fun = space.metric(displacement)
+    species = np.tile(np.array([0, 1, 1]), 1000)
+    R_f = test_util.load_silica_data()
+    neighbor_fn, energy_nei = energy.bks_silica_neighbor_list(
+      dist_fun, LATCON, species=species, format=format)
+    nbrs = neighbor_fn.allocate(R_f)
+    self.assertAllClose(-857939.528386092, energy_nei(R_f, nbrs))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -276,13 +282,47 @@ class EnergyTest(jtu.JaxTestCase):
           'num_repetitions': num_repetitions,
       } for dtype in POSITION_DTYPE for num_repetitions in [2, 3]))
   def test_stillinger_weber(self, dtype, num_repetitions):
-      lattice_vectors = lattice_vectors = np.array([[0, .5, .5], [.5, 0, .5], [.5, .5, 0]]) * 5.428
-      positions = np.array([[0,0,0], [0.25, 0.25, 0.25]])
-      positions = lattice(positions, num_repetitions, lattice_vectors)
-      lattice_vectors *= num_repetitions
-      displacement, shift = space.periodic_general(lattice_vectors)
-      energy_fn = jit(energy.stillinger_weber(displacement))
-      self.assertAllClose(energy_fn(positions)/positions.shape[0], -4.336503)
+    lattice_vectors = lattice_vectors = np.array([[0, .5, .5],
+                                                  [.5, 0, .5],
+                                                  [.5, .5, 0]]) * 5.428
+    positions = np.array([[0,0,0], [0.25, 0.25, 0.25]])
+    positions = lattice(positions, num_repetitions, lattice_vectors)
+    lattice_vectors *= num_repetitions
+    displacement, shift = space.periodic_general(lattice_vectors)
+    energy_fn = jit(energy.stillinger_weber(displacement))
+    self.assertAllClose(energy_fn(positions)/positions.shape[0], -4.336503)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+        'testcase_name': (f'dtype={dtype.__name__}'
+                          f'_num_repetitions={num_repetitions}'
+                          f'_format={str(format).split(".")[-1]}'),
+        'dtype': dtype,
+        'num_repetitions': num_repetitions,
+        'format': format
+      } for dtype in POSITION_DTYPE
+    for num_repetitions in [3, 4]
+    for format in NEIGHBOR_LIST_FORMAT
+  ))
+  def test_stillinger_weber_neighbor_list(self, dtype, num_repetitions,
+                                          format):
+    if format in [partition.OrderedSparse, partition.Sparse]:
+      self.skipTest(f'{format} not supported for Stillinger-Weber.')
+    lattice_vectors = np.array([[0, .5, .5],
+                                [.5, 0, .5],
+                                [.5, .5, 0]]) * 5.428
+    positions = np.array([[0,0,0], [0.25, 0.25, 0.25]])
+    positions = lattice(positions, num_repetitions, lattice_vectors)
+    lattice_vectors *= num_repetitions
+    displacement, shift = space.periodic_general(lattice_vectors)
+    box_size =  np.linalg.det(lattice_vectors) ** (1/3) * num_repetitions
+    neighbor_fn, energy_fn = \
+      energy.stillinger_weber_neighbor_list(displacement, box_size,
+                                            fractional_coordinates=True,
+                                            format=format)
+    nbrs = neighbor_fn.allocate(positions)
+    N = positions.shape[0]
+    self.assertAllClose(energy_fn(positions, neighbor=nbrs) / N, -4.336503)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -307,7 +347,7 @@ class EnergyTest(jtu.JaxTestCase):
         np.array(-epsilon, dtype=dtype))
       g = grad(energy.morse)(dr, sigma, epsilon, alpha)
       self.assertAllClose(g, np.array(0, dtype=dtype))
-    
+
     # if dr = a/alpha + sigma, then V_morse(dr, sigma, epsilon, alpha)/epsilon
     #   should be independent of sigma, epsilon, and alpha, depending only on a.
     key, split_sigma, split_epsilon, split_alpha = random.split(key, 4)
@@ -323,7 +363,7 @@ class EnergyTest(jtu.JaxTestCase):
       U = energy.morse(dr, sigma, epsilon, alpha)/dtype(epsilon)
       Ucomp = np.array((dtype(1) - np.exp(-a)) ** dtype(2) - dtype(1), 
                        dtype=dtype)
-      self.assertAllClose(U, Ucomp)    
+      self.assertAllClose(U, Ucomp)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -359,11 +399,16 @@ class EnergyTest(jtu.JaxTestCase):
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'testcase_name':
+        f'_dim={dim}_dtype={dtype.__name__}_format={format}',
           'spatial_dimension': dim,
           'dtype': dtype,
-      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
-  def test_soft_sphere_neighbor_list_energy(self, spatial_dimension, dtype):
+          'format': format
+      } for dim in SPATIAL_DIMENSION
+        for dtype in POSITION_DTYPE
+        for format in NEIGHBOR_LIST_FORMAT))
+  def test_soft_sphere_neighbor_list_energy(self, spatial_dimension, dtype,
+                                            format):
     key = random.PRNGKey(1)
 
     box_size = f32(15.0)
@@ -373,9 +418,9 @@ class EnergyTest(jtu.JaxTestCase):
     R = box_size * random.uniform(
       key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
     neighbor_fn, energy_fn = energy.soft_sphere_neighbor_list(
-      displacement, box_size)
+      displacement, box_size, format=format)
 
-    nbrs = neighbor_fn(R)
+    nbrs = neighbor_fn.allocate(R)
 
     self.assertAllClose(
       np.array(exact_energy_fn(R), dtype=dtype),
@@ -383,12 +428,16 @@ class EnergyTest(jtu.JaxTestCase):
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'testcase_name':
+        f'_dim={dim}_dtype={dtype.__name__}_format={format}',
           'spatial_dimension': dim,
           'dtype': dtype,
-      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+          'format': format
+      } for dim in SPATIAL_DIMENSION
+        for dtype in POSITION_DTYPE
+        for format in NEIGHBOR_LIST_FORMAT))
   def test_lennard_jones_cell_neighbor_list_energy(
-      self, spatial_dimension, dtype):
+      self, spatial_dimension, dtype, format):
     key = random.PRNGKey(1)
 
     box_size = f32(15)
@@ -399,21 +448,25 @@ class EnergyTest(jtu.JaxTestCase):
     R = box_size * random.uniform(
       key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
     neighbor_fn, energy_fn = energy.lennard_jones_neighbor_list(
-      displacement, box_size)
+      displacement, box_size, format=format)
 
-    nbrs = neighbor_fn(R)
+    nbrs = neighbor_fn.allocate(R)
     self.assertAllClose(
       np.array(exact_energy_fn(R), dtype=dtype),
       energy_fn(R, nbrs))
-  
+
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'testcase_name':
+        f'_dim={dim}_dtype={dtype.__name__}_format={format}',
           'spatial_dimension': dim,
           'dtype': dtype,
-      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+          'format': format
+      } for dim in SPATIAL_DIMENSION
+        for dtype in POSITION_DTYPE
+        for format in NEIGHBOR_LIST_FORMAT))
   def test_morse_cell_neighbor_list_energy(
-      self, spatial_dimension, dtype):
+      self, spatial_dimension, dtype, format):
     key = random.PRNGKey(1)
 
     box_size = f32(15)
@@ -424,21 +477,25 @@ class EnergyTest(jtu.JaxTestCase):
     R = box_size * random.uniform(
       key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
     neighbor_fn, energy_fn = energy.morse_neighbor_list(
-      displacement, box_size)
+      displacement, box_size, format=format)
 
-    nbrs = neighbor_fn(R)
+    nbrs = neighbor_fn.allocate(R)
     self.assertAllClose(
       np.array(exact_energy_fn(R), dtype=dtype),
       energy_fn(R, nbrs))
-    
+
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'testcase_name':
+        f'_dim={dim}_dtype={dtype.__name__}_format={format}',
           'spatial_dimension': dim,
           'dtype': dtype,
-      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+          'format': format
+      } for dim in SPATIAL_DIMENSION
+        for dtype in POSITION_DTYPE
+        for format in NEIGHBOR_LIST_FORMAT))
   def test_morse_small_neighbor_list_energy(
-      self, spatial_dimension, dtype):
+      self, spatial_dimension, dtype, format):
     key = random.PRNGKey(1)
 
     box_size = f32(5.0)
@@ -449,21 +506,25 @@ class EnergyTest(jtu.JaxTestCase):
     R = box_size * random.uniform(
       key, (10, spatial_dimension), dtype=dtype)
     neighbor_fn, energy_fn = energy.morse_neighbor_list(
-      displacement, box_size)
+      displacement, box_size, format=format)
 
-    nbrs = neighbor_fn(R)
+    nbrs = neighbor_fn.allocate(R)
     self.assertAllClose(
       np.array(exact_energy_fn(R), dtype=dtype),
       energy_fn(R, nbrs))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'testcase_name':
+        f'_dim={dim}_dtype={dtype.__name__}_format={format}',
           'spatial_dimension': dim,
           'dtype': dtype,
-      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
+          'format': format
+      } for dim in SPATIAL_DIMENSION
+        for dtype in POSITION_DTYPE
+        for format in NEIGHBOR_LIST_FORMAT))
   def test_lennard_jones_small_neighbor_list_energy(
-      self, spatial_dimension, dtype):
+      self, spatial_dimension, dtype, format):
     key = random.PRNGKey(1)
 
     box_size = f32(5.0)
@@ -474,20 +535,25 @@ class EnergyTest(jtu.JaxTestCase):
     R = box_size * random.uniform(
       key, (10, spatial_dimension), dtype=dtype)
     neighbor_fn, energy_fn = energy.lennard_jones_neighbor_list(
-      displacement, box_size)
+      displacement, box_size, format=format)
 
-    nbrs = neighbor_fn(R)
+    nbrs = neighbor_fn.allocate(R)
     self.assertAllClose(
       np.array(exact_energy_fn(R), dtype=dtype),
       energy_fn(R, nbrs))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'testcase_name':
+        f'_dim={dim}_dtype={dtype.__name__}_format={format}',
           'spatial_dimension': dim,
           'dtype': dtype,
-      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
-  def test_lennard_jones_neighbor_list_force(self, spatial_dimension, dtype):
+          'format': format
+      } for dim in SPATIAL_DIMENSION
+        for dtype in POSITION_DTYPE
+        for format in NEIGHBOR_LIST_FORMAT))
+  def test_lennard_jones_neighbor_list_force(self, spatial_dimension, dtype,
+                                             format):
     key = random.PRNGKey(1)
 
     box_size = f32(15.0)
@@ -498,13 +564,18 @@ class EnergyTest(jtu.JaxTestCase):
     r = box_size * random.uniform(
       key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
     neighbor_fn, energy_fn = energy.lennard_jones_neighbor_list(
-      displacement, box_size)
+      displacement, box_size, format=format)
     force_fn = quantity.force(energy_fn)
 
-    nbrs = neighbor_fn(r)
-    self.assertAllClose(
-      np.array(exact_force_fn(r), dtype=dtype),
-      force_fn(r, nbrs))
+    nbrs = neighbor_fn.allocate(r)
+    if dtype == f32 and format is partition.OrderedSparse:
+      self.assertAllClose(
+        np.array(exact_force_fn(r), dtype=dtype),
+        force_fn(r, nbrs), atol=5e-5, rtol=5e-5)
+    else:
+      self.assertAllClose(
+        np.array(exact_force_fn(r), dtype=dtype),
+        force_fn(r, nbrs))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -529,20 +600,28 @@ class EnergyTest(jtu.JaxTestCase):
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_N_types={}_dtype={}'.format(N_types, dtype.__name__),
+          'testcase_name':
+        f'_N_types={N_types}_dtype={dtype.__name__}_format={str(format).split(".")[-1]}',
           'N_types': N_types,
           'dtype': dtype,
-      } for N_types in N_TYPES_TO_TEST for dtype in POSITION_DTYPE))
-  def test_behler_parrinello_network_neighbor_list(self, N_types, dtype):
+          'format': format,
+      } for N_types in N_TYPES_TO_TEST
+        for dtype in POSITION_DTYPE
+        for format in NEIGHBOR_LIST_FORMAT))
+  def test_behler_parrinello_network_neighbor_list(self, N_types, dtype,
+                                                   format):
+    if format is partition.OrderedSparse:
+      self.skipTest('OrderedSparse format incompatible with Behler-Parrinello '
+                    'force field.')
     key = random.PRNGKey(1)
     R = np.array([[0,0,0], [1,1,1], [1,1,0]], dtype)
     species = np.array([1, 1, N_types]) if N_types > 1 else None
     box_size = f32(1.5)
     displacement, _ = space.periodic(box_size)
     neighbor_fn, nn_init, nn_apply = energy.behler_parrinello_neighbor_list(
-      displacement, box_size, species)
+      displacement, box_size, species, format=format)
 
-    nbrs = neighbor_fn(R) 
+    nbrs = neighbor_fn.allocate(R)
     params = nn_init(key, R, nbrs)
     nn_force_fn = grad(nn_apply, argnums=1)
     nn_force = jit(nn_force_fn)(params, R, nbrs)
@@ -553,11 +632,15 @@ class EnergyTest(jtu.JaxTestCase):
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'testcase_name':
+        f'_dim={dim}_dtype={dtype.__name__}_format={format}',
           'spatial_dimension': dim,
           'dtype': dtype,
-      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
-  def test_morse_neighbor_list_force(self, spatial_dimension, dtype):
+          'format': format
+      } for dim in SPATIAL_DIMENSION
+        for dtype in POSITION_DTYPE
+        for format in NEIGHBOR_LIST_FORMAT))
+  def test_morse_neighbor_list_force(self, spatial_dimension, dtype, format):
     key = random.PRNGKey(1)
 
     box_size = f32(15.0)
@@ -568,13 +651,18 @@ class EnergyTest(jtu.JaxTestCase):
     r = box_size * random.uniform(
       key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
     neighbor_fn, energy_fn = energy.morse_neighbor_list(
-      displacement, box_size)
+      displacement, box_size, format=format)
     force_fn = quantity.force(energy_fn)
 
-    nbrs = neighbor_fn(r)
-    self.assertAllClose(
-      np.array(exact_force_fn(r), dtype=dtype),
-      force_fn(r, nbrs))
+    nbrs = neighbor_fn.allocate(r)
+    if dtype == f32 and format is partition.OrderedSparse:
+      self.assertAllClose(
+        np.array(exact_force_fn(r), dtype=dtype),
+        force_fn(r, nbrs), atol=5e-5, rtol=5e-5)
+    else:
+      self.assertAllClose(
+        np.array(exact_force_fn(r), dtype=dtype),
+        force_fn(r, nbrs))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -589,17 +677,49 @@ class EnergyTest(jtu.JaxTestCase):
     atoms = np.array([[0, 0, 0]], dtype=dtype)
     atoms_repeated, latvec_repeated = lattice_repeater(
         atoms, latvec, num_repetitions)
-    inv_latvec = np.array(onp.linalg.inv(onp.array(latvec_repeated)), dtype=dtype)
+    inv_latvec = np.array(onp.linalg.inv(onp.array(latvec_repeated)),
+                          dtype=dtype)
     displacement, _ = space.periodic_general(latvec_repeated)
-    charge_fn, embedding_fn, pairwise_fn = make_eam_test_splines()
+    charge_fn, embedding_fn, pairwise_fn, _ = make_eam_test_splines()
     assert charge_fn(np.array(1.0, dtype)).dtype == dtype
     assert embedding_fn(np.array(1.0, dtype)).dtype == dtype
     assert pairwise_fn(np.array(1.0, dtype)).dtype == dtype
     eam_energy = energy.eam(displacement, charge_fn, embedding_fn, pairwise_fn)
     self.assertAllClose(
-        eam_energy(
-            np.dot(atoms_repeated, inv_latvec)) / np.array(num_repetitions ** 3, dtype),
+        eam_energy(np.dot(atoms_repeated, inv_latvec)) / num_repetitions ** 3,
         dtype(-3.363338))
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+        'testcase_name': (f'_num_reps={num_repetitions}'
+                          f'_dtype={dtype.__name__}'
+                          f'_format={str(format).split(".")[-1]}'),
+        'num_repetitions': num_repetitions,
+        'dtype': dtype,
+        'format': format
+      } for num_repetitions in UNIT_CELL_SIZE
+    for dtype in POSITION_DTYPE
+    for format in NEIGHBOR_LIST_FORMAT))
+  def test_eam_neighbor_list(self, num_repetitions, dtype, format):
+    if format is partition.OrderedSparse:
+      self.skipTest('OrderedSparse neighbor lists not supported for EAM '
+                    'potential.')
+    latvec = np.array(
+        [[0, 1, 1], [1, 0, 1], [1, 1, 0]], dtype=dtype) * f32(4.05 / 2)
+    atoms = np.array([[0, 0, 0]], dtype=dtype)
+    atoms_repeated, latvec_repeated = lattice_repeater(
+        atoms, latvec, num_repetitions)
+    inv_latvec = np.array(onp.linalg.inv(onp.array(latvec_repeated)),
+                          dtype=dtype)
+    R = np.dot(atoms_repeated, inv_latvec)
+    displacement, _ = space.periodic_general(latvec_repeated)
+    box_size = np.linalg.det(latvec_repeated) ** (1 / 3)
+    neighbor_fn, energy_fn = energy.eam_neighbor_list(displacement, box_size,
+                                                      *make_eam_test_splines(),
+                                                      format=format)
+    nbrs = neighbor_fn.allocate(R)
+    self.assertAllClose(energy_fn(R, nbrs) / num_repetitions ** 3,
+                        dtype(-3.363338))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -619,19 +739,26 @@ class EnergyTest(jtu.JaxTestCase):
     init_fn, energy_fn = energy.graph_network(d, cutoff)
     params = init_fn(key, R)
 
-    E_out = energy_fn(params, R) 
+    E_out = energy_fn(params, R)
 
     assert E_out.shape == ()
-    assert E_out.dtype == dtype 
+    assert E_out.dtype == dtype
 
-  
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'testcase_name':
+        f'_dim={dim}_dtype={dtype.__name__}_format={str(format).split(".")[-1]}',
           'spatial_dimension': dim,
           'dtype': dtype,
-      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
-  def test_graph_network_neighbor_list(self, spatial_dimension, dtype):
+          'format': format
+      } for dim in SPATIAL_DIMENSION
+        for dtype in POSITION_DTYPE
+        for format in NEIGHBOR_LIST_FORMAT))
+  def test_graph_network_neighbor_list(self, spatial_dimension, dtype, format):
+    if format is partition.OrderedSparse:
+      self.skipTest('OrderedSparse format incompatible with GNN '
+                    'force field.')
+
     key = random.PRNGKey(0)
 
     R = random.uniform(key, (32, spatial_dimension), dtype=dtype)
@@ -644,10 +771,14 @@ class EnergyTest(jtu.JaxTestCase):
     params = init_fn(key, R)
 
     neighbor_fn, _, nl_energy_fn = \
-      energy.graph_network_neighbor_list(d, 1.0, cutoff, 0.0)
+      energy.graph_network_neighbor_list(d, 1.0, cutoff, 0.0, format=format)
 
-    nbrs = neighbor_fn(R)
-    self.assertAllClose(energy_fn(params, R), nl_energy_fn(params, R, nbrs))
+    nbrs = neighbor_fn.allocate(R)
+    if format is partition.Dense:
+      self.assertAllClose(energy_fn(params, R), nl_energy_fn(params, R, nbrs))
+    else:
+      self.assertAllClose(energy_fn(params, R), nl_energy_fn(params, R, nbrs),
+                          rtol=2e-4, atol=2e-4)
 
 
   @parameterized.named_parameters(jtu.cases_from_list(
