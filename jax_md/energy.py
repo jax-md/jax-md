@@ -1345,7 +1345,7 @@ def graph_network_neighbor_list(
       mask = None
       if dr_threshold > 0.0:
         dr_2 = space.square_distance(dR)
-        mask = dr_2 < cutoff ** 2
+        mask = dr_2 < r_cutoff ** 2
       graph = partition.to_jraph(neighbor, mask)
       graph = graph._replace(
         nodes=jnp.concatenate((_nodes,
