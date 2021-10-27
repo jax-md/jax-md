@@ -804,6 +804,7 @@ def to_jraph(neighbor: NeighborList, mask: Array=None) -> jraph.GraphsTuple:
 
   receivers, senders = neighbor.idx
   if mask is not None:
+    N = len(neighbor.reference_position)
     cumsum = jnp.cumsum(mask)
     index = jnp.where(mask, cumsum - 1, len(receivers) - 1)
     ordered = N * jnp.ones(receivers.shape, jnp.int32)
