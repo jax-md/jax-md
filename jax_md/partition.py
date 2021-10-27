@@ -803,15 +803,18 @@ def to_jraph(neighbor: NeighborList, mask: Array=None) -> jraph.GraphsTuple:
                      'NeighborListFormat.OrderedSparse.')
 
   receivers, senders = neighbor.idx
+
   if mask is not None:
+    mask = neighbor_list_mask(neighbor) & mask
     N = len(neighbor.reference_position)
     cumsum = jnp.cumsum(mask)
     index = jnp.where(mask, cumsum - 1, len(receivers) - 1)
     ordered = N * jnp.ones(receivers.shape, jnp.int32)
     receivers = ordered.at[index].set(receivers)
     senders = ordered.at[index].set(senders)
+  else:
+    mask = neighbor_list_mask(neighbor)
 
-  mask = neighbor_list_mask(neighbor)
   return jraph.GraphsTuple(
       nodes=None,
       edges=None,
