@@ -812,6 +812,7 @@ def to_jraph(neighbor: NeighborList, mask: Array=None) -> jraph.GraphsTuple:
     ordered = N * jnp.ones(receivers.shape, jnp.int32)
     receivers = ordered.at[index].set(receivers)
     senders = ordered.at[index].set(senders)
+    mask = receivers < N
   else:
     mask = neighbor_list_mask(neighbor)
 
