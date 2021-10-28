@@ -827,6 +827,27 @@ def to_jraph(neighbor: NeighborList, mask: Array=None) -> jraph.GraphsTuple:
   )
 
 
+def to_dense(neighbor: NeighborList) -> Array:
+  """Converts a sparse neighbor list to dense ids. Cannot be JIT."""
+  if neighbor.format is not partition.Sparse:
+    raise ValueError('Can only convert sparse neighbor lists to dense ones.')
+
+  receivers, senders = neighbor.idx
+  mask = neighbor_list_mask(neighbor)
+
+  receivers = receivers[mask]
+  senders = senders[mask]
+
+  N = len(neighbor.reference_position)
+  count = ops.segment_sum(jnp.ones(len(receivers), jnp.int32), receivers, N)
+  max_count = jnp.max(count)
+  offset = jnp.tile(jnp.arange(max_count), N[:len(senders)])
+  hashes = senders * max_count + offset
+  dense_idx = N * jnp.ones((N * max_count,), jnp.int32)
+  dense_idx = dense_idx.at[hashes].set(receivers).reshape((N, max_count))
+  return dense_idx
+
+
 Dense = NeighborListFormat.Dense
 Sparse = NeighborListFormat.Sparse
 OrderedSparse = NeighborListFormat.OrderedSparse
