@@ -841,7 +841,7 @@ def to_dense(neighbor: NeighborList) -> Array:
   N = len(neighbor.reference_position)
   count = ops.segment_sum(jnp.ones(len(receivers), jnp.int32), receivers, N)
   max_count = jnp.max(count)
-  offset = jnp.tile(jnp.arange(max_count), N[:len(senders)])
+  offset = jnp.tile(jnp.arange(max_count), N)[:len(senders)]
   hashes = senders * max_count + offset
   dense_idx = N * jnp.ones((N * max_count,), jnp.int32)
   dense_idx = dense_idx.at[hashes].set(receivers).reshape((N, max_count))
