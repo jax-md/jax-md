@@ -803,18 +803,18 @@ def to_jraph(neighbor: NeighborList, mask: Array=None) -> jraph.GraphsTuple:
                      'NeighborListFormat.OrderedSparse.')
 
   receivers, senders = neighbor.idx
+  N = len(neighbor.reference_position)
+
+  _mask = neighbor_list_mask(neighbor)
 
   if mask is not None:
-    mask = neighbor_list_mask(neighbor) & mask
-    N = len(neighbor.reference_position)
-    cumsum = jnp.cumsum(mask)
-    index = jnp.where(mask, cumsum - 1, len(receivers) - 1)
-    ordered = N * jnp.ones(receivers.shape, jnp.int32)
-    receivers = ordered.at[index].set(receivers)
-    senders = ordered.at[index].set(senders)
+    _mask = _mask & mask
+    cumsum = jnp.cumsum(_mask)
+    index = jnp.where(_mask, cumsum - 1, len(receivers))
+    ordered = N * jnp.ones((len(receivers) + 1,), jnp.int32)
+    receivers = ordered.at[index].set(receivers)[:-1]
+    senders = ordered.at[index].set(senders)[:-1]
     mask = receivers < N
-  else:
-    mask = neighbor_list_mask(neighbor)
 
   return jraph.GraphsTuple(
       nodes=None,
@@ -822,11 +822,12 @@ def to_jraph(neighbor: NeighborList, mask: Array=None) -> jraph.GraphsTuple:
       receivers=receivers,
       senders=senders,
       globals=None,
-      n_node=jnp.array([len(neighbor.reference_position), 1]),
-      n_edge=jnp.array([jnp.sum(mask), jnp.sum(~mask)]),
+      n_node=jnp.array([N, 1]),
+      n_edge=jnp.array([jnp.sum(_mask), jnp.sum(~_mask)]),
   )
 
 
 Dense = NeighborListFormat.Dense
 Sparse = NeighborListFormat.Sparse
 OrderedSparse = NeighborListFormat.OrderedSparse
+

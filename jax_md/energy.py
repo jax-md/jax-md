@@ -1342,14 +1342,19 @@ def graph_network_neighbor_list(
     else:
       d = space.map_bond(d)
       dR = d(R[neighbor.idx[0]], R[neighbor.idx[1]])
-      mask = None
       if dr_threshold > 0.0:
         dr_2 = space.square_distance(dR)
-        mask = dr_2 < r_cutoff ** 2
-      graph = partition.to_jraph(neighbor, mask)
+        mask = dr_2 < r_cutoff ** 2 + 1e-5
+        graph = partition.to_jraph(neighbor, mask)
+        # TODO(schsam): It seems wasteful to recompute dR after we remask the
+        # edges. If I can think of a clean way to get rid of this, I should.
+        dR = d(R[graph.receivers], R[graph.senders])
+      else:
+        graph = partition.to_jraph(neighbor)
+
       graph = graph._replace(
         nodes=jnp.concatenate((_nodes,
-                              jnp.zeros((1,) + _nodes.shape[1:], R.dtype)),
+                               jnp.zeros((1,) + _nodes.shape[1:], R.dtype)),
                              axis=0),
         edges=dR,
         globals=jnp.broadcast_to(_globals[:, None], (2, 1))
