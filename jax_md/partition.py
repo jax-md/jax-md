@@ -829,7 +829,7 @@ def to_jraph(neighbor: NeighborList, mask: Array=None) -> jraph.GraphsTuple:
 
 def to_dense(neighbor: NeighborList) -> Array:
   """Converts a sparse neighbor list to dense ids. Cannot be JIT."""
-  if neighbor.format is not partition.Sparse:
+  if neighbor.format is not Sparse:
     raise ValueError('Can only convert sparse neighbor lists to dense ones.')
 
   receivers, senders = neighbor.idx
