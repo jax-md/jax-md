@@ -23,6 +23,7 @@ import jax.numpy as np
 
 from jax import jit, grad, vmap
 from jax_md import space, quantity, test_util, energy
+from jax_md import partition
 from jax_md.util import *
 
 from jax import test_util as jtu
@@ -34,6 +35,11 @@ FLAGS = jax_config.FLAGS
 PARTICLE_COUNT = 10
 STOCHASTIC_SAMPLES = 10
 SPATIAL_DIMENSION = [2, 3]
+
+NEIGHBOR_LIST_FORMAT = [partition.Dense,
+                        partition.Sparse,
+                        partition.OrderedSparse]
+
 DTYPES = [f32, f64] if FLAGS.jax_enable_x64 else [f32]
 COORDS = ['fractional', 'real']
 
@@ -182,11 +188,19 @@ class QuantityTest(jtu.JaxTestCase):
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': f'_dim={dim}_dtype={dtype.__name__}',
-          'dim': dim,
-          'dtype': dtype,
-      } for dim in SPATIAL_DIMENSION for dtype in DTYPES))
-  def test_pair_correlation_neighbor_list_species(self, dim, dtype):
+        'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
+                          f'_format={str(format).split(".")[-1]}'),
+        'dim': dim,
+        'dtype': dtype,
+        'format': format
+      } for dim in SPATIAL_DIMENSION
+    for dtype in DTYPES
+    for format in NEIGHBOR_LIST_FORMAT))
+  def test_pair_correlation_neighbor_list_species(self, dim, dtype, format):
+    if format is partition.OrderedSparse:
+      self.skipTest('OrderedSparse not supported for pair correlation '
+                    'function.')
+
     N = 100
     L = 10.
     displacement, _ = space.periodic(L)
@@ -198,8 +212,9 @@ class QuantityTest(jtu.JaxTestCase):
                                                               L,
                                                               rs,
                                                               f32(0.1),
-                                                              species)
-    nbrs = nbr_fn(R)
+                                                              species,
+                                                              format=format)
+    nbrs = nbr_fn.allocate(R)
 
     g_0, g_1 = g(R)
     g_0 = np.mean(g_0, axis=0)
@@ -213,11 +228,18 @@ class QuantityTest(jtu.JaxTestCase):
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': f'_dim={dim}_dtype={dtype.__name__}',
-          'dim': dim,
-          'dtype': dtype,
-      } for dim in SPATIAL_DIMENSION for dtype in DTYPES))
-  def test_pair_correlation_neighbor_list(self, dim, dtype):
+        'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
+                          f'_format={str(format).split(".")[-1]}'),
+        'dim': dim,
+        'dtype': dtype,
+        'format': format
+      } for dim in SPATIAL_DIMENSION
+    for dtype in DTYPES
+    for format in NEIGHBOR_LIST_FORMAT))
+  def test_pair_correlation_neighbor_list(self, dim, dtype, format):
+    if format is partition.OrderedSparse:
+      self.skipTest('OrderedSparse not supported for pair correlation '
+                    'function.')
     N = 100
     L = 10.
     displacement, _ = space.periodic(L)
@@ -227,8 +249,9 @@ class QuantityTest(jtu.JaxTestCase):
     nbr_fn, g_neigh = quantity.pair_correlation_neighbor_list(displacement,
                                                               L,
                                                               rs,
-                                                              f32(0.1))
-    nbrs = nbr_fn(R)
+                                                              f32(0.1),
+                                                              format=format)
+    nbrs = nbr_fn.allocate(R)
 
     g_0 = g(R)
     g_0 = np.mean(g_0, axis=0)

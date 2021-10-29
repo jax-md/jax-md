@@ -191,7 +191,7 @@ class NeighborListTest(jtu.JaxTestCase):
     neighbor_fn = partition.neighbor_list(
       displacement, box_size, cutoff, 0.0, 1.1)
 
-    idx = neighbor_fn(R).idx
+    idx = neighbor_fn.allocate(R).idx
     R_neigh = R[idx]
     mask = idx < N
 
@@ -211,6 +211,53 @@ class NeighborListTest(jtu.JaxTestCase):
     for i in range(dR.shape[0]):
       dR_row = dR[i]
       dR_row = dR_row[dR_row > 0.]
+
+      dR_exact_row = dR_exact[i]
+      dR_exact_row = np.array(dR_exact_row[dR_exact_row > 0.], dtype)
+
+      self.assertAllClose(dR_row, dR_exact_row)
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dtype={}_dim={}'.format(dtype.__name__, dim),
+          'dtype': dtype,
+          'dim': dim,
+      } for dtype in POSITION_DTYPE for dim in SPATIAL_DIMENSION))
+  def test_neighbor_list_build_sparse(self, dtype, dim):
+    key = random.PRNGKey(1)
+
+    box_size = (
+      np.array([9.0, 4.0, 7.25], f32) if dim == 3 else
+      np.array([9.0, 4.25], f32))
+    cutoff = f32(1.23)
+
+    displacement, _ = space.periodic(box_size)
+    metric = space.metric(displacement)
+
+    R = box_size * random.uniform(key, (PARTICLE_COUNT, dim), dtype=dtype)
+    N = R.shape[0]
+    neighbor_fn = partition.neighbor_list(
+      displacement, box_size, cutoff, 0.0, 1.1, format=partition.Sparse)
+
+    nbrs = neighbor_fn.allocate(R)
+    mask = partition.neighbor_list_mask(nbrs)
+
+    d = space.map_bond(metric)
+    dR = d(R[nbrs.idx[0]], R[nbrs.idx[1]])
+
+    d_exact = space.map_product(metric)
+    dR_exact = d_exact(R, R)
+
+    dR = np.where(dR < cutoff, dR, f32(0)) * mask
+    mask_exact = 1. - np.eye(dR_exact.shape[0])
+    dR_exact = np.where(dR_exact < cutoff, dR_exact, f32(0)) * mask_exact
+
+    dR_exact = np.sort(dR_exact, axis=1)
+
+    for i in range(N):
+      dR_row = dR[nbrs.idx[0] == i]
+      dR_row = dR_row[dR_row > 0.]
+      dR_row = np.sort(dR_row)
 
       dR_exact_row = dR_exact[i]
       dR_exact_row = np.array(dR_exact_row[dR_exact_row > 0.], dtype)
