@@ -37,15 +37,9 @@ jobs:
         pip install .
         pip install .[testing]
         pip install -r docs/requirements.txt
-    - name: Test testcode blocks in documentation
-      run: |
-        sphinx-build -M doctest docs docs/_build
-    - name: Build documentation
-      run: |
-        sphinx-build -M html docs docs/_build
     - name: Test with pytest and generate coverage report
       run: |
-        tests/run_all_tests.sh --with-cov
+        pytest -n auto
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v1
       with:
