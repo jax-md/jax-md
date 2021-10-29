@@ -527,25 +527,30 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
 
   Neighbor lists must balance the need to be jit compatable with the fact that
   under a jit the maximum number of neighbors cannot change (owing to static
-  shape requirements). To deal with this, our `neighbor_list` returns a
-  function `neighbor_fn` that can operate in two modes: 1) create a new
-  neighbor list or 2) update an existing neighbor list. Case 1) cannot be jit
-  and it creates a neighbor list with a maximum neighbor count of the current
-  neighbor count times capacity_multiplier. Case 2) is jit compatable, if any
-  particle has more neighbors than the maximum, the `did_buffer_overflow` bit
-  will be set to `True` and a new neighbor list will need to be created.
+  shape requirements). To deal with this, our `neighbor_list` returns a 
+  `NeighborListFns` object that contains two functions: 1) `neighbor_fn.allocate`
+  create a new neighbor list and 2) `neighbor_fn.update` updates an existing 
+  neighbor list. Neighbor lists themselves additionally have a convenience 
+  `update` member function.
+  
+  Note that allocation of a new neighbor list cannot be jit compiled since it 
+  uses the positions to infer the maximum number of neighbors (along with 
+  additional space specified by the `capacity_multiplier`). Updating the 
+  neighbor list can be jit compiled; if the neighbor list capacity is not 
+  sufficient to store all the neighbors, the `did_buffer_overflow` bit
+  will be set to `True` and a new neighbor list will need to be reallocated.
 
   Here is a typical example of a simulation loop with neighbor lists:
 
   >>> init_fn, apply_fn = simulate.nve(energy_fn, shift, 1e-3)
   >>> exact_init_fn, exact_apply_fn = simulate.nve(exact_energy_fn, shift, 1e-3)
   >>>
-  >>> nbrs = neighbor_fn(R)
+  >>> nbrs = neighbor_fn.allocate(R)
   >>> state = init_fn(random.PRNGKey(0), R, neighbor_idx=nbrs.idx)
   >>>
   >>> def body_fn(i, state):
   >>>   state, nbrs = state
-  >>>   nbrs = neighbor_fn(state.position, nbrs)
+  >>>   nbrs = nbrs.update(state.position)
   >>>   state = apply_fn(state, neighbor_idx=nbrs.idx)
   >>>   return state, nbrs
   >>>
@@ -553,7 +558,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
   >>> for _ in range(20):
   >>>   new_state, nbrs = lax.fori_loop(0, 100, body_fn, (state, nbrs))
   >>>   if nbrs.did_buffer_overflow:
-  >>>     nbrs = neighbor_fn(state.position)
+  >>>     nbrs = neighbor_fn.allocate(state.position)
   >>>   else:
   >>>     state = new_state
   >>>     step += 1
@@ -578,9 +583,8 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
       will be supplied in fractional coordinates in the unit cube, [0, 1]^d.
       If this is set to True then the box_size will be set to 1.0 and the
       cell size used in the cell list will be set to cutoff / box_size.
-    format: The format of the neighbor list; see the enum for details about the
-      different choices for formats. We default to `NeighborListFormat.Dense`
-      for backward compatibility.
+    format: The format of the neighbor list; see the NeighborListFormat enum
+      for details about the different choices for formats. Defaults to `Dense`.
     **static_kwargs: kwargs that get threaded through the calculation of
       example positions.
   Returns:
