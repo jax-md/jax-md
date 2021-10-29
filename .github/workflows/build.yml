@@ -38,10 +38,11 @@ jobs:
         pip install .[testing]
         pip install pytest
         pip install pytest-xdist
+        pip install pytest-cov
         pip install optax
     - name: Test with pytest and generate coverage report
       run: |
-        JAX_ENABLE_X64=1 pytest -n auto
+        JAX_ENABLE_X64=1 pytest -n auto --cov=jax_md --cov-report=xml --cov-report=term --cov-config=setup.cfg
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v1
       with:
