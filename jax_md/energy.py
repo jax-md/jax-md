@@ -494,6 +494,7 @@ def bks(dr: Array,
   model silicas. This function computes the interaction between two
   given atoms within the Buckingham form[2], following the implementation
   from Ref. [3]
+  
   Args:
     dr: An ndarray of shape [n, m] of pairwise distances between particles.
     Q_sq: An ndarray of shape [n, m] of pairwise product of partial charges.
@@ -507,8 +508,10 @@ def bks(dr: Array,
     coulombic interactions (a scalar).
     cutoff: Cutoff distance for considering pairwise interactions.
     unused_kwargs: Allows extra data (e.g. time) to be passed to the energy.
+    
   Returns:
     Matrix of energies of shape [n, m].
+    
   [1] Van Beest, B. W. H., Gert Jan Kramer, and R. A. Van Santen. "Force fields
   for silicas and aluminophosphates based on ab initio calculations." Physical
   Review Letters 64.16 (1990): 1955.
@@ -1309,6 +1312,12 @@ def graph_network_neighbor_list(
       networks used to update the states in the graph network.
     mlp_kwargs: A dict specifying args for the fully-connected networks used to
       update the states in the graph network.
+    fractional_coordinates: A boolean specifying whether or not the coordinates
+      will be in the unit cube.
+    format: The format of the neighbor list. See `partition.NeighborListFormat` 
+      for details. Only `Dense` and `Sparse` formats are accepted. If the `Dense`
+      format is used, then the graph network is constructed using the JAX MD 
+      backend, otherwise Jraph is used.
 
   Returns:
     A pair of functions. An `params = init_fn(key, R)` that instantiates the
