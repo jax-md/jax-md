@@ -36,7 +36,7 @@ jobs:
       run: |
         pip install .
         pip install .[testing]
-        pip install -r docs/requirements.txt
+        pip install pytest
     - name: Test with pytest and generate coverage report
       run: |
         pytest -n auto
