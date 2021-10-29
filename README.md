@@ -34,7 +34,7 @@ a broader set of simulations. JAX MD is a functional and data driven library. Da
 
 ### Getting Started
 
-For a video introducing JAX MD along with a demo, check out this talk from the Physics meets Machine Learning series:
+For a video introducing JAX MD along with a [demo](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/talk_demo.ipynb), check out this talk from the Physics meets Machine Learning series:
 
 [![Science Meets ML Talk](https://img.youtube.com/vi/Bkm8tGET7-w/0.jpg)](https://www.youtube.com/watch?v=Bkm8tGET7-w)
 
@@ -76,7 +76,7 @@ conditions are commonplace in simulations and must be respected. Spaces are defi
 The following spaces are currently supported:
 - `space.free()` specifies a space with free boundary conditions.
 - `space.periodic(box_size)` specifies a space with periodic boundary conditions of side length `box_size`.
-- `space.periodic_general(T)` specifies a space as a periodic parellelopiped formed by transforming the unit cube by an affine transformation `T`. Note that `T` can be a time dependent function `T(t)` that is useful for simulating systems under strain.
+- `space.periodic_general(box)` specifies a space as a periodic parellelopiped formed by transforming the unit cube by an affine transformation `box`.
 
 Example:
 
@@ -99,6 +99,9 @@ We provide the following classical potentials:
 - `energy.lennard_jones` a standard 12-6 lennard-jones potential.
 - `energy.morse` a morse potential.
 - `energy.eam` embedded atom model potential with ability to load parameters from LAMMPS files.
+- `energy.stillinger_weber` used to model Silicon-like systems.
+- `energy.bks` Beest-Kramer-van Santen potential used to model silica.
+- `energy.gupta` used to model gold nanoclusters.
 
 We also provide the following neural network potentials:
 - `energy.behler_parrinello` a widely used fixed-feature neural network architecture for molecular systems.
@@ -145,6 +148,7 @@ We provide the following dynamics:
 - `simulate.nvt_nose_hoover` Uses Nose-Hoover chain to simulate a constant temperature system.
 - `simulate.npt_nose_hoover` Uses Nose-Hoover chain to simulate a system at constant pressure and temperature.
 - `simulate.nvt_langevin` Simulates a system by numerically integrating the Langevin stochistic differential equation.
+- `simulate.hybrid_swap_mc` Alternates NVT dynamics with Monte-Carlo swapping moves to generate low energy glasses.
 - `simulate.brownian` Simulates brownian motion.
 - `minimize.gradient_descent` Mimimizes a system using gradient descent.
 - `minimize.fire_descent` Minimizes a system using the fast inertial relaxation engine.
@@ -185,17 +189,16 @@ Neighbor List Example:
 from jax_md import partition
 
 neighbor_list_fn = partition.neighbor_list(displacement_fn, box_size, cell_size)
-neighbors = neighbor_list_fn(R) # Create a new neighbor list.
+neighbors = neighbor_list_fn.allocate(R) # Create a new neighbor list.
 
 # Do some simulating....
 
-neighbors = neighbor_list_fn(R, neighbors)  # Update the neighbor list without resizing.
+neighbors = neighbors.update(R)  # Update the neighbor list without resizing.
 if neighbors.did_buffer_overflow:  # Couldn't fit all the neighbors into the list.
-  neighbors = neighbor_list_fn(R)  # So create a new neighbor list.
-
-# neighbors.idx is a [N, max_neighbors] ndarray of neighbor ids for each particle.
-# Empty slots are marked by id == N.
+  neighbors = neighbor_list_fn.allocate(R)  # So create a new neighbor list.
 ```
+
+There are three different formats of neighbor list supported: `Dense`, `Sparse`, and `OrderedSparse`. `Dense` neighbor lists store neighbors in an `(particle_count, neighbors_per_particle)` array, `Sparse` neighbor lists store neighbors in a `(2, total_neighbors)` array of pairs, `OrderedSparse` neighbor lists are like `Sparse` neighbor lists, but they only store pairs such that `i < j`.
 
 # Development
 
