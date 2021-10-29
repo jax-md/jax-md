@@ -32,8 +32,6 @@ jax_config.parse_flags_with_absl()
 jax_config.enable_omnistaging()
 FLAGS = jax_config.FLAGS
 
-test_util.update_test_tolerance(1e-5, 2e-7)
-
 PARTICLE_COUNT = 10
 STOCHASTIC_SAMPLES = 10
 SPATIAL_DIMENSION = [2, 3]
@@ -83,7 +81,7 @@ class QuantityTest(jtu.JaxTestCase):
          [1, 1]], dtype=dtype)
     dR = displacement(R, R)
     cangles = quantity.cosine_angles(dR)
-    c45 = 1 / np.sqrt(2)
+    c45 = 1 / np.sqrt(dtype(2))
     true_cangles = np.array(
         [[[0, 0, 0],
           [0, 1, c45],
@@ -94,7 +92,8 @@ class QuantityTest(jtu.JaxTestCase):
          [[1, c45, 0],
           [c45, 1, 0],
           [0, 0, 0]]], dtype=dtype)
-    self.assertAllClose(cangles, true_cangles)
+    tol = 3e-7
+    self.assertAllClose(cangles, true_cangles, atol=tol, rtol=tol)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -122,7 +121,8 @@ class QuantityTest(jtu.JaxTestCase):
         [[[1, c45], [c45, 1]],
          [[1, 1], [1, 1]],
          [[1, 1], [1, 1]]], dtype=dtype)
-    self.assertAllClose(cangles, true_cangles)
+    tol = 3e-7
+    self.assertAllClose(cangles, true_cangles, atol=tol, rtol=tol)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -140,7 +140,10 @@ class QuantityTest(jtu.JaxTestCase):
     E = energy.soft_sphere_pair(displacement_fn, state.species, state.sigma)
     pos = getattr(state, coords + '_position')
 
-    self.assertAllClose(quantity.pressure(E, pos, state.box), state.pressure)
+    tol = 1e-7 if dtype is f64 else 2e-5
+
+    self.assertAllClose(quantity.pressure(E, pos, state.box), state.pressure,
+                        atol=tol, rtol=tol)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
