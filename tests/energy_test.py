@@ -54,8 +54,6 @@ if FLAGS.jax_enable_x64:
 else:
   POSITION_DTYPE = [f32]
 
-test_util.update_test_tolerance(2e-5, 1e-6)
-
 
 def lattice_repeater(small_cell_pos, latvec, no_rep):
   dtype = small_cell_pos.dtype
@@ -236,7 +234,7 @@ class EnergyTest(jtu.JaxTestCase):
       displacement, shift = space.free()
       pos = np.array([[0, 0, 0], [0, 0, 2.9], [0, 2.9, 2.9]])
       energy_fn = energy.gupta_gold55(displacement)
-      self.assertAllClose(-5.46324213, energy_fn(pos))
+      self.assertAllClose(-5.4632421255957135, energy_fn(pos))
 
 
   @parameterized.named_parameters(jtu.cases_from_list(
@@ -282,7 +280,7 @@ class EnergyTest(jtu.JaxTestCase):
       lattice_vectors *= num_repetitions
       displacement, shift = space.periodic_general(lattice_vectors)
       energy_fn = jit(energy.stillinger_weber(displacement))
-      self.assertAllClose(energy_fn(positions)/positions.shape[0], -4.336503)
+      self.assertAllClose(energy_fn(positions)/positions.shape[0], -4.336503155764325)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -589,17 +587,19 @@ class EnergyTest(jtu.JaxTestCase):
     atoms = np.array([[0, 0, 0]], dtype=dtype)
     atoms_repeated, latvec_repeated = lattice_repeater(
         atoms, latvec, num_repetitions)
-    inv_latvec = np.array(onp.linalg.inv(onp.array(latvec_repeated)), dtype=dtype)
+    inv_latvec = np.array(onp.linalg.inv(onp.array(latvec_repeated)),
+                          dtype=dtype)
     displacement, _ = space.periodic_general(latvec_repeated)
     charge_fn, embedding_fn, pairwise_fn = make_eam_test_splines()
     assert charge_fn(np.array(1.0, dtype)).dtype == dtype
     assert embedding_fn(np.array(1.0, dtype)).dtype == dtype
     assert pairwise_fn(np.array(1.0, dtype)).dtype == dtype
     eam_energy = energy.eam(displacement, charge_fn, embedding_fn, pairwise_fn)
-    self.assertAllClose(
-        eam_energy(
-            np.dot(atoms_repeated, inv_latvec)) / np.array(num_repetitions ** 3, dtype),
-        dtype(-3.363338))
+    E = eam_energy(np.dot(atoms_repeated, inv_latvec)) / num_repetitions ** 3
+    if dtype is f64:
+      self.assertAllClose(E, dtype(-3.3633387837793505), atol=1e-8, rtol=1e-8)
+    else:
+      self.assertAllClose(E, dtype(-3.3633387837793505))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -619,12 +619,12 @@ class EnergyTest(jtu.JaxTestCase):
     init_fn, energy_fn = energy.graph_network(d, cutoff)
     params = init_fn(key, R)
 
-    E_out = energy_fn(params, R) 
+    E_out = energy_fn(params, R)
 
     assert E_out.shape == ()
-    assert E_out.dtype == dtype 
+    assert E_out.dtype == dtype
 
-  
+
   @parameterized.named_parameters(jtu.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
