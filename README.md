@@ -6,7 +6,7 @@
 | [**Paper**](https://arxiv.org/pdf/1912.04232.pdf)
 | [**NeurIPS 2020**](https://neurips.cc/virtual/2020/public/poster_83d3d4b6c9579515e1679aca8cbc8033.html)
 
-[![Build Status](https://travis-ci.org/google/jax-md.svg?branch=main)](https://travis-ci.org/google/jax-md) [![PyPI](https://img.shields.io/pypi/v/jax-md)](https://pypi.org/project/jax-md/) [![PyPI - License](https://img.shields.io/pypi/l/jax_md)](https://github.com/google/jax-md/blob/main/LICENSE)
+![Build Status](https://github.com/google/jax-md/workflows/Build/badge.svg?branch=main) [![PyPI](https://img.shields.io/pypi/v/jax-md)](https://pypi.org/project/jax-md/) [![PyPI - License](https://img.shields.io/pypi/l/jax_md)](https://github.com/google/jax-md/blob/main/LICENSE)
 
 
 Molecular dynamics is a workhorse of modern computational condensed matter
