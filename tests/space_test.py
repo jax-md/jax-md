@@ -331,8 +331,8 @@ class SpaceTest(jtu.JaxTestCase):
       disp_fn = space.map_product(disp_fn)
       general_disp_fn = space.map_product(general_disp_fn)
 
-      grad_fn = grad(lambda R: jnp.sum(disp_fn(R, R) ** 2)) 
-      general_grad_fn = grad(lambda R: jnp.sum(general_disp_fn(R, R) ** 2)) 
+      grad_fn = grad(lambda R: jnp.sum(disp_fn(R, R) ** 2))
+      general_grad_fn = grad(lambda R: jnp.sum(general_disp_fn(R, R) ** 2))
 
       self.assertAllClose(grad_fn(R_scaled), general_grad_fn(R))
       assert general_grad_fn(R).dtype == dtype

@@ -570,7 +570,7 @@ def pair_neighbor_list(fn: Callable[..., Array],
     if not partition.is_sparse(neighbor.format):
       return util.high_precision_sum(out, reduce_axis) / normalization
 
-    _reduce_axis = (a - 1 for a in reduce_axis if a > 1)
+    _reduce_axis = tuple(a - 1 for a in reduce_axis if a > 1)
 
     if 0 in reduce_axis:
       return util.high_precision_sum(out, (0,) + _reduce_axis)

@@ -494,7 +494,7 @@ def bks(dr: Array,
   model silicas. This function computes the interaction between two
   given atoms within the Buckingham form[2], following the implementation
   from Ref. [3]
-  
+
   Args:
     dr: An ndarray of shape [n, m] of pairwise distances between particles.
     Q_sq: An ndarray of shape [n, m] of pairwise product of partial charges.
@@ -508,10 +508,10 @@ def bks(dr: Array,
     coulombic interactions (a scalar).
     cutoff: Cutoff distance for considering pairwise interactions.
     unused_kwargs: Allows extra data (e.g. time) to be passed to the energy.
-    
+
   Returns:
     Matrix of energies of shape [n, m].
-    
+
   [1] Van Beest, B. W. H., Gert Jan Kramer, and R. A. Van Santen. "Force fields
   for silicas and aluminophosphates based on ab initio calculations." Physical
   Review Letters 64.16 (1990): 1955.
@@ -731,7 +731,7 @@ def _sw_radial_interaction(sigma: float, B: float, cutoff: float, r: Array
   return jnp.where(within_cutoff, term1 * term2, 0.0)
 
 
-def stillinger_weber(displacement,
+def stillinger_weber(displacement: DisplacementFn,
                      sigma=2.0951,
                      A=7.049556277,
                      B=0.6022245584,
@@ -739,7 +739,7 @@ def stillinger_weber(displacement,
                      gamma=1.2,
                      epsilon=2.16826,
                      three_body_strength=1.0,
-                     cutoff=3.77118):
+                     cutoff=3.77118) -> Callable[[Array], Array]:
   """Computes the Stillinger-Weber potential.
 
   The Stillinger-Weber (SW) potential [1] which is commonly used to model
@@ -790,18 +790,20 @@ def stillinger_weber(displacement,
   return compute_fn
 
 
-def stillinger_weber_neighbor_list(displacement,
-                                   box_size,
-                                   sigma=2.0951,
-                                   A=7.049556277,
-                                   B=0.6022245584,
-                                   lam=21.0,
-                                   gamma=1.2,
-                                   epsilon=2.16826,
-                                   three_body_strength=1.0,
-                                   cutoff=3.77118,
-                                   fractional_coordinates: bool=False,
-                                   format=partition.Dense):
+def stillinger_weber_neighbor_list(
+    displacement: DisplacementFn,
+    box_size: float,
+    sigma=2.0951,
+    A=7.049556277,
+    B=0.6022245584,
+    lam=21.0,
+    gamma=1.2,
+    epsilon=2.16826,
+    three_body_strength=1.0,
+    cutoff=3.77118,
+    fractional_coordinates: bool=False,
+    format=partition.Dense
+    ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   """Computes the Stillinger-Weber potential.
 
   The Stillinger-Weber (SW) potential [1] which is commonly used to model
@@ -991,16 +993,17 @@ def eam_from_lammps_parameters(displacement: DisplacementFn,
   return eam(displacement, *load_lammps_eam_parameters(f)[:-1])
 
 
-def eam_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
-                      box_size: float,
-                      charge_fn: Callable[[Array], Array],
-                      embedding_fn: Callable[[Array], Array],
-                      pairwise_fn: Callable[[Array], Array],
-                      cutoff: float,
-                      axis: Optional[Tuple[int, ...]]=None,
-                      fractional_coordinates: bool=True,
-                      format: partition.NeighborListFormat=partition.Sparse
-                      ) -> Callable[[Array], Array]:
+def eam_neighbor_list(
+    displacement_or_metric: DisplacementOrMetricFn,
+    box_size: float,
+    charge_fn: Callable[[Array], Array],
+    embedding_fn: Callable[[Array], Array],
+    pairwise_fn: Callable[[Array], Array],
+    cutoff: float,
+    axis: Optional[Tuple[int, ...]]=None,
+    fractional_coordinates: bool=True,
+    format: partition.NeighborListFormat=partition.Sparse
+    ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   """Interatomic potential as approximated by embedded atom model (EAM).
 
   This code implements the EAM approximation to interactions between metallic
@@ -1077,14 +1080,17 @@ def eam_neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
   return neighbor_fn, energy_fn
 
 
-def eam_from_lammps_parameters_neighbor_list(displacement: DisplacementFn,
-                                             box_size, float,
-                                             f: TextIO,
-                                             axis=None,
-                                             fractional_coordinates=True,
-                                             ) -> Callable[[Array], Array]:
+def eam_from_lammps_parameters_neighbor_list(
+    displacement: DisplacementFn,
+    box_size, float,
+    f: TextIO,
+    axis=None,
+    fractional_coordinates=True,
+    ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   """Convenience wrapper to compute EAM energy over a system."""
-  return eam_neighbor_list(displacement, *load_lammps_eam_parameters(f))
+  return eam_neighbor_list(displacement,
+                           box_size,
+                           *load_lammps_eam_parameters(f))
 
 
 def behler_parrinello(displacement: DisplacementFn,
@@ -1314,9 +1320,9 @@ def graph_network_neighbor_list(
       update the states in the graph network.
     fractional_coordinates: A boolean specifying whether or not the coordinates
       will be in the unit cube.
-    format: The format of the neighbor list. See `partition.NeighborListFormat` 
+    format: The format of the neighbor list. See `partition.NeighborListFormat`
       for details. Only `Dense` and `Sparse` formats are accepted. If the `Dense`
-      format is used, then the graph network is constructed using the JAX MD 
+      format is used, then the graph network is constructed using the JAX MD
       backend, otherwise Jraph is used.
 
   Returns:

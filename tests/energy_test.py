@@ -29,7 +29,7 @@ import numpy as onp
 from jax import grad
 from jax_md import space
 from jax_md.util import *
-from jax_md import test_util 
+from jax_md import test_util
 from jax_md import quantity
 
 from jax import test_util as jtu
@@ -58,6 +58,8 @@ else:
 NEIGHBOR_LIST_FORMAT = [partition.Dense,
                         partition.Sparse,
                         partition.OrderedSparse]
+
+test_util.update_test_tolerance(2e-5, 1e-10)
 
 
 def lattice_repeater(small_cell_pos, latvec, no_rep):
@@ -126,7 +128,7 @@ def lattice(R_unit_cell, copies, lattice_vectors):
 
   if lattice_vectors.ndim == 0 or lattice_vectors.ndim == 1:
     cartesian = True
-    L = onp.eye(d) * lattice_vectors[onp.newaxis, ...] 
+    L = onp.eye(d) * lattice_vectors[onp.newaxis, ...]
   elif lattice_vectors.ndim == 2:
     assert lattice_vectors.shape[0] == lattice_vectors.shape[1]
     cartesian = False
@@ -359,7 +361,7 @@ class EnergyTest(jtu.JaxTestCase):
       a = np.linspace(max(-2.5, -alpha * sigma), 8.0, 100)
       dr = np.array(a / alpha + sigma, dtype=dtype)
       U = energy.morse(dr, sigma, epsilon, alpha)/dtype(epsilon)
-      Ucomp = np.array((dtype(1) - np.exp(-a)) ** dtype(2) - dtype(1), 
+      Ucomp = np.array((dtype(1) - np.exp(-a)) ** dtype(2) - dtype(1),
                        dtype=dtype)
       self.assertAllClose(U, Ucomp)
 

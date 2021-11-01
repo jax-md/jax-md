@@ -27,7 +27,9 @@ import json
 
 import numpy as onp
 
-import time
+
+# INTERNAL_FILE_IMPORT
+
 
 renderer_code = IPython.display.HTML(
   url=('https://raw.githubusercontent.com/google/jax-md/master/'
@@ -42,7 +44,7 @@ class Disk:
   """Disk geometry elements.
 
   Args:
-    position: An array of shape `(steps, count, dim)` or `(count, dim)` 
+    position: An array of shape `(steps, count, dim)` or `(count, dim)`
       specifying possibly time varying positions. Here `dim` is the spatial
       dimension.
     size: An array of shape (steps, count)`, `(count,)`, or `()` specifying
@@ -59,7 +61,7 @@ class Disk:
   def __init__(self, position, diameter=1.0, color=None):
     if color is None:
       color = jnp.array([0.8, 0.8, 1.0])
-    
+
     object.__setattr__(self, 'position', position)
     object.__setattr__(self, 'size', diameter)
     object.__setattr__(self, 'color', color)
@@ -74,7 +76,7 @@ class Sphere:
   """Sphere geometry elements.
 
   Args:
-    position: An array of shape `(steps, count, dim)` or `(count, dim)` 
+    position: An array of shape `(steps, count, dim)` or `(count, dim)`
       specifying possibly time varying positions. Here `dim` is the spatial
       dimension.
     size: An array of shape (steps, count)`, `(count,)`, or `()` specifying
@@ -91,7 +93,7 @@ class Sphere:
   def __init__(self, position, diameter=1.0, color=None):
     if color is None:
       color = jnp.array([0.8, 0.8, 1.0])
-    
+
     object.__setattr__(self, 'position', position)
     object.__setattr__(self, 'size', diameter)
     object.__setattr__(self, 'color', color)
@@ -107,11 +109,11 @@ class Bond:
 
   Args:
     reference_geometery: The name of the geometry object to draw bonds between.
-    neighbor_idx: An array of ids of objects that should have bonds drawn 
+    neighbor_idx: An array of ids of objects that should have bonds drawn
       between them. This uses the same encoding as in `partition.neighbor_list`.
-      Essentially, ids is a `(steps, count, max_neighbors)` or 
+      Essentially, ids is a `(steps, count, max_neighbors)` or
       `(count, max_neighbors)` array of integers. `neighbor_idx[i, j] < count`
-      denotes a bond between object `i` and `neighbor[i, j]`.  
+      denotes a bond between object `i` and `neighbor[i, j]`.
     diameter: The width of the line between the objects.
     color: An array of shape `(3,)` specifying the RGB color of the bonds.
     count: The number of objects.
@@ -165,10 +167,10 @@ def _to_json(data):
   except:
     return IPython.display.JSON(data=json.dumps(data))
 
-def render(box_size, 
+def render(box_size,
            geometry,
-           buffer_size=None, 
-           background_color=None, 
+           buffer_size=None,
+           background_color=None,
            resolution=None):
   """Creates a rendering front-end along with callbacks in the host program.
 
@@ -184,7 +186,8 @@ def render(box_size,
     resolution: The resolution of the renderer.
   """
   global SIMULATION_IDX
-  
+  # INTERNAL_RENDERER_CODE_LOADING
+
   simulation_idx = SIMULATION_IDX
 
   frame_count = None
