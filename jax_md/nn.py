@@ -555,7 +555,7 @@ def concatenate_graph_features(graphs: Tuple[GraphsTuple, ...]) -> GraphsTuple:
   return graph._replace(
     nodes=jnp.concatenate([g.nodes for g in graphs], axis=-1),
     edges=jnp.concatenate([g.edges for g in graphs], axis=-1),
-    globals=jnp.concatenate([g.globals for g in graphs], axis=-1),
+    globals=jnp.concatenate([g.globals for g in graphs], axis=-1),  # pytype: disable=missing-parameter
   )
 
 

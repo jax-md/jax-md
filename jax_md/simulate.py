@@ -308,7 +308,7 @@ def nose_hoover_chain(dt: float,
     G = (v_xi[M - 1] ** f32(2) * Q[M - 1] - kT) / Q[M]
     v_xi = ops.index_add(v_xi, M, delta_4 * G)
 
-    def backward_loop_fn(v_xi_new, m): 
+    def backward_loop_fn(v_xi_new, m):
       G = (v_xi[m - 1] ** 2 * Q[m - 1] - kT) / Q[m]
       scale = jnp.exp(-delta_8 * v_xi_new)
       v_xi_new = scale * (scale * v_xi[m] + delta_4 * G)
@@ -652,7 +652,7 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     N, dim = R.shape
 
     _kT = kT if 'kT' not in kwargs else kwargs['kT']
-    
+
     mass = quantity.canonicalize_mass(mass)
     V = jnp.sqrt(_kT / mass) * random.normal(key, R.shape, dtype=R.dtype)
     V = V - jnp.mean(V * mass, axis=0, keepdims=True) / mass

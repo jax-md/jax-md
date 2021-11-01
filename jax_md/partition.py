@@ -419,7 +419,7 @@ class NeighborListFormat(Enum):
 
 
 def is_sparse(format: NeighborListFormat) -> bool:
-  return (format is NeighborListFormat.Sparse or 
+  return (format is NeighborListFormat.Sparse or
           format is NeighborListFormat.OrderedSparse)
 
 
@@ -479,7 +479,7 @@ class NeighborListFns:
     update: A function to update a neighbor list given a new set of positions
       and a new neighbor list.
   """
-  allocate: Callable[[Array], NeighborList] = dataclasses.static_field()
+  allocate: Callable[..., NeighborList] = dataclasses.static_field()
   update: Callable[[Array, NeighborList],
                    NeighborList] = dataclasses.static_field()
 
@@ -506,7 +506,7 @@ class NeighborListFns:
     return self.update(R, neighbor_list, **kwargs)
 
   def __iter__(self):
-    return (allocate, update)
+    return iter((self.allocate, self.update))
 
 
 NeighborFn = Callable[[Array, Optional[NeighborList], Optional[int]],
@@ -527,16 +527,16 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
 
   Neighbor lists must balance the need to be jit compatable with the fact that
   under a jit the maximum number of neighbors cannot change (owing to static
-  shape requirements). To deal with this, our `neighbor_list` returns a 
-  `NeighborListFns` object that contains two functions: 1) `neighbor_fn.allocate`
-  create a new neighbor list and 2) `neighbor_fn.update` updates an existing 
-  neighbor list. Neighbor lists themselves additionally have a convenience 
-  `update` member function.
-  
-  Note that allocation of a new neighbor list cannot be jit compiled since it 
-  uses the positions to infer the maximum number of neighbors (along with 
-  additional space specified by the `capacity_multiplier`). Updating the 
-  neighbor list can be jit compiled; if the neighbor list capacity is not 
+  shape requirements). To deal with this, our `neighbor_list` returns a
+  `NeighborListFns` object that contains two functions: 1)
+  `neighbor_fn.allocate` create a new neighbor list and 2) `neighbor_fn.update`
+  updates an existing neighbor list. Neighbor lists themselves additionally
+  have a convenience `update` member function.
+
+  Note that allocation of a new neighbor list cannot be jit compiled since it
+  uses the positions to infer the maximum number of neighbors (along with
+  additional space specified by the `capacity_multiplier`). Updating the
+  neighbor list can be jit compiled; if the neighbor list capacity is not
   sufficient to store all the neighbors, the `did_buffer_overflow` bit
   will be set to `True` and a new neighbor list will need to be reallocated.
 
@@ -727,7 +727,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
       else:
         idx, occupancy = prune_neighbor_list_dense(R, idx, **kwargs)
       if max_occupancy is None:
-        _extra_capacity = (extra_capacity if not is_sparse(format) 
+        _extra_capacity = (extra_capacity if not is_sparse(format)
                            else N * extra_capacity)
         max_occupancy = int(occupancy * capacity_multiplier + _extra_capacity)
         if max_occupancy > R.shape[0] and not is_sparse(format):
@@ -767,7 +767,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                          neighbor_list_fn(R,
                                           extra_capacity=extra_capacity,
                                           **kwargs),
-                         lambda R, nbrs, **kwargs:
+                         lambda R, nbrs, **kwargs:  # pytype: disable=wrong-arg-count
                          neighbor_list_fn(R, nbrs, **kwargs))
 
 

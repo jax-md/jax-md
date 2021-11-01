@@ -50,14 +50,14 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
           'dtype': dtype,
           'N_types': N_types,
           'N_etas': N_etas,
-      } for N_types in N_TYPES_TO_TEST 
-        for N_etas in N_ETAS_TO_TEST 
+      } for N_types in N_TYPES_TO_TEST
+        for N_etas in N_ETAS_TO_TEST
         for dtype in DTYPES))
   def test_radial_symmetry_functions(self, N_types, N_etas, dtype):
     displacement, shift = space.free()
-    gr = nn.radial_symmetry_functions(displacement, 
-                                      np.array([1, 1, N_types]), 
-                                      np.linspace(1.0, 2.0, N_etas, dtype=dtype), 
+    gr = nn.radial_symmetry_functions(displacement,
+                                      np.array([1, 1, N_types]),
+                                      np.linspace(1.0, 2.0, N_etas, dtype=dtype),
                                       4)
     R = np.array([[0,0,0], [1,1,1], [1,1,0]], dtype)
     gr_out = gr(R)
@@ -72,8 +72,8 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
           'N_types': N_types,
           'N_etas': N_etas,
           'dim': dim,
-      } for N_types in N_TYPES_TO_TEST 
-        for N_etas in N_ETAS_TO_TEST 
+      } for N_types in N_TYPES_TO_TEST
+        for N_etas in N_ETAS_TO_TEST
         for dtype in DTYPES
         for dim in [2, 3]))
   def test_radial_symmetry_functions_neighbor_list(self,
@@ -95,8 +95,8 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
     neighbor_fn = partition.neighbor_list(displacement, box_size, r_cutoff, 0.)
 
     gr = nn.radial_symmetry_functions(displacement,
-                                      species, 
-                                      np.linspace(1.0, 2.0, N_etas, dtype=dtype), 
+                                      species,
+                                      np.linspace(1.0, 2.0, N_etas, dtype=dtype),
                                       r_cutoff)
     gr_neigh = nn.radial_symmetry_functions_neighbor_list(
       displacement,
@@ -118,8 +118,8 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
           'N_types': N_types,
           'N_etas': N_etas,
           'dim': dim,
-      } for N_types in N_TYPES_TO_TEST 
-        for N_etas in N_ETAS_TO_TEST 
+      } for N_types in N_TYPES_TO_TEST
+        for N_etas in N_ETAS_TO_TEST
         for dtype in DTYPES
         for dim in [2, 3]))
   def test_angular_symmetry_functions_neighbor_list(self,
@@ -170,15 +170,15 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
           'dtype': dtype,
           'N_types': N_types,
           'N_etas': N_etas,
-      } for N_types in N_TYPES_TO_TEST 
+      } for N_types in N_TYPES_TO_TEST
         for N_etas in N_ETAS_TO_TEST
         for dtype in DTYPES))
   def test_angular_symmetry_functions(self, N_types, N_etas, dtype):
     displacement, shift = space.free()
-    gr = nn.angular_symmetry_functions(displacement,np.array([1, 1, N_types]), 
-                                       etas=np.array([1e-4/(0.529177 ** 2)] * N_etas, dtype), 
-                                       lambdas=np.array([-1.0] * N_etas, dtype), 
-                                       zetas=np.array([1.0] * N_etas, dtype), 
+    gr = nn.angular_symmetry_functions(displacement,np.array([1, 1, N_types]),
+                                       etas=np.array([1e-4/(0.529177 ** 2)] * N_etas, dtype),
+                                       lambdas=np.array([-1.0] * N_etas, dtype),
+                                       zetas=np.array([1.0] * N_etas, dtype),
                                        cutoff_distance=8.0)
     R = np.array([[0,0,0], [1,1,1], [1,1,0]], dtype)
     gr_out = gr(R)
@@ -347,7 +347,7 @@ class NeuralNetworkTest(jtu.JaxTestCase):
     a = dataclasses.asdict(a)
     b = dataclasses.asdict(b)
 
-    self.assertAllClose(a, b) 
+    self.assertAllClose(a, b)
 
 
 if __name__ == '__main__':

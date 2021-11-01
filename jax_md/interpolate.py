@@ -82,7 +82,7 @@ def spline(y, dx, degree=3):
     result = np.array(0, x.dtype)
     dX = x - np.array(ind, np.float32) * dx
     for i in range(degree + 1):  # sum over the polynomial terms up to degree.
-      result = result + np.array(coeffs[degree - i, truncated_ind + 2], 
+      result = result + np.array(coeffs[degree - i, truncated_ind + 2],
                                  x.dtype) * dX ** np.array(i, x.dtype)
     # For x values that are outside the domain of the spline fit, return zeros.
     result = np.where(ind < num_points, result, np.array(0.0, x.dtype))
