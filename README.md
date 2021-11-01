@@ -93,7 +93,7 @@ In the simplest case, molecular dynamics calculations are often based on a pair
 potential that is defined by a user. This then is used to compute a total energy
 whose negative gradient gives forces. One of the very nice things about JAX is
 that we get forces for free! The second part of the code is devoted to computing
-energies. 
+energies.
 
 We provide the following classical potentials:
 - `energy.soft_sphere` a soft sphere whose energy incrases as the overlap of the spheres to some power, `alpha`.
@@ -169,11 +169,11 @@ R = state.position
 
 ## Spatial Partitioning ([`partition.py`](https://jax-md.readthedocs.io/en/latest/jax_md.partition.html))
 
-In many applications, it is useful to construct spatial partitions of particles / objects in a simulation. 
+In many applications, it is useful to construct spatial partitions of particles / objects in a simulation.
 
 We provide the following methods:
-- `partition.cell_list` Partitions objects (and metadata) into a grid of cells. 
-- `partition.neighbor_list` Constructs a set of neighbors within some cutoff distance for each object in a simulation. 
+- `partition.cell_list` Partitions objects (and metadata) into a grid of cells.
+- `partition.neighbor_list` Constructs a set of neighbors within some cutoff distance for each object in a simulation.
 
 Cell List Example:
 ```python
