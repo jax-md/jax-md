@@ -23,6 +23,6 @@ Helper Functions
 
 .. autofunction:: transform
 .. autofunction:: square_distance
-.. autofunction:: distance 
+.. autofunction:: distance
 .. autofunction:: pairwise_displacement
 .. autofunction:: periodic_shift

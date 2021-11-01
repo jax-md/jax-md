@@ -3,7 +3,7 @@ Simulation Routines
 
 .. default-role:: code
 .. automodule:: jax_md.simulate
-  
+
 Deterministic Simulation Environments
 --------------------------------------
 .. autofunction:: nve
