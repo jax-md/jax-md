@@ -310,7 +310,8 @@ class SimulateTest(jtu.JaxTestCase):
 
       T_final = quantity.temperature(state.velocity, state.mass)
       assert np.abs(T_final - T) / T < 0.1
-      self.assertAllClose(invariant(state, T), initial, rtol=1e-4)
+      tol = 5e-4 if dtype is f32 else 1e-6
+      self.assertAllClose(invariant(state, T), initial, rtol=tol)
       self.assertEqual(state.position.dtype, dtype)
 
   @parameterized.named_parameters(jtu.cases_from_list(
