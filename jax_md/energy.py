@@ -20,6 +20,7 @@ from typing import Callable, Tuple, TextIO, Dict, Any, Optional
 
 import jax
 import jax.numpy as jnp
+from jax import ops
 from jax.tree_util import tree_map
 from jax import vmap
 import haiku as hk
