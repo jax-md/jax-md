@@ -3,7 +3,7 @@ Simulation Routines
 
 .. default-role:: code
 .. automodule:: jax_md.simulate
-  
+
 Deterministic Simulation Environments
 --------------------------------------
 .. autofunction:: nve
@@ -14,6 +14,7 @@ Stochastic Simulation Environments
 --------------------------------------
 .. autofunction:: nvt_langevin
 .. autofunction:: brownian
+.. autofunction:: hybrid_swap_mc
 
 Helper Functions
 -----------------

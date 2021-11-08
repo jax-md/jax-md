@@ -16,7 +16,7 @@
 
 from functools import reduce, partial
 
-from typing import Dict, Callable, List, Tuple, Union
+from typing import Dict, Callable, List, Tuple, Union, Optional
 
 from collections import namedtuple
 import math
@@ -29,7 +29,10 @@ from jax.abstract_arrays import ShapedArray
 from jax.interpreters import partial_eval as pe
 import jax.numpy as jnp
 
-from jax_md import quantity, space, util
+from jax_md import quantity
+from jax_md import space
+from jax_md import util
+from jax_md import partition
 
 high_precision_sum = util.high_precision_sum
 
@@ -51,10 +54,10 @@ DisplacementOrMetricFn = space.DisplacementOrMetricFn
 def _get_bond_type_parameters(params: Array, bond_type: Array) -> Array:
   """Get parameters for interactions for bonds indexed by a bond-type."""
   # TODO(schsam): We should do better error checking here.
-  assert isinstance(bond_type, jnp.ndarray)
+  assert util.is_array(bond_type)
   assert len(bond_type.shape) == 1
 
-  if isinstance(params, jnp.ndarray):
+  if util.is_array(params):
     if len(params.shape) == 1:
       return params[bond_type]
     elif len(params.shape) == 0:
@@ -62,8 +65,10 @@ def _get_bond_type_parameters(params: Array, bond_type: Array) -> Array:
     else:
       raise ValueError(
           'Params must be a scalar or a 1d array if using a bond-type lookup.')
-  elif(isinstance(params, int) or isinstance(params, float) or
-       jnp.issubdtype(params, jnp.integer) or jnp.issubdtype(params, jnp.floating)):
+  elif(isinstance(params, int) or
+       isinstance(params, float) or
+       jnp.issubdtype(params, jnp.integer) or
+       jnp.issubdtype(params, jnp.floating)):
     return params
   raise NotImplementedError
 
@@ -80,8 +85,8 @@ def _kwargs_to_bond_parameters(bond_type: Array,
 
 def bond(fn: Callable[..., Array],
          displacement_or_metric: DisplacementOrMetricFn,
-         static_bonds: Array=None,
-         static_bond_types: Array=None,
+         static_bonds: Optional[Array]=None,
+         static_bond_types: Optional[Array]=None,
          ignore_unused_parameters: bool=False,
          **kwargs) -> Callable[..., Array]:
   """Promotes a function that acts on a single pair to one on a set of bonds.
@@ -143,8 +148,8 @@ def bond(fn: Callable[..., Array],
     return high_precision_sum(fn(dr, **_kwargs))
 
   def mapped_fn(R: Array,
-                bonds: Array=None,
-                bond_types: Array=None,
+                bonds: Optional[Array]=None,
+                bond_types: Optional[Array]=None,
                 **dynamic_kwargs) -> Array:
     accum = f32(0)
 
@@ -165,7 +170,7 @@ def bond(fn: Callable[..., Array],
 def _get_species_parameters(params: Array, species: Array) -> Array:
   """Get parameters for interactions between species pairs."""
   # TODO(schsam): We should do better error checking here.
-  if isinstance(params, jnp.ndarray):
+  if util.is_array(params):
     if len(params.shape) == 2:
       return params[species]
     elif len(params.shape) == 0:
@@ -176,31 +181,37 @@ def _get_species_parameters(params: Array, species: Array) -> Array:
   return params
 
 
-def _get_matrix_parameters(params: Array) -> Array:
+def _get_matrix_parameters(params: Array, combinator: Callable) -> Array:
   """Get an NxN parameter matrix from per-particle parameters."""
-  if isinstance(params, jnp.ndarray):
+  if util.is_array(params):
     if len(params.shape) == 1:
-      # NOTE(schsam): get_parameter_matrix only supports additive parameters.
-      return 0.5 * (params[:, jnp.newaxis] + params[jnp.newaxis, :])
+      return combinator(params[:, jnp.newaxis], params[jnp.newaxis, :])
     elif len(params.shape) == 0 or len(params.shape) == 2:
       return params
     else:
       raise NotImplementedError
   elif(isinstance(params, int) or isinstance(params, float) or
-       jnp.issubdtype(params, jnp.integer) or jnp.issubdtype(params, jnp.floating)):
+       jnp.issubdtype(params, jnp.integer) or
+       jnp.issubdtype(params, jnp.floating)):
     return params
   else:
     raise NotImplementedError
 
 
-def _kwargs_to_parameters(species: Array=None, **kwargs) -> Dict[str, Array]:
+def _kwargs_to_parameters(species: Array,
+                          kwargs: Dict[str, Array],
+                          combinators: Dict[str, Callable]
+                          ) -> Dict[str, Array]:
   """Extract parameters from keyword arguments."""
   # NOTE(schsam): We could pull out the species case from the generic case.
-  s_kwargs = kwargs
-  for k, v in s_kwargs.items():
+  s_kwargs = {}
+  for k, v in kwargs.items():
     if species is None:
-      s_kwargs[k] = _get_matrix_parameters(v)
+      combinator = combinators.get(k, lambda x, y: 0.5 * (x + y))
+      s_kwargs[k] = _get_matrix_parameters(v, combinator)
     else:
+      if k in combinators:
+        raise ValueError('Cannot specify custom combinator with species.')
       s_kwargs[k] = _get_species_parameters(v, species)
   return s_kwargs
 
@@ -234,10 +245,26 @@ def _check_species_dtype(species):
   raise ValueError(msg)
 
 
+def _split_params_and_combinators(kwargs):
+  combinators = {}
+  params = {}
+
+  for k, v in kwargs.items():
+    if isinstance(v, Callable):
+      combinators[k] = v
+    elif isinstance(v, tuple) and isinstance(v[0], Callable):
+      assert len(v) == 2
+      combinators[k] = v[0]
+      params[k] = v[1]
+    else:
+      params[k] = v
+  return params, combinators
+
+
 def pair(fn: Callable[..., Array],
          displacement_or_metric: DisplacementOrMetricFn,
-         species: Array=None,
-         reduce_axis: Tuple[int, ...]=None,
+         species: Optional[Array]=None,
+         reduce_axis: Optional[Tuple[int, ...]]=None,
          keepdims: bool=False,
          ignore_unused_parameters: bool=False,
          **kwargs) -> Callable[..., Array]:
@@ -255,8 +282,9 @@ def pair(fn: Callable[..., Array],
       third argument.
     species: A list of species for the different particles. This should either
       be None (in which case it is assumed that all the particles have the same
-      species), an integer ndarray of shape [n] with species data, or Dynamic
-      in which case the species data will be specified dynamically. Note: that
+      species), an integer ndarray of shape [n] with species data, or an
+      integer in which case the species data will be specified dynamically with
+      `species` giving the naximum number of types of particles. Note: that
       dynamic species specification is less efficient, because we cannot
       specialize shape information.
     reduce_axis: A list of axes to reduce over. This is supplied to jnp.sum and
@@ -270,9 +298,13 @@ def pair(fn: Callable[..., Array],
       `smap.pair(...)`.
     kwargs: Arguments providing parameters to the mapped function. In cases
       where no species information is provided these should be either 1) a
-      scalar, 2) an ndarray of shape [n], 3) an ndarray of shape [n, n]. If
-      species information is provided then the parameters should be specified as
-      either 1) a scalar or 2) an ndarray of shape [max_species, max_species].
+      scalar, 2) an ndarray of shape [n], 3) an ndarray of shape [n, n],
+      3) a binary function that determines how per-particle parameters are to
+      be combined, 4) a binary function as well as a default set of parameters
+      as in 2). If unspecified then this is taken to be the average of the
+      two per-particle parameters. If species information is provided then the
+      parameters should be specified as either 1) a scalar or 2) an ndarray of
+      shape [max_species, max_species].
 
   Returns:
     A function fn_mapped.
@@ -280,7 +312,7 @@ def pair(fn: Callable[..., Array],
     If species is None or statically specified then fn_mapped takes as arguments
     an ndarray of positions of shape [n, spatial_dimension].
 
-    If species is Dynamic then fn_mapped takes as ijnput an ndarray of shape
+    If species is dynamic then fn_mapped takes as input an ndarray of shape
     [n, spatial_dimension], an integer ndarray of species of shape [n], and an
     integer specifying the maximum species.
 
@@ -295,6 +327,8 @@ def pair(fn: Callable[..., Array],
   # equivalent to two applications of vmap adding one batch dimension for the
   # first set and then one for the second.
 
+  kwargs, param_combinators = _split_params_and_combinators(kwargs)
+
   merge_dicts = partial(util.merge_dicts,
                         ignore_unused_parameters=ignore_unused_parameters)
 
@@ -302,13 +336,13 @@ def pair(fn: Callable[..., Array],
     def fn_mapped(R: Array, **dynamic_kwargs) -> Array:
       d = space.map_product(partial(displacement_or_metric, **dynamic_kwargs))
       _kwargs = merge_dicts(kwargs, dynamic_kwargs)
-      _kwargs = _kwargs_to_parameters(species, **_kwargs)
+      _kwargs = _kwargs_to_parameters(None, _kwargs, param_combinators)
       dr = d(R, R)
       # NOTE(schsam): Currently we place a diagonal mask no matter what function
       # we are mapping. Should this be an option?
       return high_precision_sum(_diagonal_mask(fn(dr, **_kwargs)),
                                 axis=reduce_axis, keepdims=keepdims) * f32(0.5)
-  elif isinstance(species, jnp.ndarray):
+  elif util.is_array(species):
     species = onp.array(species)
     _check_species_dtype(species)
     species_count = int(onp.max(species))
@@ -321,7 +355,7 @@ def pair(fn: Callable[..., Array],
       for i in range(species_count + 1):
         for j in range(i, species_count + 1):
           _kwargs = merge_dicts(kwargs, dynamic_kwargs)
-          s_kwargs = _kwargs_to_parameters((i, j), **_kwargs)
+          s_kwargs = _kwargs_to_parameters((i, j), _kwargs, param_combinators)
           Ra = R[species == i]
           Rb = R[species == j]
           dr = d(Ra, Rb)
@@ -343,7 +377,7 @@ def pair(fn: Callable[..., Array],
       dr = d(R, R)
       for i in range(species_count):
         for j in range(species_count):
-          s_kwargs = _kwargs_to_parameters((i, j), **_kwargs)
+          s_kwargs = _kwargs_to_parameters((i, j), _kwargs, param_combinators)
           mask_a = jnp.array(jnp.reshape(species == i, (N,)), dtype=R.dtype)
           mask_b = jnp.array(jnp.reshape(species == j, (N,)), dtype=R.dtype)
           mask = mask_a[:, jnp.newaxis] * mask_b[jnp.newaxis, :]
@@ -354,45 +388,60 @@ def pair(fn: Callable[..., Array],
       return U / f32(2.0)
   else:
     raise ValueError(
-        'Species must be None, an ndarray, or Dynamic. Found {}.'.format(
+        'Species must be None, an ndarray, or an integer. Found {}.'.format(
           species))
   return fn_mapped
 
 
 # Mapping pairwise functional forms to systems using neighbor lists.
 
-def _get_neighborhood_matrix_params(idx: Array, params: Array) -> Array:
-  if isinstance(params, jnp.ndarray):
+def _get_neighborhood_matrix_params(format: partition.NeighborListFormat,
+                                    idx: Array,
+                                    params: Array,
+                                    combinator: Callable) -> Array:
+  if util.is_array(params):
     if len(params.shape) == 1:
-      return 0.5 * (jnp.reshape(params, params.shape + (1,)) + params[idx])
+      if partition.is_sparse(format):
+        return space.map_bond(combinator)(params[idx[0]], params[idx[1]])
+      else:
+        return combinator(params[:, None], params[idx])
+        return space.map_neighbor(combinator)(params, params[idx])
     elif len(params.shape) == 2:
       def query(id_a, id_b):
         return params[id_a, id_b]
-      query = vmap(vmap(query, (None, 0)))
-      return query(jnp.arange(idx.shape[0], dtype=jnp.int32), idx)
+      if partition.is_sparse(format):
+        return space.map_bond(query)(idx[0], idx[1])
+      else:
+        query = vmap(vmap(query, (None, 0)))
+        return query(jnp.arange(idx.shape[0], dtype=jnp.int32), idx)
     elif len(params.shape) == 0:
       return params
     else:
       raise NotImplementedError()
-  elif(isinstance(params, int) or isinstance(params, float) or
-       jnp.issubdtype(params, jnp.integer) or jnp.issubdtype(params, jnp.floating)):
+  elif(isinstance(params, int) or
+       isinstance(params, float) or
+       jnp.issubdtype(params, jnp.integer) or
+       jnp.issubdtype(params, jnp.floating)):
     return params
   else:
-    raise NotImplementedError 
+    raise NotImplementedError()
 
-def _get_neighborhood_species_params(idx: Array,
+def _get_neighborhood_species_params(format: partition.NeighborListFormat,
+                                     idx: Array,
                                      species: Array,
                                      params: Array) -> Array:
   """Get parameters for interactions between species pairs."""
   # TODO(schsam): We should do better error checking here.
-  def lookup(species_a, species_b, params):
+  def lookup(species_a, species_b):
     return params[species_a, species_b]
-  lookup = vmap(vmap(lookup, (None, 0, None)), (0, 0, None))
 
-  neighbor_species = jnp.reshape(species[idx], idx.shape)
-  if isinstance(params, jnp.ndarray):
+  if util.is_array(params):
     if len(params.shape) == 2:
-      return lookup(species, neighbor_species, params)
+      if partition.is_sparse(format):
+        return space.map_bond(lookup)(species[idx[0]], species[idx[1]])
+      else:
+        lookup = vmap(vmap(lookup, (None, 0)))
+        return lookup(species, species[idx])
     elif len(params.shape) == 0:
       return params
     else:
@@ -400,16 +449,28 @@ def _get_neighborhood_species_params(idx: Array,
           'Params must be a scalar or a 2d array if using a species lookup.')
   return params
 
-def _neighborhood_kwargs_to_params(idx: Array,
-                                   species: Array=None,
-                                   **kwargs) -> Dict[str, Array]:
+def _neighborhood_kwargs_to_params(format: partition.NeighborListFormat,
+                                   idx: Array,
+                                   species: Array,
+                                   kwargs: Dict[str, Array],
+                                   combinators: Dict[str, Callable]
+                                   ) -> Dict[str, Array]:
   out_dict = {}
   for k in kwargs:
     if species is None or (
-        isinstance(kwargs[k], jnp.ndarray) and kwargs[k].ndim == 1):
-      out_dict[k] = _get_neighborhood_matrix_params(idx, kwargs[k])
+        util.is_array(kwargs[k]) and kwargs[k].ndim == 1):
+      combinator = combinators.get(k, lambda x, y: 0.5 * (x + y))
+      out_dict[k] = _get_neighborhood_matrix_params(format,
+                                                    idx,
+                                                    kwargs[k],
+                                                    combinator)
     else:
-      out_dict[k] = _get_neighborhood_species_params(idx, species, kwargs[k])
+      if k in combinators:
+        raise ValueError()
+      out_dict[k] = _get_neighborhood_species_params(format,
+                                                     idx,
+                                                     species,
+                                                     kwargs[k])
   return out_dict
 
 def _vectorized_cond(pred: Array,
@@ -421,8 +482,7 @@ def _vectorized_cond(pred: Array,
 def pair_neighbor_list(fn: Callable[..., Array],
                        displacement_or_metric: DisplacementOrMetricFn,
                        species: Union[Array, int]=None,
-                       reduce_axis: Tuple[int, ...]=None,
-                       keepdims: bool=False,
+                       reduce_axis: Optional[Tuple[int, ...]]=None,
                        ignore_unused_parameters: bool=False,
                        **kwargs) -> Callable[..., Array]:
   """Promotes a function acting on pairs of particles to use neighbor lists.
@@ -430,66 +490,105 @@ def pair_neighbor_list(fn: Callable[..., Array],
   Args:
     fn: A function that takes an ndarray of pairwise distances or displacements
       of shape [n, m] or [n, m, d_in] respectively as well as kwargs specifying
-      parameters for the function. fn returns an ndarray of evaluations of shape
-      [n, m, d_out].
+      parameters for the function. fn returns an ndarray of evaluations of
+      shape [n, m, d_out].
     metric: A function that takes two ndarray of positions of shape
       [spatial_dimension] and [spatial_dimension] respectively and returns
       an ndarray of distances or displacements of shape [] or [d_in]
       respectively. The metric can optionally take a floating point time as a
       third argument.
-    species: Species information for the different particles. This should either
+    species: Species information for the different particles. Should either
       be None (in which case it is assumed that all the particles have the same
-      species), an integer ndarray of shape [n] with species data, or an integer
+      species), an integer array of shape [n] with species data, or an integer
       in which case the species data will be specified dynamically in the
       mapped function with at most `species` types of particles. Note: that
       dynamic species specification is less efficient, because we cannot
       specialize shape information.
-    reduce_axis: A list of axes to reduce over. This is supplied to jnp.sum and
-      so the same convention is used.
-    keepdims: A boolean specifying whether the empty dimensions should be kept
-      upon reduction. This is supplied to jnp.sum and so the same convention is
-      used.
+    reduce_axis: A list of axes to reduce over. We use a convention where axis
+      0 corresponds to the particles, axis 1 corresponds to neighbors, and the
+      remaining axes correspond to the output axes of `fn`. Note that it is not
+      well-defined to sum over particles without summing over neighbors. One
+      also cannot report per-particle values (excluding axis 0) for neighbor
+      lists whose format is `OrderedSparse`.
     ignore_unused_parameters: A boolean that denotes whether dynamically
       specified keyword arguments passed to the mapped function get ignored
       if they were not first specified as keyword arguments when calling
       `smap.pair_neighbor_list(...)`.
     kwargs: Arguments providing parameters to the mapped function. In cases
       where no species information is provided these should be either 1) a
-      scalar, 2) an ndarray of shape [n], 3) an ndarray of shape [n, n]. If
-      species information is provided then the parameters should be specified as
-      either 1) a scalar or 2) an ndarray of shape [max_species, max_species].
+      scalar, 2) an ndarray of shape [n], 3) an ndarray of shape [n, n],
+      3) a binary function that determines how per-particle parameters are to
+      be combined. If unspecified then this is taken to be the average of the
+      two per-particle parameters. If species information is provided then the
+      parameters should be specified as either 1) a scalar or 2) an ndarray of
+      shape [max_species, max_species].
 
   Returns:
     A function fn_mapped that takes an ndarray of floats of shape [N, d_in] of
     positions and and ndarray of integers of shape [N, max_neighbors]
     specifying neighbors.
   """
-
+  kwargs, param_combinators = _split_params_and_combinators(kwargs)
   merge_dicts = partial(util.merge_dicts,
                         ignore_unused_parameters=ignore_unused_parameters)
 
-  def fn_mapped(R, neighbor, **dynamic_kwargs):
+  def fn_mapped(R: Array, neighbor: partition.NeighborList, **dynamic_kwargs
+                ) -> Array:
     d = partial(displacement_or_metric, **dynamic_kwargs)
-    d = vmap(vmap(d, (None, 0)))
-    mask = neighbor.idx != R.shape[0]
-    R_neigh = R[neighbor.idx]
-    dR = d(R, R_neigh)
+    normalization = 2.0
+
+    if partition.is_sparse(neighbor.format):
+      d = space.map_bond(d)
+      dR = d(R[neighbor.idx[0]], R[neighbor.idx[1]])
+      mask = neighbor.idx[0] < R.shape[0]
+      if neighbor.format is partition.OrderedSparse:
+        normalization = 1.0
+    else:
+      d = space.map_neighbor(d)
+      R_neigh = R[neighbor.idx]
+      dR = d(R, R_neigh)
+      mask = neighbor.idx < R.shape[0]
+
     merged_kwargs = merge_dicts(kwargs, dynamic_kwargs)
-    merged_kwargs = _neighborhood_kwargs_to_params(neighbor.idx,
+    merged_kwargs = _neighborhood_kwargs_to_params(neighbor.format,
+                                                   neighbor.idx,
                                                    species,
-                                                   **merged_kwargs)
+                                                   merged_kwargs,
+                                                   param_combinators)
     out = fn(dR, **merged_kwargs)
     if out.ndim > mask.ndim:
       ddim = out.ndim - mask.ndim
       mask = jnp.reshape(mask, mask.shape + (1,) * ddim)
-    out = jnp.where(mask, out, 0.)
-    return high_precision_sum(out, reduce_axis, keepdims) / 2.
+    out *= mask
+
+    if reduce_axis is None:
+      return util.high_precision_sum(out) / normalization
+
+    if 0 in reduce_axis and 1 not in reduce_axis:
+      raise ValueError()
+
+    if not partition.is_sparse(neighbor.format):
+      return util.high_precision_sum(out, reduce_axis) / normalization
+
+    _reduce_axis = tuple(a - 1 for a in reduce_axis if a > 1)
+
+    if 0 in reduce_axis:
+      return util.high_precision_sum(out, (0,) + _reduce_axis)
+
+    if neighbor.format is partition.OrderedSparse:
+      raise ValueError('Cannot report per-particle values with a neighbor '
+                       'list whose format is `OrderedSparse`. Please use '
+                       'either `Dense` or `Sparse`.')
+
+    out = util.high_precision_sum(out, _reduce_axis)
+    return ops.segment_sum(out, neighbor.idx[0], R.shape[0]) / normalization
   return fn_mapped
+
 
 def triplet(fn: Callable[..., Array],
             displacement_or_metric: DisplacementOrMetricFn,
-            species: Array=None,
-            reduce_axis: Tuple[int, ...]=None,
+            species: Optional[Array]=None,
+            reduce_axis: Optional[Tuple[int, ...]]=None,
             keepdims: bool=False,
             ignore_unused_parameters: bool=False,
             **kwargs) -> Callable[..., Array]:
@@ -510,11 +609,12 @@ def triplet(fn: Callable[..., Array],
         respectively. The metric can optionally take a floating point time as a
         third argument.
     species: A list of species for the different particles. This should either
-        be None (in which case it is assumed that all particles have the same
-        species), an integer of shape [n] with species data, or Dynamic in
-        which case the species data will be specified dynamically. Note:
-        that dynamic species specification is less efficient, because we cannot
-        specialize shape information.
+      be None (in which case it is assumed that all the particles have the same
+      species), an integer ndarray of shape [n] with species data, or an
+      integer in which case the species data will be specified dynamically with
+      `species` giving the naximum number of types of particles. Note: that
+      dynamic species specification is less efficient, because we cannot
+      specialize shape information.
     reduce_axis: A list of axis to reduce over. This is supplied to np.sum and
         the same convention is used.
     keepdims: A boolean specifying whether the empty dimensions should be kept
@@ -539,7 +639,7 @@ def triplet(fn: Callable[..., Array],
     If species is None or statically specified, then fn_mapped takes as
     arguments an ndarray of positions of shape [n, spatial_dimension].
 
-    If species is Dynamic then fn_mapped takes as input an ndarray of shape
+    If species is dynamic then fn_mapped takes as input an ndarray of shape
     [n, spatial_dimension], an integer ndarray of species of shape [n], and
     an integer specifying the maximum species.
 
@@ -550,7 +650,7 @@ def triplet(fn: Callable[..., Array],
                         ignore_unused_parameters=ignore_unused_parameters)
 
   def extract_parameters_by_dim(kwargs, dim: Union[int, List[int]] = 0):
-    """Helper function that extract parameters from a dictionary via dimension."""
+    """Extract parameters from a dictionary via dimension."""
     if isinstance(dim, int):
       dim = [dim]
     return {name: value for name, value in kwargs.items() if value.ndim in dim}
@@ -559,14 +659,15 @@ def triplet(fn: Callable[..., Array],
     def fn_mapped(R, **dynamic_kwargs) -> Array:
       d = space.map_product(partial(displacement_or_metric, **dynamic_kwargs))
       _kwargs = merge_dicts(kwargs, dynamic_kwargs)
-      _kwargs = _kwargs_to_parameters(species, **_kwargs)
+      _kwargs = _kwargs_to_parameters(species, _kwargs, {})
       dR = d(R, R)
       compute_triplet = partial(fn, **_kwargs)
-      output = vmap(vmap(vmap(compute_triplet, (None, 0)), (0, None)), 0)(dR, dR)
+      output = vmap(vmap(vmap(
+        compute_triplet, (None, 0)), (0, None)), 0)(dR, dR)
       return high_precision_sum(output,
                                 axis=reduce_axis,
                                 keepdims=keepdims) / 2.
-  elif isinstance(species, jnp.ndarray):
+  elif util.is_array(species):
     def fn_mapped(R, **dynamic_kwargs):
       d = partial(displacement_or_metric, **dynamic_kwargs)
       idx = onp.tile(onp.arange(R.shape[0]), [R.shape[0], 1])
@@ -582,7 +683,8 @@ def triplet(fn: Callable[..., Array],
       unmapped_args = extract_parameters_by_dim(_kwargs, [0])
 
       if extract_parameters_by_dim(_kwargs, [1, 2]):
-        assert ValueError('Improper argument dimensions (1 or 2) not well defined for triplets.')
+        assert ValueError('Improper argument dimensions (1 or 2) not well '
+                          'defined for triplets.')
 
       def compute_triplet(dR, mapped_args, unmapped_args):
         paired_args = extract_parameters_by_dim(mapped_args, 2)
@@ -591,8 +693,12 @@ def triplet(fn: Callable[..., Array],
         unpaired_args = extract_parameters_by_dim(mapped_args, 0)
         unpaired_args.update(extract_parameters_by_dim(unmapped_args, 0))
 
-        output_fn = lambda dR1, dR2, paired_args: fn(dR1, dR2, **unpaired_args, **paired_args)
-        neighbor_args = _neighborhood_kwargs_to_params(idx, species, **paired_args)
+        output_fn = lambda dR1, dR2, paired_args: fn(dR1, dR2,
+                                                     **unpaired_args,
+                                                     **paired_args)
+        neighbor_args = _neighborhood_kwargs_to_params(partition.Dense,
+                                                       idx, species,
+                                                       paired_args, {})
         output_fn = vmap(vmap(output_fn, (None, 0, 0)), (0, None, 0))
         return output_fn(dR, dR, neighbor_args)
 
@@ -601,7 +707,7 @@ def triplet(fn: Callable[..., Array],
       return high_precision_sum(output,
                                 axis=reduce_axis,
                                 keepdims=keepdims) / 2.
-  elif species is quantity.Dynamic:
+  elif isinstance(species, int):
     raise NotImplementedError
   else:
     raise ValueError(

@@ -20,7 +20,7 @@ import numpy as onp
 
 import jax
 from jax import vmap, jit
-import jax.numpy as np
+import jax.numpy as jnp
 
 from jax_md import space, dataclasses, quantity, partition, smap, util
 import haiku as hk
@@ -28,7 +28,9 @@ import haiku as hk
 from collections import namedtuple
 from functools import partial, reduce
 from jax.tree_util import tree_multimap, tree_map
+from jax import ops
 
+import jraph
 
 # Typing
 
@@ -82,8 +84,8 @@ def _behler_parrinello_cutoff_fn(dr: Array,
   """Function of pairwise distance that smoothly goes to zero at the cutoff."""
   # Also returns zero if the pairwise distance is zero,
   # to prevent a particle from interacting with itself.
-  return np.where((dr < cutoff_distance) & (dr > 1e-7),
-                  0.5 * (np.cos(np.pi * dr / cutoff_distance) + 1), 0)
+  return jnp.where((dr < cutoff_distance) & (dr > 1e-7),
+                  0.5 * (jnp.cos(jnp.pi * dr / cutoff_distance) + 1), 0)
 
 
 def radial_symmetry_functions(displacement_or_metric: DisplacementOrMetricFn,
@@ -115,7 +117,7 @@ def radial_symmetry_functions(displacement_or_metric: DisplacementOrMetricFn,
   """
   metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
 
-  radial_fn = lambda eta, dr: (np.exp(-eta * dr**2) *
+  radial_fn = lambda eta, dr: (jnp.exp(-eta * dr**2) *
                                _behler_parrinello_cutoff_fn(dr, cutoff_distance))
   radial_fn = vmap(radial_fn, (0, None))
 
@@ -124,7 +126,7 @@ def radial_symmetry_functions(displacement_or_metric: DisplacementOrMetricFn,
       _metric = partial(metric, **kwargs)
       _metric = space.map_product(_metric)
       return util.high_precision_sum(radial_fn(etas, _metric(R, R)), axis=1).T
-  elif isinstance(species, np.ndarray):
+  elif isinstance(species, jnp.ndarray):
     species = onp.array(species)
     def compute_fn(R: Array, **kwargs) -> Array:
       _metric = partial(metric, **kwargs)
@@ -134,7 +136,7 @@ def radial_symmetry_functions(displacement_or_metric: DisplacementOrMetricFn,
         R_neigh = R[species == atom_type, :]
         dr = _metric(R, R_neigh)
         return util.high_precision_sum(radial_fn(etas, dr), axis=1).T
-      return np.hstack([return_radial(atom_type) for
+      return jnp.hstack([return_radial(atom_type) for
                         atom_type in onp.unique(species)])
   return compute_fn
 
@@ -169,37 +171,42 @@ def radial_symmetry_functions_neighbor_list(
   metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
 
   def radial_fn(eta, dr):
-    return (np.exp(-eta * dr**2) *
+    return (jnp.exp(-eta * dr**2) *
             _behler_parrinello_cutoff_fn(dr, cutoff_distance))
   radial_fn = vmap(radial_fn, (0, None))
 
-  if species is None:
-    def compute_fn(R: Array, neighbor: NeighborList, **kwargs) -> Array:
-      _metric = partial(metric, **kwargs)
+  def sym_fn(R: Array, neighbor: NeighborList, mask: Array=None,
+             **kwargs) -> Array:
+    _metric = partial(metric, **kwargs)
+    if neighbor.format is partition.Dense:
       _metric = space.map_neighbor(_metric)
       R_neigh = R[neighbor.idx]
-      mask = (neighbor.idx < R.shape[0])[np.newaxis, :, :]
+      mask = True if mask is None else mask[neighbor.idx]
+      mask = (neighbor.idx < R.shape[0])[None, :, :] & mask
       dr = _metric(R, R_neigh)
       return util.high_precision_sum(radial_fn(etas, dr) * mask, axis=2).T
+    elif neighbor.format is partition.Sparse:
+      _metric = space.map_bond(_metric)
+      dr = _metric(R[neighbor.idx[0]], R[neighbor.idx[1]])
+      radial = radial_fn(etas, dr).T
+      N = R.shape[0]
+      mask = True if mask is None else mask[neighbor.idx[1]]
+      mask = (neighbor.idx[0] < N) & mask
+      return ops.segment_sum(radial * mask[:, None], neighbor.idx[0], N)
+    else:
+      raise ValueError()
+
+  if species is None:
+    def compute_fn(R: Array, neighbor: NeighborList, **kwargs) -> Array:
+      return sym_fn(R, neighbor, **kwargs)
     return compute_fn
 
   def compute_fn(R: Array, neighbor: NeighborList, **kwargs) -> Array:
     _metric = partial(metric, **kwargs)
-    _metric = space.map_neighbor(_metric)
-    radial_fn = lambda eta, dr: (np.exp(-eta * dr**2) *
-                _behler_parrinello_cutoff_fn(dr, cutoff_distance))
     def return_radial(atom_type):
       """Returns the radial symmetry functions for neighbor type atom_type."""
-      R_neigh = R[neighbor.idx]
-      species_neigh = species[neighbor.idx]
-      mask = np.logical_and(neighbor.idx < R.shape[0],
-                            species_neigh == atom_type)
-      dr = _metric(R, R_neigh)
-
-      radial = vmap(radial_fn, (0, None))(etas, dr)
-      return util.high_precision_sum(radial * mask[np.newaxis, :, :], axis=2).T
-
-    return np.hstack([return_radial(atom_type) for
+      return sym_fn(R, neighbor, species==atom_type, **kwargs)
+    return jnp.hstack([return_radial(atom_type) for
                      atom_type in onp.unique(species)])
 
   return compute_fn
@@ -225,9 +232,10 @@ def single_pair_angular_symmetry_function(dR12: Array,
   triplet_cutoff = reduce(
       lambda x, y: x * _behler_parrinello_cutoff_fn(y, cutoff_distance),
       [dr12, dr13, dr23], 1.0)
-  result = 2.0 ** (1.0 - zeta) * (
-      1.0 + lam * quantity.angle_between_two_vectors(dR12, dR13)) ** zeta * \
-      np.exp(-eta * triplet_squared_distances) * triplet_cutoff
+  z = zeta
+  result = 2.0 ** (1.0 - zeta) * ((
+    1.0 + lam * quantity.cosine_angle_between_two_vectors(dR12, dR13)) ** z *
+    jnp.exp(-eta * triplet_squared_distances) * triplet_cutoff)
   return result
 
 
@@ -277,12 +285,12 @@ def angular_symmetry_functions(displacement: DisplacementFn,
      D_fn = partial(displacement, **kwargs)
      D_fn = space.map_product(D_fn)
      dR = D_fn(R, R)
-     return np.sum(_all_pairs_angular(dR, dR), axis=[1, 2])
+     return jnp.sum(_all_pairs_angular(dR, dR), axis=[1, 2])
    return compute_fn
 
-  if isinstance(species, np.ndarray):
+  if isinstance(species, jnp.ndarray):
     species = onp.array(species)
-    
+
   def compute_fn(R, **kwargs):
     atom_types = onp.unique(species)
     D_fn = partial(displacement, **kwargs)
@@ -292,11 +300,11 @@ def angular_symmetry_functions(displacement: DisplacementFn,
     for i in range(len(atom_types)):
       for j in range(i, len(atom_types)):
         out += [
-            np.sum(
+            jnp.sum(
                 _all_pairs_angular(D_different_types[i], D_different_types[j]),
                 axis=[1, 2])
         ]
-    return np.hstack(out)
+    return jnp.hstack(out)
   return compute_fn
 
 def angular_symmetry_functions_neighbor_list(
@@ -341,73 +349,94 @@ def angular_symmetry_functions_neighbor_list(
   _all_pairs_angular = vmap(
       vmap(vmap(_batched_angular_fn, (0, None)), (None, 0)), 0)
 
-  if species is None:
-    def compute_fn(R: Array, neighbor: NeighborList, **kwargs) -> Array:
-      D_fn = partial(displacement, **kwargs)
+  def sym_fn(R: Array, neighbor: NeighborList,
+             mask_i: Array=None, mask_j: Array=None,
+             **kwargs) -> Array:
+    D_fn = partial(displacement, **kwargs)
+
+    if neighbor.format is partition.Dense:
       D_fn = space.map_neighbor(D_fn)
 
       R_neigh = R[neighbor.idx]
-      mask = neighbor.idx < R.shape[0]
 
       dR = D_fn(R, R_neigh)
+      _all_pairs_angular = vmap(
+        vmap(vmap(_batched_angular_fn, (0, None)), (None, 0)), 0)
       all_angular = _all_pairs_angular(dR, dR)
 
-      mask_i = mask[:, :, np.newaxis, np.newaxis]
-      mask_j = mask[:, np.newaxis, :, np.newaxis]
+      mask_i = True if mask_i is None else mask_i[neighbor.idx]
+      mask_j = True if mask_j is None else mask_j[neighbor.idx]
+
+      mask_i = (neighbor.idx < R.shape[0]) & mask_i
+      mask_i = mask_i[:, :, jnp.newaxis, jnp.newaxis]
+      mask_j = (neighbor.idx < R.shape[0]) & mask_j
+      mask_j = mask_j[:, jnp.newaxis, :, jnp.newaxis]
 
       return util.high_precision_sum(all_angular * mask_i * mask_j,
                                      axis=[1, 2])
+    elif neighbor.format is partition.Sparse:
+      D_fn = space.map_bond(D_fn)
+      dR = D_fn(R[neighbor.idx[0]], R[neighbor.idx[1]])
+      _all_pairs_angular = vmap(vmap(_batched_angular_fn, (0, None)),
+                                (None, 0))
+      all_angular = _all_pairs_angular(dR, dR)
+
+      N = R.shape[0]
+      mask_i = True if mask_i is None else mask_i[neighbor.idx[1]]
+      mask_j = True if mask_j is None else mask_j[neighbor.idx[1]]
+      mask_i = (neighbor.idx[0] < N) & mask_i
+      mask_j = (neighbor.idx[0] < N) & mask_j
+
+      mask = mask_i[:, None] & mask_j[None, :]
+      mask = mask[:, :, None, None]
+      all_angular = jnp.reshape(all_angular, (-1,) + all_angular.shape[2:])
+      neighbor_idx = jnp.repeat(neighbor.idx[0], len(neighbor.idx[0]))
+      out = ops.segment_sum(all_angular, neighbor_idx, N)
+      return out
+    else:
+      raise ValueError()
+
+  if species is None:
+    def compute_fn(R: Array, neighbor: NeighborList, **kwargs) -> Array:
+      return sym_fn(R, neighbor, **kwargs)
     return compute_fn
 
   def compute_fn(R: Array, neighbor: NeighborList, **kwargs) -> Array:
-    D_fn = partial(displacement, **kwargs)
-    D_fn = space.map_neighbor(D_fn)
-
-    R_neigh = R[neighbor.idx]
-    species_neigh = species[neighbor.idx]
-
     atom_types = onp.unique(species)
-
-    base_mask = neighbor.idx < len(R)
-    mask = [np.logical_and(base_mask, species_neigh == t) for t in atom_types]
-
     out = []
-    dR = D_fn(R, R_neigh)
-    all_angular = _all_pairs_angular(dR, dR)
-
     for i in range(len(atom_types)):
-      mask_i = mask[i][:, :, np.newaxis, np.newaxis]
+      mask_i = species == i
       for j in range(i, len(atom_types)):
-        mask_j = mask[j][:, np.newaxis, :, np.newaxis]
+        mask_j = species == j
         out += [
-            util.high_precision_sum(all_angular * mask_i * mask_j, axis=[1, 2])
+            sym_fn(R, neighbor, mask_i, mask_j)
         ]
-    return np.hstack(out)
+    return jnp.hstack(out)
   return compute_fn
 
 
 def behler_parrinello_symmetry_functions_neighbor_list(
     displacement: DisplacementFn,
     species: Array,
-    radial_etas: Array=None,
-    angular_etas: Array=None,
-    lambdas: Array=None,
-    zetas: Array=None,
+    radial_etas: Optional[Array]=None,
+    angular_etas: Optional[Array]=None,
+    lambdas: Optional[Array]=None,
+    zetas: Optional[Array]=None,
     cutoff_distance: float=8.0) -> Callable[[Array, NeighborList], Array]:
   if radial_etas is None:
-    radial_etas = np.array([9e-4, 0.01, 0.02, 0.035, 0.06, 0.1, 0.2, 0.4],
+    radial_etas = jnp.array([9e-4, 0.01, 0.02, 0.035, 0.06, 0.1, 0.2, 0.4],
                     f32) / f32(0.529177 ** 2)
 
   if angular_etas is None:
-    angular_etas = np.array([1e-4] * 4 + [0.003] * 4 + [0.008] * 2 + 
+    angular_etas = jnp.array([1e-4] * 4 + [0.003] * 4 + [0.008] * 2 +
                             [0.015] * 4 + [0.025] * 4 + [0.045] * 4,
                             f32) / f32(0.529177 ** 2)
 
   if lambdas is None:
-    lambdas = np.array([-1, 1] * 4 + [1] * 14, f32)
+    lambdas = jnp.array([-1, 1] * 4 + [1] * 14, f32)
 
   if zetas is None:
-    zetas = np.array([1, 1, 2, 2] * 2 + [1, 2] + [1, 2, 4, 16] * 3, f32)
+    zetas = jnp.array([1, 1, 2, 2] * 2 + [1, 2] + [1, 2, 4, 16] * 3, f32)
 
   radial_fn = radial_symmetry_functions_neighbor_list(
     displacement,
@@ -422,44 +451,44 @@ def behler_parrinello_symmetry_functions_neighbor_list(
     zetas=zetas,
     cutoff_distance=cutoff_distance)
   return (lambda R, neighbor, **kwargs:
-          np.hstack((radial_fn(R, neighbor, **kwargs),
+          jnp.hstack((radial_fn(R, neighbor, **kwargs),
                      angular_fn(R, neighbor, **kwargs))))
 
 
 def behler_parrinello_symmetry_functions(displacement: DisplacementFn,
-                                         species: Array=None,
-                                         radial_etas: Array=None, 
-                                         angular_etas: Array=None, 
-                                         lambdas: Array=None,
-                                         zetas: Array=None, 
+                                         species: Optional[Array]=None,
+                                         radial_etas: Optional[Array]=None,
+                                         angular_etas: Optional[Array]=None,
+                                         lambdas: Optional[Array]=None,
+                                         zetas: Optional[Array]=None,
                                          cutoff_distance: float=8.0
                                          ) -> Callable[[Array], Array]:
   if radial_etas is None:
-    radial_etas = np.array([9e-4, 0.01, 0.02, 0.035, 0.06, 0.1, 0.2, 0.4],
+    radial_etas = jnp.array([9e-4, 0.01, 0.02, 0.035, 0.06, 0.1, 0.2, 0.4],
                     f32) / f32(0.529177 ** 2)
-  
+
   if angular_etas is None:
-    angular_etas = np.array([1e-4] * 4 + [0.003] * 4 + [0.008] * 2 + 
+    angular_etas = jnp.array([1e-4] * 4 + [0.003] * 4 + [0.008] * 2 +
                             [0.015] * 4 + [0.025] * 4 + [0.045] * 4,
                             f32) / f32(0.529177 ** 2)
-  
-  if lambdas is None:
-    lambdas = np.array([-1, 1] * 4 + [1] * 14, f32)
-  
-  if zetas is None:
-    zetas = np.array([1, 1, 2, 2] * 2 + [1, 2] + [1, 2, 4, 16] * 3, f32)
 
-  radial_fn = radial_symmetry_functions(displacement, 
-                                        species, 
+  if lambdas is None:
+    lambdas = jnp.array([-1, 1] * 4 + [1] * 14, f32)
+
+  if zetas is None:
+    zetas = jnp.array([1, 1, 2, 2] * 2 + [1, 2] + [1, 2, 4, 16] * 3, f32)
+
+  radial_fn = radial_symmetry_functions(displacement,
+                                        species,
                                         etas=radial_etas,
                                         cutoff_distance=cutoff_distance)
-  angular_fn = angular_symmetry_functions(displacement, 
-                                          species, 
+  angular_fn = angular_symmetry_functions(displacement,
+                                          species,
                                           etas=angular_etas,
-                                          lambdas=lambdas, 
-                                          zetas=zetas, 
+                                          lambdas=lambdas,
+                                          zetas=zetas,
                                           cutoff_distance=cutoff_distance)
-  symmetry_fn = lambda R, **kwargs: np.hstack((radial_fn(R, **kwargs),
+  symmetry_fn = lambda R, **kwargs: jnp.hstack((radial_fn(R, **kwargs),
                                                angular_fn(R, **kwargs)))
 
   return symmetry_fn
@@ -475,7 +504,7 @@ def behler_parrinello_symmetry_functions(displacement: DisplacementFn,
   states and neighbor lists, end-to-end jit compilation, and easy batching.
 
   Graphs are described by node states, edge states, a global state, and
-  outgoing / incoming edges.  
+  outgoing / incoming edges.
 
   We provide two components:
 
@@ -484,16 +513,16 @@ def behler_parrinello_symmetry_functions(displacement: DisplacementFn,
        encoding or decoding step.
     2) A GraphNetwork layer that transforms the nodes, edges, and globals using
        neural networks following Battaglia et al. (). Here, we use
-       sum-message-aggregation. 
+       sum-message-aggregation.
 
   The graphs network components implemented here implement identical functions
   to the DeepMind library. However, to be compatible with jax-md, there are
   significant differences in the graph layout used here to the reference
-  implementation. See `GraphTuple` for details.
+  implementation. See `GraphsTuple` for details.
 """
 
 @dataclasses.dataclass
-class GraphTuple(object):
+class GraphsTuple(object):
     """A struct containing graph data.
 
     Attributes:
@@ -508,30 +537,32 @@ class GraphTuple(object):
         Empty entries (that don't contain an edge) are denoted by
         `edge_idx[i, j] == N_nodes`.
     """
-    nodes: np.ndarray
-    edges: np.ndarray
-    globals: np.ndarray
-    edge_idx: np.ndarray
+    nodes: jnp.ndarray
+    edges: jnp.ndarray
+    globals: jnp.ndarray
+    edge_idx: jnp.ndarray
+
+    _replace = dataclasses.replace
 
 
-def concatenate_graph_features(graphs: Tuple[GraphTuple, ...]) -> GraphTuple:
-  """Given a list of GraphTuple returns a new concatenated GraphTuple.
+def concatenate_graph_features(graphs: Tuple[GraphsTuple, ...]) -> GraphsTuple:
+  """Given a list of GraphsTuple returns a new concatenated GraphsTuple.
 
   Note that currently we do not check that the graphs have consistent edge
   connectivity.
   """
-  return GraphTuple(
-      nodes=np.concatenate([g.nodes for g in graphs], axis=-1),
-      edges=np.concatenate([g.edges for g in graphs], axis=-1),
-      globals=np.concatenate([g.globals for g in graphs], axis=-1),
-      edge_idx=graphs[0].edge_idx,  # pytype: disable=wrong-keyword-args
+  graph = graphs[0]
+  return graph._replace(
+    nodes=jnp.concatenate([g.nodes for g in graphs], axis=-1),
+    edges=jnp.concatenate([g.edges for g in graphs], axis=-1),
+    globals=jnp.concatenate([g.globals for g in graphs], axis=-1),  # pytype: disable=missing-parameter
   )
 
 
-def GraphIndependent(edge_fn: Callable[[Array], Array],
+def GraphMapFeatures(edge_fn: Callable[[Array], Array],
                      node_fn: Callable[[Array], Array],
                      global_fn: Callable[[Array], Array]
-                     ) -> Callable[[GraphTuple], GraphTuple]:
+                     ) -> Callable[[GraphsTuple], GraphsTuple]:
   """Applies functions independently to the nodes, edges, and global states.
   """
   identity = lambda x: x
@@ -549,25 +580,25 @@ def GraphIndependent(edge_fn: Callable[[Array], Array],
   return embed_fn
 
 
-def _apply_node_fn(graph: GraphTuple,
+def _apply_node_fn(graph: GraphsTuple,
                    node_fn: Callable[[Array,Array, Array, Array], Array]
                    ) -> Array:
   mask = graph.edge_idx < graph.nodes.shape[0]
-  mask = mask[:, :, np.newaxis]
+  mask = mask[:, :, jnp.newaxis]
 
   if graph.edges is not None:
     # TODO: Should we also have outgoing edges?
-    flat_edges = np.reshape(graph.edges, (-1, graph.edges.shape[-1]))
-    edge_idx = np.reshape(graph.edge_idx, (-1,))
+    flat_edges = jnp.reshape(graph.edges, (-1, graph.edges.shape[-1]))
+    edge_idx = jnp.reshape(graph.edge_idx, (-1,))
     incoming_edges = jax.ops.segment_sum(
         flat_edges, edge_idx, graph.nodes.shape[0] + 1)[:-1]
-    outgoing_edges = np.sum(graph.edges * mask, axis=1)
+    outgoing_edges = jnp.sum(graph.edges * mask, axis=1)
   else:
     incoming_edges = None
     outgoing_edges = None
 
   if graph.globals is not None:
-    _globals = np.broadcast_to(graph.globals[np.newaxis, :],
+    _globals = jnp.broadcast_to(graph.globals[jnp.newaxis, :],
                                graph.nodes.shape[:1] + graph.globals.shape)
   else:
     _globals = None
@@ -575,38 +606,38 @@ def _apply_node_fn(graph: GraphTuple,
   return node_fn(graph.nodes, incoming_edges, outgoing_edges, _globals)
 
 
-def _apply_edge_fn(graph: GraphTuple,
+def _apply_edge_fn(graph: GraphsTuple,
                    edge_fn: Callable[[Array, Array, Array, Array], Array]
                    ) -> Array:
   if graph.nodes is not None:
     incoming_nodes = graph.nodes[graph.edge_idx]
-    outgoing_nodes = np.broadcast_to(
-        graph.nodes[:, np.newaxis, :],
+    outgoing_nodes = jnp.broadcast_to(
+        graph.nodes[:, jnp.newaxis, :],
         graph.edge_idx.shape + graph.nodes.shape[-1:])
   else:
     incoming_nodes = None
     outgoing_nodes = None
 
   if graph.globals is not None:
-    _globals = np.broadcast_to(graph.globals[np.newaxis, np.newaxis, :],
+    _globals = jnp.broadcast_to(graph.globals[jnp.newaxis, jnp.newaxis, :],
                                graph.edge_idx.shape + graph.globals.shape)
   else:
     _globals = None
 
   mask = graph.edge_idx < graph.nodes.shape[0]
-  mask = mask[:, :, np.newaxis]
+  mask = mask[:, :, jnp.newaxis]
   return edge_fn(graph.edges, incoming_nodes, outgoing_nodes, _globals) * mask
 
 
-def _apply_global_fn(graph: GraphTuple,
+def _apply_global_fn(graph: GraphsTuple,
                      global_fn: Callable[[Array, Array, Array], Array]
                      ) -> Array:
-  nodes = None if graph.nodes is None else np.sum(graph.nodes, axis=0)
+  nodes = None if graph.nodes is None else jnp.sum(graph.nodes, axis=0)
 
   if graph.edges is not None:
     mask = graph.edge_idx < graph.nodes.shape[0]
-    mask = mask[:, :, np.newaxis]
-    edges = np.sum(graph.edges * mask, axis=(0, 1))
+    mask = mask[:, :, jnp.newaxis]
+    edges = jnp.sum(graph.edges * mask, axis=(0, 1))
   else:
     edges = None
 
@@ -631,7 +662,7 @@ class GraphNetwork:
     self._global_fn = (None if global_fn is None else
                        partial(_apply_global_fn, global_fn=global_fn))
 
-  def __call__(self, graph: GraphTuple) -> GraphTuple:
+  def __call__(self, graph: GraphsTuple) -> GraphsTuple:
     if self._edge_fn is not None:
       graph = dataclasses.replace(graph, edges=self._edge_fn(graph))
 
@@ -664,7 +695,8 @@ class GraphNetEncoder(hk.Module):
   def __init__(self,
                n_recurrences: int,
                mlp_sizes: Tuple[int, ...],
-               mlp_kwargs: Dict[str, Any]=None,
+               mlp_kwargs: Optional[Dict[str, Any]]=None,
+               format: partition.NeighborListFormat=partition.Dense,
                name: str='GraphNetEncoder'):
     super(GraphNetEncoder, self).__init__(name=name)
 
@@ -683,18 +715,32 @@ class GraphNetEncoder(hk.Module):
         output_sizes=mlp_sizes,
         activate_final=True,
         name=name,
-        **mlp_kwargs)(np.concatenate(args, axis=-1))
+        **mlp_kwargs)(jnp.concatenate(args, axis=-1))
 
-    self._encoder = GraphIndependent(
+    if format is partition.Dense:
+      self._encoder = GraphMapFeatures(
         embedding_fn('EdgeEncoder'),
         embedding_fn('NodeEncoder'),
         embedding_fn('GlobalEncoder'))
-    self._propagation_network = lambda: GraphNetwork(
+      self._propagation_network = lambda: GraphNetwork(
         model_fn('EdgeFunction'),
         model_fn('NodeFunction'),
         model_fn('GlobalFunction'))
+    elif format is partition.Sparse:
+      self._encoder = jraph.GraphMapFeatures(
+        embedding_fn('EdgeEncoder'),
+        embedding_fn('NodeEncoder'),
+        embedding_fn('GlobalEncoder')
+      )
+      self._propagation_network = lambda: jraph.GraphNetwork(
+        model_fn('EdgeFunction'),
+        model_fn('NodeFunction'),
+        model_fn('GlobalFunction')
+      )
+    else:
+      raise ValueError()
 
-  def __call__(self, graph: GraphTuple) -> GraphTuple:
+  def __call__(self, graph: GraphsTuple) -> GraphsTuple:
     encoded = self._encoder(graph)
     outputs = encoded
 

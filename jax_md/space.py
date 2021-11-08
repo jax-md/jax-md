@@ -71,8 +71,7 @@ DisplacementOrMetricFn = Union[DisplacementFn, MetricFn]
 ShiftFn = Callable[[Array, Array], Array]
 
 Space = Tuple[DisplacementFn, ShiftFn]
-
-Box = Union[float, Array]
+Box = Array
 
 
 # Primitive Spatial Transforms

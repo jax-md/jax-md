@@ -20,6 +20,7 @@ from absl.testing import absltest
 from absl.testing import parameterized
 
 from jax import jit
+from jax import vmap
 from jax import random
 from jax import test_util as jtu
 from jax import lax
@@ -34,6 +35,8 @@ from jax_md import space
 from jax_md import energy
 from jax_md import util
 from jax_md import test_util
+from jax_md import partition
+from jax_md import smap
 from jax_md.util import *
 
 from functools import partial
@@ -108,7 +111,7 @@ class SimulateTest(jtu.JaxTestCase):
   def test_nve_jammed(self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 
-    state = test_util.load_test_state('simulation_test_state.npy', dtype)
+    state = test_util.load_jammed_state('simulation_test_state.npy', dtype)
     displacement_fn, shift_fn = space.periodic(state.box[0, 0])
 
     E = energy.soft_sphere_pair(displacement_fn, state.species, state.sigma)
@@ -144,7 +147,7 @@ class SimulateTest(jtu.JaxTestCase):
   def test_nve_jammed(self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 
-    state = test_util.load_test_state('simulation_test_state.npy', dtype)
+    state = test_util.load_jammed_state('simulation_test_state.npy', dtype)
     displacement_fn, shift_fn = space.periodic(state.box[0, 0])
 
     E = energy.soft_sphere_pair(displacement_fn, state.species, state.sigma)
@@ -180,7 +183,7 @@ class SimulateTest(jtu.JaxTestCase):
   def test_nve_jammed_periodic_general(self, dtype, coords):
     key = random.PRNGKey(0)
 
-    state = test_util.load_test_state('simulation_test_state.npy', dtype)
+    state = test_util.load_jammed_state('simulation_test_state.npy', dtype)
     displacement_fn, shift_fn = space.periodic_general(state.box,
                                                        coords == 'fractional')
 
@@ -307,7 +310,8 @@ class SimulateTest(jtu.JaxTestCase):
 
       T_final = quantity.temperature(state.velocity, state.mass)
       assert np.abs(T_final - T) / T < 0.1
-      self.assertAllClose(invariant(state, T), initial, rtol=1e-4)
+      tol = 5e-4 if dtype is f32 else 1e-6
+      self.assertAllClose(invariant(state, T), initial, rtol=tol)
       self.assertEqual(state.position.dtype, dtype)
 
   @parameterized.named_parameters(jtu.cases_from_list(
@@ -320,7 +324,7 @@ class SimulateTest(jtu.JaxTestCase):
   def test_nvt_nose_hoover_jammed(self, dtype, sy_steps):
     key = random.PRNGKey(0)
 
-    state = test_util.load_test_state('simulation_test_state.npy', dtype)
+    state = test_util.load_jammed_state('simulation_test_state.npy', dtype)
     displacement_fn, shift_fn = space.periodic(state.box[0, 0])
 
     E = energy.soft_sphere_pair(displacement_fn, state.species, state.sigma)
@@ -358,7 +362,7 @@ class SimulateTest(jtu.JaxTestCase):
   def test_npt_nose_hoover_jammed(self, dtype, sy_steps):
     key = random.PRNGKey(0)
 
-    state = test_util.load_test_state('simulation_test_state.npy', dtype)
+    state = test_util.load_jammed_state('simulation_test_state.npy', dtype)
     displacement_fn, shift_fn = space.periodic_general(state.box)
 
     E = energy.soft_sphere_pair(displacement_fn, state.species, state.sigma)
@@ -420,8 +424,10 @@ class SimulateTest(jtu.JaxTestCase):
 
       T = random.uniform(T_key, (), minval=0.3, maxval=1.4, dtype=dtype)
       mass = random.uniform(
-        masses_key, (LANGEVIN_PARTICLE_COUNT,), minval=0.1, maxval=10.0, dtype=dtype)
-      init_fn, apply_fn = simulate.nvt_langevin(E, shift, f32(1e-2), T, gamma=f32(0.3))
+        masses_key, (LANGEVIN_PARTICLE_COUNT,),
+        minval=0.1, maxval=10.0, dtype=dtype)
+      init_fn, apply_fn = simulate.nvt_langevin(
+        E, shift, f32(1e-2), T, gamma=f32(0.3))
       apply_fn = jit(apply_fn)
 
       state = init_fn(key, R, mass=mass, T_initial=dtype(1.0))
@@ -437,6 +443,57 @@ class SimulateTest(jtu.JaxTestCase):
       T_emp = np.mean(np.array(T_list))
       assert np.abs(T_emp - T) < 0.1
       assert state.position.dtype == dtype
+
+  def test_langevin_harmonic(self):
+    alpha = 1.0
+    E = lambda x: jnp.sum(0.5 * alpha * x ** 2)
+    displacement, shift = space.free()
+
+    N = 10000
+    steps = 1000
+    kT = 0.25
+    dt = 1e-4
+    gamma = 3
+    mass = 2.0
+    tol = 1e-3
+
+    X = jnp.ones((N, 1, 1))
+    key = random.split(random.PRNGKey(0), N)
+
+    init_fn, step_fn = simulate.nvt_langevin(E, shift, dt, kT, gamma, False)
+    step_fn = jit(vmap(step_fn))
+
+    state = vmap(init_fn, (0, 0, None))(key, X, mass)
+    v0 = state.velocity
+
+    for i in range(steps):
+      state = step_fn(state)
+
+    # Compare mean position and velocity autocorrelation with theoretical
+    # prediction.
+
+    d = jnp.sqrt(gamma ** 2 / 4 - alpha / mass)
+
+    beta_1 = gamma / 2 + d
+    beta_2 = gamma / 2 - d
+    A = -beta_2 / (beta_1 - beta_2)
+    B = beta_1 / (beta_1 - beta_2)
+    exp1 = lambda t: jnp.exp(-beta_1 * t)
+    exp2 = lambda t: jnp.exp(-beta_2 * t)
+    Z = kT / (2 * d * mass)
+
+    pos_fn = lambda t: A * exp1(t) + B * exp2(t)
+    vel_fn = lambda t: Z * (-beta_2 * exp2(t) + beta_1 * exp1(t))
+
+    t = steps * dt
+    self.assertAllClose(jnp.mean(state.position),
+                        pos_fn(t),
+                        rtol=tol,
+                        atol=tol)
+    self.assertAllClose(jnp.mean(state.velocity * v0),
+                        vel_fn(t),
+                        rtol=tol,
+                        atol=tol)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -472,6 +529,56 @@ class SimulateTest(jtu.JaxTestCase):
     th_msd = dtype(2 * T / (mass * gamma) * sim_t)
     assert np.abs(msd - th_msd) / msd < 1e-2
     assert state.position.dtype == dtype
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': f'_dtype={dtype.__name__}',
+          'dtype': dtype,
+      } for dtype in DTYPE))
+  def test_swap_mc_jammed(self, dtype):
+    key = random.PRNGKey(0)
+
+    state = test_util.load_jammed_state('simulation_test_state.npy', dtype)
+    space_fn = space.periodic(state.box[0, 0])
+    displacement_fn, shift_fn = space_fn
+
+    sigma = np.diag(state.sigma)[state.species]
+
+    energy_fn = lambda dr, sigma: energy.soft_sphere(dr, sigma=sigma)
+    neighbor_fn = partition.neighbor_list(displacement_fn,
+                                          state.box[0, 0],
+                                          np.max(sigma) + 0.1,
+                                          dr_threshold=0.5)
+
+    kT = 1e-2
+    t_md = 0.1
+    N_swap = 10
+    init_fn, apply_fn = simulate.hybrid_swap_mc(space_fn,
+                                                energy_fn,
+                                                neighbor_fn,
+                                                1e-3,
+                                                kT,
+                                                t_md,
+                                                N_swap)
+    state = init_fn(key, state.real_position, sigma)
+
+    Ts = np.zeros((DYNAMICS_STEPS,))
+
+    def step_fn(i, state_and_temp):
+      state, temp = state_and_temp
+      state = apply_fn(state)
+      temp = temp.at[i].set(quantity.temperature(state.md.velocity))
+      return state, temp
+
+    state, Ts = lax.fori_loop(0, DYNAMICS_STEPS, step_fn, (state, Ts))
+
+    tol = 5e-4
+    self.assertAllClose(Ts[10:],
+                        kT * np.ones((DYNAMICS_STEPS - 10)),
+                        rtol=5e-1,
+                        atol=5e-3)
+    self.assertAllClose(np.mean(Ts[10:]), kT, rtol=tol, atol=tol)
+    self.assertTrue(not np.all(state.sigma == sigma))
 
 if __name__ == '__main__':
   absltest.main()

@@ -21,8 +21,9 @@ from jax.config import config as jax_config
 from jax import random
 import jax.numpy as np
 
-from jax.api import jit, grad, vmap
+from jax import jit, grad, vmap
 from jax_md import space, quantity, test_util, energy
+from jax_md import partition
 from jax_md.util import *
 
 from jax import test_util as jtu
@@ -31,11 +32,14 @@ jax_config.parse_flags_with_absl()
 jax_config.enable_omnistaging()
 FLAGS = jax_config.FLAGS
 
-test_util.update_test_tolerance(1e-5, 2e-7)
-
 PARTICLE_COUNT = 10
 STOCHASTIC_SAMPLES = 10
 SPATIAL_DIMENSION = [2, 3]
+
+NEIGHBOR_LIST_FORMAT = [partition.Dense,
+                        partition.Sparse,
+                        partition.OrderedSparse]
+
 DTYPES = [f32, f64] if FLAGS.jax_enable_x64 else [f32]
 COORDS = ['fractional', 'real']
 
@@ -77,7 +81,7 @@ class QuantityTest(jtu.JaxTestCase):
          [1, 1]], dtype=dtype)
     dR = displacement(R, R)
     cangles = quantity.cosine_angles(dR)
-    c45 = 1 / np.sqrt(2)
+    c45 = 1 / np.sqrt(dtype(2))
     true_cangles = np.array(
         [[[0, 0, 0],
           [0, 1, c45],
@@ -88,7 +92,8 @@ class QuantityTest(jtu.JaxTestCase):
          [[1, c45, 0],
           [c45, 1, 0],
           [0, 0, 0]]], dtype=dtype)
-    self.assertAllClose(cangles, true_cangles)
+    tol = 3e-7
+    self.assertAllClose(cangles, true_cangles, atol=tol, rtol=tol)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -116,7 +121,8 @@ class QuantityTest(jtu.JaxTestCase):
         [[[1, c45], [c45, 1]],
          [[1, 1], [1, 1]],
          [[1, 1], [1, 1]]], dtype=dtype)
-    self.assertAllClose(cangles, true_cangles)
+    tol = 3e-7
+    self.assertAllClose(cangles, true_cangles, atol=tol, rtol=tol)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -127,14 +133,17 @@ class QuantityTest(jtu.JaxTestCase):
   def test_pressure_jammed(self, dtype, coords):
     key = random.PRNGKey(0)
 
-    state = test_util.load_test_state('simulation_test_state.npy', dtype)
+    state = test_util.load_jammed_state('simulation_test_state.npy', dtype)
     displacement_fn, shift_fn = space.periodic_general(state.box,
                                                        coords == 'fractional')
 
     E = energy.soft_sphere_pair(displacement_fn, state.species, state.sigma)
     pos = getattr(state, coords + '_position')
 
-    self.assertAllClose(quantity.pressure(E, pos, state.box), state.pressure)
+    tol = 1e-7 if dtype is f64 else 2e-5
+
+    self.assertAllClose(quantity.pressure(E, pos, state.box), state.pressure,
+                        atol=tol, rtol=tol)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -179,11 +188,19 @@ class QuantityTest(jtu.JaxTestCase):
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': f'_dim={dim}_dtype={dtype.__name__}',
-          'dim': dim,
-          'dtype': dtype,
-      } for dim in SPATIAL_DIMENSION for dtype in DTYPES))
-  def test_pair_correlation_neighbor_list_species(self, dim, dtype):
+        'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
+                          f'_format={str(format).split(".")[-1]}'),
+        'dim': dim,
+        'dtype': dtype,
+        'format': format
+      } for dim in SPATIAL_DIMENSION
+    for dtype in DTYPES
+    for format in NEIGHBOR_LIST_FORMAT))
+  def test_pair_correlation_neighbor_list_species(self, dim, dtype, format):
+    if format is partition.OrderedSparse:
+      self.skipTest('OrderedSparse not supported for pair correlation '
+                    'function.')
+
     N = 100
     L = 10.
     displacement, _ = space.periodic(L)
@@ -195,8 +212,9 @@ class QuantityTest(jtu.JaxTestCase):
                                                               L,
                                                               rs,
                                                               f32(0.1),
-                                                              species)
-    nbrs = nbr_fn(R)
+                                                              species,
+                                                              format=format)
+    nbrs = nbr_fn.allocate(R)
 
     g_0, g_1 = g(R)
     g_0 = np.mean(g_0, axis=0)
@@ -210,11 +228,18 @@ class QuantityTest(jtu.JaxTestCase):
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': f'_dim={dim}_dtype={dtype.__name__}',
-          'dim': dim,
-          'dtype': dtype,
-      } for dim in SPATIAL_DIMENSION for dtype in DTYPES))
-  def test_pair_correlation_neighbor_list(self, dim, dtype):
+        'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
+                          f'_format={str(format).split(".")[-1]}'),
+        'dim': dim,
+        'dtype': dtype,
+        'format': format
+      } for dim in SPATIAL_DIMENSION
+    for dtype in DTYPES
+    for format in NEIGHBOR_LIST_FORMAT))
+  def test_pair_correlation_neighbor_list(self, dim, dtype, format):
+    if format is partition.OrderedSparse:
+      self.skipTest('OrderedSparse not supported for pair correlation '
+                    'function.')
     N = 100
     L = 10.
     displacement, _ = space.periodic(L)
@@ -224,8 +249,9 @@ class QuantityTest(jtu.JaxTestCase):
     nbr_fn, g_neigh = quantity.pair_correlation_neighbor_list(displacement,
                                                               L,
                                                               rs,
-                                                              f32(0.1))
-    nbrs = nbr_fn(R)
+                                                              f32(0.1),
+                                                              format=format)
+    nbrs = nbr_fn.allocate(R)
 
     g_0 = g(R)
     g_0 = np.mean(g_0, axis=0)
@@ -275,6 +301,15 @@ class QuantityTest(jtu.JaxTestCase):
     x = np.array([1, 2, 3], np.float64)
     x = maybe_downcast(x)
     self.assertEqual(x.dtype, np.float64)
+
+  def test_clipped_force(self):
+    N = 10
+    dim = 3
+    def U(r):
+      return np.sum(1 / np.linalg.norm(r, axis=-1) ** 2)
+    force_fn = quantity.clipped_force(U, 1.5)
+    R = random.normal(random.PRNGKey(0), (N, dim))
+    self.assertTrue(np.all(np.linalg.norm(force_fn(R), axis=-1) <= 1.5))
 
 if __name__ == '__main__':
   absltest.main()

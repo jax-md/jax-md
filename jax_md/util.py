@@ -14,12 +14,12 @@
 
 """Defines utility functions."""
 
-from typing import Tuple, Union
+from typing import Iterable, Union, Optional, Any
 
 from jax.tree_util import register_pytree_node
 from jax.lib import xla_bridge
 import jax.numpy as jnp
-from jax.api import jit
+from jax import jit
 
 from functools import partial
 
@@ -70,7 +70,7 @@ def safe_mask(mask, fn, operand, placeholder=0):
 
 
 def high_precision_sum(X: Array,
-                       axis: Union[Tuple[int, ...], int]=None,
+                       axis: Optional[Union[Iterable[int], int]]=None,
                        keepdims: bool=False):
   """Sums over axes at 64-bit precision then casts back to original dtype."""
   return jnp.array(
@@ -81,3 +81,7 @@ def maybe_downcast(x):
   if isinstance(x, jnp.ndarray) and x.dtype is jnp.dtype('float64'):
     return x
   return jnp.array(x, f32)
+
+
+def is_array(x: Any) -> bool:
+  return isinstance(x, (jnp.ndarray, onp.ndarray))

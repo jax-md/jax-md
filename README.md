@@ -2,11 +2,12 @@
 
 ### Accelerated, Differentiable, Molecular Dynamics
 [**Quickstart**](#getting-started)
-| [**Reference docs**](https://jax-md.readthedocs.io/en/latest/)
+| [**Reference docs**](https://jax-md.readthedocs.io/en/main/)
 | [**Paper**](https://arxiv.org/pdf/1912.04232.pdf)
 | [**NeurIPS 2020**](https://neurips.cc/virtual/2020/public/poster_83d3d4b6c9579515e1679aca8cbc8033.html)
 
-[![Build Status](https://travis-ci.org/google/jax-md.svg?branch=master)](https://travis-ci.org/google/jax-md) [![PyPI](https://img.shields.io/pypi/v/jax-md)](https://pypi.org/project/jax-md/) [![PyPI - License](https://img.shields.io/pypi/l/jax_md)](https://github.com/google/jax-md/blob/master/LICENSE)
+![Build Status](https://github.com/google/jax-md/workflows/Build/badge.svg?branch=main) [![Coverage](https://codecov.io/gh/google/jax-md/branch/main/graph/badge.svg?token=JYQpbNyICv)](https://codecov.io/gh/google/jax-md)
+ [![PyPI](https://img.shields.io/pypi/v/jax-md)](https://pypi.org/project/jax-md/) [![PyPI - License](https://img.shields.io/pypi/l/jax_md)](https://github.com/google/jax-md/blob/main/LICENSE)
 
 
 Molecular dynamics is a workhorse of modern computational condensed matter
@@ -34,18 +35,23 @@ a broader set of simulations. JAX MD is a functional and data driven library. Da
 
 ### Getting Started
 
+For a video introducing JAX MD along with a [demo](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/talk_demo.ipynb), check out this talk from the Physics meets Machine Learning series:
+
+[![Science Meets ML Talk](https://img.youtube.com/vi/Bkm8tGET7-w/0.jpg)](https://www.youtube.com/watch?v=Bkm8tGET7-w)
+
 To get started playing around with JAX MD check out the following colab notebooks on Google Cloud without needing to install anything. For a very simple introduction, I would recommend the Minimization example. For an example of a bunch of the features of JAX MD, check out the JAX MD cookbook.
 
-- [JAX MD Cookbook](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/jax_md_cookbook.ipynb)
-- [Minimization](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/minimization.ipynb)
-- [NVE Simulation](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/nve_simulation.ipynb)
-- [NVT Simulation](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/nvt_simulation.ipynb)
-- [NPT Simulation](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/npt_simulation.ipynb)
-- [NVE with Neighbor Lists](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/nve_neighbor_list.ipynb)
-- [Custom Potentials](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/customizing_potentials_cookbook.ipynb)
-- [Neural Network Potentials](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/neural_networks.ipynb)
-- [Flocking](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/flocking.ipynb)
-- [Meta Optimization](https://colab.research.google.com/github/google/jax-md/blob/master/notebooks/meta_optimization.ipynb)
+- [JAX MD Cookbook](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/jax_md_cookbook.ipynb)
+- [Minimization](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/minimization.ipynb)
+- [NVE Simulation](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/nve_simulation.ipynb)
+- [NVT Simulation](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/nvt_simulation.ipynb)
+- [NPT Simulation](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/npt_simulation.ipynb)
+- [NVE with Neighbor Lists](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/nve_neighbor_list.ipynb)
+- [Custom Potentials](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/customizing_potentials_cookbook.ipynb)
+- [Neural Network Potentials](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/neural_networks.ipynb)
+- [Flocking](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/flocking.ipynb)
+- [Meta Optimization](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/meta_optimization.ipynb)
+- [Swap Monte Carlo (Cargese Summer School)](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/cargese_swap_mc.ipynb)
 
 You can install JAX MD locally with pip,
 ```
@@ -71,7 +77,7 @@ conditions are commonplace in simulations and must be respected. Spaces are defi
 The following spaces are currently supported:
 - `space.free()` specifies a space with free boundary conditions.
 - `space.periodic(box_size)` specifies a space with periodic boundary conditions of side length `box_size`.
-- `space.periodic_general(T)` specifies a space as a periodic parellelopiped formed by transforming the unit cube by an affine transformation `T`. Note that `T` can be a time dependent function `T(t)` that is useful for simulating systems under strain.
+- `space.periodic_general(box)` specifies a space as a periodic parellelopiped formed by transforming the unit cube by an affine transformation `box`.
 
 Example:
 
@@ -87,13 +93,16 @@ In the simplest case, molecular dynamics calculations are often based on a pair
 potential that is defined by a user. This then is used to compute a total energy
 whose negative gradient gives forces. One of the very nice things about JAX is
 that we get forces for free! The second part of the code is devoted to computing
-energies. 
+energies.
 
 We provide the following classical potentials:
 - `energy.soft_sphere` a soft sphere whose energy incrases as the overlap of the spheres to some power, `alpha`.
 - `energy.lennard_jones` a standard 12-6 lennard-jones potential.
 - `energy.morse` a morse potential.
 - `energy.eam` embedded atom model potential with ability to load parameters from LAMMPS files.
+- `energy.stillinger_weber` used to model Silicon-like systems.
+- `energy.bks` Beest-Kramer-van Santen potential used to model silica.
+- `energy.gupta` used to model gold nanoclusters.
 
 We also provide the following neural network potentials:
 - `energy.behler_parrinello` a widely used fixed-feature neural network architecture for molecular systems.
@@ -140,6 +149,7 @@ We provide the following dynamics:
 - `simulate.nvt_nose_hoover` Uses Nose-Hoover chain to simulate a constant temperature system.
 - `simulate.npt_nose_hoover` Uses Nose-Hoover chain to simulate a system at constant pressure and temperature.
 - `simulate.nvt_langevin` Simulates a system by numerically integrating the Langevin stochistic differential equation.
+- `simulate.hybrid_swap_mc` Alternates NVT dynamics with Monte-Carlo swapping moves to generate low energy glasses.
 - `simulate.brownian` Simulates brownian motion.
 - `minimize.gradient_descent` Mimimizes a system using gradient descent.
 - `minimize.fire_descent` Minimizes a system using the fast inertial relaxation engine.
@@ -159,11 +169,11 @@ R = state.position
 
 ## Spatial Partitioning ([`partition.py`](https://jax-md.readthedocs.io/en/latest/jax_md.partition.html))
 
-In many applications, it is useful to construct spatial partitions of particles / objects in a simulation. 
+In many applications, it is useful to construct spatial partitions of particles / objects in a simulation.
 
 We provide the following methods:
-- `partition.cell_list` Partitions objects (and metadata) into a grid of cells. 
-- `partition.neighbor_list` Constructs a set of neighbors within some cutoff distance for each object in a simulation. 
+- `partition.cell_list` Partitions objects (and metadata) into a grid of cells.
+- `partition.neighbor_list` Constructs a set of neighbors within some cutoff distance for each object in a simulation.
 
 Cell List Example:
 ```python
@@ -180,17 +190,16 @@ Neighbor List Example:
 from jax_md import partition
 
 neighbor_list_fn = partition.neighbor_list(displacement_fn, box_size, cell_size)
-neighbors = neighbor_list_fn(R) # Create a new neighbor list.
+neighbors = neighbor_list_fn.allocate(R) # Create a new neighbor list.
 
 # Do some simulating....
 
-neighbors = neighbor_list_fn(R, neighbors)  # Update the neighbor list without resizing.
+neighbors = neighbors.update(R)  # Update the neighbor list without resizing.
 if neighbors.did_buffer_overflow:  # Couldn't fit all the neighbors into the list.
-  neighbors = neighbor_list_fn(R)  # So create a new neighbor list.
-
-# neighbors.idx is a [N, max_neighbors] ndarray of neighbor ids for each particle.
-# Empty slots are marked by id == N.
+  neighbors = neighbor_list_fn.allocate(R)  # So create a new neighbor list.
 ```
+
+There are three different formats of neighbor list supported: `Dense`, `Sparse`, and `OrderedSparse`. `Dense` neighbor lists store neighbors in an `(particle_count, neighbors_per_particle)` array, `Sparse` neighbor lists store neighbors in a `(2, total_neighbors)` array of pairs, `OrderedSparse` neighbor lists are like `Sparse` neighbor lists, but they only store pairs such that `i < j`.
 
 # Development
 
@@ -204,12 +213,22 @@ You must follow [JAX's](https://www.github.com/google/jax/) GPU installation ins
 
 
 ### 64-bit precision
-To enable 64-bit precision, set the respective JAX flag _before_ importing `jax_md` (see the JAX [guide](https://colab.research.google.com/github/google/jax/blob/master/notebooks/Common_Gotchas_in_JAX.ipynb#scrollTo=YTktlwTTMgFl)), for example:
+To enable 64-bit precision, set the respective JAX flag _before_ importing `jax_md` (see the JAX [guide](https://colab.research.google.com/github/google/jax/blob/main/notebooks/Common_Gotchas_in_JAX.ipynb#scrollTo=YTktlwTTMgFl)), for example:
 
 ```python
 from jax.config import config
 config.update("jax_enable_x64", True)
 ```
+
+# Publications
+
+JAX MD has been used in the following publications. If you don't see your paper on the list, but you used JAX MD let us know and we'll add it to the list!
+
+1. [Lagrangian Neural Network with Differential Symmetries and Relational Inductive Bias.](https://arxiv.org/abs/2110.03266)<br> R. Bhattoo, S. Ranu, and N. M. A. Krishnan
+2. [Efficient and Modular Implicit Differentiation.](https://arxiv.org/abs/2105.15183)<br> M. Blondel, Q. Berthet, M. Cuturi, R. Frostig, S. Hoyer, F. Llinares-López, F. Pedregosa, and J.-P. Vert
+3. [Learning neural network potentials from experimental data via Differentiable Trajectory Reweighting.](https://arxiv.org/abs/2106.01138)<br> S. Thaler and J. Zavadlav
+4. [Learn2Hop: Learned Optimization on Rough Landscapes. (ICML 2021)](http://proceedings.mlr.press/v139/merchant21a.html)<br> A. Merchant, L. Metz, S. S. Schoenholz, and E. D. Cubuk
+5. [Designing self-assembling kinetics with differentiable statistical physics models. (PNAS 2021)](https://www.pnas.org/content/118/10/e2024083118.short)<br> C. P. Goodrich, E. M. King, S. S. Schoenholz, E. D. Cubuk, and  M. P. Brenner
 
 # Citation
 
@@ -226,4 +245,3 @@ If you use the code in a publication, please cite the repo using the .bib,
  year = {2020}
 }
 ```
-
