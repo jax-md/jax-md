@@ -98,7 +98,7 @@ def _cell_dimensions(spatial_dimension: int,
 
   cells_per_side = onp.floor(box_size / minimum_cell_size)
   cell_size = box_size / cells_per_side
-  cells_per_side = onp.array(cells_per_side, dtype=jnp.int64)
+  cells_per_side = onp.array(cells_per_side, dtype=jnp.int32)
 
   if isinstance(box_size, onp.ndarray):
     if box_size.ndim == 1 or box_size.ndim == 2:
@@ -130,7 +130,7 @@ def count_cell_filling(R: Array,
 
   hash_multipliers = _compute_hash_constants(dim, cells_per_side)
 
-  particle_index = jnp.array(R / cell_size, dtype=jnp.int64)
+  particle_index = jnp.array(R / cell_size, dtype=jnp.int32)
   particle_hash = jnp.sum(particle_index * hash_multipliers, axis=1)
 
   filling = ops.segment_sum(jnp.ones_like(particle_hash),
@@ -152,18 +152,18 @@ def _compute_hash_constants(spatial_dimension: int,
                             cells_per_side: Array) -> Array:
   if cells_per_side.size == 1:
     return jnp.array([[cells_per_side ** d for d in range(spatial_dimension)]],
-                     dtype=jnp.int64)
+                     dtype=jnp.int32)
   elif cells_per_side.size == spatial_dimension:
     one = jnp.array([[1]], dtype=jnp.int32)
     cells_per_side = jnp.concatenate((one, cells_per_side[:, :-1]), axis=1)
-    return jnp.array(jnp.cumprod(cells_per_side), dtype=jnp.int64)
+    return jnp.array(jnp.cumprod(cells_per_side), dtype=jnp.int32)
   else:
     raise ValueError()
 
 
 def _neighboring_cells(dimension: int) -> Generator[onp.ndarray, None, None]:
   for dindex in onp.ndindex(*([3] * dimension)):
-    yield onp.array(dindex, dtype=jnp.int64) - 1
+    yield onp.array(dindex, dtype=jnp.int32) - 1
 
 
 def _estimate_cell_capacity(R: Array,
@@ -306,13 +306,13 @@ def cell_list(box_size: Box,
     hash_multipliers = _compute_hash_constants(dim, cells_per_side)
 
     # Create cell list data.
-    particle_id = lax.iota(jnp.int64, N)
+    particle_id = lax.iota(jnp.int32, N)
     # NOTE(schsam): We use the convention that particles that are successfully,
     # copied have their true id whereas particles empty slots have id = N.
     # Then when we copy data back from the grid, copy it to an array of shape
     # [N + 1, output_dimension] and then truncate it to an array of shape
     # [N, output_dimension] which ignores the empty slots.
-    mask_id = jnp.ones((N,), jnp.int64) * N
+    mask_id = jnp.ones((N,), jnp.int32) * N
     cell_R = jnp.zeros((cell_count * _cell_capacity, dim), dtype=R.dtype)
     cell_id = N * jnp.ones((cell_count * _cell_capacity, 1), dtype=i32)
 
@@ -354,7 +354,7 @@ def cell_list(box_size: Box,
     for k, v in kwargs.items():
       sorted_kwargs[k] = v[sort_map]
 
-    sorted_cell_id = jnp.mod(lax.iota(jnp.int64, N), _cell_capacity)
+    sorted_cell_id = jnp.mod(lax.iota(jnp.int32, N), _cell_capacity)
     sorted_cell_id = sorted_hash * _cell_capacity + sorted_cell_id
 
     cell_R = ops.index_update(cell_R, sorted_cell_id, sorted_R)
