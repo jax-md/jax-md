@@ -43,6 +43,7 @@ DisplacementOrMetricFn = space.DisplacementOrMetricFn
 
 NeighborFn = partition.NeighborFn
 NeighborList = partition.NeighborList
+NeighborListFormat = partition.NeighborListFormat
 
 
 # Energy Functions
@@ -116,7 +117,7 @@ def soft_sphere_pair(displacement_or_metric: DisplacementOrMetricFn,
                      sigma: Array=1.0,
                      epsilon: Array=1.0,
                      alpha: Array=2.0,
-                     per_particle: bool=False):
+                     per_particle: bool=False) -> Callable[[Array], Array]:
   """Convenience wrapper to compute soft sphere energy over a system."""
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
@@ -142,14 +143,15 @@ def soft_sphere_neighbor_list(
     dr_threshold: float=0.2,
     per_particle: bool=False,
     fractional_coordinates: bool=False,
-    format: partition.NeighborListFormat=partition.OrderedSparse
+    format: NeighborListFormat=partition.OrderedSparse,
+    **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   """Convenience wrapper to compute soft spheres using a neighbor list."""
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
   alpha = maybe_downcast(alpha)
   list_cutoff = jnp.max(sigma)
-  dr_threshold = list_cutoff * maybe_downcast(dr_threshold)
+  dr_threshold = maybe_downcast(dr_threshold)
 
   neighbor_fn = partition.neighbor_list(
     displacement_or_metric,
@@ -157,7 +159,8 @@ def soft_sphere_neighbor_list(
     list_cutoff,
     dr_threshold,
     fractional_coordinates=fractional_coordinates,
-    format=format)
+    format=format,
+    **neighbor_kwargs)
   energy_fn = smap.pair_neighbor_list(
     soft_sphere,
     space.canonicalize_displacement_or_metric(displacement_or_metric),
@@ -230,14 +233,15 @@ def lennard_jones_neighbor_list(
     dr_threshold: float=0.5,
     per_particle: bool=False,
     fractional_coordinates: bool=False,
-    format: partition.NeighborListFormat=partition.OrderedSparse
+    format: partition.NeighborListFormat=partition.OrderedSparse,
+    **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   """Convenience wrapper to compute lennard-jones using a neighbor list."""
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
   r_onset = maybe_downcast(r_onset) * jnp.max(sigma)
   r_cutoff = maybe_downcast(r_cutoff) * jnp.max(sigma)
-  dr_threshold = jnp.max(sigma) * maybe_downcast(dr_threshold)
+  dr_threshold = maybe_downcast(dr_threshold)
 
   neighbor_fn = partition.neighbor_list(
     displacement_or_metric,
@@ -245,7 +249,8 @@ def lennard_jones_neighbor_list(
     r_cutoff,
     dr_threshold,
     fractional_coordinates=fractional_coordinates,
-    format=format)
+    format=format,
+    **neighbor_kwargs)
   energy_fn = smap.pair_neighbor_list(
     multiplicative_isotropic_cutoff(lennard_jones, r_onset, r_cutoff),
     space.canonicalize_displacement_or_metric(displacement_or_metric),
@@ -279,6 +284,7 @@ def morse(dr: Array,
   U = epsilon * (f32(1) - jnp.exp(-alpha * (dr - sigma)))**f32(2) - epsilon
   # TODO(cpgoodri): ErrorChecking following lennard_jones
   return jnp.nan_to_num(jnp.array(U, dtype=dr.dtype))
+
 
 def morse_pair(displacement_or_metric: DisplacementOrMetricFn,
                species: Optional[Array]=None,
@@ -315,7 +321,8 @@ def morse_neighbor_list(
     dr_threshold: float=0.5,
     per_particle: bool=False,
     fractional_coordinates: bool=False,
-    format: partition.NeighborListFormat=partition.OrderedSparse
+    format: partition.NeighborListFormat=partition.OrderedSparse,
+    **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   """Convenience wrapper to compute Morse using a neighbor list."""
   sigma = maybe_downcast(sigma)
@@ -331,7 +338,8 @@ def morse_neighbor_list(
     r_cutoff,
     dr_threshold,
     fractional_coordinates=fractional_coordinates,
-    format=format)
+    format=format,
+    **neighbor_kwargs)
   energy_fn = smap.pair_neighbor_list(
     multiplicative_isotropic_cutoff(morse, r_onset, r_cutoff),
     space.canonicalize_displacement_or_metric(displacement_or_metric),
@@ -411,6 +419,7 @@ GUPTA_GOLD55_DICT = {
     'A' : 0.118428,
 }
 
+
 def gupta_gold55(displacement,
                  cutoff=8.0):
   gupta_gold_fn = gupta_potential(displacement,
@@ -419,6 +428,7 @@ def gupta_gold55(displacement,
   def energy_fn(R, **unused_kwargs):
     return gupta_gold_fn(R)
   return energy_fn
+
 
 def multiplicative_isotropic_cutoff(fn: Callable[..., Array],
                                     r_onset: float,
@@ -472,14 +482,14 @@ def dsf_coulomb(r: Array,
   """Damped-shifted-force approximation of the coulombic interaction."""
   qqr2e = 332.06371  # Coulmbic conversion factor: 1/(4*pi*epo).
 
-  cutoffsq = cutoff*cutoff
-  erfcc = erfc(alpha*cutoff)
-  erfcd = jnp.exp(-alpha*alpha*cutoffsq)
-  f_shift = -(erfcc/cutoffsq + 2.0/jnp.sqrt(jnp.pi)*alpha*erfcd/cutoff)
-  e_shift = erfcc/cutoff - f_shift*cutoff
+  cutoffsq = cutoff * cutoff
+  erfcc = erfc(alpha * cutoff)
+  erfcd = jnp.exp(-alpha * alpha * cutoffsq)
+  f_shift = -(erfcc / cutoffsq + 2 / jnp.sqrt(jnp.pi) * alpha * erfcd / cutoff)
+  e_shift = erfcc / cutoff - f_shift * cutoff
 
-  coulomb_en = qqr2e*Q_sq/r * (erfc(alpha*r) - r*e_shift - r**2*f_shift)
-  return jnp.where(r < cutoff, coulomb_en, 0.0)
+  e = qqr2e * Q_sq / r * (erfc(alpha * r) - r * e_shift - r**2 * f_shift)
+  return jnp.where(r < cutoff, e, 0.0)
 
 
 def bks(dr: Array,
@@ -569,7 +579,8 @@ def bks_neighbor_list(
     cutoff: float,
     dr_threshold: float=0.8,
     fractional_coordinates: bool=False,
-    format: partition.NeighborListFormat=partition.OrderedSparse
+    format: partition.NeighborListFormat=partition.OrderedSparse,
+    **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   """Convenience wrapper to compute BKS energy using a neighbor list."""
   Q_sq = maybe_downcast(Q_sq)
@@ -585,7 +596,8 @@ def bks_neighbor_list(
     cutoff,
     dr_threshold,
     fractional_coordinates=fractional_coordinates,
-    format=format)
+    format=format,
+    **neighbor_kwargs)
 
   energy_fn = smap.pair_neighbor_list(
       bks,
@@ -622,6 +634,7 @@ BKS_SILICA_DICT = {
     'coulomb_alpha' : 0.25,
 }
 
+
 def _bks_silica_self(Q_sq: Array, alpha: Array, cutoff: float) -> Array:
   """Function for computing the self-energy contributions to BKS."""
   cutoffsq = cutoff * cutoff
@@ -631,6 +644,7 @@ def _bks_silica_self(Q_sq: Array, alpha: Array, cutoff: float) -> Array:
   e_shift = erfcc / cutoff - f_shift * cutoff
   qqr2e = 332.06371  # kcal/mol coulmbic conversion factor: 1/(4*pi*epo)
   return -(e_shift / 2.0 + alpha / jnp.sqrt(jnp.pi)) * Q_sq * qqr2e
+
 
 def bks_silica_pair(displacement_or_metric: DisplacementOrMetricFn,
                     species: Array,
@@ -658,20 +672,23 @@ def bks_silica_neighbor_list(
     displacement_or_metric: DisplacementOrMetricFn,
     box_size: Box,
     species: Array,
-    cutoff: float=8.0,
+    cutoff: float = 8.0,
+    dr_threshold: float = 1.0,
     fractional_coordinates: bool=False,
-    format: partition.NeighborListFormat=partition.OrderedSparse
+    format: partition.NeighborListFormat=partition.OrderedSparse,
+    **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   """Convenience wrapper to compute BKS energy using neighbor lists."""
+  kwargs = {**BKS_SILICA_DICT, **neighbor_kwargs}
   neighbor_fn, bks_pair_fn = bks_neighbor_list(
     displacement_or_metric,
     box_size,
     species,
     cutoff=cutoff,
-    dr_threshold=0.8,
+    dr_threshold=dr_threshold,
     fractional_coordinates=fractional_coordinates,
     format=format,
-    **BKS_SILICA_DICT)
+    **kwargs)
   N_0 = jnp.sum(species==0)
   N_1 = jnp.sum(species==1)
 
@@ -683,6 +700,7 @@ def bks_silica_neighbor_list(
             N_1 * e_self(CHARGE_OXYGEN ** 2))
 
   return neighbor_fn, energy_fn
+
 
 # Stillinger-Weber Potential
 def _sw_angle_interaction(gamma: float, sigma: float, cutoff: float,
@@ -733,14 +751,14 @@ def _sw_radial_interaction(sigma: float, B: float, cutoff: float, r: Array
 
 
 def stillinger_weber(displacement: DisplacementFn,
-                     sigma=2.0951,
-                     A=7.049556277,
-                     B=0.6022245584,
-                     lam=21.0,
-                     gamma=1.2,
-                     epsilon=2.16826,
-                     three_body_strength=1.0,
-                     cutoff=3.77118) -> Callable[[Array], Array]:
+                     sigma: float = 2.0951,
+                     A: float = 7.049556277,
+                     B: float = 0.6022245584,
+                     lam: float = 21.0,
+                     gamma: float = 1.2,
+                     epsilon: float = 2.16826,
+                     three_body_strength: float =1.0,
+                     cutoff: float = 3.77118) -> Callable[[Array], Array]:
   """Computes the Stillinger-Weber potential.
 
   The Stillinger-Weber (SW) potential [1] which is commonly used to model
@@ -794,16 +812,18 @@ def stillinger_weber(displacement: DisplacementFn,
 def stillinger_weber_neighbor_list(
     displacement: DisplacementFn,
     box_size: float,
-    sigma=2.0951,
-    A=7.049556277,
-    B=0.6022245584,
-    lam=21.0,
-    gamma=1.2,
-    epsilon=2.16826,
-    three_body_strength=1.0,
-    cutoff=3.77118,
+    sigma: float = 2.0951,
+    A: float = 7.049556277,
+    B: float = 0.6022245584,
+    lam: float = 21.0,
+    gamma: float = 1.2,
+    epsilon: float = 2.16826,
+    three_body_strength:float = 1.0,
+    cutoff: float = 3.77118,
+    dr_threshold: float = 0.5,
     fractional_coordinates: bool=False,
-    format=partition.Dense
+    format: NeighborListFormat=partition.Dense,
+    **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   """Computes the Stillinger-Weber potential.
 
@@ -844,13 +864,12 @@ def stillinger_weber_neighbor_list(
   two_body_fn = partial(_sw_radial_interaction, sigma, B, cutoff)
   three_body_fn = partial(_sw_angle_interaction, gamma, sigma, cutoff)
 
-  dr_threshold = 0.5
-
   neighbor_fn = partition.neighbor_list(displacement,
                                         box_size,
                                         cutoff,
                                         dr_threshold,
-                                        format=format)
+                                        format=format,
+                                        **neighbor_kwargs)
 
   def compute_fn(R, neighbor, **kwargs):
     d = partial(displacement, **kwargs)
@@ -990,7 +1009,7 @@ def eam(displacement: DisplacementFn,
 
 def eam_from_lammps_parameters(displacement: DisplacementFn,
                                f: TextIO) -> Callable[[Array], Array]:
-  """Convenience wrapper to compute EAM energy over a system."""
+  """Convenience wrapper to compute EAM energy with LAMMPS parameters."""
   return eam(displacement, *load_lammps_eam_parameters(f)[:-1])
 
 
@@ -1001,9 +1020,11 @@ def eam_neighbor_list(
     embedding_fn: Callable[[Array], Array],
     pairwise_fn: Callable[[Array], Array],
     cutoff: float,
-    axis: Optional[Tuple[int, ...]]=None,
-    fractional_coordinates: bool=True,
-    format: partition.NeighborListFormat=partition.Sparse
+    dr_threshold: float = 0.5,
+    axis: Optional[Tuple[int, ...]] = None,
+    fractional_coordinates: bool = True,
+    format: partition.NeighborListFormat = partition.Sparse,
+    **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   """Interatomic potential as approximated by embedded atom model (EAM).
 
@@ -1026,6 +1047,7 @@ def eam_neighbor_list(
       spatial_dimension] of particle displacements from particle positions
       specified as an ndarray of shape [n, spatial_dimension] and [m,
       spatial_dimension] respectively.
+    box_size: The size of the simulation box.
     charge_fn: A function that takes an ndarray of shape [n, m] of distances
       between particles and returns a matrix of charge contributions.
     embedding_fn: Function that takes an ndarray of shape [n] of charges and
@@ -1033,11 +1055,17 @@ def eam_neighbor_list(
       into the charge.
     pairwise_fn: A function that takes an ndarray of shape [n, m] of distances
       and returns an ndarray of shape [n, m] of pairwise energies.
+    cutoff: A float specifying the maximum interaction distance.
+    dr_threshold: A float specifying the halo in the neighbor list.
     axis: Specifies which axis the total energy should be summed over.
+    fractional_coordinates: A boolean specifying whether or not the coordinates
+      will be in the unit cube.
+    format: The format of the neighbor list.
 
   Returns:
-    A function that computes the EAM energy of a set of atoms with positions
-    given by an [n, spatial_dimension] ndarray.
+    A tuple containing a function to build the neighbor list and function that
+    computes the EAM energy of a set of atoms with positions given by an
+    [n, spatial_dimension] ndarray.
 
   [1] Y. Mishin, D. Farkas, M.J. Mehl, DA Papaconstantopoulos, "Interatomic
   potentials for monoatomic metals from experimental data and ab initio
@@ -1045,13 +1073,13 @@ def eam_neighbor_list(
   """
   metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
 
-  dr_threshold = 0.5
-
   neighbor_fn = partition.neighbor_list(displacement_or_metric,
                                         box_size,
                                         cutoff,
                                         dr_threshold,
-                                        mask_self=False)
+                                        mask_self=False,
+                                        format=format,
+                                        **neighbor_kwargs)
 
   def energy_fn(R, neighbor, **kwargs):
     mask = partition.neighbor_list_mask(neighbor)
@@ -1086,12 +1114,16 @@ def eam_from_lammps_parameters_neighbor_list(
     box_size, float,
     f: TextIO,
     axis=None,
+    dr_threshold: float=0.5,
     fractional_coordinates=True,
+    **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
-  """Convenience wrapper to compute EAM energy over a system."""
+  """Convenience wrapper to compute EAM energy with parameters from LAMMPS."""
   return eam_neighbor_list(displacement,
                            box_size,
-                           *load_lammps_eam_parameters(f))
+                           *load_lammps_eam_parameters(f),
+                           dr_threshold=dr_threshold,
+                           **neighbor_kwargs)
 
 
 def behler_parrinello(displacement: DisplacementFn,
@@ -1138,7 +1170,8 @@ def behler_parrinello_neighbor_list(
     sym_kwargs: Optional[Dict[str, Any]]=None,
     dr_threshold: float=0.5,
     fractional_coordinates: bool=False,
-    format: partition.NeighborListFormat=partition.Sparse
+    format: partition.NeighborListFormat=partition.Sparse,
+    **neighbor_kwargs
     ) -> Tuple[NeighborFn, nn.InitFn, Callable[[PyTree, Array, NeighborList],
                                                Array]]:
   if sym_kwargs is None:
@@ -1158,7 +1191,8 @@ def behler_parrinello_neighbor_list(
     cutoff_distance,
     dr_threshold,
     fractional_coordinates=fractional_coordinates,
-    format=format)
+    format=format,
+    **neighbor_kwargs)
 
   sym_fn = nn.behler_parrinello_symmetry_functions_neighbor_list(displacement,
                                                                  species,
@@ -1298,7 +1332,8 @@ def graph_network_neighbor_list(
     mlp_sizes: Tuple[int, ...]=(64, 64),
     mlp_kwargs: Optional[Dict[str, Any]]=None,
     fractional_coordinates: bool=False,
-    format: partition.NeighborListFormat=partition.Sparse
+    format: partition.NeighborListFormat=partition.Sparse,
+    **neighbor_kwargs
     ) -> Tuple[NeighborFn, nn.InitFn, Callable[[PyTree, Array, NeighborList],
                                                Array]]:
   """Convenience wrapper around EnergyGraphNet model using neighbor lists.
@@ -1386,7 +1421,8 @@ def graph_network_neighbor_list(
     dr_threshold,
     mask_self=False,
     fractional_coordinates=fractional_coordinates,
-    format=format)
+    format=format,
+    **neighbor_kwargs)
   init_fn, apply_fn = model.init, model.apply
 
   return neighbor_fn, init_fn, apply_fn
