@@ -189,6 +189,31 @@ def _estimate_cell_capacity(position: Array,
   return int(cell_capacity * buffer_size_multiplier)
 
 
+def _shift_array(arr: Array, dindex: Array) -> Array:
+  if len(dindex) == 2:
+    dx, dy = dindex
+    dz = 0
+  elif len(dindex) == 3:
+    dx, dy, dz = dindex
+
+  if dx < 0:
+    arr = jnp.concatenate((arr[1:], arr[:1]))
+  elif dx > 0:
+    arr = jnp.concatenate((arr[-1:], arr[:-1]))
+
+  if dy < 0:
+    arr = jnp.concatenate((arr[:, 1:], arr[:, :1]), axis=1)
+  elif dy > 0:
+    arr = jnp.concatenate((arr[:, -1:], arr[:, :-1]), axis=1)
+
+  if dz < 0:
+    arr = jnp.concatenate((arr[:, :, 1:], arr[:, :, :1]), axis=2)
+  elif dz > 0:
+    arr = jnp.concatenate((arr[:, :, -1:], arr[:, :, :-1]), axis=2)
+
+  return arr
+
+
 def _unflatten_cell_buffer(arr: Array,
                            cells_per_side: Array,
                            dim: int) -> Array:
@@ -615,7 +640,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
     for dindex in _neighboring_cells(dim):
       if onp.all(dindex == 0):
         continue
-      cell_idx += [jnp.roll(idx, dindex, range(dim))]
+      cell_idx += [_shift_array(idx, dindex)]
 
     cell_idx = jnp.concatenate(cell_idx, axis=-2)
     cell_idx = cell_idx[..., jnp.newaxis, :, :]
