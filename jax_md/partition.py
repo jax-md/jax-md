@@ -94,14 +94,16 @@ class CellList:
   update_fn: Callable[..., 'CellList'] = \
       dataclasses.static_field()
 
-  def update(self, position: Array) -> 'CellList':
-    return self.update_fn(position, self)  # pytype: disable=wrong-keyword-args
+  def update(self, position: Array, **kwargs) -> 'CellList':
+    cl_data = (self.cell_capacity, self.did_buffer_overflow, self.update_fn)
+    return self.update_fn(position, cl_data, **kwargs)
 
 
 @dataclasses.dataclass
 class CellListFns:
   allocate: Callable[..., CellList] = dataclasses.static_field()
-  update: Callable[[Array, CellList], CellList] = dataclasses.static_field()
+  update: Callable[[Array, Union[CellList, int]],
+                    CellList] = dataclasses.static_field()
 
   def __iter__(self):
     return iter((self.allocate, self.update))
@@ -268,8 +270,10 @@ def cell_list(box_size: Box,
       occupancy.
   Returns:
     A CellListFns object that contains two methods, one to allocate the cell
-    list and one to update the cell list. Note that an existing cell list can
-    also be updated by calling `cell_list.update(position)`.
+    list and one to update the cell list. The update function can be called
+    with either a cell list from which the capacity can be inferred or with
+    an explicit integer denoting the capacity. Note that an existing cell list
+    can also be updated by calling `cell_list.update(position)`.
   """
 
   if util.is_array(box_size):
@@ -280,7 +284,9 @@ def cell_list(box_size: Box,
   if util.is_array(minimum_cell_size):
     minimum_cell_size = onp.array(minimum_cell_size)
 
-  def cell_list_fn(position: Array, cl: Optional[CellList] = None,
+  def cell_list_fn(position: Array,
+                   capacity_overflow_update: Optional[
+                       Tuple[int, bool, Callable[..., CellList]]] = None,
                    extra_capacity: int = 0, **kwargs) -> CellList:
     N = position.shape[0]
     dim = position.shape[1]
@@ -293,14 +299,14 @@ def cell_list(box_size: Box,
     _, cell_size, cells_per_side, cell_count = \
         _cell_dimensions(dim, box_size, minimum_cell_size)
 
-    if cl is None:
+    if capacity_overflow_update is None:
       cell_capacity = _estimate_cell_capacity(position, box_size, cell_size,
                                               buffer_size_multiplier)
       cell_capacity += extra_capacity
       overflow = False
+      update_fn = cell_list_fn
     else:
-      cell_capacity = cl.cell_capacity
-      overflow = cl.did_buffer_overflow
+      cell_capacity, overflow, update_fn = capacity_overflow_update
 
     hash_multipliers = _compute_hash_constants(dim, cells_per_side)
 
@@ -373,7 +379,6 @@ def cell_list(box_size: Box,
     max_occupancy = jnp.max(occupancy)
     overflow = overflow | (max_occupancy >= cell_capacity)
 
-    update_fn = (cell_list_fn if cl is None else cl.update_fn)
     return CellList(cell_position, cell_id, cell_kwargs,
                     overflow, cell_capacity, update_fn)  # pytype: disable=wrong-arg-count
 
@@ -381,8 +386,14 @@ def cell_list(box_size: Box,
                   ) -> CellList:
     return cell_list_fn(position, extra_capacity=extra_capacity, **kwargs)
 
-  def update_fn(position: Array, cl: CellList, **kwargs) -> CellList:
-    return cell_list_fn(position, cl, **kwargs)
+  def update_fn(position: Array, cl_or_capacity: Union[CellList, int], **kwargs
+                ) -> CellList:
+    if isinstance(cl_or_capacity, int):
+      capacity = int(cl_or_capacity)
+      return cell_list_fn(position, (capacity, False, cell_list_fn), **kwargs)
+    cl = cl_or_capacity
+    cl_data = (cl.cell_capacity, cl.did_buffer_overflow, cl.update_fn)
+    return cell_list_fn(position, cl_data, **kwargs)
 
   return CellListFns(allocate_fn, update_fn)  # pytype: disable=wrong-arg-count
 
@@ -454,8 +465,8 @@ class NeighborList(object):
       there was a buffer overflow. If this happens, it means that the results
       of the simulation will be incorrect and the simulation needs to be rerun
       using a larger buffer.
-    cell_list: A cell list object optionally used as a broad phase in the
-      creation of the neighbor list.
+    cell_list_capacity: An optional integer specifying the capacity of the cell
+      list used as an intermediate step in the creation of the neighbor list.
     max_occupancy: A static integer specifying the maximum size of the
       neighbor list. Changing this will invoke a recompilation.
     format: A NeighborListFormat enum specifying the format of the neighbor
@@ -468,7 +479,7 @@ class NeighborList(object):
 
   did_buffer_overflow: Array
 
-  cell_list: Optional[CellList]
+  cell_list_capacity: Optional[int] = dataclasses.static_field()
 
   max_occupancy: int = dataclasses.static_field()
 
@@ -488,7 +499,7 @@ class NeighborListFns:
     allocate: A function to allocate a new neighbor list. This function cannot
       be compiled, since it uses the values of positions to infer the shapes.
     update: A function to update a neighbor list given a new set of positions
-      and a new neighbor list.
+      and a previously allocated neighbor list.
   """
   allocate: Callable[..., NeighborList] = dataclasses.static_field()
   update: Callable[[Array, NeighborList],
@@ -622,6 +633,8 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
     box_size = f32(1)
 
   use_cell_list = jnp.all(cell_size < box_size / 3.) and not disable_cell_list
+  if use_cell_list:
+    cl_fn = cell_list(box_size, cell_size, capacity_multiplier)
 
   @jit
   def candidate_fn(position: Array) -> Array:
@@ -718,14 +731,14 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
 
       if use_cell_list:
         if neighbors is None:
-          cl_fn = cell_list(box_size, cell_size, capacity_multiplier)
           cl = cl_fn.allocate(position, extra_capacity=extra_capacity)
         else:
-          cl = neighbors.cell_list.update(position)  # pytype: disable=attribute-error
+          cl = cl_fn.update(position, neighbors.cell_list_capacity)
         overflow = overflow | cl.did_buffer_overflow
         idx = cell_list_candidate_fn(cl, position)
+        cl_capacity = cl.cell_capacity
       else:
-        cl = None
+        cl_capacity = None
         idx = candidate_fn(position)
 
       if mask_self:
@@ -753,7 +766,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
           idx,
           position,
           overflow | (occupancy >= max_occupancy),
-          cl,
+          cl_capacity,
           max_occupancy,
           format,
           update_fn)  # pytype: disable=wrong-arg-count
