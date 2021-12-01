@@ -65,17 +65,24 @@ def clipped_force(energy_fn: EnergyFn, max_force: float) -> ForceFn:
 
   return wrapped_force_fn
 
-def canonicalize_force(energy_or_force_fn: Union[EnergyFn, ForceFn]) -> ForceFn:
+def canonicalize_force(energy_or_force_fn: Union[EnergyFn, ForceFn]
+                       ) -> ForceFn:
+  """Returns a force function given either an energy or force function."""
   _force_fn = None
-  def force_fn(R, **kwargs):
+  def force_fn(position, *args, **kwargs):
     nonlocal _force_fn
     if _force_fn is None:
-      out_shape = eval_shape(energy_or_force_fn, R, **kwargs).shape
+      out_shape = eval_shape(energy_or_force_fn,
+                             position, *args, **kwargs).shape
       if out_shape == ():
         _force_fn = force(energy_or_force_fn)
-      else:
+      elif out_shape == position.shape:
         _force_fn = energy_or_force_fn
-    return _force_fn(R, **kwargs)
+      else:
+        raise ValueError('Provided function should be compatible with either '
+                         'an energy or a force. Found a function whose output '
+                         f'has shape {out_shape}.')
+    return _force_fn(position, *args, **kwargs)
 
   return force_fn
 

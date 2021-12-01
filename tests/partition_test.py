@@ -24,6 +24,7 @@ from jax.config import config as jax_config
 from jax import random
 import jax.numpy as np
 from jax import ops
+from jax import make_jaxpr
 
 from jax import grad
 
@@ -65,9 +66,9 @@ class CellListTest(jtu.JaxTestCase):
       [3.7, 7.9]
     ], dtype=dtype)
 
-    cell_fn = partition.cell_list(box_size, cell_size, R)
+    cell_fn = partition.cell_list(box_size, cell_size)
 
-    cell_list = cell_fn(R)
+    cell_list = cell_fn.allocate(R)
 
     self.assertAllClose(R[0], cell_list.position_buffer[0, 0, 0])
     self.assertAllClose(R[1], cell_list.position_buffer[1, 8, 1])
@@ -100,8 +101,8 @@ class CellListTest(jtu.JaxTestCase):
 
     R = box_size * random.uniform(key, (PARTICLE_COUNT, dim))
 
-    cell_fn = partition.cell_list(box_size, cell_size, R)
-    cell_list = cell_fn(R)
+    cell_fn = partition.cell_list(box_size, cell_size)
+    cell_list = cell_fn.allocate(R)
 
     id_flat = np.reshape(cell_list.id_buffer, (-1,))
     R_flat = np.reshape(cell_list.position_buffer, (-1, dim))
@@ -124,8 +125,8 @@ class CellListTest(jtu.JaxTestCase):
 
     R = box_size * random.uniform(key, (PARTICLE_COUNT, dim))
 
-    cell_fn = partition.cell_list(box_size, cell_size, R)
-    cell_list = cell_fn(R)
+    cell_fn = partition.cell_list(box_size, cell_size)
+    cell_list = cell_fn.allocate(R)
 
     id_flat = np.reshape(cell_list.id_buffer, (-1,))
     R_flat = np.reshape(cell_list.position_buffer, (-1, dim))
@@ -150,8 +151,8 @@ class CellListTest(jtu.JaxTestCase):
     side_data_dim = 2
     side_data = random.normal(key, (PARTICLE_COUNT, side_data_dim), dtype=dtype)
 
-    cell_fn = partition.cell_list(box_size, cell_size, R)
-    cell_list = cell_fn(R, side_data=side_data)
+    cell_fn = partition.cell_list(box_size, cell_size)
+    cell_list = cell_fn.allocate(R, side_data=side_data)
 
     id_flat = np.reshape(cell_list.id_buffer, (-1,))
     R_flat = np.reshape(cell_list.position_buffer, (-1, dim))
@@ -296,7 +297,7 @@ class NeighborListTest(jtu.JaxTestCase):
                                                1.1, cell_size=cell_size,
                                                t=np.array(0.))
 
-    idx = neighbor_list_fn(R, box=box_fn(np.array(0.25))).idx
+    idx = neighbor_list_fn.allocate(R, box=box_fn(np.array(0.25))).idx
     R_neigh = R[idx]
     mask = idx < N
 
@@ -321,6 +322,53 @@ class NeighborListTest(jtu.JaxTestCase):
       dR_exact_row = dR_exact_row[dR_exact_row > 0.]
 
       self.assertAllClose(dR_row, dR_exact_row)
+
+  def test_cell_list_overflow(self):
+    displacement_fn, shift_fn = space.free()
+
+    box_size = 100.0
+    r_cutoff = 3.0
+    dr_threshold = 0.0
+
+    neighbor_list_fn = partition.neighbor_list(
+      displacement_fn,
+      box_size=box_size,
+      r_cutoff=r_cutoff,
+      dr_threshold=dr_threshold,
+    )
+
+    # all far from eachother
+    R = jnp.array(
+      [
+        [20.0, 20.0],
+        [30.0, 30.0],
+        [40.0, 40.0],
+        [50.0, 50.0],
+    ]
+    )
+    neighbors = neighbor_list_fn.allocate(R)
+
+    # two first point are close to eachother
+    R = jnp.array(
+      [
+        [20.0, 20.0],
+        [20.0, 20.0],
+        [40.0, 40.0],
+        [50.0, 50.0],
+      ]
+    )
+
+    neighbors = neighbors.update(R)
+    self.assertTrue(neighbors.did_buffer_overflow)
+
+    # Ensure that updating the neighbor matrix doesn't use i64 matrices
+    expr = make_jaxpr(neighbors.update)(R)
+    i64_neighbor_matrix = "i64[4,9]" in str(expr)
+    if i64_neighbor_matrix:
+      print(str(expr))
+    assert i64_neighbor_matrix == False, "Construction of the neighbor matrix creates large i64 matrices"
+
+
 
 if __name__ == '__main__':
   absltest.main()
