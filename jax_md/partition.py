@@ -544,6 +544,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                   capacity_multiplier: float = 1.25,
                   disable_cell_list: bool = False,
                   mask_self: bool = True,
+                  custom_mask_function: Optional[Callable[[Array], Array]] = None,
                   fractional_coordinates: bool = False,
                   format: NeighborListFormat = NeighborListFormat.Dense,
                   **static_kwargs) -> NeighborFn:
@@ -603,6 +604,8 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
       debugging but should generally be left as False.
     mask_self: An optional boolean. Determines whether points can consider
       themselves to be their own neighbors.
+    custom_mask_function: An optional function. Takes the square array of 
+      indexes and masks selected elements.
     fractional_coordinates: An optional boolean. Specifies whether positions
       will be supplied in fractional coordinates in the unit cube, [0, 1]^d.
       If this is set to True then the box_size will be set to 1.0 and the
@@ -743,6 +746,8 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
 
       if mask_self:
         idx = mask_self_fn(idx)
+      if mask_function!=None:
+        idx = custom_mask_function(idx)
 
       if is_sparse(format):
         idx, occupancy = prune_neighbor_list_sparse(position, idx, **kwargs)
