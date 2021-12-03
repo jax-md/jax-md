@@ -604,8 +604,11 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
       debugging but should generally be left as False.
     mask_self: An optional boolean. Determines whether points can consider
       themselves to be their own neighbors.
-    custom_mask_function: An optional function. Takes the square array of 
-      indexes and masks selected elements.
+    custom_mask_function: An optional function. Takes the neighbor array 
+      and masks selected elements. Note: The input array to the function is
+      (n_particles, m) where the index of particle 1 is in index in the first
+      dimension of the array, the index of particle 2 is given by the value in
+      the array
     fractional_coordinates: An optional boolean. Specifies whether positions
       will be supplied in fractional coordinates in the unit cube, [0, 1]^d.
       If this is set to True then the box_size will be set to 1.0 and the
