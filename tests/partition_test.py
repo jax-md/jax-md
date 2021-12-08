@@ -347,6 +347,7 @@ class NeighborListTest(jtu.JaxTestCase):
     ]
     )
     neighbors = neighbor_list_fn.allocate(R)
+    self.assertEqual(neighbors.idx.dtype, jnp.int32)
 
     # two first point are close to eachother
     R = jnp.array(
@@ -360,15 +361,7 @@ class NeighborListTest(jtu.JaxTestCase):
 
     neighbors = neighbors.update(R)
     self.assertTrue(neighbors.did_buffer_overflow)
-
-    # Ensure that updating the neighbor matrix doesn't use i64 matrices
-    expr = make_jaxpr(neighbors.update)(R)
-    i64_neighbor_matrix = "i64[4,9]" in str(expr)
-    if i64_neighbor_matrix:
-      print(str(expr))
-    assert i64_neighbor_matrix == False, "Construction of the neighbor matrix creates large i64 matrices"
-
-
+    self.assertEqual(neighbors.idx.dtype, jnp.int32)
 
 if __name__ == '__main__':
   absltest.main()

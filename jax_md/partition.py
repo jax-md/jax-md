@@ -683,11 +683,11 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
     dR = d(position, neigh_position)
 
     mask = (dR < cutoff_sq) & (idx < N)
-    out_idx = N * jnp.ones(idx.shape, jnp.int32)
+    out_idx = N * jnp.ones(idx.shape, i32)
 
-    cumsum = jnp.cumsum(mask, axis=1, dtype=i32)
+    cumsum = jnp.cumsum(mask, axis=1)
     index = jnp.where(mask, cumsum - 1, idx.shape[1] - 1)
-    p_index = jnp.arange(idx.shape[0], dtype=i32)[:, None]
+    p_index = jnp.arange(idx.shape[0])[:, None]
     out_idx = out_idx.at[p_index, index].set(idx)
     max_occupancy = jnp.max(cumsum[:, -1])
 
