@@ -749,7 +749,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
 
       if mask_self:
         idx = mask_self_fn(idx)
-      if mask_function!=None:
+      if custom_mask_function!=None:
         idx = custom_mask_function(idx)
 
       if is_sparse(format):
