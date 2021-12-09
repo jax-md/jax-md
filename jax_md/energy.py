@@ -18,6 +18,8 @@ from functools import wraps, partial
 
 from typing import Callable, Tuple, TextIO, Dict, Any, Optional
 
+from dataclasses import dataclass
+
 import jax
 import jax.numpy as jnp
 from jax import ops
@@ -890,6 +892,218 @@ def stillinger_weber_neighbor_list(
     return epsilon * (first_term + three_body_strength * second_term)
   return neighbor_fn, compute_fn
 
+# Tersoff model
+@dataclass
+class Params:
+  """Class for keeping Tersoff potential parameters
+  """
+  lam1: jnp.float64
+  lam2: jnp.float64
+  lam3: jnp.float64
+  c: jnp.float64
+  d: jnp.float64
+  h: jnp.float64
+  gamma: jnp.float64
+  powern: jnp.float64
+  powerm: jnp.float64
+  alpha: jnp.float64
+  beta: jnp.float64
+  bigd: jnp.float64
+  bigr: jnp.float64
+  bigb: jnp.float64
+  biga: jnp.float64
+
+  def __init__(self, words):
+      self.ielement = words[0]
+      self.jelement = words[1]
+      self.kelement = words[2]
+      self.powerm = jnp.float_(words[3])
+      self.gamma = jnp.float_(words[4])
+      self.lam3 = jnp.float_(words[5])
+      self.c = jnp.float_(words[6])
+      self.d = jnp.float_(words[7])
+      self.h = jnp.float_(words[8])
+      self.powern = jnp.float_(words[9])
+      self.beta = jnp.float_(words[10])
+      self.lam2 = jnp.float_(words[11])
+      self.bigb = jnp.float_(words[12])
+      self.bigr = jnp.float_(words[13])
+      self.bigd = jnp.float_(words[14])
+      self.lam1 = jnp.float_(words[15])
+      self.biga = jnp.float_(words[16])
+      self.alpha = jnp.float_(0.0)
+      self.c1 = (2*self.powern*1e-16)**(-1/self.powern)
+      self.c2 = (2*self.powern*1e-8)**(-1/self.powern)
+      self.c3 = 1/self.c2
+      self.c4 = 1/self.c1
+
+
+def load_lammps_tersoff_parameters(file: TextIO) -> Array:
+  """Reads Tersoff parameters from a LAMMPS file and returns parameter tables.
+
+  This function reads multi-element original Tersoff potential parameters from a file.
+  
+  Args:
+    file: File handle for the Tersoff parameters text file.
+
+  Returns:
+    params: ndarray that contains Tersoff parameters. ndarray of shape [n, m] has
+    m different column array 
+  """
+  nparams = 0
+  params = []
+  params_per_line = 17
+
+  with open(file, 'r') as fs:
+    while True:
+      line = fs.readline()
+      if not line:
+        break
+
+      words = line.strip().split()
+      nwords = len(words) 
+      if '#' in words or nwords == 0:
+        continue
+
+      while nwords < params_per_line:
+        line_add = fs.readline()
+        if not line_add:
+          break
+        
+        line += ' ' + line_add
+        words = line.strip().split()
+        nwords = len(words)
+
+      if nwords != params_per_line:
+        raise RuntimeError('Incorrect format: %d not in %d'
+          % (nwords, params_per_line))
+
+      params.append(Params(words=words))
+      param_test = params[nparams]
+      if param_test.c < 0.0 or \
+        param_test.d < 0.0 or \
+        param_test.powern < 0.0 or \
+        param_test.lam2 < 0.0 or \
+        param_test.bigb < 0.0 or \
+        param_test.bigr < 0.0 or \
+        param_test.bigd < 0.0 or \
+        param_test.bigr < param_test.bigd or \
+        param_test.lam1 < 0.0 or \
+        param_test.biga < 0.0 or \
+        param_test.gamma < 0.0:
+        raise RuntimeError('Illegal Tersoff parameter')
+      
+      nparams += 1
+
+  return params
+
+def _ters_cutoff(dr, R, D):
+  outer = jnp.where(dr < R+D,
+                    0.5*(1.0 - jnp.sin(jnp.pi/2*(dr - R)/D)),
+                    0)    
+  inner = jnp.where(dr < R-D, 1, outer)
+  return inner
+
+def _ters_bij(dRij, dRik, neighbor, R, D, c, d, h, lam3, beta, n, m):
+  drij = space.distance(dRij)
+  drik = space.distance(dRik)
+  costheta = quantity.cosine_angles(dRij)
+  gijk = 1.0 + (c**2 / d**2) - (c**2 / (d**2 + (h - costheta)**2))
+  fC = _ters_cutoff(drik, R, D)  
+
+  zeta = jnp.zeros(neighbor.idx.shape)
+  for i in range(len(drij)):
+    for j, jdx in enumerate(neighbor.idx[i]):
+      zeta_ij = 0
+      for k, kdx in enumerate(neighbor.idx[i]):
+        if jdx == kdx:
+          continue
+
+        explr3 = jnp.exp(lam3**m * (drij[i, j] - drik[i, k])**m)
+        zeta_ij += fC[i, k] * gijk[i, j, k] * explr3
+    
+      zeta = zeta.at[i, j].set(zeta_ij)
+
+  bij = (1 + (beta*zeta)**n)**(-1 / 2 / n)
+
+  return bij
+
+def _ters_attractive(B: float, lam2: float, R: float, D: float,
+                     c: float, d: float, h: float, lam3: float,
+                     beta: float, n: float, m: float,
+                     dR12: Array, dR13: Array, neighbor) -> Array:
+  """The attractive term of the Tersoff potential.
+  Args:
+
+  Returns:
+    Attractive interaction energy for one pair of neighbors.
+  """
+
+  dr12 = space.distance(dR12) 
+  fC = _ters_cutoff(dr12, R, D) 
+  fA = -B*jnp.exp(-lam2*dr12)
+  bij = _ters_bij(dR12, dR13, neighbor, R, D, c, d, h, lam3, beta, n, m)
+  return fC*bij*fA
+
+def _ters_repulsive(A: float, lam1: float, R: float, D: float, 
+                    dr: Array) -> Array:
+  """The repulsive term of the Tersoff potential.
+  Args:
+
+  Returns:
+    Repulsive interaction energy for one pair of neighbors.
+  """
+
+  fC = _ters_cutoff(dr, R, D)
+  fR = A*jnp.exp(-lam1*dr)
+  return fC*fR
+
+def tersoff_neighbor_list(displacement: DisplacementFn,
+            box_size: float,
+            A=3264.7,
+            B=95.373,
+            lam1=3.2394,
+            lam2=1.3258,
+            lam3=1.3258,
+            beta=0.33675,
+            c=4.8381,
+            d=2.0417,
+            h=0.0000,
+            n=22.956,
+            m=3,
+            R=3.0,
+            D=0.2,
+            fractional_coordinates: bool=False,
+            format=partition.Dense
+            ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
+  repulsive_fn = partial(_ters_repulsive, A, lam1, R, D)
+  attractive_fn = partial(_ters_attractive, B, lam2, R, D, c, d, h, 
+    lam3, beta, n, m)
+  #attractive_fn = vmap(vmap(vmap(attractive_fn, (0, None)), (None, 0))) 
+
+  dr_threshold = 0.5
+
+  neighbor_fn = partition.neighbor_list(displacement,
+                                        box_size,
+                                        (R+D),
+                                        dr_threshold,
+                                        format=format)
+
+  def compute_fn(R, neighbor, **kwargs):
+    d = partial(displacement, **kwargs)
+    mask = partition.neighbor_list_mask(neighbor)
+
+    if neighbor.format is partition.Dense:
+      dR = space.map_neighbor(d)(R, R[neighbor.idx])
+      dr = space.distance(dR)
+      first_term = util.high_precision_sum(repulsive_fn(dr))
+      second_term = util.high_precision_sum(attractive_fn(dR, dR, neighbor))
+    else:
+      raise NotImplementedError('Stillinger-Weber potential only implemented '
+                                'with Dense neighbor lists.')
+
+    return first_term + second_term
+  return neighbor_fn, compute_fn
 
 
 # Embedded Atom Method

@@ -289,7 +289,8 @@ class EnergyTest(jtu.JaxTestCase):
     positions = lattice(positions, num_repetitions, lattice_vectors)
     lattice_vectors *= num_repetitions
     displacement, shift = space.periodic_general(lattice_vectors)
-    energy_fn = jit(energy.stillinger_weber(displacement))
+    #energy_fn = jit(energy.stillinger_weber(displacement))
+    energy_fn = (energy.stillinger_weber(displacement))
     self.assertAllClose(energy_fn(positions)/positions.shape[0], -4.336503155764325)
 
   @parameterized.named_parameters(jtu.cases_from_list(
@@ -725,6 +726,36 @@ class EnergyTest(jtu.JaxTestCase):
       self.assertAllClose(E, dtype(-3.3633387837793505), atol=1e-8, rtol=1e-8)
     else:
       self.assertAllClose(E, dtype(-3.3633387837793505))
+
+  
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dtype={}'.format(dtype.__name__),
+          'dtype': dtype
+      } for dtype in POSITION_DTYPE))
+  def test_tersoff_neighbor_list(self, dtype):
+    lattice_vectors = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]], 
+      dtype=dtype) * f32(5.431)
+    atoms = np.array(
+      [[0.00, 0.00, 0.00],
+       [0.25, 0.25, 0.25],
+       [0.00, 0.50, 0.50],
+       [0.25, 0.75, 0.75],
+       [0.50, 0.00, 0.50],
+       [0.75, 0.25, 0.75],
+       [0.50, 0.50, 0.00],
+       [0.75, 0.75, 0.25]], dtype=dtype)
+    atoms = lattice(atoms, 2, lattice_vectors)
+    lattice_vectors *= 2
+    displacement, _ = space.periodic_general(lattice_vectors)
+    box_size = np.linalg.det(lattice_vectors) ** (1 / 3)
+    neighbor_fn, energy_fn = energy.tersoff_neighbor_list(displacement, box_size)
+    nbrs = neighbor_fn.allocate(atoms)
+    E = energy_fn(atoms, nbrs)
+    if dtype is f64:
+      self.assertAllClose(E, dtype(-296.3463784635968), atol=1e-8, rtol=1e-8)
+    else:
+      self.assertAllClose(E, dtype(-296.3463784635968))    
 
 
   @parameterized.named_parameters(jtu.cases_from_list(
