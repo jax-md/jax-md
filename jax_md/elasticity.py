@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Dict, Callable, List, Tuple, Union
+from typing import Dict, Callable, Union
 
 import jax
 import jax.numpy as jnp
@@ -13,12 +13,12 @@ from jax_md.util import f64
 
 def _get_strain_tensor_list(box: Array) -> Array:
   if box.shape == (2,2):
-    strain_tensors = jnp.array([[[1., 0.],[0., 0.]],
-                            [[0., 0.],[0., 1.]],
-                            [[0., 1.],[1., 0.]],
-                            [[1., 0.],[0., 1.]],
-                            [[1., 1.],[1., 0.]],
-                            [[0., 1.],[1., 1.]]], dtype=f64)
+    strain_tensors = jnp.array([[[1, 0],[0, 0]],
+                                [[0, 0],[0, 1]],
+                                [[0, 1],[1, 0]],
+                                [[1, 0],[0, 1]],
+                                [[1, 1],[1, 0]],
+                                [[0, 1],[1, 1]]], dtype=box.dtype)
   elif box.shape == (3,3):
     strain_tensors = jnp.array([[[1, 0, 0], [0, 0, 0], [0, 0, 0]],
                                 [[0, 0, 0], [0, 1, 0], [0, 0, 0]],
@@ -40,7 +40,7 @@ def _get_strain_tensor_list(box: Array) -> Array:
                                 [[0, 1, 0], [1, 0, 0], [0, 0, 1]],
                                 [[0, 0, 1], [0, 0, 1], [1, 1, 0]],
                                 [[0, 1, 0], [1, 0, 1], [0, 1, 0]],
-                                [[0, 1, 1], [1, 0, 0], [1, 0, 0]]], dtype=f64)
+                                [[0, 1, 1], [1, 0, 0], [1, 0, 0]]], dtype=box.dtype)
   else:
     raise AssertionError('not implemented in {} dimensions'.format(dimension))
   return strain_tensors
@@ -263,78 +263,14 @@ def AthermalElasticModulusTensor(energy_fn: Callable[..., Array],
   return calculate_EMT
 
 
-
-
-
-def extract_elements(C: Array, as_dict: bool=True) -> Union[Dict,Array]:
-  """ Convert an elastic modulus tensor into a list of 6 (21) unique elements
-        in 2 (3) dimensions
-      
-      in 2d, these are:
-      cxxxx,cyyyy,cxyxy,cxxyy,cxxxy,cyyxy
-
-      in 3d, these are:
-      cxxxx,cyyyy,czzzz,cyzyz,cxzxz,cxyxy,cyyzz,cxxzz,cxxyy,cxxyz,cxxxz,cxxxy,cyyyz,cyyxz,cyyxy,czzyz,czzxz,czzxy,cyzxz,cyzxy,cxzxy
-
-  Args:
-    C: A previously calculated elastic modulus tensor represented as an 
-      array of shape (spatial_dimension,spatial_dimension,spatial_dimension,
-      spatial_dimension), where spatial_dimension is either 2 or 3. C must 
-      satisfy both the major and minor symmetries, but this is not checked.
-  """
-  if C.shape[0] == 2:
-    indices = jnp.array([(0, 0, 0, 0),
-                         (1, 1, 1, 1),
-                         (0, 1, 0, 1),
-                         (0, 0, 1, 1),
-                         (0, 0, 0, 1),
-                         (0, 1, 1, 1)]).transpose().tolist()
-    clist = C[ tuple(indices) ] 
-    if as_dict==True:
-      names = ['cxxxx','cyyyy','cxyxy','cxxyy','cxxxy','cyyxy']
-      return dict(zip(names, clist))
-    else:
-      return clist
-
-  elif C.shape[0] == 3:
-    indices = jnp.array([(0, 0, 0, 0),
-                         (1, 1, 1, 1),
-                         (2, 2, 2, 2),
-                         (1, 2, 1, 2),
-                         (0, 2, 0, 2),
-                         (0, 1, 0, 1),
-                         (1, 1, 2, 2),
-                         (0, 0, 2, 2),
-                         (0, 0, 1, 1),
-                         (0, 0, 1, 2),
-                         (0, 0, 0, 2),
-                         (0, 0, 0, 1),
-                         (1, 1, 1, 2),
-                         (0, 2, 1, 1),
-                         (0, 1, 1, 1),
-                         (1, 2, 2, 2),
-                         (0, 2, 2, 2),
-                         (0, 1, 2, 2),
-                         (0, 2, 1, 2),
-                         (0, 1, 1, 2),
-                         (0, 1, 0, 2)]).transpose().tolist()
-    clist = C[ tuple(indices) ] 
-    if as_dict:
-      names = ['cxxxx','cyyyy','czzzz','cyzyz','cxzxz','cxyxy','cyyzz','cxxzz','cxxyy','cxxyz','cxxxz','cxxxy','cyyyz','cyyxz','cyyxy','czzyz','czzxz','czzxy','cyzxz','cyzxy','cxzxy']
-      return dict(zip(names, clist))
-    else:
-      return clist
-  else:
-    raise AssertionError('C has wrong shape')
-
-def _get_mandel_mapping_weight(DIM):
+def _get_mandel_mapping_weight(DIM, dtype):
   if DIM == 2:
     m_map  = jnp.array([[0,0],[1,1],[0,1]], dtype=jnp.int8)
-    weight = jnp.array([1,1,jnp.sqrt(2)], dtype=f64)
+    weight = jnp.array([1,1,jnp.sqrt(2)], dtype=dtype)
     return m_map, weight
   elif DIM == 3:
     m_map  = jnp.array([[0,0],[1,1],[2,2],[1,2],[0,2],[0,1]], dtype=jnp.int8)
-    weight = jnp.array([1,1,1,jnp.sqrt(2),jnp.sqrt(2),jnp.sqrt(2)], dtype=f64)
+    weight = jnp.array([1,1,1,jnp.sqrt(2),jnp.sqrt(2),jnp.sqrt(2)], dtype=dtype)
     return m_map, weight
   else:
     raise AssertionError('DIM must be 2 or 3')
@@ -397,7 +333,7 @@ def tensor_to_mandel(T: Array) -> Array:
   if not (rank==2 or rank==4):
     raise AssertionError('T must have rank 2 or 4')
   
-  m_map, weight = _get_mandel_mapping_weight(DIM)
+  m_map, weight = _get_mandel_mapping_weight(DIM, T.dtype)
   
   if rank == 2:
     extract = lambda idx, w: T[idx[0], idx[1]] * w
@@ -432,7 +368,7 @@ def mandel_to_tensor(M: Array) -> Array:
     dimension = 3
 
   tensor_range = jnp.arange(dimension)
-  _, weight = _get_mandel_mapping_weight(dimension)
+  _, weight = _get_mandel_mapping_weight(dimension, M.dtype)
 
   if rank == 1:
     def extract(i,j):
