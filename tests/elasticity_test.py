@@ -41,7 +41,7 @@ jax_config.enable_omnistaging()
 FLAGS = jax_config.FLAGS
 
 PARTICLE_COUNT = 64
-STOCHASTIC_SAMPLES = 1
+STOCHASTIC_SAMPLES = 2
 SPATIAL_DIMENSION = [2, 3]
 
 if FLAGS.jax_enable_x64:
@@ -146,7 +146,6 @@ class DynamicsTest(jtu.JaxTestCase):
 
       self.assertAllClose(cijkl,elasticity._extract_elements(C,False), atol=1e-5, rtol=1e-5)
 
-  """
   @parameterized.named_parameters(jtu.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
@@ -173,14 +172,12 @@ class DynamicsTest(jtu.JaxTestCase):
       C = EMT_fn(R,box)
      
       #make sure the result has the correct shape
-      #assert( C.shape == (SPATIAL_DIMENSION,SPATIAL_DIMENSION,SPATIAL_DIMENSION,SPATIAL_DIMENSION) )
       assert( C.shape == (spatial_dimension,spatial_dimension,spatial_dimension,spatial_dimension) )
 
       #make sure the symmetries are there
       self.assertAllClose(C, jnp.einsum("ijkl->jikl", C))
       self.assertAllClose(C, jnp.einsum("ijkl->ijlk", C))
       self.assertAllClose(C, jnp.einsum("ijkl->lkij", C))
-  """      
 
 
   @parameterized.named_parameters(jtu.cases_from_list(

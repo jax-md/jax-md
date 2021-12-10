@@ -42,7 +42,7 @@ def _get_strain_tensor_list(box: Array) -> Array:
                                 [[0, 1, 0], [1, 0, 1], [0, 1, 0]],
                                 [[0, 1, 1], [1, 0, 0], [1, 0, 0]]], dtype=box.dtype)
   else:
-    raise AssertionError('not implemented in {} dimensions'.format(dimension))
+    raise AssertionError('box must have shape (2,2) or (3,3)')
   return strain_tensors
 
 def _convert_responses_to_elastic_constants(response_all: Array) -> Array:
@@ -223,7 +223,7 @@ def AthermalElasticModulusTensor(energy_fn: Callable[..., Array],
     
     def get_affine_response(strain_tensor):
       energy_fn_general = setup_energy_fn_general(strain_tensor)
-      d2U_dRdgamma = jacfwd(jacrev(energy_fn_general,argnums=0),argnums=1)(R, 0.0).reshape(R.size)
+      d2U_dRdgamma = jacfwd(jacrev(energy_fn_general,argnums=0),argnums=1)(R, 0.0)
       d2U_dgamma2  = jacfwd(jacrev(energy_fn_general,argnums=1),argnums=1)(R, 0.0)
       return d2U_dRdgamma, d2U_dgamma2
 
@@ -235,16 +235,14 @@ def AthermalElasticModulusTensor(energy_fn: Callable[..., Array],
     def hvp(f, primals, tangents):
       return jvp(grad(f), primals, tangents)[1]
     def hvp_specific_with_tether(v):
-      return hvp(energy_fn_Ronly, (R,), (v.reshape(R.shape),)).reshape(v.shape) + tether_strength * v
+      return hvp(energy_fn_Ronly, (R,), (v,)) + tether_strength * v
     
     non_affine_response_all = jsp.sparse.linalg.cg(vmap(hvp_specific_with_tether),d2U_dRdgamma_all, tol=cg_tol)[0]
     #The above line should be functionally equivalent to:
     #H0=hessian(energy_fn)(R, box=box, **kwargs).reshape(R.size,R.size) + tether_strength * jnp.identity(R.size)
     #non_affine_response_all = jnp.transpose(jnp.linalg.solve(H0, jnp.transpose(d2U_dRdgamma_all)))
-
-    def calc_response(d2U_dRdgamma,d2U_dgamma2,non_affine_response):
-      return d2U_dgamma2 - jnp.dot(d2U_dRdgamma, non_affine_response)
-    response_all = vmap(calc_response, in_axes=(0,0,0))(d2U_dRdgamma_all,d2U_dgamma2_all,non_affine_response_all)
+    
+    response_all = d2U_dgamma2_all - jnp.einsum("nij,nij->n", d2U_dRdgamma_all, non_affine_response_all)
 
     volume = box.diagonal().prod()
     response_all = response_all / volume
@@ -410,7 +408,7 @@ def _extract_elements(C, as_dict):
                 [0, 1, 0, 1, 0, 1],
                 [0, 1, 1, 1, 1, 1])
     clist = C[ indices ] 
-    if as_dict==True:
+    if as_dict:
       names = ['cxxxx','cyyyy','cxyxy','cxxyy','cxxxy','cyyxy']
       return dict(zip(names, clist))
     else:
