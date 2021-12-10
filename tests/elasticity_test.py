@@ -14,7 +14,6 @@
 
 """Tests for google3.third_party.py.jax_md.dynamics."""
 
-import netCDF4 as nc
 import numpy as onp
 
 from absl.testing import absltest
@@ -34,6 +33,7 @@ from jax_md import energy
 from jax_md import minimize
 from jax_md import quantity
 from jax_md import elasticity
+from jax_md import test_util
 from jax_md.util import *
 
 jax_config.parse_flags_with_absl()
@@ -85,7 +85,9 @@ class DynamicsTest(jtu.JaxTestCase):
       } for dim in SPATIAL_DIMENSION for dtype in DTYPE))
   def test_EMT_from_database(self, spatial_dimension, dtype):
     N = 64
+    data_ds, state_ds = test_util.load_nc_data(spatial_dimension)
 
+    """
     if spatial_dimension == 2:
       datafn  = 'tests/data/data_2d_polyuniform_N64_Lp-4.0.nc'
       statefn = 'tests/data/state_2d_polyuniform_N64_Lp-4.0.nc'
@@ -95,6 +97,7 @@ class DynamicsTest(jtu.JaxTestCase):
 
     data_ds = nc.Dataset(datafn)
     state_ds = nc.Dataset(statefn)
+    """
 
     for index in range(STOCHASTIC_SAMPLES):
       cijkl = jnp.array(data_ds.variables['Cijkl'][index])

@@ -14,6 +14,8 @@
 
 """Defines testing utility functions."""
 
+import netCDF4 as nc
+
 import jax.test_util as jtu
 import jax.numpy as jnp
 import numpy as onp
@@ -52,6 +54,27 @@ def load_silica_data() -> jnp.ndarray:
     filename = '/google3/third_party/py/jax_md/tests/data/silica_positions.npy'
     return _load_silica_data(filename)
 
+def _load_nc_data(datafn, statefn):
+  return nc.Dataset(datafn), nc.Dataset(statefn)
+
+def load_nc_data(spatial_dimension):
+  try:
+    if spatial_dimension == 2:
+      datafn  = 'tests/data/data_2d_polyuniform_N64_Lp-4.0.nc'
+      statefn = 'tests/data/state_2d_polyuniform_N64_Lp-4.0.nc'
+    else:
+      datafn  = 'tests/data/data_3d_bi_N64_Lp-4.0.nc'
+      statefn = 'tests/data/state_3d_bi_N64_Lp-4.0.nc'
+    return _load_nc_data(datafn, statefn)
+  except FileNotFoundError:
+    if spatial_dimension == 2:
+      datafn  = '/google3/third_party/py/jax_md/tests/data/data_2d_polyuniform_N64_Lp-4.0.nc'
+      statefn = '/google3/third_party/py/jax_md/tests/data/state_2d_polyuniform_N64_Lp-4.0.nc'
+    else:
+      datafn  = '/google3/third_party/py/jax_md/tests/data/data_3d_bi_N64_Lp-4.0.nc'
+      statefn = '/google3/third_party/py/jax_md/tests/data/state_3d_bi_N64_Lp-4.0.nc'
+    return _load_nc_data(datafn, statefn)
+  
 
 @dataclasses.dataclass
 class JammedTestState:
