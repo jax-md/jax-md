@@ -217,7 +217,7 @@ def AthermalElasticModulusTensor(energy_fn: Callable[..., Array],
     def setup_energy_fn_general(strain_tensor):
       @jit
       def energy_fn_general(R, gamma):
-        new_box = jnp.matmul(jnp.eye(strain_tensor.shape[0]) + gamma * strain_tensor, box)
+        new_box = jnp.matmul(jnp.eye(strain_tensor.shape[0], dtype=R.dtype) + gamma * strain_tensor, box)
         return energy_fn(R, box=new_box, **kwargs)
       return energy_fn_general
     

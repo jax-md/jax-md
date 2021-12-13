@@ -45,8 +45,8 @@ STOCHASTIC_SAMPLES = 2
 SPATIAL_DIMENSION = [2, 3]
 
 if FLAGS.jax_enable_x64:
-  DTYPE = [f64]
-  #DTYPE = [f32, f64]
+  #DTYPE = [f64]
+  DTYPE = [f32, f64]
 else:
   DTYPE = [f32]
 
@@ -87,67 +87,67 @@ class DynamicsTest(jtu.JaxTestCase):
     N = 64
     data_ds, state_ds = test_util.load_nc_data(spatial_dimension)
 
-    """
-    if spatial_dimension == 2:
-      datafn  = 'tests/data/data_2d_polyuniform_N64_Lp-4.0.nc'
-      statefn = 'tests/data/state_2d_polyuniform_N64_Lp-4.0.nc'
+    if dtype == jnp.float32:
+      max_grad_thresh = 1e-5
+      atol = 1e-4
+      rtol = 1e-3
     else:
-      datafn  = 'tests/data/data_3d_bi_N64_Lp-4.0.nc'
-      statefn = 'tests/data/state_3d_bi_N64_Lp-4.0.nc'
-
-    data_ds = nc.Dataset(datafn)
-    state_ds = nc.Dataset(statefn)
-    """
+      max_grad_thresh = 1e-10
+      atol = 1e-8
+      rtol = 1e-5
 
     for index in range(STOCHASTIC_SAMPLES):
-      cijkl = jnp.array(data_ds.variables['Cijkl'][index])
-      R = jnp.array(state_ds.variables['pos'][index])
+      cijkl = jnp.array(data_ds.variables['Cijkl'][index], dtype=dtype)
+      R = jnp.array(state_ds.variables['pos'][index], dtype=dtype)
       R = jnp.reshape(R, (N,spatial_dimension))
-      sigma = 2. * jnp.array(state_ds.variables['rad'][index])
-      box = jnp.array(state_ds.variables['BoxMatrix'][index])
+      sigma = 2. * jnp.array(state_ds.variables['rad'][index], dtype=dtype)
+      box = jnp.array(state_ds.variables['BoxMatrix'][index], dtype=dtype)
       box = jnp.reshape(box, (spatial_dimension,spatial_dimension))
 
       #Test basic
       displacement, shift = space.periodic_general(box, fractional_coordinates=True)
       energy_fn = energy.soft_sphere_pair(displacement, sigma=sigma)
-      assert( jnp.max(jnp.abs(grad(energy_fn)(R))) < 1e-7 )
+
+      assert( jnp.max(jnp.abs(grad(energy_fn)(R))) < max_grad_thresh )
 
       EMT_fn = jit(elasticity.AthermalElasticModulusTensor(energy_fn))
       C = EMT_fn(R,box)
+
+      assert(C.dtype == dtype)
       
-      self.assertAllClose(cijkl,elasticity._extract_elements(C,False), atol=1e-5, rtol=1e-5)
+      self.assertAllClose(cijkl,elasticity._extract_elements(C,False), atol=atol, rtol=rtol)
 
       #Test passing arguments dynamically
       displacement, shift = space.periodic_general(box, fractional_coordinates=True)
       energy_fn = energy.soft_sphere_pair(displacement, sigma=1.0) #This is the wrong sigma, so must pass dynamically
-      assert( jnp.max(jnp.abs(grad(energy_fn)(R, sigma=sigma))) < 1e-7 )
+      assert( jnp.max(jnp.abs(grad(energy_fn)(R, sigma=sigma))) < max_grad_thresh )
 
       EMT_fn = jit(elasticity.AthermalElasticModulusTensor(energy_fn))
       C = EMT_fn(R,box,sigma=sigma)
       
-      self.assertAllClose(cijkl,elasticity._extract_elements(C,False), atol=1e-5, rtol=1e-5)
+      self.assertAllClose(cijkl,elasticity._extract_elements(C,False), atol=atol, rtol=rtol)
 
       #Test with fractional_coordinates=False
       R_temp = space.transform(box, R)
       displacement, shift = space.periodic_general(box, fractional_coordinates=False)
       energy_fn = energy.soft_sphere_pair(displacement, sigma=sigma)
-      assert( jnp.max(jnp.abs(grad(energy_fn)(R_temp))) < 1e-7 )
+      assert( jnp.max(jnp.abs(grad(energy_fn)(R_temp))) < max_grad_thresh )
 
       EMT_fn = jit(elasticity.AthermalElasticModulusTensor(energy_fn))
       C = EMT_fn(R_temp,box)
       
-      self.assertAllClose(cijkl,elasticity._extract_elements(C,False), atol=1e-5, rtol=1e-5)
+      self.assertAllClose(cijkl,elasticity._extract_elements(C,False), atol=atol, rtol=rtol)
 
       #Test with neighbor lists
       displacement, shift = space.periodic_general(box, fractional_coordinates=True)
       neighbor_fn, energy_fn = energy.soft_sphere_neighbor_list(displacement, box, sigma=sigma, fractional_coordinates=True)
       nbrs = neighbor_fn.allocate(R)
-      assert( jnp.max(jnp.abs(grad(energy_fn)(R, nbrs))) < 1e-7 )
+      assert( jnp.max(jnp.abs(grad(energy_fn)(R, nbrs))) < max_grad_thresh )
 
       EMT_fn = jit(elasticity.AthermalElasticModulusTensor(energy_fn))
       C = EMT_fn(R,box,neighbor=nbrs)
 
-      self.assertAllClose(cijkl,elasticity._extract_elements(C,False), atol=1e-5, rtol=1e-5)
+      self.assertAllClose(cijkl,elasticity._extract_elements(C,False), atol=atol, rtol=rtol)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -166,7 +166,7 @@ class DynamicsTest(jtu.JaxTestCase):
         )
 
       box_size = quantity.box_size_at_number_density(PARTICLE_COUNT, 1.4, spatial_dimension)
-      box = box_size * jnp.eye(spatial_dimension)
+      box = box_size * jnp.eye(spatial_dimension, dtype=dtype)
       displacement, shift = space.periodic_general(box, fractional_coordinates=True)
       energy_fn = energy.soft_sphere_pair(displacement)
       R, max_grad, niters = run_minimization_while(energy_fn, R_init, shift)
@@ -181,7 +181,6 @@ class DynamicsTest(jtu.JaxTestCase):
       self.assertAllClose(C, jnp.einsum("ijkl->jikl", C))
       self.assertAllClose(C, jnp.einsum("ijkl->ijlk", C))
       self.assertAllClose(C, jnp.einsum("ijkl->lkij", C))
-
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
