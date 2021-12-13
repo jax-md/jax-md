@@ -43,7 +43,7 @@ in a vectorized fashion. To do this we provide three functions: `map_product`,
     [n, neighbors, spatial_dim].
 """
 
-from typing import Callable, Union, Tuple, Any
+from typing import Callable, Union, Tuple, Any, Optional
 
 from jax.abstract_arrays import ShapedArray
 
@@ -93,8 +93,7 @@ def _get_free_indices(n: int) -> str:
   return ''.join([chr(ord('a') + i) for i in range(n)])
 
 
-@custom_jvp
-def transform(box: Box, R: Array) -> Array:
+def raw_transform(box: Box, R: Array) -> Array:
   """Apply an affine transformation to positions.
 
   See `periodic_general` for a description of the semantics of `box`.
@@ -118,6 +117,22 @@ def transform(box: Box, R: Array) -> Array:
     return jnp.einsum(f'ij,{left_indices}->{right_indices}', box, R)
   raise ValueError(('Box must be either: a scalar, a vector, or a matrix. '
                     f'Found {box}.'))
+
+
+@custom_jvp
+def transform(box: Box, R: Array) -> Array:
+  """Apply an affine transformation to positions.
+
+  See `periodic_general` for a description of the semantics of `box`.
+
+  Args:
+    box: An affine transformation described in `periodic_general`.
+    R: Array of positions. Should have  shape `(..., spatial_dimension)`.
+
+  Returns:
+    A transformed array positions of shape `(..., spatial_dimension)`.
+  """
+  return raw_transform(box, R)
 
 
 @transform.defjvp
@@ -198,8 +213,12 @@ def periodic_shift(side: Box, R: Array, dR: Array) -> Array:
 
 def free() -> Space:
   """Free boundary conditions."""
-  def displacement_fn(Ra: Array, Rb: Array, **unused_kwargs) -> Array:
-    return pairwise_displacement(Ra, Rb)
+  def displacement_fn(Ra: Array, Rb: Array, perturbation: Optional[Array]=None,
+                      **unused_kwargs) -> Array:
+    dR = pairwise_displacement(Ra, Rb)
+    if perturbation is not None:
+      dR = raw_transform(perturbation, dR)
+    return dR
   def shift_fn(R: Array, dR: Array, **unused_kwargs) -> Array:
     return R + dR
   return displacement_fn, shift_fn
@@ -216,11 +235,16 @@ def periodic(side: Box, wrapped: bool=True) -> Space:
   Returns:
     (displacement_fn, shift_fn) tuple.
   """
-  def displacement_fn(Ra: Array, Rb: Array, **unused_kwargs) -> Array:
+  def displacement_fn(Ra: Array, Rb: Array,
+                      perturbation: Optional[Array] = None,
+                      **unused_kwargs) -> Array:
     if 'box' in unused_kwargs:
       raise ValueError(('`space.periodic` does not accept a box argument.'
                         'Perhaps you maent to use `space.periodic_general`?'))
-    return periodic_displacement(side, pairwise_displacement(Ra, Rb))
+    dR = periodic_displacement(side, pairwise_displacement(Ra, Rb))
+    if perturbation is not None:
+      dR = raw_transform(perturbation, dR)
+    return dR
   if wrapped:
     def shift_fn(R: Array, dR: Array, **unused_kwargs) -> Array:
       if 'box' in unused_kwargs:
@@ -324,7 +348,7 @@ def periodic_general(box: Box,
   """
   inv_box = inverse(box)
 
-  def displacement_fn(Ra, Rb, **kwargs):
+  def displacement_fn(Ra, Rb, perturbation=None, **kwargs):
     _box, _inv_box = box, inv_box
 
     if 'box' in kwargs:
@@ -341,7 +365,12 @@ def periodic_general(box: Box,
       Rb = transform(_inv_box, Rb)
 
     dR = periodic_displacement(f32(1.0), pairwise_displacement(Ra, Rb))
-    return transform(_box, dR)
+    dR = transform(_box, dR)
+
+    if perturbation is not None:
+      dR = raw_transform(perturbation, dR)
+
+    return dR
 
   def u(R, dR):
     if wrapped:

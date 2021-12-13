@@ -23,6 +23,7 @@ from jax_md import dataclasses
 
 FLAGS = jax_config.FLAGS
 
+f32 = jnp.float32
 
 def update_test_tolerance(f32_tolerance=None, f64_tolerance=None):
   if f32_tolerance is not None:
@@ -85,3 +86,41 @@ def load_jammed_state(filename: str, dtype) -> JammedTestState:
   except FileNotFoundError:
     full_filename = f'/google3/third_party/py/jax_md/tests/data/{filename}'
     return _load_jammed_state(full_filename, dtype)
+
+
+def load_lammps_stress_data(dtype):
+  def parse_state(filename):
+    with open(filename) as f:
+      data = f.read()
+    data = data.split('\n')
+    t = int(data[1])
+    n = int(data[3])
+    box = float(data[5].split(' ')[-1])
+    R = []
+    V = []
+    for l in data[9:-1]:
+      R += [[float(xx) for xx in l.split(' ')[:3]]]
+      V += [[float(xx) for xx in l.split(' ')[3:]]]
+    return f32(box), jnp.array(R, dtype), jnp.array(V, dtype)
+
+  def parse_results(filename):
+    with open(filename) as f:
+      data = f.read()
+    data = [[float(dd) for dd in d.split(' ') if dd != ' ' and dd != '']
+            for d in data.split('\n')]
+    step = jnp.array([int(d[0]) for d in data if len(d) > 0])
+    Es = jnp.array([d[1] for d in data if len(d) > 0], dtype)
+    C = jnp.array([d[2:] for d in data if len(d) > 0], dtype)
+    C = jnp.array([[C[0, 0], C[0, 3], C[0, 4]],
+                   [C[0, 3], C[0, 1], C[0, 5]],
+                   [C[0, 4], C[0, 5], C[0, 2]]], dtype)
+    return Es[0], C
+
+  try:
+    return (parse_state('tests/data/lammps_lj_stress_test_states'),
+            parse_results('tests/data/lammps_lj_stress_test'))
+  except FileNotFoundError:
+    return (parse_state('/google3/third_party/py/jax_md/tests/data/'
+                        'lammps_lj_stress_test'),
+            parse_results('/google3/third_party/py/jax_md/tests/data/'
+                          'lammps_lj_stress'))

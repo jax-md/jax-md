@@ -15,7 +15,7 @@
 """Describes different physical quantities."""
 
 
-from typing import TypeVar, Callable, Union, Tuple
+from typing import TypeVar, Callable, Union, Tuple, Optional
 
 from jax import grad, vmap, eval_shape
 import jax.numpy as jnp
@@ -113,26 +113,67 @@ def pressure(energy_fn: EnergyFn, position: Array, box: Box,
              kinetic_energy: float=0.0, **kwargs) -> float:
   """Computes the internal pressure of a system.
 
-  Note: This function requires that `energy_fn` take a `box` keyword argument.
-  Most frequently, this is accomplished by using `periodic_general` boundary
-  conditions combined with any of the energy functions in `energy.py`. This
-  will not work with `space.periodic`.
+  Args:
+    energy_fn: A function that computes the energy of the system. This
+      function must take as an argument `perturbation` which perturbes the
+      box shape. Any energy function constructed using `smap` or in `energy.py`
+      with a standard space will satisfy this property.
+    position: An array of particle positions.
+    box: A box specifying the shape of the simulation volume. Used to infer the
+      volume of the unit cell.
+    kinetic_energy: A float specifying the kinetic energy of the system.
+
+  Returns:
+    A float specifying the pressure of the system.
   """
   dim = position.shape[1]
 
-  vol_0 = volume(dim, box)
-  box_fn = lambda vol: (vol / vol_0) ** (1 / dim) * box
-
-  def U(vol):
-    return energy_fn(position, box=box_fn(vol), **kwargs)
+  def U(eps):
+    return energy_fn(position, perturbation=(1 + eps), **kwargs)
 
   dUdV = grad(U)
-  KE = kinetic_energy
-  F = force(energy_fn)(position, box=box, **kwargs)
-  R = space.transform(box, position)
-  RdotF = util.high_precision_sum(R * F)
+  vol_0 = volume(dim, box)
 
-  return 1 / (dim * vol_0) * (2 * KE + RdotF - dim * vol_0 * dUdV(vol_0))
+  return 1 / (dim * vol_0) * (2 * kinetic_energy - dUdV(0.0))
+
+
+def stress(energy_fn: EnergyFn, position: Array, box: Box,
+           mass: Array=1.0, velocity: Optional[Array]=None, **kwargs
+           ) -> Array:
+  """Computes the internal stress of a system.
+
+  Args:
+    energy_fn: A function that computes the energy of the system. This
+      function must take as an argument `perturbation` which perturbes the
+      box shape. Any energy function constructed using `smap` or in `energy.py`
+      with a standard space will satisfy this property.
+    position: An array of particle positions.
+    box: A box specifying the shape of the simulation volume. Used to infer the
+      volume of the unit cell.
+    mass: The mass of the particles; only used to compute the kinetic
+      contribution if `velocity` is not None.
+    velocity: An array of atomic velocities.
+
+  Returns:
+    A float specifying the pressure of the system.
+  """
+  dim = position.shape[1]
+
+  zero = jnp.zeros((dim, dim), position.dtype)
+  I = jnp.eye(dim, dtype=position.dtype)
+
+  def U(eps):
+    return energy_fn(position, perturbation=(I + eps), **kwargs)
+
+  dUdV = grad(U)
+  vol_0 = volume(dim, box)
+
+  VxV = 0.0
+  if velocity is not None:
+    V = velocity
+    VxV = util.high_precision_sum(mass * V[:, None, :] * V[:, :, None], axis=0)
+
+  return 1 / vol_0 * (VxV - dUdV(zero))
 
 
 def canonicalize_mass(mass: Union[float, Array]) -> Union[float, Array]:
