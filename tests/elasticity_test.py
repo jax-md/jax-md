@@ -84,8 +84,11 @@ class DynamicsTest(jtu.JaxTestCase):
           'dtype': dtype
       } for dim in SPATIAL_DIMENSION for dtype in DTYPE))
   def test_EMT_from_database(self, spatial_dimension, dtype):
-    N = 64
     data_ds, state_ds = test_util.load_nc_data(spatial_dimension)
+    if spatial_dimension == 2:
+      N = 64
+    else:
+      N = 128
 
     if dtype == jnp.float32:
       max_grad_thresh = 1e-5

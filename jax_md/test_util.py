@@ -63,16 +63,16 @@ def load_nc_data(spatial_dimension):
       datafn  = 'tests/data/data_2d_polyuniform_N64_Lp-4.0.nc'
       statefn = 'tests/data/state_2d_polyuniform_N64_Lp-4.0.nc'
     else:
-      datafn  = 'tests/data/data_3d_bi_N64_Lp-4.0.nc'
-      statefn = 'tests/data/state_3d_bi_N64_Lp-4.0.nc'
+      datafn  = 'tests/data/data_3d_bi_N128_Lp-1.0.nc'
+      statefn = 'tests/data/state_3d_bi_N128_Lp-1.0.nc'
     return _load_nc_data(datafn, statefn)
   except FileNotFoundError:
     if spatial_dimension == 2:
       datafn  = '/google3/third_party/py/jax_md/tests/data/data_2d_polyuniform_N64_Lp-4.0.nc'
       statefn = '/google3/third_party/py/jax_md/tests/data/state_2d_polyuniform_N64_Lp-4.0.nc'
     else:
-      datafn  = '/google3/third_party/py/jax_md/tests/data/data_3d_bi_N64_Lp-4.0.nc'
-      statefn = '/google3/third_party/py/jax_md/tests/data/state_3d_bi_N64_Lp-4.0.nc'
+      datafn  = '/google3/third_party/py/jax_md/tests/data/data_3d_bi_N128_Lp-1.0.nc'
+      statefn = '/google3/third_party/py/jax_md/tests/data/state_3d_bi_N128_Lp-1.0.nc'
     return _load_nc_data(datafn, statefn)
   
 

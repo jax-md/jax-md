@@ -118,7 +118,8 @@ def _convert_responses_to_elastic_constants(response_all: Array) -> Array:
 def AthermalElasticModulusTensor(energy_fn: Callable[..., Array], 
                                  tether_strength: float=1e-10,
                                  gradient_check: Array=None, 
-                                 cg_tol: float=1e-7
+                                 cg_tol: float=1e-7,
+                                 check_convergence: bool=False
                                  ) -> Callable[..., Array]:
   """ Setup calculation of elastic modulus tensor for a 2d or 3d athermal system.
 
@@ -176,6 +177,10 @@ def AthermalElasticModulusTensor(energy_fn: Callable[..., Array],
       of jnp.nan's. It is the users responsibility, if they want to use this
       check, to then ensure that the returned array is not full of nans.
     cg_tol: scalar. Tolorance used when solving for the non-affine response.
+    check_convergence: bool. If true, calculate_EMT will return a boolean
+      flag specifiying if the cg solve routine converged to the desired
+      tolorance. The default is False, but setting this to True is highly
+      recommended when using 32-bit precision data.
   
   Return: A function to calculate the elastic modulus tensor
 
@@ -200,8 +205,11 @@ def AthermalElasticModulusTensor(energy_fn: Callable[..., Array],
       box: array of shape (dimension,dimension) representing the current box of 
         the system.
     
-    Return: Elastic modulus tensor as an array of shape (dimension,dimension,
-      dimension,dimension) that respects the major and minor symmetries
+    Return: C or the tuple (C,converged)
+      where C is the Elastic modulus tensor as an array of shape (dimension,
+      dimension,dimension,dimension) that respects the major and minor 
+      symmetries, and converged is a boolean flag (see above).
+
     """
     if len(box.shape) != 2:
       raise AssertionError('box must be a 2 dimensional array.')
@@ -240,11 +248,14 @@ def AthermalElasticModulusTensor(energy_fn: Callable[..., Array],
     def hvp_specific_with_tether(v):
       return hvp(energy_fn_Ronly, (R,), (v,)) + tether_strength * v
     
-    non_affine_response_all = jsp.sparse.linalg.cg(vmap(hvp_specific_with_tether),d2U_dRdgamma_all, tol=cg_tol)[0]
+    non_affine_response_all = jsp.sparse.linalg.cg(vmap(hvp_specific_with_tether), d2U_dRdgamma_all, tol=cg_tol)[0]
     #The above line should be functionally equivalent to:
     #H0=hessian(energy_fn)(R, box=box, **kwargs).reshape(R.size,R.size) + tether_strength * jnp.identity(R.size)
     #non_affine_response_all = jnp.transpose(jnp.linalg.solve(H0, jnp.transpose(d2U_dRdgamma_all)))
-    
+
+    residual = jnp.linalg.norm(vmap(hvp_specific_with_tether)(non_affine_response_all) - d2U_dRdgamma_all)
+    converged = residual / jnp.linalg.norm(d2U_dRdgamma_all) < cg_tol
+
     response_all = d2U_dgamma2_all - jnp.einsum("nij,nij->n", d2U_dRdgamma_all, non_affine_response_all)
 
     volume = box.diagonal().prod()
@@ -258,8 +269,11 @@ def AthermalElasticModulusTensor(energy_fn: Callable[..., Array],
     if gradient_check is not None:
       maxgrad = jnp.amax(jnp.abs(grad(energy_fn)(R, box=box, **kwargs)))
       C = lax.cond(maxgrad > gradient_check, lambda _: jnp.nan * C, lambda _: C, None)
-
-    return C
+    
+    if check_convergence: 
+      return C, converged
+    else:
+      return C
 
   return calculate_EMT
 
