@@ -214,6 +214,9 @@ def AthermalElasticModulusTensor(energy_fn: Callable[..., Array],
     if not (R.shape[-1] == 2 or R.shape[-1] == 3):
       raise AssertionError('Only implemented for 2d and 3d systems.')
 
+    if R.dtype is not jnp.dtype('float64') or box.dtype is not jnp.dtype('float64'):
+      print("WARNING: elastic modulus calculations can sometimes loose precision when not using 64-bit precision.")
+
     def setup_energy_fn_general(strain_tensor):
       @jit
       def energy_fn_general(R, gamma):
