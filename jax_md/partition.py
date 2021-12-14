@@ -119,12 +119,12 @@ def _cell_dimensions(spatial_dimension: int,
   # NOTE(schsam): Should we auto-cast based on box_size? I can't imagine a case
   # in which the box_size would not be accurately represented by an f32.
   if (isinstance(box_size, onp.ndarray) and
-      (box_size.dtype == jnp.int32 or box_size.dtype == jnp.int64)):
+      (box_size.dtype == i32 or box_size.dtype == i64)):
     box_size = float(box_size)
 
   cells_per_side = onp.floor(box_size / minimum_cell_size)
   cell_size = box_size / cells_per_side
-  cells_per_side = onp.array(cells_per_side, dtype=jnp.int32)
+  cells_per_side = onp.array(cells_per_side, dtype=i32)
 
   if isinstance(box_size, onp.ndarray):
     if box_size.ndim == 1 or box_size.ndim == 2:
@@ -156,7 +156,7 @@ def count_cell_filling(position: Array,
 
   hash_multipliers = _compute_hash_constants(dim, cells_per_side)
 
-  particle_index = jnp.array(position / cell_size, dtype=jnp.int32)
+  particle_index = jnp.array(position / cell_size, dtype=i32)
   particle_hash = jnp.sum(particle_index * hash_multipliers, axis=1)
 
   filling = ops.segment_sum(jnp.ones_like(particle_hash),
@@ -169,18 +169,18 @@ def _compute_hash_constants(spatial_dimension: int,
                             cells_per_side: Array) -> Array:
   if cells_per_side.size == 1:
     return jnp.array([[cells_per_side ** d for d in range(spatial_dimension)]],
-                     dtype=jnp.int32)
+                     dtype=i32)
   elif cells_per_side.size == spatial_dimension:
-    one = jnp.array([[1]], dtype=jnp.int32)
+    one = jnp.array([[1]], dtype=i32)
     cells_per_side = jnp.concatenate((one, cells_per_side[:, :-1]), axis=1)
-    return jnp.array(jnp.cumprod(cells_per_side), dtype=jnp.int32)
+    return jnp.array(jnp.cumprod(cells_per_side), dtype=i32)
   else:
     raise ValueError()
 
 
 def _neighboring_cells(dimension: int) -> Generator[onp.ndarray, None, None]:
   for dindex in onp.ndindex(*([3] * dimension)):
-    yield onp.array(dindex, dtype=jnp.int32) - 1
+    yield onp.array(dindex, dtype=i32) - 1
 
 
 def _estimate_cell_capacity(position: Array,
@@ -311,7 +311,7 @@ def cell_list(box_size: Box,
     hash_multipliers = _compute_hash_constants(dim, cells_per_side)
 
     # Create cell list data.
-    particle_id = lax.iota(jnp.int32, N)
+    particle_id = lax.iota(i32, N)
     # NOTE(schsam): We use the convention that particles that are successfully,
     # copied have their true id whereas particles empty slots have id = N.
     # Then when we copy data back from the grid, copy it to an array of shape
@@ -359,7 +359,7 @@ def cell_list(box_size: Box,
     for k, v in kwargs.items():
       sorted_kwargs[k] = v[sort_map]
 
-    sorted_cell_id = jnp.mod(lax.iota(jnp.int32, N), cell_capacity)
+    sorted_cell_id = jnp.mod(lax.iota(i32, N), cell_capacity)
     sorted_cell_id = sorted_hash * cell_capacity + sorted_cell_id
 
     cell_position = cell_position.at[sorted_cell_id].set(sorted_position)
@@ -664,7 +664,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
       cell_value = jnp.reshape(cell_value, (-1,) + cell_value.shape[-2:])
       return value.at[scatter_indices].set(cell_value)
 
-    neighbor_idx = jnp.zeros((N + 1,) + cell_idx.shape[-2:], jnp.int32)
+    neighbor_idx = jnp.zeros((N + 1,) + cell_idx.shape[-2:], i32)
     neighbor_idx = copy_values_from_cell(neighbor_idx, cell_idx, idx)
     return neighbor_idx[:-1, :, 0]
 
@@ -710,7 +710,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
     if format is NeighborListFormat.OrderedSparse:
       mask = mask & (receiver_idx < sender_idx)
 
-    out_idx = N * jnp.ones(receiver_idx.shape, jnp.int32)
+    out_idx = N * jnp.ones(receiver_idx.shape, i32)
 
     cumsum = jnp.cumsum(mask)
     index = jnp.where(mask, cumsum - 1, len(receiver_idx) - 1)
@@ -839,7 +839,7 @@ def to_jraph(neighbor: NeighborList, mask: Array = None) -> jraph.GraphsTuple:
     _mask = _mask & mask
     cumsum = jnp.cumsum(_mask)
     index = jnp.where(_mask, cumsum - 1, len(receivers))
-    ordered = N * jnp.ones((len(receivers) + 1,), jnp.int32)
+    ordered = N * jnp.ones((len(receivers) + 1,), i32)
     receivers = ordered.at[index].set(receivers)[:-1]
     senders = ordered.at[index].set(senders)[:-1]
     mask = receivers < N
@@ -867,11 +867,11 @@ def to_dense(neighbor: NeighborList) -> Array:
   senders = senders[mask]
 
   N = len(neighbor.reference_position)
-  count = ops.segment_sum(jnp.ones(len(receivers), jnp.int32), receivers, N)
+  count = ops.segment_sum(jnp.ones(len(receivers), i32), receivers, N)
   max_count = jnp.max(count)
   offset = jnp.tile(jnp.arange(max_count), N)[:len(senders)]
   hashes = senders * max_count + offset
-  dense_idx = N * jnp.ones((N * max_count,), jnp.int32)
+  dense_idx = N * jnp.ones((N * max_count,), i32)
   dense_idx = dense_idx.at[hashes].set(receivers).reshape((N, max_count))
   return dense_idx
 

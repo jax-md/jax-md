@@ -24,7 +24,6 @@ from jax.config import config as jax_config
 from jax import random
 import jax.numpy as np
 from jax import ops
-from jax import make_jaxpr
 
 from jax import grad
 
