@@ -6,20 +6,21 @@ import jax.numpy as jnp
 import jax.scipy as jsp
 from jax import jit, lax, grad, vmap, jacfwd, jacrev, jvp
 
+from jax_md import quantity
 from jax_md.util import Array
 from jax_md.util import f32
 from jax_md.util import f64
 
 
-def _get_strain_tensor_list(box: Array) -> Array:
-  if box.shape == (2,2):
+def _get_strain_tensor_list(dim, dtype) -> Array:
+  if dim == 2:
     strain_tensors = jnp.array([[[1, 0],[0, 0]],
                                 [[0, 0],[0, 1]],
                                 [[0, 1],[1, 0]],
                                 [[1, 0],[0, 1]],
                                 [[1, 1],[1, 0]],
-                                [[0, 1],[1, 1]]], dtype=box.dtype)
-  elif box.shape == (3,3):
+                                [[0, 1],[1, 1]]], dtype=dtype)
+  elif dim == 3:
     strain_tensors = jnp.array([[[1, 0, 0], [0, 0, 0], [0, 0, 0]],
                                 [[0, 0, 0], [0, 1, 0], [0, 0, 0]],
                                 [[0, 0, 0], [0, 0, 0], [0, 0, 1]],
@@ -40,9 +41,9 @@ def _get_strain_tensor_list(box: Array) -> Array:
                                 [[0, 1, 0], [1, 0, 0], [0, 0, 1]],
                                 [[0, 0, 1], [0, 0, 1], [1, 1, 0]],
                                 [[0, 1, 0], [1, 0, 1], [0, 1, 0]],
-                                [[0, 1, 1], [1, 0, 0], [1, 0, 0]]], dtype=box.dtype)
+                                [[0, 1, 1], [1, 0, 0], [1, 0, 0]]], dtype=dtype)
   else:
-    raise AssertionError('box must have shape (2,2) or (3,3)')
+    raise AssertionError('not implemented for {} dimensions'.format(dim))
   return strain_tensors
 
 def _convert_responses_to_elastic_constants(response_all: Array) -> Array:
@@ -211,25 +212,30 @@ def AthermalElasticModulusTensor(energy_fn: Callable[..., Array],
       symmetries, and converged is a boolean flag (see above).
 
     """
-    if len(box.shape) != 2:
-      raise AssertionError('box must be a 2 dimensional array.')
-    if box.shape[0] != box.shape[1]:
-      raise AssertionError('box must be a square array.')
-    if R.shape[-1] != box.shape[0]:
-      raise AssertionError('inconsistent dimensions. R corresponds to a {}-dimensional \
-      system but box corresponds to a {}-dimensional system.'.format(R.shape[-1], box.shape[0]))
+    #if len(box.shape) != 2:
+    #  raise AssertionError('box must be a 2 dimensional array.')
+    #if box.shape[0] != box.shape[1]:
+    #  raise AssertionError('box must be a square array.')
+    #if R.shape[-1] != box.shape[0]:
+    #  raise AssertionError('inconsistent dimensions. R corresponds to a {}-dimensional \
+        #  system but box corresponds to a {}-dimensional system.'.format(R.shape[-1], box.shape[0]))
 
     if not (R.shape[-1] == 2 or R.shape[-1] == 3):
       raise AssertionError('Only implemented for 2d and 3d systems.')
 
-    if R.dtype is not jnp.dtype('float64') or box.dtype is not jnp.dtype('float64'):
+    if R.dtype is not jnp.dtype('float64'):# or box.dtype is not jnp.dtype('float64'):
       print("WARNING: elastic modulus calculations can sometimes loose precision when not using 64-bit precision.")
 
+    dim = R.shape[-1]
+
     def setup_energy_fn_general(strain_tensor):
+      I = jnp.eye(dim, dtype=R.dtype)
       @jit
       def energy_fn_general(R, gamma):
-        new_box = jnp.matmul(jnp.eye(strain_tensor.shape[0], dtype=R.dtype) + gamma * strain_tensor, box)
-        return energy_fn(R, box=new_box, **kwargs)
+        perturbation = I + gamma * strain_tensor
+        return energy_fn(R, perturbation=perturbation, **kwargs)
+        #new_box = jnp.matmul(jnp.eye(strain_tensor.shape[0], dtype=R.dtype) + gamma * strain_tensor, box)
+        #return energy_fn(R, box=new_box, **kwargs)
       return energy_fn_general
     
     def get_affine_response(strain_tensor):
@@ -238,11 +244,11 @@ def AthermalElasticModulusTensor(energy_fn: Callable[..., Array],
       d2U_dgamma2  = jacfwd(jacrev(energy_fn_general,argnums=1),argnums=1)(R, 0.0)
       return d2U_dRdgamma, d2U_dgamma2
 
-    strain_tensors = _get_strain_tensor_list(box)
+    strain_tensors = _get_strain_tensor_list(dim, R.dtype)
     d2U_dRdgamma_all, d2U_dgamma2_all = vmap(get_affine_response)(strain_tensors)
 
     #solve the system of equations
-    energy_fn_Ronly = partial(energy_fn, box=box, **kwargs)
+    energy_fn_Ronly = partial(energy_fn, **kwargs)
     def hvp(f, primals, tangents):
       return jvp(grad(f), primals, tangents)[1]
     def hvp_specific_with_tether(v):
@@ -258,8 +264,8 @@ def AthermalElasticModulusTensor(energy_fn: Callable[..., Array],
 
     response_all = d2U_dgamma2_all - jnp.einsum("nij,nij->n", d2U_dRdgamma_all, non_affine_response_all)
 
-    volume = box.diagonal().prod()
-    response_all = response_all / volume
+    vol_0 = quantity.volume(dim, box)
+    response_all = response_all / vol_0
     C = _convert_responses_to_elastic_constants(response_all)
     
     #JAX does not allow proper runtime error handling in jitted function. 
@@ -267,7 +273,7 @@ def AthermalElasticModulusTensor(energy_fn: Callable[..., Array],
     # we convert C into jnp.nan's. While this doesn't raise an exception,
     # it at least is very "loud". 
     if gradient_check is not None:
-      maxgrad = jnp.amax(jnp.abs(grad(energy_fn)(R, box=box, **kwargs)))
+      maxgrad = jnp.amax(jnp.abs(grad(energy_fn)(R, **kwargs)))
       C = lax.cond(maxgrad > gradient_check, lambda _: jnp.nan * C, lambda _: C, None)
     
     if check_convergence: 

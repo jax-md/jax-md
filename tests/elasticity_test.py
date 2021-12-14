@@ -41,8 +41,10 @@ jax_config.enable_omnistaging()
 FLAGS = jax_config.FLAGS
 
 PARTICLE_COUNT = 64
-STOCHASTIC_SAMPLES = 2
+STOCHASTIC_SAMPLES = 1
 SPATIAL_DIMENSION = [2, 3]
+
+LOWPRESSURE = [True, False]
 
 if FLAGS.jax_enable_x64:
   #DTYPE = [f64]
@@ -74,17 +76,17 @@ def run_minimization_while(energy_fn, R_init, shift, max_grad_thresh = 1e-12, ma
   return state.position, get_maxgrad(state), num_iterations
 
 
-class DynamicsTest(jtu.JaxTestCase):
+class ElasticityTest(jtu.JaxTestCase):
   # pylint: disable=g-complex-comprehension
   
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'testcase_name': '_dim={}_dtype={}_lowpressure={}'.format(dim, dtype.__name__, low_pressure),
           'spatial_dimension': dim,
-          'dtype': dtype
-      } for dim in SPATIAL_DIMENSION for dtype in DTYPE))
-  def test_EMT_from_database(self, spatial_dimension, dtype):
-    data_ds, state_ds = test_util.load_nc_data(spatial_dimension)
+          'dtype': dtype,
+          'low_pressure': low_pressure
+      } for dim in SPATIAL_DIMENSION for dtype in DTYPE for low_pressure in LOWPRESSURE))
+  def test_EMT_from_database_basic(self, spatial_dimension, dtype, low_pressure):
     if spatial_dimension == 2:
       N = 64
     else:
@@ -100,26 +102,200 @@ class DynamicsTest(jtu.JaxTestCase):
       rtol = 1e-5
 
     for index in range(STOCHASTIC_SAMPLES):
-      cijkl = jnp.array(data_ds.variables['Cijkl'][index], dtype=dtype)
-      R = jnp.array(state_ds.variables['pos'][index], dtype=dtype)
-      R = jnp.reshape(R, (N,spatial_dimension))
-      sigma = 2. * jnp.array(state_ds.variables['rad'][index], dtype=dtype)
-      box = jnp.array(state_ds.variables['BoxMatrix'][index], dtype=dtype)
-      box = jnp.reshape(box, (spatial_dimension,spatial_dimension))
+      cijkl, R, sigma, box = test_util.load_nc_data(spatial_dimension, low_pressure, dtype, index) 
+      R = space.transform(box, R)
+      box = box[0,0]
 
-      #Test basic
-      displacement, shift = space.periodic_general(box, fractional_coordinates=True)
+      displacement, shift = space.periodic(box)
       energy_fn = energy.soft_sphere_pair(displacement, sigma=sigma)
-
       assert( jnp.max(jnp.abs(grad(energy_fn)(R))) < max_grad_thresh )
 
-      EMT_fn = jit(elasticity.AthermalElasticModulusTensor(energy_fn))
-      C = EMT_fn(R,box)
+      EMT_fn = jit(elasticity.AthermalElasticModulusTensor(energy_fn, check_convergence=True))
+      C, converged = EMT_fn(R,box)
+      assert( C.dtype == dtype )
+      assert( C.shape == (spatial_dimension,spatial_dimension,spatial_dimension,spatial_dimension) )
+      if converged:
+        self.assertAllClose(cijkl,elasticity._extract_elements(C,False), atol=atol, rtol=rtol)
+        
+        #make sure the symmetries are there
+        self.assertAllClose(C, jnp.einsum("ijkl->jikl", C))
+        self.assertAllClose(C, jnp.einsum("ijkl->ijlk", C))
+        self.assertAllClose(C, jnp.einsum("ijkl->lkij", C))
+  
 
-      assert(C.dtype == dtype)
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}_lowpressure={}'.format(dim, dtype.__name__, low_pressure),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+          'low_pressure': low_pressure
+      } for dim in SPATIAL_DIMENSION for dtype in DTYPE for low_pressure in LOWPRESSURE))
+  def test_EMT_from_database_periodic_general(self, spatial_dimension, dtype, low_pressure):
+    if spatial_dimension == 2:
+      N = 64
+    else:
+      N = 128
+
+    if dtype == jnp.float32:
+      max_grad_thresh = 1e-5
+      atol = 1e-4
+      rtol = 1e-3
+    else:
+      max_grad_thresh = 1e-10
+      atol = 1e-8
+      rtol = 1e-5
+
+    for index in range(STOCHASTIC_SAMPLES):
+      cijkl, R, sigma, box = test_util.load_nc_data(spatial_dimension, low_pressure, dtype, index) 
+      R = space.transform(box, R)
+
+      displacement, shift = space.periodic_general(box, fractional_coordinates=False)
+      energy_fn = energy.soft_sphere_pair(displacement, sigma=sigma)
+      assert( jnp.max(jnp.abs(grad(energy_fn)(R))) < max_grad_thresh )
+
+      EMT_fn = jit(elasticity.AthermalElasticModulusTensor(energy_fn, check_convergence=True))
+      C, converged = EMT_fn(R,box)
+      assert( C.dtype == dtype )
+      assert( C.shape == (spatial_dimension,spatial_dimension,spatial_dimension,spatial_dimension) )
+      if converged:
+        self.assertAllClose(cijkl,elasticity._extract_elements(C,False), atol=atol, rtol=rtol)
+        
+        #make sure the symmetries are there
+        self.assertAllClose(C, jnp.einsum("ijkl->jikl", C))
+        self.assertAllClose(C, jnp.einsum("ijkl->ijlk", C))
+        self.assertAllClose(C, jnp.einsum("ijkl->lkij", C))
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}_lowpressure={}'.format(dim, dtype.__name__, low_pressure),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+          'low_pressure': low_pressure
+      } for dim in SPATIAL_DIMENSION for dtype in DTYPE for low_pressure in LOWPRESSURE))
+  def test_EMT_from_database_fraccoord(self, spatial_dimension, dtype, low_pressure):
+    if spatial_dimension == 2:
+      N = 64
+    else:
+      N = 128
+
+    if dtype == jnp.float32:
+      max_grad_thresh = 1e-5
+      atol = 1e-4
+      rtol = 1e-3
+    else:
+      max_grad_thresh = 1e-10
+      atol = 1e-8
+      rtol = 1e-5
+
+    for index in range(STOCHASTIC_SAMPLES):
+      cijkl, R, sigma, box = test_util.load_nc_data(spatial_dimension, low_pressure, dtype, index) 
+
+      displacement, shift = space.periodic_general(box, fractional_coordinates=True)
+      energy_fn = energy.soft_sphere_pair(displacement, sigma=sigma)
+      assert( jnp.max(jnp.abs(grad(energy_fn)(R))) < max_grad_thresh )
+
+      EMT_fn = jit(elasticity.AthermalElasticModulusTensor(energy_fn, check_convergence=True))
+      C, converged = EMT_fn(R,box)
+      assert( C.dtype == dtype )
+      assert( C.shape == (spatial_dimension,spatial_dimension,spatial_dimension,spatial_dimension) )
+      if converged:
+        self.assertAllClose(cijkl,elasticity._extract_elements(C,False), atol=atol, rtol=rtol)
+        
+        #make sure the symmetries are there
+        self.assertAllClose(C, jnp.einsum("ijkl->jikl", C))
+        self.assertAllClose(C, jnp.einsum("ijkl->ijlk", C))
+        self.assertAllClose(C, jnp.einsum("ijkl->lkij", C))
+
       
-      self.assertAllClose(cijkl,elasticity._extract_elements(C,False), atol=atol, rtol=rtol)
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}_lowpressure={}'.format(dim, dtype.__name__, low_pressure),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+          'low_pressure': low_pressure
+      } for dim in SPATIAL_DIMENSION for dtype in DTYPE for low_pressure in LOWPRESSURE))
+  def test_EMT_from_database_dynamic(self, spatial_dimension, dtype, low_pressure):
+    if spatial_dimension == 2:
+      N = 64
+    else:
+      N = 128
 
+    if dtype == jnp.float32:
+      max_grad_thresh = 1e-5
+      atol = 1e-4
+      rtol = 1e-3
+    else:
+      max_grad_thresh = 1e-10
+      atol = 1e-8
+      rtol = 1e-5
+
+    for index in range(STOCHASTIC_SAMPLES):
+      cijkl, R, sigma, box = test_util.load_nc_data(spatial_dimension, low_pressure, dtype, index) 
+      R = space.transform(box, R)
+      box = box[0,0]
+
+      displacement, shift = space.periodic(box)
+      energy_fn = energy.soft_sphere_pair(displacement, sigma=1.0) #This is the wrong sigma, so must pass dynamically
+      assert( jnp.max(jnp.abs(grad(energy_fn)(R, sigma=sigma))) < max_grad_thresh )
+
+      EMT_fn = jit(elasticity.AthermalElasticModulusTensor(energy_fn, check_convergence=True))
+      C, converged = EMT_fn(R,box,sigma=sigma)
+      assert( C.dtype == dtype )
+      assert( C.shape == (spatial_dimension,spatial_dimension,spatial_dimension,spatial_dimension) )
+      if converged:
+        self.assertAllClose(cijkl,elasticity._extract_elements(C,False), atol=atol, rtol=rtol)
+        
+        #make sure the symmetries are there
+        self.assertAllClose(C, jnp.einsum("ijkl->jikl", C))
+        self.assertAllClose(C, jnp.einsum("ijkl->ijlk", C))
+        self.assertAllClose(C, jnp.einsum("ijkl->lkij", C))
+
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}_lowpressure={}'.format(dim, dtype.__name__, low_pressure),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+          'low_pressure': low_pressure
+      } for dim in SPATIAL_DIMENSION for dtype in DTYPE for low_pressure in LOWPRESSURE))
+  def test_EMT_from_database_nbrlist(self, spatial_dimension, dtype, low_pressure):
+    if spatial_dimension == 2:
+      N = 64
+    else:
+      N = 128
+
+    if dtype == jnp.float32:
+      max_grad_thresh = 1e-5
+      atol = 1e-4
+      rtol = 1e-3
+    else:
+      max_grad_thresh = 1e-10
+      atol = 1e-8
+      rtol = 1e-5
+
+    for index in range(STOCHASTIC_SAMPLES):
+      cijkl, R, sigma, box = test_util.load_nc_data(spatial_dimension, low_pressure, dtype, index) 
+
+      displacement, shift = space.periodic_general(box, fractional_coordinates=True)
+      neighbor_fn, energy_fn = energy.soft_sphere_neighbor_list(displacement, box, sigma=sigma, fractional_coordinates=True)
+      nbrs = neighbor_fn.allocate(R)
+      assert( jnp.max(jnp.abs(grad(energy_fn)(R, nbrs))) < max_grad_thresh )
+
+      EMT_fn = jit(elasticity.AthermalElasticModulusTensor(energy_fn, check_convergence=True))
+      C, converged = EMT_fn(R,box,neighbor=nbrs)
+      assert( C.dtype == dtype )
+      assert( C.shape == (spatial_dimension,spatial_dimension,spatial_dimension,spatial_dimension) )
+      if converged:
+        self.assertAllClose(cijkl,elasticity._extract_elements(C,False), atol=atol, rtol=rtol)
+        
+        #make sure the symmetries are there
+        self.assertAllClose(C, jnp.einsum("ijkl->jikl", C))
+        self.assertAllClose(C, jnp.einsum("ijkl->ijlk", C))
+        self.assertAllClose(C, jnp.einsum("ijkl->lkij", C))
+
+
+
+      """
       #Test passing arguments dynamically
       displacement, shift = space.periodic_general(box, fractional_coordinates=True)
       energy_fn = energy.soft_sphere_pair(displacement, sigma=1.0) #This is the wrong sigma, so must pass dynamically
@@ -151,7 +327,9 @@ class DynamicsTest(jtu.JaxTestCase):
       C = EMT_fn(R,box,neighbor=nbrs)
 
       self.assertAllClose(cijkl,elasticity._extract_elements(C,False), atol=atol, rtol=rtol)
+  """
 
+  """
   @parameterized.named_parameters(jtu.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
@@ -184,6 +362,7 @@ class DynamicsTest(jtu.JaxTestCase):
       self.assertAllClose(C, jnp.einsum("ijkl->jikl", C))
       self.assertAllClose(C, jnp.einsum("ijkl->ijlk", C))
       self.assertAllClose(C, jnp.einsum("ijkl->lkij", C))
+  """
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {

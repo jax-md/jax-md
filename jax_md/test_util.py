@@ -55,27 +55,42 @@ def load_silica_data() -> jnp.ndarray:
     filename = '/google3/third_party/py/jax_md/tests/data/silica_positions.npy'
     return _load_silica_data(filename)
 
-def _load_nc_data(datafn, statefn):
-  return nc.Dataset(datafn), nc.Dataset(statefn)
+def _load_nc_data(fn, spatial_dimension, dtype, index):
+  ds = nc.Dataset(fn)
+  cijkl = jnp.array(ds.variables['Cijkl'][index], dtype=dtype)
+  R = jnp.array(ds.variables['pos'][index], dtype=dtype)
+  R = jnp.reshape(R, (R.shape[0]//spatial_dimension,spatial_dimension))
+  sigma = 2. * jnp.array(ds.variables['rad'][index], dtype=dtype)
+  box = jnp.array(ds.variables['box'][index], dtype=dtype)
+  box = jnp.reshape(box, (spatial_dimension,spatial_dimension))
+  return cijkl, R, sigma, box
 
-def load_nc_data(spatial_dimension):
+def load_nc_data(spatial_dimension, low_pressure, dtype, index):
   try:
-    if spatial_dimension == 2:
-      datafn  = 'tests/data/data_2d_polyuniform_N64_Lp-4.0.nc'
-      statefn = 'tests/data/state_2d_polyuniform_N64_Lp-4.0.nc'
+    if low_pressure:
+      if spatial_dimension == 2:
+        fn = 'tests/data/2d_polyuniform_N64_Lp-4.0.nc'
+      else:
+        fn = 'tests/data/3d_bi_N128_Lp-4.0.nc'
     else:
-      datafn  = 'tests/data/data_3d_bi_N128_Lp-1.0.nc'
-      statefn = 'tests/data/state_3d_bi_N128_Lp-1.0.nc'
-    return _load_nc_data(datafn, statefn)
+      if spatial_dimension == 2:
+        fn = 'tests/data/2d_polyuniform_N64_Lp-1.0.nc'
+      else:
+        fn = 'tests/data/3d_bi_N128_Lp-1.0.nc'
+    return _load_nc_data(fn, spatial_dimension, dtype, index)
   except FileNotFoundError:
-    if spatial_dimension == 2:
-      datafn  = '/google3/third_party/py/jax_md/tests/data/data_2d_polyuniform_N64_Lp-4.0.nc'
-      statefn = '/google3/third_party/py/jax_md/tests/data/state_2d_polyuniform_N64_Lp-4.0.nc'
+    if low_pressure:
+      if spatial_dimension == 2:
+        fn = '/google3/third_party/py/jax_md/tests/data/2d_polyuniform_N64_Lp-4.0.nc'
+      else:
+        fn = '/google3/third_party/py/jax_md/tests/data/3d_bi_N128_Lp-4.0.nc'
     else:
-      datafn  = '/google3/third_party/py/jax_md/tests/data/data_3d_bi_N128_Lp-1.0.nc'
-      statefn = '/google3/third_party/py/jax_md/tests/data/state_3d_bi_N128_Lp-1.0.nc'
-    return _load_nc_data(datafn, statefn)
-  
+      if spatial_dimension == 2:
+        fn = '/google3/third_party/py/jax_md/tests/data/2d_polyuniform_N64_Lp-1.0.nc'
+      else:
+        fn = '/google3/third_party/py/jax_md/tests/data/3d_bi_N128_Lp-1.0.nc'
+    return _load_nc_data(fn, spatial_dimension, dtype, index)
+
 
 @dataclasses.dataclass
 class JammedTestState:
