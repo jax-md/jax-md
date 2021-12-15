@@ -68,6 +68,7 @@ class CellListTest(jtu.JaxTestCase):
     cell_fn = partition.cell_list(box_size, cell_size)
 
     cell_list = cell_fn.allocate(R)
+    self.assertEqual(cell_list.id_buffer.dtype, jnp.int32)
 
     self.assertAllClose(R[0], cell_list.position_buffer[0, 0, 0])
     self.assertAllClose(R[1], cell_list.position_buffer[1, 8, 1])
@@ -346,6 +347,7 @@ class NeighborListTest(jtu.JaxTestCase):
     ]
     )
     neighbors = neighbor_list_fn.allocate(R)
+    self.assertEqual(neighbors.idx.dtype, jnp.int32)
 
     # two first point are close to eachother
     R = jnp.array(
@@ -359,7 +361,7 @@ class NeighborListTest(jtu.JaxTestCase):
 
     neighbors = neighbors.update(R)
     self.assertTrue(neighbors.did_buffer_overflow)
-
+    self.assertEqual(neighbors.idx.dtype, jnp.int32)
 
 if __name__ == '__main__':
   absltest.main()
