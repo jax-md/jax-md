@@ -155,10 +155,10 @@ def AthermalElasticModulusTensor(energy_fn: Callable[..., Array],
   approximations.
 
   Args:
-    energy_fn: an energy function that is created using periodic_general so
-      that it can be called with and differentiated with respect to a 'box' 
-      argument. energy_fn(R, box=box) corresponds to the state around which we 
-      are expanding
+    energy_fn: A function that computes the energy of the system. This
+      function must take as an argument `perturbation` which perturbes the
+      box shape. Any energy function constructed using `smap` or in `energy.py`
+      with a standard space will satisfy this property. 
     tether_strength: scalar. Strength of the "tether" applied to each particle, 
       which can be necessary to make the Hessian matrix non-singular. Solving
       for the non-affine response of each particle requires that the Hessian is
@@ -180,14 +180,10 @@ def AthermalElasticModulusTensor(energy_fn: Callable[..., Array],
     cg_tol: scalar. Tolorance used when solving for the non-affine response.
     check_convergence: bool. If true, calculate_EMT will return a boolean
       flag specifiying if the cg solve routine converged to the desired
-      tolorance. The default is False, but setting this to True is highly
-      recommended when using 32-bit precision data.
+      tolorance. The default is False, but convergence checking is highly
+      recommended especially when using 32-bit precision data.
   
   Return: A function to calculate the elastic modulus tensor
-
-    
-  TODO:
-    - generalize to work with force_fn functions? I'm not sure this is possible
 
   """
 
@@ -196,15 +192,15 @@ def AthermalElasticModulusTensor(energy_fn: Callable[..., Array],
                     **kwargs) -> Array:
     """Calculate the elastic modulus tensor
 
-    energy_fn(R, box=box) corresponds to the state around which we are expanding
+    energy_fn(R) corresponds to the state around which we are expanding
       
     Args:
       R: array of shape (N,dimension) of particle positions. This does not
         generalize to arbitrary dimensions and is only implemented for
           dimension == 2
           dimension == 3
-      box: array of shape (dimension,dimension) representing the current box of 
-        the system.
+      box: A box specifying the shape of the simulation volume. Used to infer the
+      volume of the unit cell.
     
     Return: C or the tuple (C,converged)
       where C is the Elastic modulus tensor as an array of shape (dimension,
@@ -212,18 +208,10 @@ def AthermalElasticModulusTensor(energy_fn: Callable[..., Array],
       symmetries, and converged is a boolean flag (see above).
 
     """
-    #if len(box.shape) != 2:
-    #  raise AssertionError('box must be a 2 dimensional array.')
-    #if box.shape[0] != box.shape[1]:
-    #  raise AssertionError('box must be a square array.')
-    #if R.shape[-1] != box.shape[0]:
-    #  raise AssertionError('inconsistent dimensions. R corresponds to a {}-dimensional \
-        #  system but box corresponds to a {}-dimensional system.'.format(R.shape[-1], box.shape[0]))
-
     if not (R.shape[-1] == 2 or R.shape[-1] == 3):
       raise AssertionError('Only implemented for 2d and 3d systems.')
 
-    if R.dtype is not jnp.dtype('float64'):# or box.dtype is not jnp.dtype('float64'):
+    if R.dtype is not jnp.dtype('float64'):
       print("WARNING: elastic modulus calculations can sometimes loose precision when not using 64-bit precision.")
 
     dim = R.shape[-1]
@@ -408,23 +396,6 @@ def mandel_to_tensor(M: Array) -> Array:
 
 @partial(jit,static_argnums=(1,))
 def _extract_elements(C, as_dict):
-  """ Convert an elastic modulus tensor into a list of 6 (21) unique elements
-        in 2 (3) dimensions
-      
-      in 2d, these are:
-      cxxxx,cyyyy,cxyxy,cxxyy,cxxxy,cyyxy
-
-      in 3d, these are:
-      cxxxx,cyyyy,czzzz,cyzyz,cxzxz,cxyxy,cyyzz,cxxzz,cxxyy,cxxyz,cxxxz,cxxxy,cyyyz,cyyxz,cyyxy,czzyz,czzxz,czzxy,cyzxz,cyzxy,cxzxy
-
-  Args:
-    C: A previously calculated elastic modulus tensor represented as an 
-      array of shape (spatial_dimension,spatial_dimension,spatial_dimension,
-      spatial_dimension), where spatial_dimension is either 2 or 3. C must 
-      satisfy both the major and minor symmetries, but this is not checked.
-    as_dict: boolean. If true, return a dictionary with interpretable keys.
-      If false, return an array that follows an internal convention.
-  """
   if C.shape[0] == 2:
     indices = ( [0, 1, 0, 0, 0, 0],
                 [0, 1, 1, 0, 0, 1],
@@ -452,6 +423,22 @@ def _extract_elements(C, as_dict):
     raise AssertionError('C has wrong shape')
 
 def extract_elements(C: Array) -> Dict:
+  """ Convert an elastic modulus tensor into a list of 6 (21) unique elements
+        in 2 (3) dimensions
+      
+      in 2d, these are:
+      cxxxx,cyyyy,cxyxy,cxxyy,cxxxy,cyyxy
+
+      in 3d, these are:
+      cxxxx,cyyyy,czzzz,cyzyz,cxzxz,cxyxy,cyyzz,cxxzz,cxxyy,cxxyz,cxxxz,cxxxy,cyyyz,cyyxz,cyyxy,czzyz,czzxz,czzxy,cyzxz,cyzxy,cxzxy
+
+  Args:
+    C: A previously calculated elastic modulus tensor represented as an 
+      array of shape (spatial_dimension,spatial_dimension,spatial_dimension,
+      spatial_dimension), where spatial_dimension is either 2 or 3. C must 
+      satisfy both the major and minor symmetries, but this is not checked.
+  Return: a dict of the 6 (21) unique elastic constants in 2 (3) dimensions.
+  """
   return _extract_elements(C,True)
 
 def extract_isotropic_moduli(C: Array) -> Dict:
@@ -468,7 +455,7 @@ def extract_isotropic_moduli(C: Array) -> Dict:
         isotropic but where a particular realization is slightly anisotropic.
         The precise definitions are as follows:
 
-        First, we definte the "response", R, to a certain strain tensor e to be
+        First, we define the "response", R, to a certain strain tensor e to be
           R = 2 * (U / V^0 - U^0/V^0 - s^0_{ij} e_{ji}) = C_{ijkl} e_{ij} e_{kl}
 
         Bulk modulus, B:
