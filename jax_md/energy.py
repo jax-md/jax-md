@@ -1056,7 +1056,7 @@ def _ters_repulsive(A: float, lam1: float, R: float, D: float,
 
   fC = _ters_cutoff(dr, R, D)
   fR = A*jnp.exp(-lam1*dr)
-  return fC*fR
+  return 0.5*fC*fR
 
 def tersoff_neighbor_list(displacement: DisplacementFn,
             box_size: float,
@@ -1073,7 +1073,7 @@ def tersoff_neighbor_list(displacement: DisplacementFn,
             m=3,
             R=3.0,
             D=0.2,
-            fractional_coordinates: bool=False,
+            fractional_coordinates: bool=True,
             format=partition.Dense
             ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   repulsive_fn = partial(_ters_repulsive, A, lam1, R, D)
@@ -1087,16 +1087,18 @@ def tersoff_neighbor_list(displacement: DisplacementFn,
                                         box_size,
                                         (R+D),
                                         dr_threshold,
+                                        fractional_coordinates=fractional_coordinates,
                                         format=format)
 
   def compute_fn(R, neighbor, **kwargs):
     d = partial(displacement, **kwargs)
     mask = partition.neighbor_list_mask(neighbor)
+    self_mask = partition.neighbor_list_mask(neighbor, mask_self=True)
 
     if neighbor.format is partition.Dense:
       dR = space.map_neighbor(d)(R, R[neighbor.idx])
       dr = space.distance(dR)
-      first_term = util.high_precision_sum(repulsive_fn(dr))
+      first_term = util.high_precision_sum(repulsive_fn(dr) * self_mask)
       second_term = util.high_precision_sum(attractive_fn(dR, dR, neighbor))
     else:
       raise NotImplementedError('Stillinger-Weber potential only implemented '

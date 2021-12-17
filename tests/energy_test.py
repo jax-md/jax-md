@@ -747,7 +747,7 @@ class EnergyTest(jtu.JaxTestCase):
        [0.75, 0.75, 0.25]], dtype=dtype)
     atoms = lattice(atoms, 2, lattice_vectors)
     lattice_vectors *= 2
-    displacement, _ = space.periodic_general(lattice_vectors)
+    displacement, _ = space.periodic_general(lattice_vectors, fractional_coordinates=True)
     box_size = np.linalg.det(lattice_vectors) ** (1 / 3)
     neighbor_fn, energy_fn = energy.tersoff_neighbor_list(displacement, box_size)
     nbrs = neighbor_fn.allocate(atoms)
