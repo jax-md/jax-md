@@ -1,5 +1,6 @@
 from functools import partial
 from typing import Dict, Callable, Union
+from absl import logging
 
 import jax
 import jax.numpy as jnp
@@ -10,7 +11,6 @@ from jax_md import quantity
 from jax_md.util import Array
 from jax_md.util import f32
 from jax_md.util import f64
-
 
 def _get_strain_tensor_list(dim, dtype) -> Array:
   if dim == 2:
@@ -65,24 +65,24 @@ def _convert_responses_to_elastic_constants(response_all: Array) -> Array:
     cxxxx = response_all[0];
     cyyyy = response_all[1];
     czzzz = response_all[2];
-    cyzyz = response_all[3]/4.;
-    cxzxz = response_all[4]/4.;
-    cxyxy = response_all[5]/4.;
-    cyyzz = (response_all[6] - cyyyy - czzzz)/2.;
-    cxxzz = (response_all[7] - cxxxx - czzzz)/2.;
-    cxxyy = (response_all[8] - cxxxx - cyyyy)/2.;
-    cxxyz = (response_all[9] - cxxxx - 4.*cyzyz)/4.;
-    cxxxz = (response_all[10] - cxxxx - 4.*cxzxz)/4.;
-    cxxxy = (response_all[11] - cxxxx - 4.*cxyxy)/4.;
-    cyyyz = (response_all[12] - cyyyy - 4.*cyzyz)/4.;
-    cyyxz = (response_all[13] - cyyyy - 4.*cxzxz)/4.;
-    cyyxy = (response_all[14] - cyyyy - 4.*cxyxy)/4.;
-    czzyz = (response_all[15] - czzzz - 4.*cyzyz)/4.;
-    czzxz = (response_all[16] - czzzz - 4.*cxzxz)/4.;
-    czzxy = (response_all[17] - czzzz - 4.*cxyxy)/4.;
-    cyzxz = (response_all[18] - 4.*cyzyz - 4.*cxzxz)/8.;
-    cyzxy = (response_all[19] - 4.*cyzyz - 4.*cxyxy)/8.;
-    cxzxy = (response_all[20] - 4.*cxzxz - 4.*cxyxy)/8.;
+    cyzyz = response_all[3] / 4.;
+    cxzxz = response_all[4] / 4.;
+    cxyxy = response_all[5] / 4.;
+    cyyzz = (response_all[6] - cyyyy - czzzz) / 2.;
+    cxxzz = (response_all[7] - cxxxx - czzzz) / 2.;
+    cxxyy = (response_all[8] - cxxxx - cyyyy) / 2.;
+    cxxyz = (response_all[9] - cxxxx - 4. * cyzyz) / 4.;
+    cxxxz = (response_all[10] - cxxxx - 4. * cxzxz) / 4.;
+    cxxxy = (response_all[11] - cxxxx - 4. * cxyxy) / 4.;
+    cyyyz = (response_all[12] - cyyyy - 4. * cyzyz) / 4.;
+    cyyxz = (response_all[13] - cyyyy - 4. * cxzxz) / 4.;
+    cyyxy = (response_all[14] - cyyyy - 4. * cxyxy) / 4.;
+    czzyz = (response_all[15] - czzzz - 4. * cyzyz) / 4.;
+    czzxz = (response_all[16] - czzzz - 4. * cxzxz) / 4.;
+    czzxy = (response_all[17] - czzzz - 4. * cxyxy) / 4.;
+    cyzxz = (response_all[18] - 4. * cyzyz - 4. * cxzxz) / 8.;
+    cyzxy = (response_all[19] - 4. * cyzyz - 4. * cxyxy) / 8.;
+    cxzxy = (response_all[20] - 4. * cxzxz - 4. * cxyxy) / 8.;
 
     C = jnp.array(
          [[[[cxxxx, cxxxy, cxxxz],
@@ -113,19 +113,19 @@ def _convert_responses_to_elastic_constants(response_all: Array) -> Array:
             [czzxy, cyyzz, czzyz],
             [czzxz, czzyz, czzzz]]]])
   else:
-    raise AssertionError('incorrect shape for array of responses')
+    raise AssertionError('response_all has incorrect shape')
   return C
 
-def AthermalElasticModulusTensor(energy_fn: Callable[..., Array], 
-                                 tether_strength: float=1e-10,
-                                 gradient_check: Array=None, 
-                                 cg_tol: float=1e-7,
-                                 check_convergence: bool=False
-                                 ) -> Callable[..., Array]:
-  """ Setup calculation of elastic modulus tensor for a 2d or 3d athermal system.
+def athermal_moduli(energy_fn: Callable[..., Array], 
+                    tether_strength: float=1e-10,
+                    gradient_check: Array=None, 
+                    cg_tol: float=1e-7,
+                    check_convergence: bool=False
+                    ) -> Callable[..., Array]:
+  """ Setup calculation of elastic modulus tensor.
 
   The elastic modulus tensor describes a material's response to different 
-  boundary deformations. Specifically, for small deformation given by a 
+  boundary deformations. Specifically, for a small deformation given by a 
   symmetric strain tensor e, the change in energy is
     U / V^0 = U^0/V^0 + s^0_{ij} e_{ji} + (1/2) C_{ijkl} e_{ij} e_{kl} + ...
   where V^0 is the volume, U^0 is the initial energy, s^0 is the residual stress
@@ -187,7 +187,7 @@ def AthermalElasticModulusTensor(energy_fn: Callable[..., Array],
 
   """
 
-  def calculate_EMT(R: Array,
+  def calculate_emt(R: Array,
                     box: Array, 
                     **kwargs) -> Array:
     """Calculate the elastic modulus tensor
@@ -199,8 +199,8 @@ def AthermalElasticModulusTensor(energy_fn: Callable[..., Array],
         generalize to arbitrary dimensions and is only implemented for
           dimension == 2
           dimension == 3
-      box: A box specifying the shape of the simulation volume. Used to infer the
-      volume of the unit cell.
+      box: A box specifying the shape of the simulation volume. Used to infer
+        the volume of the unit cell.
     
     Return: C or the tuple (C,converged)
       where C is the Elastic modulus tensor as an array of shape (dimension,
@@ -212,7 +212,8 @@ def AthermalElasticModulusTensor(energy_fn: Callable[..., Array],
       raise AssertionError('Only implemented for 2d and 3d systems.')
 
     if R.dtype is not jnp.dtype('float64'):
-      print("WARNING: elastic modulus calculations can sometimes loose precision when not using 64-bit precision.")
+      logging.warning('Elastic modulus calculations can sometimes lose '
+                      'precision when not using 64-bit precision.')
 
     dim = R.shape[-1]
 
@@ -222,35 +223,45 @@ def AthermalElasticModulusTensor(energy_fn: Callable[..., Array],
       def energy_fn_general(R, gamma):
         perturbation = I + gamma * strain_tensor
         return energy_fn(R, perturbation=perturbation, **kwargs)
-        #new_box = jnp.matmul(jnp.eye(strain_tensor.shape[0], dtype=R.dtype) + gamma * strain_tensor, box)
-        #return energy_fn(R, box=new_box, **kwargs)
       return energy_fn_general
     
     def get_affine_response(strain_tensor):
       energy_fn_general = setup_energy_fn_general(strain_tensor)
-      d2U_dRdgamma = jacfwd(jacrev(energy_fn_general,argnums=0),argnums=1)(R, 0.0)
-      d2U_dgamma2  = jacfwd(jacrev(energy_fn_general,argnums=1),argnums=1)(R, 0.0)
+      d2U_dRdgamma = jacfwd(jacrev(energy_fn_general,argnums=0),argnums=1)(R,0.)
+      d2U_dgamma2  = jacfwd(jacrev(energy_fn_general,argnums=1),argnums=1)(R,0.)
       return d2U_dRdgamma, d2U_dgamma2
 
     strain_tensors = _get_strain_tensor_list(dim, R.dtype)
-    d2U_dRdgamma_all, d2U_dgamma2_all = vmap(get_affine_response)(strain_tensors)
+    d2U_dRdgamma_all,d2U_dgamma2_all = vmap(get_affine_response)(strain_tensors)
 
-    #solve the system of equations
+    #Solve the system of equations.
     energy_fn_Ronly = partial(energy_fn, **kwargs)
     def hvp(f, primals, tangents):
       return jvp(grad(f), primals, tangents)[1]
     def hvp_specific_with_tether(v):
       return hvp(energy_fn_Ronly, (R,), (v,)) + tether_strength * v
     
-    non_affine_response_all = jsp.sparse.linalg.cg(vmap(hvp_specific_with_tether), d2U_dRdgamma_all, tol=cg_tol)[0]
+    non_affine_response_all = jsp.sparse.linalg.cg(
+        vmap(hvp_specific_with_tether), 
+        d2U_dRdgamma_all, 
+        tol=cg_tol
+        )[0]
     #The above line should be functionally equivalent to:
-    #H0=hessian(energy_fn)(R, box=box, **kwargs).reshape(R.size,R.size) + tether_strength * jnp.identity(R.size)
-    #non_affine_response_all = jnp.transpose(jnp.linalg.solve(H0, jnp.transpose(d2U_dRdgamma_all)))
+    #H0=hessian(energy_fn)(R, box=box, **kwargs).reshape(R.size,R.size) \
+    #    + tether_strength * jnp.identity(R.size)
+    #non_affine_response_all = jnp.transpose(jnp.linalg.solve(
+    #   H0, 
+    #   jnp.transpose(d2U_dRdgamma_all))
+    #   )
 
-    residual = jnp.linalg.norm(vmap(hvp_specific_with_tether)(non_affine_response_all) - d2U_dRdgamma_all)
+    residual = jnp.linalg.norm(vmap(hvp_specific_with_tether)(
+        non_affine_response_all) - d2U_dRdgamma_all
+      )
     converged = residual / jnp.linalg.norm(d2U_dRdgamma_all) < cg_tol
 
-    response_all = d2U_dgamma2_all - jnp.einsum("nij,nij->n", d2U_dRdgamma_all, non_affine_response_all)
+    response_all = d2U_dgamma2_all - jnp.einsum("nij,nij->n", 
+                                                d2U_dRdgamma_all, 
+                                                non_affine_response_all)
 
     vol_0 = quantity.volume(dim, box)
     response_all = response_all / vol_0
@@ -262,27 +273,30 @@ def AthermalElasticModulusTensor(energy_fn: Callable[..., Array],
     # it at least is very "loud". 
     if gradient_check is not None:
       maxgrad = jnp.amax(jnp.abs(grad(energy_fn)(R, **kwargs)))
-      C = lax.cond(maxgrad > gradient_check, lambda _: jnp.nan * C, lambda _: C, None)
+      C = lax.cond(maxgrad > gradient_check, 
+                   lambda _: jnp.nan * C, 
+                   lambda _: C, 
+                   None)
     
     if check_convergence: 
       return C, converged
     else:
       return C
 
-  return calculate_EMT
+  return calculate_emt
 
 
-def _get_mandel_mapping_weight(DIM, dtype):
-  if DIM == 2:
+def _get_mandel_mapping_weight(dim, dtype):
+  if dim == 2:
     m_map  = jnp.array([[0,0],[1,1],[0,1]], dtype=jnp.int8)
     weight = jnp.array([1,1,jnp.sqrt(2)], dtype=dtype)
     return m_map, weight
-  elif DIM == 3:
+  elif dim == 3:
     m_map  = jnp.array([[0,0],[1,1],[2,2],[1,2],[0,2],[0,1]], dtype=jnp.int8)
     weight = jnp.array([1,1,1,jnp.sqrt(2),jnp.sqrt(2),jnp.sqrt(2)], dtype=dtype)
     return m_map, weight
   else:
-    raise AssertionError('DIM must be 2 or 3')
+    raise AssertionError('dim must be 2 or 3')
 
 def tensor_to_mandel(T: Array) -> Array:
   """ Convert a tensor to Mandel notation
@@ -334,22 +348,27 @@ def tensor_to_mandel(T: Array) -> Array:
 
   see: https://sbrisard.github.io/janus/mandel.html (accessed 21 April, 2021)
   """
-  DIM = T.shape[0]
-  if not (DIM==2 or DIM==3):
-    raise AssertionError('DIM must be 2 or 3')
+  dim = T.shape[0]
+  if not (dim ==2 or dim == 3):
+    raise AssertionError('dim must be 2 or 3')
   
   rank = len(T.shape)
-  if not (rank==2 or rank==4):
+  if not (rank == 2 or rank == 4):
     raise AssertionError('T must have rank 2 or 4')
   
-  m_map, weight = _get_mandel_mapping_weight(DIM, T.dtype)
+  m_map, weight = _get_mandel_mapping_weight(dim, T.dtype)
   
   if rank == 2:
     extract = lambda idx, w: T[idx[0], idx[1]] * w
     M = vmap(extract, in_axes=(0,0))(m_map, weight)
   else:
-    extract = lambda idx0, idx1, w0, w1: T[idx0[0], idx0[1], idx1[0], idx1[1]] * w0 * w1
-    M = vmap(vmap(extract, in_axes=(0,None,0,None)), in_axes=(None,0,None,0))(m_map, m_map, weight, weight)
+    extract = lambda idx0, idx1, w0, w1: T[
+        idx0[0], idx0[1], idx1[0], idx1[1]
+        ] * w0 * w1
+    M = vmap(
+          vmap(extract, 
+            in_axes=(0,None,0,None)), 
+          in_axes=(None,0,None,0))(m_map, m_map, weight, weight)
   return M
 
 def mandel_to_tensor(M: Array) -> Array:
@@ -360,18 +379,21 @@ def mandel_to_tensor(M: Array) -> Array:
   
   Output: Array of shape (2,2), (3,3), (2,2,2,2), or (3,3,3,3)
   """
-  DIM = M.shape[0]
-  if not (DIM==3 or DIM==6):
-    raise AssertionError('DIM must be 3 or 6')
+  mandel_dim = M.shape[0]
+  if not (mandel_dim == 3 or mandel_dim == 6):
+    raise AssertionError('M.shape[0] must be 3 or 6')
   
   rank = len(M.shape)
-  if not (rank==1 or rank==2):
+  if not (rank == 1 or rank == 2):
     raise AssertionError('T must have rank 1 or 2')
 
-  def mandel_index(i,j):
-    return lax.cond(i==j, lambda ij: ij[0], lambda ij: DIM-ij[0]-ij[1], (i,j))
+  def mandel_index(i, j):
+    return lax.cond(i==j, 
+                    lambda ij: ij[0], 
+                    lambda ij: mandel_dim-ij[0]-ij[1], 
+                    (i,j))
 
-  if DIM == 3:
+  if mandel_dim == 3:
     dimension = 2
   else:
     dimension = 3
@@ -380,16 +402,29 @@ def mandel_to_tensor(M: Array) -> Array:
   _, weight = _get_mandel_mapping_weight(dimension, M.dtype)
 
   if rank == 1:
-    def extract(i,j):
-      idx = mandel_index(i,j)
+    def extract(i, j):
+      idx = mandel_index(i, j)
       return M[idx] / weight[idx]
-    T = vmap(vmap(extract, in_axes=(0,None)), in_axes=(None,0))(tensor_range, tensor_range)
+    T = vmap(
+          vmap(extract, 
+            in_axes=(0,None)), 
+          in_axes=(None,0))(tensor_range, tensor_range)
   else:
-    def extract(i,j,k,l):
-      idx0 = mandel_index(i,j)
-      idx1 = mandel_index(k,l)
-      return M[idx0,idx1] / (weight[idx0] * weight[idx1])
-    T = vmap(vmap(vmap(vmap(extract, in_axes=(0,None,None,None)), in_axes=(None,0,None,None)), in_axes=(None,None,0,None)), in_axes=(None,None,None,0))(tensor_range, tensor_range, tensor_range, tensor_range)
+    def extract(i, j, k, l):
+      idx0 = mandel_index(i, j)
+      idx1 = mandel_index(k, l)
+      return M[idx0, idx1] / (weight[idx0] * weight[idx1])
+    T = vmap(
+          vmap(
+            vmap(
+              vmap(extract, 
+                in_axes=(0,None,None,None)), 
+              in_axes=(None,0,None,None)), 
+            in_axes=(None,None,0,None)), 
+          in_axes=(None,None,None,0))(tensor_range, 
+                                      tensor_range, 
+                                      tensor_range, 
+                                      tensor_range)
   return T
 
 
@@ -415,7 +450,9 @@ def _extract_elements(C, as_dict):
                 [0, 1, 2, 2, 2, 1, 2, 2, 1, 2, 2, 1, 2, 1, 1, 2, 2, 2, 2, 2, 2])
     clist = C[ indices ] 
     if as_dict:
-      names = ['cxxxx','cyyyy','czzzz','cyzyz','cxzxz','cxyxy','cyyzz','cxxzz','cxxyy','cxxyz','cxxxz','cxxxy','cyyyz','cyyxz','cyyxy','czzyz','czzxz','czzxy','cyzxz','cyzxy','cxzxy']
+      names = ['cxxxx','cyyyy','czzzz','cyzyz','cxzxz','cxyxy','cyyzz','cxxzz',
+               'cxxyy','cxxyz','cxxxz','cxxxy','cyyyz','cyyxz','cyyxy','czzyz',
+               'czzxz','czzxy','cyzxz','cyzxy','cxzxy']
       return dict(zip(names, clist))
     else:
       return clist
@@ -423,14 +460,14 @@ def _extract_elements(C, as_dict):
     raise AssertionError('C has wrong shape')
 
 def extract_elements(C: Array) -> Dict:
-  """ Convert an elastic modulus tensor into a list of 6 (21) unique elements
-        in 2 (3) dimensions
+  """ Convert an elastic modulus tensor into a list of unique elements
       
       in 2d, these are:
       cxxxx,cyyyy,cxyxy,cxxyy,cxxxy,cyyxy
 
       in 3d, these are:
-      cxxxx,cyyyy,czzzz,cyzyz,cxzxz,cxyxy,cyyzz,cxxzz,cxxyy,cxxyz,cxxxz,cxxxy,cyyyz,cyyxz,cyyxy,czzyz,czzxz,czzxy,cyzxz,cyzxy,cxzxy
+      cxxxx,cyyyy,czzzz,cyzyz,cxzxz,cxyxy,cyyzz,cxxzz,cxxyy,cxxyz,cxxxz,cxxxy,
+      cyyyz,cyyxz,cyyxy,czzyz,czzxz,czzxy,cyzxz,cyzxy,cxzxy
 
   Args:
     C: A previously calculated elastic modulus tensor represented as an 
@@ -500,16 +537,19 @@ def extract_isotropic_moduli(C: Array) -> Dict:
   """
   if C.shape[0] == 2:
     cxxxx,cyyyy,cxyxy,cxxyy,cxxxy,cyyxy = _extract_elements(C,False)
-    B = (cxxxx+cyyyy+2.*cxxyy) / 4.
-    G = (4.*cxyxy + cxxxx+cyyyy-2.*cxxyy) / 8.
+    B = (cxxxx + cyyyy + 2. * cxxyy) / 4.
+    G = (4. * cxyxy + cxxxx + cyyyy - 2. * cxxyy) / 8.
     M = B + G
     E = 4 * B * G / (B + G)
     nu = (B - G) / (B + G)
     
   elif C.shape[0] == 3:
-    cxxxx,cyyyy,czzzz,cyzyz,cxzxz,cxyxy,cyyzz,cxxzz,cxxyy,cxxyz,cxxxz,cxxxy,cyyyz,cyyxz,cyyxy,czzyz,czzxz,czzxy,cyzxz,cyzxy,cxzxy = _extract_elements(C,False)
-    B = (cxxxx + 2*cxxyy + 2*cxxzz + cyyyy + 2*cyyzz + czzzz) / 9.
-    G = (cxxxx - cxxyy - cxxzz + 3*cxyxy + 3*cxzxz + cyyyy - cyyzz + 3*cyzyz + czzzz) / 15.
+    cxxxx,cyyyy,czzzz,cyzyz,cxzxz,cxyxy,cyyzz,cxxzz,cxxyy, \
+    cxxyz,cxxxz,cxxxy,cyyyz,cyyxz,cyyxy,czzyz,czzxz,czzxy, \
+    cyzxz,cyzxy,cxzxy = _extract_elements(C,False)
+    B = (cxxxx + 2 * cxxyy + 2 * cxxzz + cyyyy + 2 * cyyzz + czzzz) / 9.
+    G = (cxxxx - cxxyy - cxxzz + 3 * cxyxy + 3 * cxzxz + cyyyy - cyyzz \
+         + 3 * cyzyz + czzzz) / 15.
     M = B + 4 * G / 3
     E = 9 * B * G / (3 * B + G)
     nu = (3 * B - 2 * G) / (2 * (3 * B + G))

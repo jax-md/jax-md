@@ -55,7 +55,7 @@ def load_silica_data() -> jnp.ndarray:
     filename = '/google3/third_party/py/jax_md/tests/data/silica_positions.npy'
     return _load_silica_data(filename)
 
-def _load_nc_data(fn, spatial_dimension, dtype, index):
+def _load_elasticity_test_data(fn, spatial_dimension, dtype, index):
   ds = nc.Dataset(fn)
   cijkl = jnp.array(ds.variables['Cijkl'][index], dtype=dtype)
   R = jnp.array(ds.variables['pos'][index], dtype=dtype)
@@ -65,7 +65,7 @@ def _load_nc_data(fn, spatial_dimension, dtype, index):
   box = jnp.reshape(box, (spatial_dimension,spatial_dimension))
   return cijkl, R, sigma, box
 
-def load_nc_data(spatial_dimension, low_pressure, dtype, index):
+def load_elasticity_test_data(spatial_dimension, low_pressure, dtype, index):
   try:
     if low_pressure:
       if spatial_dimension == 2:
@@ -77,7 +77,7 @@ def load_nc_data(spatial_dimension, low_pressure, dtype, index):
         fn = 'tests/data/2d_polyuniform_N64_Lp-1.0.nc'
       else:
         fn = 'tests/data/3d_bi_N128_Lp-1.0.nc'
-    return _load_nc_data(fn, spatial_dimension, dtype, index)
+    return _load_elasticity_test_data(fn, spatial_dimension, dtype, index)
   except FileNotFoundError:
     if low_pressure:
       if spatial_dimension == 2:
@@ -89,7 +89,7 @@ def load_nc_data(spatial_dimension, low_pressure, dtype, index):
         fn = '/google3/third_party/py/jax_md/tests/data/2d_polyuniform_N64_Lp-1.0.nc'
       else:
         fn = '/google3/third_party/py/jax_md/tests/data/3d_bi_N128_Lp-1.0.nc'
-    return _load_nc_data(fn, spatial_dimension, dtype, index)
+    return _load_elasticity_test_data(fn, spatial_dimension, dtype, index)
 
 
 @dataclasses.dataclass
