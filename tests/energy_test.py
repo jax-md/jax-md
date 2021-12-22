@@ -734,8 +734,8 @@ class EnergyTest(jtu.JaxTestCase):
           'dtype': dtype
       } for dtype in POSITION_DTYPE))
   def test_tersoff_neighbor_list(self, dtype):
-    lattice_vectors = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]], 
-      dtype=dtype) * f32(5.431)
+    lattice_vectors = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=dtype) \
+      * f32(5.431)
     atoms = np.array(
       [[0.00, 0.00, 0.00],
        [0.25, 0.25, 0.25],

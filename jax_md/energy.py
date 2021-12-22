@@ -897,22 +897,6 @@ def stillinger_weber_neighbor_list(
 class Params:
   """Class for keeping Tersoff potential parameters
   """
-  lam1: jnp.float64
-  lam2: jnp.float64
-  lam3: jnp.float64
-  c: jnp.float64
-  d: jnp.float64
-  h: jnp.float64
-  gamma: jnp.float64
-  powern: jnp.float64
-  powerm: jnp.float64
-  alpha: jnp.float64
-  beta: jnp.float64
-  bigd: jnp.float64
-  bigr: jnp.float64
-  bigb: jnp.float64
-  biga: jnp.float64
-
   def __init__(self, words):
       self.ielement = words[0]
       self.jelement = words[1]
@@ -1004,34 +988,38 @@ def _ters_cutoff(dr, R, D):
   inner = jnp.where(dr < R-D, 1, outer)
   return inner
 
-def _ters_bij(dRij, dRik, neighbor, R, D, c, d, h, lam3, beta, n, m):
+def _ters_bij(dRij, dRik, neighbor, mask_ijk, R, D, c, d, h, lam3, beta, n, m):
   drij = space.distance(dRij)
   drik = space.distance(dRik)
+  
+  # compute g_ijk
   costheta = quantity.cosine_angles(dRij)
   gijk = 1.0 + (c**2 / d**2) - (c**2 / (d**2 + (h - costheta)**2))
-  fC = _ters_cutoff(drik, R, D)  
+  gijk *= mask_ijk
+  gijk = vmap(lambda x: jax.ops.index_update(x, jnp.diag_indices(x.shape[0]), 0))(gijk)
 
-  zeta = jnp.zeros(neighbor.idx.shape)
-  for i in range(len(drij)):
-    for j, jdx in enumerate(neighbor.idx[i]):
-      zeta_ij = 0
-      for k, kdx in enumerate(neighbor.idx[i]):
-        if jdx == kdx:
-          continue
+  # compute fC with dr_ik
+  fC = _ters_cutoff(drik, R, D)
+  
+  # compute exponential term
+  # todo: it can be converted by space.map_neighbor
+  # todo: masking procedure should be reduced
+  dr_diff = vmap(vmap(jnp.subtract, (None, 0)))(drij, drik)
+  explr3 = jnp.exp(lam3**m * dr_diff**m)
+  explr3 *= mask_ijk
+  explr3 = vmap(lambda x: jax.ops.index_update(x, jnp.diag_indices(x.shape[0]), 0))(explr3)
 
-        explr3 = jnp.exp(lam3**m * (drij[i, j] - drik[i, k])**m)
-        zeta_ij += fC[i, k] * gijk[i, j, k] * explr3
-    
-      zeta = zeta.at[i, j].set(zeta_ij)
-
-  bij = (1 + (beta*zeta)**n)**(-1 / 2 / n)
-
+  # compute zeta without diagonal term
+  tmp = jnp.multiply(gijk, explr3)
+  zeta_ij = jnp.einsum('ik,ijk->ij', fC, tmp)
+  bij = (1 + (beta*zeta_ij)**n)**(-1 / 2 / n)
+  
   return bij
 
 def _ters_attractive(B: float, lam2: float, R: float, D: float,
                      c: float, d: float, h: float, lam3: float,
                      beta: float, n: float, m: float,
-                     dR12: Array, dR13: Array, neighbor) -> Array:
+                     dR12: Array, dR13: Array, neighbor, mask_ijk) -> Array:
   """The attractive term of the Tersoff potential.
   Args:
 
@@ -1042,8 +1030,8 @@ def _ters_attractive(B: float, lam2: float, R: float, D: float,
   dr12 = space.distance(dR12) 
   fC = _ters_cutoff(dr12, R, D) 
   fA = -B*jnp.exp(-lam2*dr12)
-  bij = _ters_bij(dR12, dR13, neighbor, R, D, c, d, h, lam3, beta, n, m)
-  return fC*bij*fA
+  bij = _ters_bij(dR12, dR13, neighbor, mask_ijk, R, D, c, d, h, lam3, beta, n, m)
+  return 0.5*fC*bij*fA
 
 def _ters_repulsive(A: float, lam1: float, R: float, D: float, 
                     dr: Array) -> Array:
@@ -1057,49 +1045,68 @@ def _ters_repulsive(A: float, lam1: float, R: float, D: float,
   fC = _ters_cutoff(dr, R, D)
   fR = A*jnp.exp(-lam1*dr)
   return 0.5*fC*fR
+def tersoff_neighbor_list(displacement: DisplacementFn):
+  raise 
 
 def tersoff_neighbor_list(displacement: DisplacementFn,
-            box_size: float,
-            A=3264.7,
-            B=95.373,
-            lam1=3.2394,
-            lam2=1.3258,
-            lam3=1.3258,
-            beta=0.33675,
-            c=4.8381,
-            d=2.0417,
-            h=0.0000,
-            n=22.956,
-            m=3,
-            R=3.0,
-            D=0.2,
-            fractional_coordinates: bool=True,
-            format=partition.Dense
-            ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
+  box_size: float,
+  A=3264.7,
+  B=95.373,
+  lam1=3.2394,
+  lam2=1.3258,
+  lam3=1.3258,
+  beta=0.33675,
+  c=4.8381,
+  d=2.0417,
+  h=0.0000,
+  n=22.956,
+  m=3,
+  R=3.0,
+  D=0.2,
+  dr_threshold: float = 0.5,
+  fractional_coordinates: bool=True,
+  format: NeighborListFormat=partition.Dense,
+  **neighbor_kwargs
+) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
+  """Computes the Tersoff potential.
+
+  The Tersoff potential [1] which is commonly used to model 
+  semiconducting materials. The Tersoff potential was originally proposed to
+  model various types of lattice with a simple functional form.
+  For this reason, Tersoff model was introduced bond-order function
+  to determine the strength of repulsive and attractive forces between atoms.
+
+  Args:
+    displacement: The displacement function for the space.
+
+  Returns:
+    A function that computes the total energy.
+
+  [1] J. Tersoff "New empirical approach for the structure and energy of
+  covalent systems" Physical review B 37.12 (1988): 6991.
+  """
   repulsive_fn = partial(_ters_repulsive, A, lam1, R, D)
   attractive_fn = partial(_ters_attractive, B, lam2, R, D, c, d, h, 
     lam3, beta, n, m)
-  #attractive_fn = vmap(vmap(vmap(attractive_fn, (0, None)), (None, 0))) 
-
-  dr_threshold = 0.5
 
   neighbor_fn = partition.neighbor_list(displacement,
                                         box_size,
                                         (R+D),
                                         dr_threshold,
+                                        disable_cell_list=True,
                                         fractional_coordinates=fractional_coordinates,
                                         format=format)
 
   def compute_fn(R, neighbor, **kwargs):
     d = partial(displacement, **kwargs)
-    mask = partition.neighbor_list_mask(neighbor)
-    self_mask = partition.neighbor_list_mask(neighbor, mask_self=True)
+    mask = partition.neighbor_list_mask(neighbor, mask_self=True)
+    mask_ijk = mask[:, None, :] * mask[:, :, None]
 
     if neighbor.format is partition.Dense:
       dR = space.map_neighbor(d)(R, R[neighbor.idx])
       dr = space.distance(dR)
-      first_term = util.high_precision_sum(repulsive_fn(dr) * self_mask)
-      second_term = util.high_precision_sum(attractive_fn(dR, dR, neighbor))
+      first_term = util.high_precision_sum(repulsive_fn(dr) * mask)
+      second_term = util.high_precision_sum(attractive_fn(dR, dR, neighbor, mask_ijk) * mask)
     else:
       raise NotImplementedError('Stillinger-Weber potential only implemented '
                                 'with Dense neighbor lists.')
