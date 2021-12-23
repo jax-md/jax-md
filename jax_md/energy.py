@@ -899,7 +899,8 @@ def stillinger_weber_neighbor_list(
 def load_lammps_tersoff_parameters(file: TextIO) -> Array:
   """Reads Tersoff parameters from a LAMMPS file and returns parameter tables.
 
-  This function reads multi-element original Tersoff potential parameters from a file.
+  This function reads multi-element original Tersoff potential parameters
+  from a file.
   
   Args:
     file: File handle for the Tersoff parameters text file.
