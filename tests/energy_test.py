@@ -734,8 +734,7 @@ class EnergyTest(jtu.JaxTestCase):
           'dtype': dtype
       } for dtype in POSITION_DTYPE))
   def test_tersoff_neighbor_list(self, dtype):
-    lattice_vectors = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=dtype) \
-      * f32(5.431)
+    lattice_vectors = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=dtype) * 5.431
     atoms = np.array(
       [[0.00, 0.00, 0.00],
        [0.25, 0.25, 0.25],
@@ -749,7 +748,9 @@ class EnergyTest(jtu.JaxTestCase):
     lattice_vectors *= 2
     displacement, _ = space.periodic_general(lattice_vectors, fractional_coordinates=True)
     box_size = np.linalg.det(lattice_vectors) ** (1 / 3)
-    neighbor_fn, energy_fn = energy.tersoff_neighbor_list(displacement, box_size)
+    tersoff_parameters = energy.load_lammps_tersoff_parameters(open('tests/data/Si.tersoff', 'r'))
+
+    neighbor_fn, energy_fn = energy.tersoff_neighbor_list(displacement, box_size, tersoff_parameters)
     nbrs = neighbor_fn.allocate(atoms)
     E = energy_fn(atoms, nbrs)
     if dtype is f64:
