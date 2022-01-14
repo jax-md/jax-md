@@ -1,3 +1,40 @@
+"""Code to calculate the elastic modulus tensor for athermal systems.
+
+  The elastic modulus tensor describes a material's response to different 
+  boundary deformations. Specifically, for a small deformation given by a 
+  symmetric strain tensor e, the change in energy is
+    U / V^0 = U^0/V^0 + s^0_{ij} e_{ji} + (1/2) C_{ijkl} e_{ij} e_{kl} + ...
+  where V^0 is the volume, U^0 is the initial energy, s^0 is the residual stress
+  tensor of the undeformed system, and C is the elastic modulus tensor. C is
+  a fourth-rank tensor of shape (dimension,dimension,dimension,dimension), with
+  the following symmetries.
+  
+    Minor symmetries:
+      C_ijkl = C_jikl = C_ijlk
+
+    Major symmetries:
+      C_ijkl = C_lkij
+
+  The minor symmetries are also reflected in the symmetric nature
+  of stress and strain tensors:
+    s_ij = s_ji
+    e_ij = e_ji
+
+  In general, there are 21 independent elastic constants in 3 dimension (6 in 2
+  dimensions). While systems with additional symmetries (e.g. isotropic,
+  orthotropic, etc.) can be expressed with fewer constants, we do not assume any
+  such additional symmetries.
+
+  At zero temperature, the response of every particle to a deformation can be 
+  calculated explicitly to linear order, enabling the exact calculation of 
+  the elastic modulus tensor without the need of any finite differences or any
+  approximations.
+
+"""
+
+
+
+
 from functools import partial
 from typing import Dict, Callable, Union
 from absl import logging
@@ -124,36 +161,6 @@ def athermal_moduli(energy_fn: Callable[..., Array],
                     ) -> Callable[..., Array]:
   """ Setup calculation of elastic modulus tensor.
 
-  The elastic modulus tensor describes a material's response to different 
-  boundary deformations. Specifically, for a small deformation given by a 
-  symmetric strain tensor e, the change in energy is
-    U / V^0 = U^0/V^0 + s^0_{ij} e_{ji} + (1/2) C_{ijkl} e_{ij} e_{kl} + ...
-  where V^0 is the volume, U^0 is the initial energy, s^0 is the residual stress
-  tensor of the undeformed system, and C is the elastic modulus tensor. C is
-  a fourth-rank tensor of shape (dimension,dimension,dimension,dimension), with
-  the following symmetries.
-  
-    Minor symmetries:
-      C_ijkl = C_jikl = C_ijlk
-
-    Major symmetries:
-      C_ijkl = C_lkij
-
-  The minor symmetries are also reflected in the symmetric nature
-  of stress and strain tensors:
-    s_ij = s_ji
-    e_ij = e_ji
-
-  In general, there are 21 independent elastic constants in 3 dimension (6 in 2
-  dimensions). While systems with additional symmetries (e.g. isotropic,
-  orthotropic, etc.) can be expressed with fewer constants, we do not assume any
-  such additional symmetries.
-
-  At zero temperature, the response of every particle to a deformation can be 
-  calculated explicitly to linear order, enabling the exact calculation of 
-  the elastic modulus tensor without the need of any finite differences or any
-  approximations.
-
   Args:
     energy_fn: A function that computes the energy of the system. This
       function must take as an argument `perturbation` which perturbes the
@@ -190,7 +197,7 @@ def athermal_moduli(energy_fn: Callable[..., Array],
   def calculate_emt(R: Array,
                     box: Array, 
                     **kwargs) -> Array:
-    """Calculate the elastic modulus tensor
+    """Calculate the elastic modulus tensor.
 
     energy_fn(R) corresponds to the state around which we are expanding
       
@@ -267,7 +274,7 @@ def athermal_moduli(energy_fn: Callable[..., Array],
     response_all = response_all / vol_0
     C = _convert_responses_to_elastic_constants(response_all)
     
-    #JAX does not allow proper runtime error handling in jitted function. 
+    # JAX does not allow proper runtime error handling in jitted function. 
     # Instead, if the user requests a gradient check and the check fails,
     # we convert C into jnp.nan's. While this doesn't raise an exception,
     # it at least is very "loud". 
@@ -299,7 +306,7 @@ def _get_mandel_mapping_weight(dim, dtype):
     raise AssertionError('dim must be 2 or 3')
 
 def tensor_to_mandel(T: Array) -> Array:
-  """ Convert a tensor to Mandel notation
+  """ Convert a tensor to Mandel notation.
 
   Mandel notation is a way to represent symmetric second-rank tensors and
   fourth-rank tensors with minor symmetries in a reduced form. Pairs of indices
@@ -460,12 +467,12 @@ def _extract_elements(C, as_dict):
     raise AssertionError('C has wrong shape')
 
 def extract_elements(C: Array) -> Dict:
-  """ Convert an elastic modulus tensor into a list of unique elements
+  """ Convert an elastic modulus tensor into a list of unique elements.
       
-      in 2d, these are:
+      In 2d, these are:
       cxxxx,cyyyy,cxyxy,cxxyy,cxxxy,cyyxy
 
-      in 3d, these are:
+      In 3d, these are:
       cxxxx,cyyyy,czzzz,cyzyz,cxzxz,cxyxy,cyyzz,cxxzz,cxxyy,cxxyz,cxxxz,cxxxy,
       cyyyz,cyyxz,cyyxy,czzyz,czzxz,czzxy,cyzxz,cyzxy,cxzxy
 
@@ -479,52 +486,54 @@ def extract_elements(C: Array) -> Dict:
   return _extract_elements(C,True)
 
 def extract_isotropic_moduli(C: Array) -> Dict:
-  """ There are a number of important constants used to describe the linear 
-        elastic behavior of isotropic systems, including the bulk modulud, B, 
-        the shear modulus, G, the longitudinal modulus, M, the Young's modulus,
-        E, and the Poisson's ratio, nu. This convenience function extracts them
-        from an elastic modulus tensor C.
+  """ Extract commonly used isotropic constants. 
 
-        Angle averaged quantities: While these quantities are defined for
-        isotropic systems, one can still define an "angle-averaged shear
-        modulus", for example, that averages over all possible shear
-        deformations. This can be useful for systems that are statistically
-        isotropic but where a particular realization is slightly anisotropic.
-        The precise definitions are as follows:
+  There are a number of important constants used to describe the linear 
+  elastic behavior of isotropic systems, including the bulk modulud, B, 
+  the shear modulus, G, the longitudinal modulus, M, the Young's modulus,
+  E, and the Poisson's ratio, nu. This convenience function extracts them
+  from an elastic modulus tensor C.
 
-        First, we define the "response", R, to a certain strain tensor e to be
-          R = 2 * (U / V^0 - U^0/V^0 - s^0_{ij} e_{ji}) = C_{ijkl} e_{ij} e_{kl}
+  Angle averaged quantities: While these quantities are defined for
+  isotropic systems, one can still define an "angle-averaged shear
+  modulus", for example, that averages over all possible shear
+  deformations. This can be useful for systems that are statistically
+  isotropic but where a particular realization is slightly anisotropic.
+  The precise definitions are as follows:
 
-        Bulk modulus, B:
-        This is the response to the rotationally invariant strain tensor:
-            e = (1/2) * ( 1 0 )     or      e = (1/3) * ( 1 0 0 )
-                        ( 0 1 )                         ( 0 1 0 )
-                                                        ( 0 0 1 )
-        
-        Shear modulus, G:
-        This is the response to the strain tensor:
-            e = (1/2) * ( 0 1 )     or      e = (1/2) * ( 0 1 0 )
-                        ( 1 0 )                         ( 1 0 0 )
-                                                        ( 0 0 0 )
-        averaged over all possible orientations. For perfectly isotropic
-        systems, it should be equal to C[0,1,0,1].
+  First, we define the "response", R, to a certain strain tensor e to be
+    R = 2 * (U / V^0 - U^0/V^0 - s^0_{ij} e_{ji}) = C_{ijkl} e_{ij} e_{kl}
 
-        Longitudinal modulus, M:
-        This is the response to the strain tensor:
-            e = ( 1 0 )     or      e = ( 1 0 0 )
-                ( 0 0 )                 ( 0 0 0 )
-                                        ( 0 0 0 )
-        averaged over all possible orientations. For perfectly isotropic
-        systems, it should be equal to C[0,0,0,0].
+  Bulk modulus, B:
+  This is the response to the rotationally invariant strain tensor:
+      e = (1/2) * ( 1 0 )     or      e = (1/3) * ( 1 0 0 )
+                  ( 0 1 )                         ( 0 1 0 )
+                                                  ( 0 0 1 )
+  
+  Shear modulus, G:
+  This is the response to the strain tensor:
+      e = (1/2) * ( 0 1 )     or      e = (1/2) * ( 0 1 0 )
+                  ( 1 0 )                         ( 1 0 0 )
+                                                  ( 0 0 0 )
+  averaged over all possible orientations. For perfectly isotropic
+  systems, it should be equal to C[0,1,0,1].
 
-        Young's modulus, E:
-        This is a measure of tensile stiffness and is calculated a using well-
-        known expression in terms of B and G.
+  Longitudinal modulus, M:
+  This is the response to the strain tensor:
+      e = ( 1 0 )     or      e = ( 1 0 0 )
+          ( 0 0 )                 ( 0 0 0 )
+                                  ( 0 0 0 )
+  averaged over all possible orientations. For perfectly isotropic
+  systems, it should be equal to C[0,0,0,0].
 
-        Poisson's ratio:
-        This is a measure of deformations in directions perpendicular to an
-        applied load and is calculated a using well-known expression in terms 
-        of B and G.
+  Young's modulus, E:
+  This is a measure of tensile stiffness and is calculated a using well-
+  known expression in terms of B and G.
+
+  Poisson's ratio:
+  This is a measure of deformations in directions perpendicular to an
+  applied load and is calculated a using well-known expression in terms 
+  of B and G.
   
   Args:
     C: A previously calculated elastic modulus tensor represented as an 
