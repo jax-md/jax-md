@@ -370,13 +370,21 @@ def test_custom_mask_function(self):
   R = jnp.broadcast_to(jnp.zeros(3), (n_particles,3))
 
   def acceptable_id_pair(id1, id2):
-    # Don't allow particles to have an interaction when their id's are closer than 3 (eg disabling 1-2 and 1-3 interactions)
+    '''
+    Don't allow particles to have an interaction when their id's 
+    are closer than 3 (eg disabling 1-2 and 1-3 interactions)
+    '''
     return jnp.abs(id1-id2)>3
 
-  def mask_id_based(idx: Array, ids: Array, mask_val: int, _acceptable_id_pair: Callable) -> Array:
+  def mask_id_based(
+      idx: Array, 
+      ids: Array, 
+      mask_val: int, 
+      _acceptable_id_pair: Callable
+    ) -> Array:
     '''
     _acceptable_id_pair mapped to act upon the neighbor list where:
-        - index of particle 1 is in index in the first dimension of the array
+        - index of particle 1 is in index in the first dimension of array
         - index of particle 2 is given by the value in the array
     '''
     @partial(vmap, in_axes=(0,0,None))
@@ -392,7 +400,11 @@ def test_custom_mask_function(self):
 
   ids = jnp.arange(n_particles) # id is just particle index here.
   mask_val = n_particles
-  custom_mask_function = partial(mask_id_based, ids=ids, mask_val=mask_val, _acceptable_id_pair=acceptable_id_pair)
+  custom_mask_function = partial(mask_id_based, 
+    ids=ids, 
+    mask_val=mask_val, 
+    _acceptable_id_pair=acceptable_id_pair
+  )
   
   neighbor_list_fn = partition.neighbor_list(
     displacement_fn,
@@ -404,7 +416,10 @@ def test_custom_mask_function(self):
 
   neighbors = neighbor_list_fn.allocate(R)
   neighbors = neighbors.update(R)
-  # Without masking it's 9 neighbors (with mask self) -> 90 neighbors. With masking -> 42.
+  '''
+  Without masking it's 9 neighbors (with mask self) -> 90 neighbors.
+  With masking -> 42.
+  '''
   self.assertEqual(42, (neighbors.idx!=mask_val).sum())
 
 if __name__ == '__main__':
