@@ -193,6 +193,9 @@ def render(box_size,
   frame_count = None
   dimension = None
 
+  if not isinstance(geometry, dict):
+    geometry = { 'all': geometry } 
+  
   for geom in geometry.values():
     if hasattr(geom, 'position'):
       assert dimension is None or geom.position.shape[-1] == dimension
