@@ -774,6 +774,49 @@ class SMapTest(jtu.JaxTestCase):
       nbrs = neighbor_fn.allocate(R)
       self.assertAllClose(mapped_square(R, sigma=sigma),
                           neighbor_square(R, nbrs, sigma=sigma))
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
+                            f'_format={format}'),
+          'spatial_dimension': dim,
+          'dtype': dtype,
+          'format': format
+      } for dim in SPATIAL_DIMENSION
+        for dtype in POSITION_DTYPE
+        for format in NEIGHBOR_LIST_FORMAT))
+  def test_pair_neighbor_list_scalar_params_species_dynamic(
+      self, spatial_dimension, dtype, format):
+    key = random.PRNGKey(0)
+
+    def truncated_square(dr, sigma, **kwargs):
+      return np.where(dr < sigma, dr ** 2, f32(0.))
+
+    N = NEIGHBOR_LIST_PARTICLE_COUNT
+    box_size = 2. * N ** (1. / spatial_dimension)
+    species = np.zeros((N,), np.int32)
+    species = np.where(np.arange(N) > N / 3, 1, species)
+    species = np.where(np.arange(N) > 2 * N / 3, 2, species)
+
+    key, split = random.split(key)
+    disp, _ = space.periodic(box_size)
+    d = space.metric(disp)
+
+    neighbor_square = smap.pair_neighbor_list(truncated_square, d, sigma=1.0)
+    neighbor_square = jit(neighbor_square)
+    mapped_square = smap.pair(truncated_square, d, species=species, sigma=1.0)
+    mapped_square = jit(mapped_square)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = box_size * random.uniform(split, (N, spatial_dimension), dtype=dtype)
+      sigma = random.uniform(key, (3, 3), minval=0.5, maxval=1.5)
+      sigma = 0.5 * (sigma + sigma.T)
+      neighbor_fn = partition.neighbor_list(disp, box_size, np.max(sigma), 0.,
+                                            format=format)
+      nbrs = neighbor_fn.allocate(R)
+      self.assertAllClose(
+        mapped_square(R, sigma=sigma),
+        neighbor_square(R, nbrs, sigma=sigma, species=species))
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
