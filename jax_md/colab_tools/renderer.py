@@ -185,6 +185,8 @@ def render(box_size,
     background_color: An array of shape (3,) specifying the background color of
       the visualization.
     resolution: The resolution of the renderer.
+    frame_rate: An optional integer specifying the target frames-per-second 
+      for the renderer.
   """
   global SIMULATION_IDX
   # INTERNAL_RENDERER_CODE_LOADING
