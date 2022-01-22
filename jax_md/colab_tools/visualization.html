@@ -48,6 +48,8 @@
 
   var CURRENT_FRAME = 0;
   var FRAME_COUNT = 0;
+  var FRAME_RATE = -1;
+  var LAST_FRAME_TIME = Date.now() / 1000.0;
 
   var BOX_SIZE;
   var READ_BUFFER_SIZE = null;
@@ -157,6 +159,9 @@
       CANVAS.width = metadata.resolution[0];
       CANVAS.height = metadata.resolution[1];
     }
+
+    if (metadata.frame_rate)
+      FRAME_RATE = metadata.frame_rate;
 
     const aspect_ratio = CANVAS.width / CANVAS.height;
 
@@ -557,6 +562,13 @@
       window.requestAnimationFrame(update_frame);
       return;
     }
+
+    var cur_time = Date.now() / 1000.0;
+    if (FRAME_RATE > 0 && cur_time - LAST_FRAME_TIME > 1.0 / FRAME_RATE) {
+      window.requestAnimationFrame(update_frame);
+      return;
+    }
+    LAST_FRAME_TIME = cur_time;
 
     if (DIMENSION == 2) {
       var camera_x = SCREEN_POSITION[0];
