@@ -564,7 +564,7 @@
     }
 
     var cur_time = Date.now() / 1000.0;
-    if (FRAME_RATE > 0 && cur_time - LAST_FRAME_TIME > 1.0 / FRAME_RATE) {
+    if (FRAME_RATE > 0 && cur_time - LAST_FRAME_TIME < 1.0 / FRAME_RATE) {
       window.requestAnimationFrame(update_frame);
       return;
     }
