@@ -171,7 +171,8 @@ def render(box_size,
            geometry,
            buffer_size=None,
            background_color=None,
-           resolution=None):
+           resolution=None,
+           frame_rate=None):
   """Creates a rendering front-end along with callbacks in the host program.
 
   Args:
@@ -235,6 +236,9 @@ def render(box_size,
 
     if resolution is not None:
       metadata['resolution'] = resolution
+
+    if frame_rate is not None:
+      metadata['frame_rate'] = frame_rate
 
     return _to_json(metadata)
   output.register_callback('GetSimulationMetadata', get_metadata)
