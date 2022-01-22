@@ -556,19 +556,19 @@
       return;
     }
 
-    GL.clear(GL.COLOR_BUFFER_BIT | GL.DEPTH_BUFFER_BIT);
-
-    if (!IS_LOADED) {
-      window.requestAnimationFrame(update_frame);
-      return;
-    }
-
     var cur_time = Date.now() / 1000.0;
     if (FRAME_RATE > 0 && cur_time - LAST_FRAME_TIME < 1.0 / FRAME_RATE) {
       window.requestAnimationFrame(update_frame);
       return;
     }
     LAST_FRAME_TIME = cur_time;
+
+    GL.clear(GL.COLOR_BUFFER_BIT | GL.DEPTH_BUFFER_BIT);
+
+    if (!IS_LOADED) {
+      window.requestAnimationFrame(update_frame);
+      return;
+    }
 
     if (DIMENSION == 2) {
       var camera_x = SCREEN_POSITION[0];
