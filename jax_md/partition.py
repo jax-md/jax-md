@@ -53,7 +53,7 @@ i64 = util.i64
 Box = space.Box
 DisplacementOrMetricFn = space.DisplacementOrMetricFn
 MetricFn = space.MetricFn
-
+MaskFn = Callable[[Array], Array]
 
 # Cell List
 
@@ -544,7 +544,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                   capacity_multiplier: float = 1.25,
                   disable_cell_list: bool = False,
                   mask_self: bool = True,
-                  custom_mask_function: Optional[Callable[[Array], Array]] = None,
+                  custom_mask_function: Optional[MaskFn] = None,
                   fractional_coordinates: bool = False,
                   format: NeighborListFormat = NeighborListFormat.Dense,
                   **static_kwargs) -> NeighborFn:
@@ -749,7 +749,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
 
       if mask_self:
         idx = mask_self_fn(idx)
-      if custom_mask_function!=None:
+      if custom_mask_function is not None:
         idx = custom_mask_function(idx)
 
       if is_sparse(format):
