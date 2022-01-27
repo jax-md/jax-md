@@ -604,7 +604,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
       debugging but should generally be left as False.
     mask_self: An optional boolean. Determines whether points can consider
       themselves to be their own neighbors.
-    custom_mask_function: An optional function. Takes the neighbor array 
+    custom_mask_function: An optional function. Takes the neighbor array
       and masks selected elements. Note: The input array to the function is
       (n_particles, m) where the index of particle 1 is in index in the first
       dimension of the array, the index of particle 2 is given by the value in
