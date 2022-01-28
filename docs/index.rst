@@ -17,6 +17,7 @@ particular problem.
    jax_md.simulate
    jax_md.nn
    jax_md.quantity
+   jax_md.elasticity
    jax_md.smap
 
 Indices and tables

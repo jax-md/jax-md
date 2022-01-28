@@ -9,7 +9,6 @@
 ![Build Status](https://github.com/google/jax-md/workflows/Build/badge.svg?branch=main) [![Coverage](https://codecov.io/gh/google/jax-md/branch/main/graph/badge.svg?token=JYQpbNyICv)](https://codecov.io/gh/google/jax-md)
  [![PyPI](https://img.shields.io/pypi/v/jax-md)](https://pypi.org/project/jax-md/) [![PyPI - License](https://img.shields.io/pypi/l/jax_md)](https://github.com/google/jax-md/blob/main/LICENSE)
 
-
 Molecular dynamics is a workhorse of modern computational condensed matter
 physics. It is frequently used to simulate materials to observe how small scale
 interactions can give rise to complex large-scale phenomenology. Most molecular
@@ -31,7 +30,9 @@ allow for some interesting experiments that we're excited to explore.
 
 JAX, MD is a research project that is currently under development. Expect
 sharp edges and possibly some API breaking changes as we continue to support
-a broader set of simulations. JAX MD is a functional and data driven library. Data is stored in arrays or tuples of arrays and functions transform data from one state to another.
+a broader set of simulations. JAX MD is a functional and data driven library. 
+Data is stored in arrays or tuples of arrays and functions transform data from 
+one state to another.
 
 ### Getting Started
 
@@ -53,6 +54,8 @@ To get started playing around with JAX MD check out the following colab notebook
 - [Meta Optimization](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/meta_optimization.ipynb)
 - [Swap Monte Carlo (Cargese Summer School)](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/cargese_swap_mc.ipynb)
 - [Implicit Differentiation](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/implicit_differentiation.ipynb)
+- [Athermal Linear Elasticity](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/athermal_linear_elasticity.ipynb)
+- [Smash a Sand Castle](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/sand_castle.ipynb)
 
 You can install JAX MD locally with pip,
 ```
@@ -225,13 +228,14 @@ config.update("jax_enable_x64", True)
 
 JAX MD has been used in the following publications. If you don't see your paper on the list, but you used JAX MD let us know and we'll add it to the list!
 
-1. [Graph Neural Networks Accelerated Molecular Dynamics.](https://arxiv.org/abs/2112.03383)<br> Z. Li, K. Meidani, P. Yadav, and A. B. Farimani
-2. [Gradients are Not All You Need.](https://arxiv.org/abs/2111.05803)<br> L. Metz, C. D. Freeman, S. S. Schoenholz, T. Kachman
-3. [Lagrangian Neural Network with Differential Symmetries and Relational Inductive Bias.](https://arxiv.org/abs/2110.03266)<br> R. Bhattoo, S. Ranu, and N. M. A. Krishnan
-4. [Efficient and Modular Implicit Differentiation.](https://arxiv.org/abs/2105.15183)<br> M. Blondel, Q. Berthet, M. Cuturi, R. Frostig, S. Hoyer, F. Llinares-López, F. Pedregosa, and J.-P. Vert
-5. [Learning neural network potentials from experimental data via Differentiable Trajectory Reweighting.](https://arxiv.org/abs/2106.01138)<br> S. Thaler and J. Zavadlav
-6. [Learn2Hop: Learned Optimization on Rough Landscapes. (ICML 2021)](http://proceedings.mlr.press/v139/merchant21a.html)<br> A. Merchant, L. Metz, S. S. Schoenholz, and E. D. Cubuk
-7. [Designing self-assembling kinetics with differentiable statistical physics models. (PNAS 2021)](https://www.pnas.org/content/118/10/e2024083118.short)<br> C. P. Goodrich, E. M. King, S. S. Schoenholz, E. D. Cubuk, and  M. P. Brenner
+1. [Optimal Control of Nonequilibrium Systems Through Automatic Differentiation.](https://arxiv.org/abs/2201.00098)<br> M. C. Engel, J. A. Smith, and M. P. Brenner
+2. [Graph Neural Networks Accelerated Molecular Dynamics.](https://arxiv.org/abs/2112.03383)<br> Z. Li, K. Meidani, P. Yadav, and A. B. Farimani
+3. [Gradients are Not All You Need.](https://arxiv.org/abs/2111.05803)<br> L. Metz, C. D. Freeman, S. S. Schoenholz, T. Kachman
+4. [Lagrangian Neural Network with Differential Symmetries and Relational Inductive Bias.](https://arxiv.org/abs/2110.03266)<br> R. Bhattoo, S. Ranu, and N. M. A. Krishnan
+5. [Efficient and Modular Implicit Differentiation.](https://arxiv.org/abs/2105.15183)<br> M. Blondel, Q. Berthet, M. Cuturi, R. Frostig, S. Hoyer, F. Llinares-López, F. Pedregosa, and J.-P. Vert
+6. [Learning neural network potentials from experimental data via Differentiable Trajectory Reweighting.<br>(Nature Communications 2021)](https://www.nature.com/articles/s41467-021-27241-4)<br> S. Thaler and J. Zavadlav
+7. [Learn2Hop: Learned Optimization on Rough Landscapes. (ICML 2021)](http://proceedings.mlr.press/v139/merchant21a.html)<br> A. Merchant, L. Metz, S. S. Schoenholz, and E. D. Cubuk
+8. [Designing self-assembling kinetics with differentiable statistical physics models. (PNAS 2021)](https://www.pnas.org/content/118/10/e2024083118.short)<br> C. P. Goodrich, E. M. King, S. S. Schoenholz, E. D. Cubuk, and  M. P. Brenner
 
 # Citation
 

@@ -14,6 +14,8 @@
 
 """Defines testing utility functions."""
 
+import netCDF4 as nc
+
 import jax.test_util as jtu
 import jax.numpy as jnp
 import numpy as onp
@@ -52,6 +54,42 @@ def load_silica_data() -> jnp.ndarray:
   except FileNotFoundError:
     filename = '/google3/third_party/py/jax_md/tests/data/silica_positions.npy'
     return _load_silica_data(filename)
+
+def _load_elasticity_test_data(fn, spatial_dimension, dtype, index):
+  ds = nc.Dataset(fn)
+  cijkl = jnp.array(ds.variables['Cijkl'][index], dtype=dtype)
+  R = jnp.array(ds.variables['pos'][index], dtype=dtype)
+  R = jnp.reshape(R, (R.shape[0]//spatial_dimension,spatial_dimension))
+  sigma = 2. * jnp.array(ds.variables['rad'][index], dtype=dtype)
+  box = jnp.array(ds.variables['box'][index], dtype=dtype)
+  box = jnp.reshape(box, (spatial_dimension,spatial_dimension))
+  return cijkl, R, sigma, box
+
+def load_elasticity_test_data(spatial_dimension, low_pressure, dtype, index):
+  try:
+    if low_pressure:
+      if spatial_dimension == 2:
+        fn = 'tests/data/2d_polyuniform_N64_Lp-4.0.nc'
+      else:
+        fn = 'tests/data/3d_bi_N128_Lp-4.0.nc'
+    else:
+      if spatial_dimension == 2:
+        fn = 'tests/data/2d_polyuniform_N64_Lp-1.0.nc'
+      else:
+        fn = 'tests/data/3d_bi_N128_Lp-1.0.nc'
+    return _load_elasticity_test_data(fn, spatial_dimension, dtype, index)
+  except FileNotFoundError:
+    if low_pressure:
+      if spatial_dimension == 2:
+        fn = '/google3/third_party/py/jax_md/tests/data/2d_polyuniform_N64_Lp-4.0.nc'
+      else:
+        fn = '/google3/third_party/py/jax_md/tests/data/3d_bi_N128_Lp-4.0.nc'
+    else:
+      if spatial_dimension == 2:
+        fn = '/google3/third_party/py/jax_md/tests/data/2d_polyuniform_N64_Lp-1.0.nc'
+      else:
+        fn = '/google3/third_party/py/jax_md/tests/data/3d_bi_N128_Lp-1.0.nc'
+    return _load_elasticity_test_data(fn, spatial_dimension, dtype, index)
 
 
 @dataclasses.dataclass

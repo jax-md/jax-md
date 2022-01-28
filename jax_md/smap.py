@@ -481,7 +481,7 @@ def _vectorized_cond(pred: Array,
 
 def pair_neighbor_list(fn: Callable[..., Array],
                        displacement_or_metric: DisplacementOrMetricFn,
-                       species: Union[Array, int]=None,
+                       species: Optional[Array]=None,
                        reduce_axis: Optional[Tuple[int, ...]]=None,
                        ignore_unused_parameters: bool=False,
                        **kwargs) -> Callable[..., Array]:
@@ -499,11 +499,9 @@ def pair_neighbor_list(fn: Callable[..., Array],
       third argument.
     species: Species information for the different particles. Should either
       be None (in which case it is assumed that all the particles have the same
-      species), an integer array of shape [n] with species data, or an integer
-      in which case the species data will be specified dynamically in the
-      mapped function with at most `species` types of particles. Note: that
-      dynamic species specification is less efficient, because we cannot
-      specialize shape information.
+      species), an integer array of shape [n] with species data. Note that
+      species data can be specified dynamically by passing a `species` keyword
+      argument to the mapped function.
     reduce_axis: A list of axes to reduce over. We use a convention where axis
       0 corresponds to the particles, axis 1 corresponds to neighbors, and the
       remaining axes correspond to the output axes of `fn`. Note that it is not
@@ -535,6 +533,8 @@ def pair_neighbor_list(fn: Callable[..., Array],
   def fn_mapped(R: Array, neighbor: partition.NeighborList, **dynamic_kwargs
                 ) -> Array:
     d = partial(displacement_or_metric, **dynamic_kwargs)
+    _species = dynamic_kwargs.get('species', species)
+
     normalization = 2.0
 
     if partition.is_sparse(neighbor.format):
@@ -552,7 +552,7 @@ def pair_neighbor_list(fn: Callable[..., Array],
     merged_kwargs = merge_dicts(kwargs, dynamic_kwargs)
     merged_kwargs = _neighborhood_kwargs_to_params(neighbor.format,
                                                    neighbor.idx,
-                                                   species,
+                                                   _species,
                                                    merged_kwargs,
                                                    param_combinators)
     out = fn(dR, **merged_kwargs)
