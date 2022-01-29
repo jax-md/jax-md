@@ -53,7 +53,7 @@ i64 = util.i64
 Box = space.Box
 DisplacementOrMetricFn = space.DisplacementOrMetricFn
 MetricFn = space.MetricFn
-
+MaskFn = Callable[[Array], Array]
 
 # Cell List
 
@@ -544,6 +544,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                   capacity_multiplier: float = 1.25,
                   disable_cell_list: bool = False,
                   mask_self: bool = True,
+                  custom_mask_function: Optional[MaskFn] = None,
                   fractional_coordinates: bool = False,
                   format: NeighborListFormat = NeighborListFormat.Dense,
                   **static_kwargs) -> NeighborFn:
@@ -603,6 +604,11 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
       debugging but should generally be left as False.
     mask_self: An optional boolean. Determines whether points can consider
       themselves to be their own neighbors.
+    custom_mask_function: An optional function. Takes the neighbor array
+      and masks selected elements. Note: The input array to the function is
+      (n_particles, m) where the index of particle 1 is in index in the first
+      dimension of the array, the index of particle 2 is given by the value in
+      the array
     fractional_coordinates: An optional boolean. Specifies whether positions
       will be supplied in fractional coordinates in the unit cube, [0, 1]^d.
       If this is set to True then the box_size will be set to 1.0 and the
@@ -743,6 +749,8 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
 
       if mask_self:
         idx = mask_self_fn(idx)
+      if custom_mask_function is not None:
+        idx = custom_mask_function(idx)
 
       if is_sparse(format):
         idx, occupancy = prune_neighbor_list_sparse(position, idx, **kwargs)
