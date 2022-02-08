@@ -24,7 +24,6 @@ from jax import vmap
 from jax import random
 from jax import test_util as jtu
 from jax import lax
-from jax import ops
 
 from jax.config import config as jax_config
 import jax.numpy as np
@@ -128,7 +127,7 @@ class SimulateTest(jtu.JaxTestCase):
     def step_fn(i, state_and_energy):
       state, energy = state_and_energy
       state = apply_fn(state)
-      energy = ops.index_update(energy, i, E_T(state))
+      energy = energy.at[i].set(E_T(state))
       return state, energy
 
     Es = np.zeros((DYNAMICS_STEPS,))
@@ -164,7 +163,7 @@ class SimulateTest(jtu.JaxTestCase):
     def step_fn(i, state_and_energy):
       state, energy = state_and_energy
       state = apply_fn(state)
-      energy = ops.index_update(energy, i, E_T(state))
+      energy = energy.at[i].set(E_T(state))
       return state, energy
 
     Es = np.zeros((DYNAMICS_STEPS,))
@@ -201,7 +200,7 @@ class SimulateTest(jtu.JaxTestCase):
     def step_fn(i, state_and_energy):
       state, energy = state_and_energy
       state = apply_fn(state)
-      energy = ops.index_update(energy, i, E_T(state))
+      energy = energy.at[i].set(E_T(state))
       return state, energy
 
     Es = np.zeros((DYNAMICS_STEPS,))
@@ -342,7 +341,7 @@ class SimulateTest(jtu.JaxTestCase):
     def step_fn(i, state_and_energy):
       state, energy = state_and_energy
       state = apply_fn(state)
-      energy = ops.index_update(energy, i, invariant(state, kT))
+      energy = energy.at[i].set(invariant(state, kT))
       return state, energy
 
     Es = np.zeros((DYNAMICS_STEPS,))
@@ -384,11 +383,11 @@ class SimulateTest(jtu.JaxTestCase):
     def step_fn(i, state_energy_pressure):
       state, energy, pressure = state_energy_pressure
       state = apply_fn(state)
-      energy = ops.index_update(energy, i, invariant(state, P, kT))
+      energy = energy.at[i].set(invariant(state, P, kT))
       box = simulate.npt_box(state)
       KE = quantity.kinetic_energy(state.velocity, state.mass)
       p = pressure_fn(state.position, box, KE)
-      pressure = ops.index_update(pressure, i, p)
+      pressure = pressure.at[i].set(p)
       return state, energy, pressure
 
     Es = np.zeros((DYNAMICS_STEPS,))

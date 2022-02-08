@@ -14,6 +14,8 @@
 
 """Tests for google3.third_party.py.jax_md.mapping."""
 
+from typing import Callable
+
 from absl.testing import absltest
 from absl.testing import parameterized
 
@@ -23,7 +25,6 @@ from jax.config import config as jax_config
 
 from jax import random
 import jax.numpy as np
-from jax import ops
 
 from jax import grad
 
@@ -84,7 +85,7 @@ class CellListTest(jtu.JaxTestCase):
     R_flat = np.reshape(cell_list.position_buffer, (-1, 2))
 
     R_out = np.zeros((5, 2), dtype)
-    R_out = ops.index_update(R_out, id_flat, R_flat)[:-1]
+    R_out = R_out.at[id_flat].set(R_flat)[:-1]
     self.assertAllClose(R_out, R)
 
   @parameterized.named_parameters(jtu.cases_from_list(
@@ -107,7 +108,7 @@ class CellListTest(jtu.JaxTestCase):
     id_flat = np.reshape(cell_list.id_buffer, (-1,))
     R_flat = np.reshape(cell_list.position_buffer, (-1, dim))
     R_out = np.zeros((PARTICLE_COUNT + 1, dim))
-    R_out = ops.index_update(R_out, id_flat, R_flat)[:-1]
+    R_out = R_out.at[id_flat].set(R_flat)[:-1]
 
     self.assertAllClose(R_out, R)
 
@@ -131,7 +132,7 @@ class CellListTest(jtu.JaxTestCase):
     id_flat = np.reshape(cell_list.id_buffer, (-1,))
     R_flat = np.reshape(cell_list.position_buffer, (-1, dim))
     R_out = np.zeros((PARTICLE_COUNT + 1, dim))
-    R_out = ops.index_update(R_out, id_flat, R_flat)[:-1]
+    R_out = R_out.at[id_flat].set(R_flat)[:-1]
     self.assertAllClose(R_out, R)
 
   @parameterized.named_parameters(jtu.cases_from_list(
@@ -149,7 +150,8 @@ class CellListTest(jtu.JaxTestCase):
 
     R = box_size * random.uniform(key, (PARTICLE_COUNT, dim), dtype=dtype)
     side_data_dim = 2
-    side_data = random.normal(key, (PARTICLE_COUNT, side_data_dim), dtype=dtype)
+    side_data = random.normal(key, (PARTICLE_COUNT, side_data_dim),
+                              dtype=dtype)
 
     cell_fn = partition.cell_list(box_size, cell_size)
     cell_list = cell_fn.allocate(R, side_data=side_data)
@@ -157,14 +159,13 @@ class CellListTest(jtu.JaxTestCase):
     id_flat = np.reshape(cell_list.id_buffer, (-1,))
     R_flat = np.reshape(cell_list.position_buffer, (-1, dim))
     R_out = np.zeros((PARTICLE_COUNT + 1, dim), dtype)
-    R_out = ops.index_update(R_out, id_flat, R_flat)[:-1]
+    R_out = R_out.at[id_flat].set(R_flat)[:-1]
 
     side_data_flat = np.reshape(
       cell_list.kwarg_buffers['side_data'], (-1, side_data_dim))
     side_data_out = np.zeros(
       (PARTICLE_COUNT + 1, side_data_dim), dtype)
-    side_data_out = ops.index_update(
-      side_data_out, id_flat, side_data_flat)[:-1]
+    side_data_out = side_data_out.at[id_flat].set(side_data_flat)[:-1]
 
     self.assertAllClose(R_out, R)
     self.assertAllClose(side_data_out, side_data)
@@ -380,9 +381,9 @@ class NeighborListTest(jtu.JaxTestCase):
       return jnp.abs(id1-id2)>3
 
     def mask_id_based(
-        idx: Array, 
-        ids: Array, 
-        mask_val: int, 
+        idx: Array,
+        ids: Array,
+        mask_val: int,
         _acceptable_id_pair: Callable
       ) -> Array:
       '''

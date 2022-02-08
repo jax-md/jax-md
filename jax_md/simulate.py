@@ -35,7 +35,6 @@ from collections import namedtuple
 from typing import Callable, TypeVar, Union, Tuple, Dict, Optional
 
 from jax import grad
-from jax import ops
 from jax import random
 import jax.numpy as jnp
 from jax import lax
@@ -291,7 +290,7 @@ def nose_hoover_chain(dt: float,
     v_xi = jnp.zeros(chain_length, KE.dtype)
 
     Q = kT * tau ** f32(2) * jnp.ones(chain_length, dtype=f32)
-    Q = ops.index_update(Q, 0, Q[0] * degrees_of_freedom)
+    Q = Q.at[0].multiply(degrees_of_freedom)
     return NoseHooverChain(xi, v_xi, Q, tau, KE, degrees_of_freedom)  # pytype: disable=wrong-arg-count
 
   def substep_fn(delta, V, state, kT):
@@ -306,7 +305,7 @@ def nose_hoover_chain(dt: float,
     M = chain_length - 1
 
     G = (v_xi[M - 1] ** f32(2) * Q[M - 1] - kT) / Q[M]
-    v_xi = ops.index_add(v_xi, M, delta_4 * G)
+    v_xi = v_xi.at[M].add(delta_4 * G)
 
     def backward_loop_fn(v_xi_new, m):
       G = (v_xi[m - 1] ** 2 * Q[m - 1] - kT) / Q[m]
@@ -315,11 +314,11 @@ def nose_hoover_chain(dt: float,
       return v_xi_new, v_xi_new
     idx = jnp.arange(M - 1, 0, -1)
     _, v_xi_update = lax.scan(backward_loop_fn, v_xi[M], idx, unroll=2)
-    v_xi = ops.index_update(v_xi, idx, v_xi_update)
+    v_xi = v_xi.at[idx].set(v_xi_update)
 
     G = (f32(2.0) * KE - DOF * kT) / Q[0]
     scale = jnp.exp(-delta_8 * v_xi[1])
-    v_xi = ops.index_update(v_xi, 0, scale * (scale * v_xi[0] + delta_4 * G))
+    v_xi = v_xi.at[0].set(scale * (scale * v_xi[0] + delta_4 * G))
 
     scale = jnp.exp(-delta_2 * v_xi[0])
     KE = KE * scale ** f32(2)
@@ -335,8 +334,8 @@ def nose_hoover_chain(dt: float,
       return G, v_xi_update
     idx = jnp.arange(M)
     G, v_xi_update = lax.scan(forward_loop_fn, G, idx, unroll=2)
-    v_xi = ops.index_update(v_xi, idx, v_xi_update)
-    v_xi = ops.index_add(v_xi, M, delta_4 * G)
+    v_xi = v_xi.at[idx].set(v_xi_update)
+    v_xi = v_xi.at[M].add(delta_4 * G)
 
     return V, NoseHooverChain(xi, v_xi, Q, _tau, KE, DOF), kT  # pytype: disable=wrong-arg-count
 
@@ -359,7 +358,7 @@ def nose_hoover_chain(dt: float,
     xi, v_xi, Q, _tau, KE, DOF = dataclasses.astuple(state)
 
     Q = kT * _tau ** f32(2) * jnp.ones(chain_length, dtype=f32)
-    Q = ops.index_update(Q, 0, Q[0] * DOF)
+    Q = Q.at[0].multiply(DOF)
 
     return NoseHooverChain(xi, v_xi, Q, _tau, KE, DOF)  # pytype: disable=wrong-arg-count
 
