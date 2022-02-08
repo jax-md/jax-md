@@ -68,8 +68,6 @@ def gradient_descent(energy_or_force: Callable[..., Array],
       shift_fn: A function that displaces positions, R, by an amount dR. Both R
         and dR should be ndarrays of shape [n, spatial_dimension].
       step_size: A floating point specifying the size of each step.
-      quant: Either a quantity.Energy or a quantity.Force specifying whether
-        energy_or_force is an energy or force respectively.
 
     Returns:
       See above.
