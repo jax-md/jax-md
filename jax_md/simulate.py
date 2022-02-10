@@ -1007,7 +1007,7 @@ def brownian(energy_or_force: Callable[..., Array],
 
       dR = F * dt * nu + jnp.sqrt(f32(2) * _kT * dt * nu) * xi
       R = shift(R, dR, **kwargs)
-      _sigma = update_sigma_fn(_sigma)
+      _sigma = update_sigma_fn(_sigma, **kwargs)
       return BrownianState(R, key)  # pytype: disable=wrong-arg-count
     
   else:
