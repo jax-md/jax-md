@@ -174,6 +174,32 @@ class EnergyTest(jtu.JaxTestCase):
       self.assertAllClose(E(R), E_exact)
 
 
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION
+    for dtype in POSITION_DTYPE))
+  def test_cossquared_bondtriple(self, spatial_dimension, dtype):
+    key = random.PRNGKey(0)
+    disp, _ = space.free()
+    if spatial_dimension == 2:
+      R = np.array([[-1., 0.], [0., 0.], [1., 1.]], dtype=dtype)
+      costheta = np.cos(np.pi/dtype(4.))
+    elif spatial_dimension == 3:
+      R = np.array([[-1., 0., 0.], [0., 0., 0.], [1., 1., 0.]], dtype=dtype)
+      costheta = np.cos(np.pi/dtype(4.))
+    triples = np.array([[0, 1, 2]], np.int32)
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, e_key, c0_key = random.split(key, 3)
+      epsilon = random.uniform(e_key, (), minval=0.1, maxval=3.0, dtype=f32)
+      costheta0 = random.uniform(c0_key, (), minval=-1, maxval=1., dtype=f32)
+      E = energy.cos_squared_bond_triple(disp, triples, epsilon=epsilon, costheta0=costheta0)
+      E_exact = dtype( (epsilon / 2.) * (costheta - costheta0) ** 2)
+      self.assertAllClose(E(R), E_exact)
+
+
   # pylint: disable=g-complex-comprehension
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -396,6 +422,28 @@ class EnergyTest(jtu.JaxTestCase):
         energy.lennard_jones(r_small, sigma, epsilon))
       self.assertAllClose(
         E(r_large, sigma, epsilon), np.zeros_like(r_large, dtype=dtype))
+
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION
+    for dtype in POSITION_DTYPE))
+  def test_angular_function(self, spatial_dimension, dtype):
+    key = random.PRNGKey(0)
+    def calc_costheta(dR1, dR2):
+      return np.dot(dR1,dR2) / (np.linalg.norm(dR1) * np.linalg.norm(dR2))
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = random.uniform(split, (3,spatial_dimension), minval=0.0, maxval=10.0, dtype=dtype)
+
+      E = energy.angular_function(energy.cos_squared)
+      dR = R[1:]-R[:-1]
+      self.assertAllClose(E(np.array([dR[0]]),np.array([dR[1]]))[0], energy.cos_squared(calc_costheta(dR[0],dR[1])))
+
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
