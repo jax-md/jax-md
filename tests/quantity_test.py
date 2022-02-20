@@ -401,7 +401,7 @@ class QuantityTest(jtu.JaxTestCase):
 
     ad_stress = quantity.stress(energy_fn, R, box, velocity=V)
 
-    tol = 5e-5 
+    tol = 5e-5
 
     self.assertAllClose(energy_fn(R) / len(R), E, atol=tol, rtol=tol)
     self.assertAllClose(C, ad_stress, atol=tol, rtol=tol)

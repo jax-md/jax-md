@@ -14,15 +14,15 @@
 
 """Code to calculate the elastic modulus tensor for athermal systems.
 
-  The elastic modulus tensor describes a material's response to different 
-  boundary deformations. Specifically, for a small deformation given by a 
+  The elastic modulus tensor describes a material's response to different
+  boundary deformations. Specifically, for a small deformation given by a
   symmetric strain tensor e, the change in energy is
     U / V^0 = U^0/V^0 + s^0_{ij} e_{ji} + (1/2) C_{ijkl} e_{ij} e_{kl} + ...
   where V^0 is the volume, U^0 is the initial energy, s^0 is the residual stress
   tensor of the undeformed system, and C is the elastic modulus tensor. C is
   a fourth-rank tensor of shape (dimension,dimension,dimension,dimension), with
   the following symmetries.
-  
+
     Minor symmetries:
       C_ijkl = C_jikl = C_ijlk
 
@@ -39,8 +39,8 @@
   orthotropic, etc.) can be expressed with fewer constants, we do not assume any
   such additional symmetries.
 
-  At zero temperature, the response of every particle to a deformation can be 
-  calculated explicitly to linear order, enabling the exact calculation of 
+  At zero temperature, the response of every particle to a deformation can be
+  calculated explicitly to linear order, enabling the exact calculation of
   the elastic modulus tensor without the need of any finite differences or any
   approximations.
 
@@ -112,7 +112,7 @@ def _convert_responses_to_elastic_constants(response_all: Array) -> Array:
          [[[cxxxy, cxyxy], [cxyxy, cyyxy]],
           [[cxxyy, cyyxy], [cyyxy, cyyyy]]]])
 
-  elif response_all.shape[0] == 21: 
+  elif response_all.shape[0] == 21:
     cxxxx = response_all[0];
     cyyyy = response_all[1];
     czzzz = response_all[2];
@@ -167,9 +167,9 @@ def _convert_responses_to_elastic_constants(response_all: Array) -> Array:
     raise AssertionError('response_all has incorrect shape')
   return C
 
-def athermal_moduli(energy_fn: Callable[..., Array], 
+def athermal_moduli(energy_fn: Callable[..., Array],
                     tether_strength: float=1e-10,
-                    gradient_check: Array=None, 
+                    gradient_check: Array=None,
                     cg_tol: float=1e-7,
                     check_convergence: bool=False
                     ) -> Callable[..., Array]:
@@ -179,18 +179,18 @@ def athermal_moduli(energy_fn: Callable[..., Array],
     energy_fn: A function that computes the energy of the system. This
       function must take as an argument `perturbation` which perturbes the
       box shape. Any energy function constructed using `smap` or in `energy.py`
-      with a standard space will satisfy this property. 
-    tether_strength: scalar. Strength of the "tether" applied to each particle, 
+      with a standard space will satisfy this property.
+    tether_strength: scalar. Strength of the "tether" applied to each particle,
       which can be necessary to make the Hessian matrix non-singular. Solving
       for the non-affine response of each particle requires that the Hessian is
       positive definite. However, there can often be zero modes (eigenvectors of
-      the Hessian with zero eigenvalue) that do not couple to the boundary, and 
+      the Hessian with zero eigenvalue) that do not couple to the boundary, and
       therefore do not affect the elastic constants despite the zero eigenvalue.
       The most common example is the global translational modes. To solve for
       the non-affine response, we consider the "tethered Hessian"
-        H + tether_strength * I, 
+        H + tether_strength * I,
       where I is the identity matrix and tether_strength is a small constant.
-    gradient_check: None or scalar. If not None, a check will be performed 
+    gradient_check: None or scalar. If not None, a check will be performed
       to guarantee that the maximum component of the gradient is less than
       gradient_check. In other words, that
         jnp.amax(jnp.abs(grad(energy_fn)(R, box=box))) < gradient_check == True
@@ -203,18 +203,18 @@ def athermal_moduli(energy_fn: Callable[..., Array],
       flag specifiying if the cg solve routine converged to the desired
       tolorance. The default is False, but convergence checking is highly
       recommended especially when using 32-bit precision data.
-  
+
   Return: A function to calculate the elastic modulus tensor
 
   """
 
   def calculate_emt(R: Array,
-                    box: Array, 
+                    box: Array,
                     **kwargs) -> Array:
     """Calculate the elastic modulus tensor.
 
     energy_fn(R) corresponds to the state around which we are expanding
-      
+
     Args:
       R: array of shape (N,dimension) of particle positions. This does not
         generalize to arbitrary dimensions and is only implemented for
@@ -222,10 +222,10 @@ def athermal_moduli(energy_fn: Callable[..., Array],
           dimension == 3
       box: A box specifying the shape of the simulation volume. Used to infer
         the volume of the unit cell.
-    
+
     Return: C or the tuple (C,converged)
       where C is the Elastic modulus tensor as an array of shape (dimension,
-      dimension,dimension,dimension) that respects the major and minor 
+      dimension,dimension,dimension) that respects the major and minor
       symmetries, and converged is a boolean flag (see above).
 
     """
@@ -245,7 +245,7 @@ def athermal_moduli(energy_fn: Callable[..., Array],
         perturbation = I + gamma * strain_tensor
         return energy_fn(R, perturbation=perturbation, **kwargs)
       return energy_fn_general
-    
+
     def get_affine_response(strain_tensor):
       energy_fn_general = setup_energy_fn_general(strain_tensor)
       d2U_dRdgamma = jacfwd(jacrev(energy_fn_general,argnums=0),argnums=1)(R,0.)
@@ -261,17 +261,17 @@ def athermal_moduli(energy_fn: Callable[..., Array],
       return jvp(grad(f), primals, tangents)[1]
     def hvp_specific_with_tether(v):
       return hvp(energy_fn_Ronly, (R,), (v,)) + tether_strength * v
-    
+
     non_affine_response_all = jsp.sparse.linalg.cg(
-        vmap(hvp_specific_with_tether), 
-        d2U_dRdgamma_all, 
+        vmap(hvp_specific_with_tether),
+        d2U_dRdgamma_all,
         tol=cg_tol
         )[0]
     #The above line should be functionally equivalent to:
-    #H0=hessian(energy_fn)(R, box=box, **kwargs).reshape(R.size,R.size) \
+    #H0=hessian(energy_fn)(R, box=box, **kwargs).reshape(R.size,R.size)
     #    + tether_strength * jnp.identity(R.size)
     #non_affine_response_all = jnp.transpose(jnp.linalg.solve(
-    #   H0, 
+    #   H0,
     #   jnp.transpose(d2U_dRdgamma_all))
     #   )
 
@@ -280,26 +280,26 @@ def athermal_moduli(energy_fn: Callable[..., Array],
       )
     converged = residual / jnp.linalg.norm(d2U_dRdgamma_all) < cg_tol
 
-    response_all = d2U_dgamma2_all - jnp.einsum("nij,nij->n", 
-                                                d2U_dRdgamma_all, 
+    response_all = d2U_dgamma2_all - jnp.einsum("nij,nij->n",
+                                                d2U_dRdgamma_all,
                                                 non_affine_response_all)
 
     vol_0 = quantity.volume(dim, box)
     response_all = response_all / vol_0
     C = _convert_responses_to_elastic_constants(response_all)
-    
-    # JAX does not allow proper runtime error handling in jitted function. 
+
+    # JAX does not allow proper runtime error handling in jitted function.
     # Instead, if the user requests a gradient check and the check fails,
     # we convert C into jnp.nan's. While this doesn't raise an exception,
-    # it at least is very "loud". 
+    # it at least is very "loud".
     if gradient_check is not None:
       maxgrad = jnp.amax(jnp.abs(grad(energy_fn)(R, **kwargs)))
-      C = lax.cond(maxgrad > gradient_check, 
-                   lambda _: jnp.nan * C, 
-                   lambda _: C, 
+      C = lax.cond(maxgrad > gradient_check,
+                   lambda _: jnp.nan * C,
+                   lambda _: C,
                    None)
-    
-    if check_convergence: 
+
+    if check_convergence:
       return C, converged
     else:
       return C
@@ -325,7 +325,7 @@ def tensor_to_mandel(T: Array) -> Array:
   Mandel notation is a way to represent symmetric second-rank tensors and
   fourth-rank tensors with minor symmetries in a reduced form. Pairs of indices
   are combined as follows:
-      
+
       For tensors of shape (2,2) or (2,2,2,2):
       tensor indices        Mandel indices
       0,0 -------------->   0
@@ -340,16 +340,16 @@ def tensor_to_mandel(T: Array) -> Array:
       1,2 or 2,1 ------->   3
       0,2 or 2,0 ------->   4
       0,1 or 1,0 ------->   5
-  
-  If mandel_index(i,j) performs the above index mapping, then the input T and 
+
+  If mandel_index(i,j) performs the above index mapping, then the input T and
   output M satisfy
     M[mandel_index(i,j)] = T[i,j] * w
   or
     M[mandel_index(i,j), mandel_index(k,l)] = T[i,j,k,l] * w(i,j) * w(k,l)
   where
     w(i,j) = 1       if i==j
-           = sqrt(2) if i!=j 
-  is a weight that is used to ensure proper contraction rules. Here (and only 
+           = sqrt(2) if i!=j
+  is a weight that is used to ensure proper contraction rules. Here (and only
   here) we do not assume major symmetries in fourth-rank tensors.
 
   Args:
@@ -364,7 +364,7 @@ def tensor_to_mandel(T: Array) -> Array:
       4. T.shape == (3,3,3,3)
          Convert a tensor of shape (3,3,3,3) with minor symmetries to an array
          of shape (6,6)
-  
+
   Output: Array of shape (3,), (6,), (3,3), or (6,6)
 
   see: https://sbrisard.github.io/janus/mandel.html (accessed 21 April, 2021)
@@ -372,13 +372,13 @@ def tensor_to_mandel(T: Array) -> Array:
   dim = T.shape[0]
   if not (dim ==2 or dim == 3):
     raise AssertionError('dim must be 2 or 3')
-  
+
   rank = len(T.shape)
   if not (rank == 2 or rank == 4):
     raise AssertionError('T must have rank 2 or 4')
-  
+
   m_map, weight = _get_mandel_mapping_weight(dim, T.dtype)
-  
+
   if rank == 2:
     extract = lambda idx, w: T[idx[0], idx[1]] * w
     M = vmap(extract, in_axes=(0,0))(m_map, weight)
@@ -387,8 +387,8 @@ def tensor_to_mandel(T: Array) -> Array:
         idx0[0], idx0[1], idx1[0], idx1[1]
         ] * w0 * w1
     M = vmap(
-          vmap(extract, 
-            in_axes=(0,None,0,None)), 
+          vmap(extract,
+            in_axes=(0,None,0,None)),
           in_axes=(None,0,None,0))(m_map, m_map, weight, weight)
   return M
 
@@ -397,21 +397,21 @@ def mandel_to_tensor(M: Array) -> Array:
 
   Args:
     M: Array of shape (3,), (6,), (3,3), or (6,6)
-  
+
   Output: Array of shape (2,2), (3,3), (2,2,2,2), or (3,3,3,3)
   """
   mandel_dim = M.shape[0]
   if not (mandel_dim == 3 or mandel_dim == 6):
     raise AssertionError('M.shape[0] must be 3 or 6')
-  
+
   rank = len(M.shape)
   if not (rank == 1 or rank == 2):
     raise AssertionError('T must have rank 1 or 2')
 
   def mandel_index(i, j):
-    return lax.cond(i==j, 
-                    lambda ij: ij[0], 
-                    lambda ij: mandel_dim-ij[0]-ij[1], 
+    return lax.cond(i==j,
+                    lambda ij: ij[0],
+                    lambda ij: mandel_dim-ij[0]-ij[1],
                     (i,j))
 
   if mandel_dim == 3:
@@ -427,8 +427,8 @@ def mandel_to_tensor(M: Array) -> Array:
       idx = mandel_index(i, j)
       return M[idx] / weight[idx]
     T = vmap(
-          vmap(extract, 
-            in_axes=(0,None)), 
+          vmap(extract,
+            in_axes=(0,None)),
           in_axes=(None,0))(tensor_range, tensor_range)
   else:
     def extract(i, j, k, l):
@@ -438,13 +438,13 @@ def mandel_to_tensor(M: Array) -> Array:
     T = vmap(
           vmap(
             vmap(
-              vmap(extract, 
-                in_axes=(0,None,None,None)), 
-              in_axes=(None,0,None,None)), 
-            in_axes=(None,None,0,None)), 
-          in_axes=(None,None,None,0))(tensor_range, 
-                                      tensor_range, 
-                                      tensor_range, 
+              vmap(extract,
+                in_axes=(0,None,None,None)),
+              in_axes=(None,0,None,None)),
+            in_axes=(None,None,0,None)),
+          in_axes=(None,None,None,0))(tensor_range,
+                                      tensor_range,
+                                      tensor_range,
                                       tensor_range)
   return T
 
@@ -457,7 +457,7 @@ def _extract_elements(C, as_dict):
                 [0, 1, 1, 0, 0, 1],
                 [0, 1, 0, 1, 0, 1],
                 [0, 1, 1, 1, 1, 1])
-    clist = C[ indices ] 
+    clist = C[ indices ]
     if as_dict:
       names = ['cxxxx','cyyyy','cxyxy','cxxyy','cxxxy','cyyxy']
       return dict(zip(names, clist))
@@ -469,7 +469,7 @@ def _extract_elements(C, as_dict):
                 [0, 1, 2, 2, 2, 1, 1, 0, 0, 0, 0, 0, 1, 2, 1, 2, 2, 1, 2, 1, 1],
                 [0, 1, 2, 1, 0, 0, 2, 2, 1, 1, 0, 0, 1, 1, 1, 2, 2, 2, 1, 1, 0],
                 [0, 1, 2, 2, 2, 1, 2, 2, 1, 2, 2, 1, 2, 1, 1, 2, 2, 2, 2, 2, 2])
-    clist = C[ indices ] 
+    clist = C[ indices ]
     if as_dict:
       names = ['cxxxx','cyyyy','czzzz','cyzyz','cxzxz','cxyxy','cyyzz','cxxzz',
                'cxxyy','cxxyz','cxxxz','cxxxy','cyyyz','cyyxz','cyyxy','czzyz',
@@ -482,7 +482,7 @@ def _extract_elements(C, as_dict):
 
 def extract_elements(C: Array) -> Dict:
   """ Convert an elastic modulus tensor into a list of unique elements.
-      
+
       In 2d, these are:
       cxxxx,cyyyy,cxyxy,cxxyy,cxxxy,cyyxy
 
@@ -491,19 +491,19 @@ def extract_elements(C: Array) -> Dict:
       cyyyz,cyyxz,cyyxy,czzyz,czzxz,czzxy,cyzxz,cyzxy,cxzxy
 
   Args:
-    C: A previously calculated elastic modulus tensor represented as an 
+    C: A previously calculated elastic modulus tensor represented as an
       array of shape (spatial_dimension,spatial_dimension,spatial_dimension,
-      spatial_dimension), where spatial_dimension is either 2 or 3. C must 
+      spatial_dimension), where spatial_dimension is either 2 or 3. C must
       satisfy both the major and minor symmetries, but this is not checked.
   Return: a dict of the 6 (21) unique elastic constants in 2 (3) dimensions.
   """
   return _extract_elements(C,True)
 
 def extract_isotropic_moduli(C: Array) -> Dict:
-  """ Extract commonly used isotropic constants. 
+  """ Extract commonly used isotropic constants.
 
-  There are a number of important constants used to describe the linear 
-  elastic behavior of isotropic systems, including the bulk modulud, B, 
+  There are a number of important constants used to describe the linear
+  elastic behavior of isotropic systems, including the bulk modulud, B,
   the shear modulus, G, the longitudinal modulus, M, the Young's modulus,
   E, and the Poisson's ratio, nu. This convenience function extracts them
   from an elastic modulus tensor C.
@@ -523,7 +523,7 @@ def extract_isotropic_moduli(C: Array) -> Dict:
       e = (1/2) * ( 1 0 )     or      e = (1/3) * ( 1 0 0 )
                   ( 0 1 )                         ( 0 1 0 )
                                                   ( 0 0 1 )
-  
+
   Shear modulus, G:
   This is the response to the strain tensor:
       e = (1/2) * ( 0 1 )     or      e = (1/2) * ( 0 1 0 )
@@ -546,15 +546,15 @@ def extract_isotropic_moduli(C: Array) -> Dict:
 
   Poisson's ratio:
   This is a measure of deformations in directions perpendicular to an
-  applied load and is calculated a using well-known expression in terms 
+  applied load and is calculated a using well-known expression in terms
   of B and G.
-  
+
   Args:
-    C: A previously calculated elastic modulus tensor represented as an 
+    C: A previously calculated elastic modulus tensor represented as an
       array of shape (spatial_dimension,spatial_dimension,spatial_dimension,
-      spatial_dimension), where spatial_dimension is either 2 or 3. C must 
+      spatial_dimension), where spatial_dimension is either 2 or 3. C must
       satisfy both the major and minor symmetries, but this is not checked.
-  
+
   Return: a dictionary containing the elastic constants.
 
   """
@@ -565,13 +565,13 @@ def extract_isotropic_moduli(C: Array) -> Dict:
     M = B + G
     E = 4 * B * G / (B + G)
     nu = (B - G) / (B + G)
-    
+
   elif C.shape[0] == 3:
-    cxxxx,cyyyy,czzzz,cyzyz,cxzxz,cxyxy,cyyzz,cxxzz,cxxyy, \
-    cxxyz,cxxxz,cxxxy,cyyyz,cyyxz,cyyxy,czzyz,czzxz,czzxy, \
+    cxxxx,cyyyy,czzzz,cyzyz,cxzxz,cxyxy,cyyzz,cxxzz,cxxyy,
+    cxxyz,cxxxz,cxxxy,cyyyz,cyyxz,cyyxy,czzyz,czzxz,czzxy,
     cyzxz,cyzxy,cxzxy = _extract_elements(C,False)
     B = (cxxxx + 2 * cxxyy + 2 * cxxzz + cyyyy + 2 * cyyzz + czzzz) / 9.
-    G = (cxxxx - cxxyy - cxxzz + 3 * cxyxy + 3 * cxzxz + cyyyy - cyyzz \
+    G = (cxxxx - cxxyy - cxxzz + 3 * cxyxy + 3 * cxzxz + cyyyy - cyyzz
          + 3 * cyzyz + czzzz) / 15.
     M = B + 4 * G / 3
     E = 9 * B * G / (3 * B + G)

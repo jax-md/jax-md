@@ -30,8 +30,8 @@ allow for some interesting experiments that we're excited to explore.
 
 JAX, MD is a research project that is currently under development. Expect
 sharp edges and possibly some API breaking changes as we continue to support
-a broader set of simulations. JAX MD is a functional and data driven library. 
-Data is stored in arrays or tuples of arrays and functions transform data from 
+a broader set of simulations. JAX MD is a functional and data driven library.
+Data is stored in arrays or tuples of arrays and functions transform data from
 one state to another.
 
 ### Getting Started
