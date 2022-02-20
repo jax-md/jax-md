@@ -268,7 +268,7 @@ def athermal_moduli(energy_fn: Callable[..., Array],
         tol=cg_tol
         )[0]
     #The above line should be functionally equivalent to:
-    #H0=hessian(energy_fn)(R, box=box, **kwargs).reshape(R.size,R.size)
+    #H0=hessian(energy_fn)(R, box=box, **kwargs).reshape(R.size,R.size) \
     #    + tether_strength * jnp.identity(R.size)
     #non_affine_response_all = jnp.transpose(jnp.linalg.solve(
     #   H0,
@@ -411,7 +411,7 @@ def mandel_to_tensor(M: Array) -> Array:
   def mandel_index(i, j):
     return lax.cond(i==j,
                     lambda ij: ij[0],
-                    lambda ij: mandel_dim-ij[0]-ij[1],
+                    lambda ij: mandel_dim - ij[0] - ij[1],
                     (i,j))
 
   if mandel_dim == 3:
@@ -567,8 +567,8 @@ def extract_isotropic_moduli(C: Array) -> Dict:
     nu = (B - G) / (B + G)
 
   elif C.shape[0] == 3:
-    cxxxx,cyyyy,czzzz,cyzyz,cxzxz,cxyxy,cyyzz,cxxzz,cxxyy,
-    cxxyz,cxxxz,cxxxy,cyyyz,cyyxz,cyyxy,czzyz,czzxz,czzxy,
+    cxxxx,cyyyy,czzzz,cyzyz,cxzxz,cxyxy,cyyzz,cxxzz,cxxyy, \
+    cxxyz,cxxxz,cxxxy,cyyyz,cyyxz,cyyxy,czzyz,czzxz,czzxy, \
     cyzxz,cyzxy,cxzxy = _extract_elements(C,False)
     B = (cxxxx + 2 * cxxyy + 2 * cxxzz + cyyyy + 2 * cyyzz + czzzz) / 9.
     G = (cxxxx - cxxyy - cxxzz + 3 * cxyxy + 3 * cxzxz + cyyyy - cyyzz
