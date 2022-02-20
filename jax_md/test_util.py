@@ -27,6 +27,7 @@ FLAGS = jax_config.FLAGS
 
 f32 = jnp.float32
 
+
 def update_test_tolerance(f32_tolerance=None, f64_tolerance=None):
   if f32_tolerance is not None:
     jtu._default_tolerance[onp.dtype(onp.float32)] = f32_tolerance
@@ -55,8 +56,10 @@ def load_silica_data() -> jnp.ndarray:
     filename = '/google3/third_party/py/jax_md/tests/data/silica_positions.npy'
     return _load_silica_data(filename)
 
-def _load_elasticity_test_data(fn, spatial_dimension, dtype, index):
-  ds = nc.Dataset(fn)
+
+def _load_elasticity_test_data(filename, spatial_dimension, dtype, index):
+  filename = FLAGS.test_srcdir + filename
+  ds = nc.Dataset(filename)
   cijkl = jnp.array(ds.variables['Cijkl'][index], dtype=dtype)
   R = jnp.array(ds.variables['pos'][index], dtype=dtype)
   R = jnp.reshape(R, (R.shape[0]//spatial_dimension,spatial_dimension))
@@ -64,6 +67,7 @@ def _load_elasticity_test_data(fn, spatial_dimension, dtype, index):
   box = jnp.array(ds.variables['box'][index], dtype=dtype)
   box = jnp.reshape(box, (spatial_dimension,spatial_dimension))
   return cijkl, R, sigma, box
+
 
 def load_elasticity_test_data(spatial_dimension, low_pressure, dtype, index):
   try:
@@ -128,6 +132,7 @@ def load_jammed_state(filename: str, dtype) -> JammedTestState:
 
 def load_lammps_stress_data(dtype):
   def parse_state(filename):
+    filename = FLAGS.test_srcdir + filename
     with open(filename) as f:
       data = f.read()
     data = data.split('\n')
@@ -142,6 +147,7 @@ def load_lammps_stress_data(dtype):
     return f32(box), jnp.array(R, dtype), jnp.array(V, dtype)
 
   def parse_results(filename):
+    filename = FLAGS.test_srcdir + filename
     with open(filename) as f:
       data = f.read()
     data = [[float(dd) for dd in d.split(' ') if dd != ' ' and dd != '']
@@ -159,6 +165,6 @@ def load_lammps_stress_data(dtype):
             parse_results('tests/data/lammps_lj_stress_test'))
   except FileNotFoundError:
     return (parse_state('/google3/third_party/py/jax_md/tests/data/'
-                        'lammps_lj_stress_test'),
+                        'lammps_lj_stress_test_states'),
             parse_results('/google3/third_party/py/jax_md/tests/data/'
-                          'lammps_lj_stress'))
+                          'lammps_lj_stress_test'))
