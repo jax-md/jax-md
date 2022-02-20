@@ -325,7 +325,8 @@ class EnergyTest(jtu.JaxTestCase):
                                             format=format)
     nbrs = neighbor_fn.allocate(positions)
     N = positions.shape[0]
-    self.assertAllClose(energy_fn(positions, neighbor=nbrs) / N, -4.336503155764325)
+    self.assertAllClose(energy_fn(positions, neighbor=nbrs) / N,
+                        -4.336503155764325)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {

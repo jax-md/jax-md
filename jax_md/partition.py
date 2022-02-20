@@ -35,7 +35,9 @@ from jax.abstract_arrays import ShapedArray
 from jax.interpreters import partial_eval as pe
 import jax.numpy as jnp
 
-from jax_md import quantity, space, dataclasses, util
+from jax_md import space
+from jax_md import dataclasses
+from jax_md import util
 
 import jraph
 
