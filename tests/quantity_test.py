@@ -47,6 +47,8 @@ NEIGHBOR_LIST_FORMAT = [partition.Dense,
 DTYPES = [f32, f64] if FLAGS.jax_enable_x64 else [f32]
 COORDS = ['fractional', 'real']
 
+
+@jtu.with_config(jax_numpy_rank_promotion='allow')
 class QuantityTest(jtu.JaxTestCase):
 
   def test_canonicalize_mass(self):

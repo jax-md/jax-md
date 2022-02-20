@@ -146,6 +146,8 @@ def lattice(R_unit_cell, copies, lattice_vectors):
     Rs += [R]
   return np.array(onp.concatenate(Rs))
 
+
+@jtu.with_config(jax_numpy_rank_promotion="allow")
 class EnergyTest(jtu.JaxTestCase):
 
   @parameterized.named_parameters(jtu.cases_from_list(
@@ -172,7 +174,6 @@ class EnergyTest(jtu.JaxTestCase):
       E = energy.simple_spring_bond(disp, bonds, length=length, alpha=alpha)
       E_exact = dtype((dist - length) ** alpha / alpha)
       self.assertAllClose(E(R), E_exact)
-
 
   # pylint: disable=g-complex-comprehension
   @parameterized.named_parameters(jtu.cases_from_list(
@@ -277,7 +278,8 @@ class EnergyTest(jtu.JaxTestCase):
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': 'dtype={}_num_repetitions={}'.format(dtype.__name__, num_repetitions),
+          'testcase_name': (f'dtype={dtype.__name__}_'
+                            f'num_repetitions={num_repetitions}'),
           'dtype': dtype,
           'num_repetitions': num_repetitions,
       } for dtype in POSITION_DTYPE for num_repetitions in [2, 3]))
@@ -290,7 +292,8 @@ class EnergyTest(jtu.JaxTestCase):
     lattice_vectors *= num_repetitions
     displacement, shift = space.periodic_general(lattice_vectors)
     energy_fn = jit(energy.stillinger_weber(displacement))
-    self.assertAllClose(energy_fn(positions)/positions.shape[0], -4.336503155764325)
+    N = positions.shape[0]
+    self.assertAllClose(energy_fn(positions) / N, -4.336503155764325)
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
