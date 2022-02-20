@@ -35,7 +35,7 @@ from jax_md import smap, partition, space, energy, quantity
 from jax_md.util import *
 
 jax_config.parse_flags_with_absl()
-jax_config.enable_omnistaging()
+
 FLAGS = jax_config.FLAGS
 
 
@@ -48,6 +48,8 @@ if FLAGS.jax_enable_x64:
 else:
   POSITION_DTYPE = [f32]
 
+
+@jtu.with_config(jax_numpy_rank_promotion="allow")
 class CellListTest(jtu.JaxTestCase):
 
   @parameterized.named_parameters(jtu.cases_from_list(
@@ -170,6 +172,8 @@ class CellListTest(jtu.JaxTestCase):
     self.assertAllClose(R_out, R)
     self.assertAllClose(side_data_out, side_data)
 
+
+@jtu.with_config(jax_numpy_rank_promotion="allow")
 class NeighborListTest(jtu.JaxTestCase):
   @parameterized.named_parameters(jtu.cases_from_list(
       {
