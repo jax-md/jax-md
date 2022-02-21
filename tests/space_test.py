@@ -76,6 +76,7 @@ def make_periodic_general_test_system(N, dim, dtype, box_format):
 
 
 # pylint: disable=invalid-name
+@jtu.with_config(jax_numpy_rank_promotion='allow')
 class SpaceTest(jtu.JaxTestCase):
 
   # pylint: disable=g-complex-comprehension

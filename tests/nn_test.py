@@ -42,6 +42,8 @@ else:
 N_TYPES_TO_TEST = [1, 2]
 N_ETAS_TO_TEST = [1, 2]
 
+
+@jtu.with_config(jax_numpy_rank_promotion='allow')
 class SymmetryFunctionTest(jtu.JaxTestCase):
   @parameterized.named_parameters(jtu.cases_from_list(
       {
@@ -55,9 +57,10 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
         for dtype in DTYPES))
   def test_radial_symmetry_functions(self, N_types, N_etas, dtype):
     displacement, shift = space.free()
+    rs = np.linspace(1.0, 2.0, N_etas, dtype=dtype)
     gr = nn.radial_symmetry_functions(displacement,
                                       np.array([1, 1, N_types]),
-                                      np.linspace(1.0, 2.0, N_etas, dtype=dtype),
+                                      rs,
                                       4)
     R = np.array([[0,0,0], [1,1,1], [1,1,0]], dtype)
     gr_out = gr(R)
@@ -94,10 +97,8 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
 
     neighbor_fn = partition.neighbor_list(displacement, box_size, r_cutoff, 0.)
 
-    gr = nn.radial_symmetry_functions(displacement,
-                                      species,
-                                      np.linspace(1.0, 2.0, N_etas, dtype=dtype),
-                                      r_cutoff)
+    rs = np.linspace(1.0, 2.0, N_etas, dtype=dtype)
+    gr = nn.radial_symmetry_functions(displacement, species, rs, r_cutoff)
     gr_neigh = nn.radial_symmetry_functions_neighbor_list(
       displacement,
       species,
@@ -141,10 +142,11 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
     neighbor_fn = partition.neighbor_list(displacement, box_size, r_cutoff, 0.)
 
     etas = np.linspace(1., 2., N_etas, dtype=dtype)
+    lam = np.array([-1.0] * N_etas, dtype)
     gr = nn.angular_symmetry_functions(displacement,
                                        species,
                                        etas=etas,
-                                       lambdas=np.array([-1.0] * N_etas, dtype),
+                                       lambdas=lam,
                                        zetas=np.array([1.0] * N_etas, dtype),
                                        cutoff_distance=r_cutoff)
 
@@ -175,14 +177,17 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
         for dtype in DTYPES))
   def test_angular_symmetry_functions(self, N_types, N_etas, dtype):
     displacement, shift = space.free()
+    etas = np.array([1e-4/(0.529177 ** 2)] * N_etas, dtype)
+    lam = np.array([-1.0] * N_etas, dtype)
     gr = nn.angular_symmetry_functions(displacement,np.array([1, 1, N_types]),
-                                       etas=np.array([1e-4/(0.529177 ** 2)] * N_etas, dtype),
-                                       lambdas=np.array([-1.0] * N_etas, dtype),
+                                       etas=etas,
+                                       lambdas=lam,
                                        zetas=np.array([1.0] * N_etas, dtype),
                                        cutoff_distance=8.0)
     R = np.array([[0,0,0], [1,1,1], [1,1,0]], dtype)
     gr_out = gr(R)
-    self.assertAllClose(gr_out.shape, (3, N_etas *  N_types * (N_types + 1) // 2))
+    self.assertAllClose(gr_out.shape,
+                        (3, N_etas *  N_types * (N_types + 1) // 2))
     self.assertAllClose(gr_out[2, 0], dtype(1.577944), rtol=1e-6, atol=1e-6)
 
   @parameterized.named_parameters(jtu.cases_from_list(
@@ -206,7 +211,9 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
             cutoff_distance=8.0)
     R = np.array([[0,0,0], [1,1,1], [1,1,0]], dtype)
     gr_out = gr(R)
-    self.assertAllClose(gr_out.shape, (3, N_etas *  (N_types + N_types * (N_types + 1) // 2)))
+    self.assertAllClose(gr_out.shape,
+                        (3,
+                         N_etas *  (N_types + N_types * (N_types + 1) // 2)))
     self.assertAllClose(gr_out[2, 0], dtype(1.885791), rtol=1e-6, atol=1e-6)
 
   @parameterized.named_parameters(jtu.cases_from_list(
@@ -316,6 +323,7 @@ def _get_graphs():
   ]
 
 
+@jtu.with_config(jax_numpy_rank_promotion="allow")
 class NeuralNetworkTest(jtu.JaxTestCase):
   @parameterized.named_parameters(jtu.cases_from_list(
       {

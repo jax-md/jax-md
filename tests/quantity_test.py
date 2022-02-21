@@ -47,6 +47,8 @@ NEIGHBOR_LIST_FORMAT = [partition.Dense,
 DTYPES = [f32, f64] if FLAGS.jax_enable_x64 else [f32]
 COORDS = ['fractional', 'real']
 
+
+@jtu.with_config(jax_numpy_rank_promotion='allow')
 class QuantityTest(jtu.JaxTestCase):
 
   def test_canonicalize_mass(self):
@@ -399,7 +401,7 @@ class QuantityTest(jtu.JaxTestCase):
 
     ad_stress = quantity.stress(energy_fn, R, box, velocity=V)
 
-    tol = 5e-5 
+    tol = 5e-5
 
     self.assertAllClose(energy_fn(R) / len(R), E, atol=tol, rtol=tol)
     self.assertAllClose(C, ad_stress, atol=tol, rtol=tol)

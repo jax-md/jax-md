@@ -29,7 +29,7 @@ import jax.numpy as np
 from jax import test_util as jtu
 
 from jax_md import space
-from jax_md import energy 
+from jax_md import energy
 from jax_md import minimize
 from jax_md import quantity
 from jax_md import elasticity
@@ -41,7 +41,7 @@ jax_config.enable_omnistaging()
 FLAGS = jax_config.FLAGS
 
 PARTICLE_COUNT = 64
-NUM_SAMPLES = 2 
+NUM_SAMPLES = 2
 SPATIAL_DIMENSION = [2, 3]
 LOWPRESSURE = [True, False]
 
@@ -50,11 +50,11 @@ if FLAGS.jax_enable_x64:
 else:
   DTYPE = [f32]
 
-def run_minimization_while(energy_fn, 
-                           R_init, 
-                           shift, 
-                           max_grad_thresh = 1e-12, 
-                           max_num_steps=1000000, 
+def run_minimization_while(energy_fn,
+                           R_init,
+                           shift,
+                           max_grad_thresh = 1e-12,
+                           max_num_steps=1000000,
                            **kwargs):
   init,apply=minimize.fire_descent(jit(energy_fn), shift, **kwargs)
   apply = jit(apply)
@@ -66,7 +66,7 @@ def run_minimization_while(energy_fn,
   @jit
   def cond_fn(val):
     state, i = val
-    return jnp.logical_and(get_maxgrad(state) > max_grad_thresh, 
+    return jnp.logical_and(get_maxgrad(state) > max_grad_thresh,
                            i<max_num_steps)
 
   @jit
@@ -82,7 +82,7 @@ def run_minimization_while(energy_fn,
 
 class ElasticityTest(jtu.JaxTestCase):
   # pylint: disable=g-complex-comprehension
-  
+
   @parameterized.named_parameters(jtu.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}_lowpressure={}'.format(
@@ -90,8 +90,8 @@ class ElasticityTest(jtu.JaxTestCase):
           'spatial_dimension': dim,
           'dtype': dtype,
           'low_pressure': low_pressure
-      } for dim in SPATIAL_DIMENSION 
-        for dtype in DTYPE 
+      } for dim in SPATIAL_DIMENSION
+        for dtype in DTYPE
         for low_pressure in LOWPRESSURE))
   def test_EMT_from_db_basic(self, spatial_dimension, dtype, low_pressure):
     if spatial_dimension == 2:
@@ -110,7 +110,7 @@ class ElasticityTest(jtu.JaxTestCase):
 
     for index in range(NUM_SAMPLES):
       cijkl, R, sigma, box = test_util.load_elasticity_test_data(
-          spatial_dimension, low_pressure, dtype, index) 
+          spatial_dimension, low_pressure, dtype, index)
       R = space.transform(box, R)
       box = box[0,0]
 
@@ -124,24 +124,23 @@ class ElasticityTest(jtu.JaxTestCase):
       assert( C.shape == (spatial_dimension,spatial_dimension,
         spatial_dimension,spatial_dimension) )
       if converged:
-        self.assertAllClose(cijkl,elasticity._extract_elements(C,False), 
+        self.assertAllClose(cijkl,elasticity._extract_elements(C,False),
             atol=atol, rtol=rtol)
-        
+
         #make sure the symmetries are there
         self.assertAllClose(C, jnp.einsum("ijkl->jikl", C))
         self.assertAllClose(C, jnp.einsum("ijkl->ijlk", C))
         self.assertAllClose(C, jnp.einsum("ijkl->lkij", C))
-  
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}_dtype={}_lowpressure={}'.format(dim, 
+          'testcase_name': '_dim={}_dtype={}_lowpressure={}'.format(dim,
             dtype.__name__, low_pressure),
           'spatial_dimension': dim,
           'dtype': dtype,
           'low_pressure': low_pressure
-      } for dim in SPATIAL_DIMENSION 
-        for dtype in DTYPE 
+      } for dim in SPATIAL_DIMENSION
+        for dtype in DTYPE
         for low_pressure in LOWPRESSURE))
   def test_EMT_from_db_pgeneral(self, spatial_dimension, dtype, low_pressure):
     if spatial_dimension == 2:
@@ -160,10 +159,10 @@ class ElasticityTest(jtu.JaxTestCase):
 
     for index in range(NUM_SAMPLES):
       cijkl, R, sigma, box = test_util.load_elasticity_test_data(
-          spatial_dimension, low_pressure, dtype, index) 
+          spatial_dimension, low_pressure, dtype, index)
       R = space.transform(box, R)
 
-      displacement, shift = space.periodic_general(box, 
+      displacement, shift = space.periodic_general(box,
           fractional_coordinates=False)
       energy_fn = energy.soft_sphere_pair(displacement, sigma=sigma)
       assert( jnp.max(jnp.abs(grad(energy_fn)(R))) < max_grad_thresh )
@@ -174,9 +173,9 @@ class ElasticityTest(jtu.JaxTestCase):
       assert( C.shape == (spatial_dimension,spatial_dimension,
         spatial_dimension,spatial_dimension) )
       if converged:
-        self.assertAllClose(cijkl,elasticity._extract_elements(C,False), 
+        self.assertAllClose(cijkl,elasticity._extract_elements(C,False),
             atol=atol, rtol=rtol)
-        
+
         #make sure the symmetries are there
         self.assertAllClose(C, jnp.einsum("ijkl->jikl", C))
         self.assertAllClose(C, jnp.einsum("ijkl->ijlk", C))
@@ -184,13 +183,13 @@ class ElasticityTest(jtu.JaxTestCase):
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}_dtype={}_lowpressure={}'.format(dim, 
+          'testcase_name': '_dim={}_dtype={}_lowpressure={}'.format(dim,
             dtype.__name__, low_pressure),
           'spatial_dimension': dim,
           'dtype': dtype,
           'low_pressure': low_pressure
-      } for dim in SPATIAL_DIMENSION 
-        for dtype in DTYPE 
+      } for dim in SPATIAL_DIMENSION
+        for dtype in DTYPE
         for low_pressure in LOWPRESSURE))
   def test_EMT_from_db_fraccoord(self, spatial_dimension, dtype, low_pressure):
     if spatial_dimension == 2:
@@ -209,9 +208,9 @@ class ElasticityTest(jtu.JaxTestCase):
 
     for index in range(NUM_SAMPLES):
       cijkl, R, sigma, box = test_util.load_elasticity_test_data(
-          spatial_dimension, low_pressure, dtype, index) 
+          spatial_dimension, low_pressure, dtype, index)
 
-      displacement, shift = space.periodic_general(box, 
+      displacement, shift = space.periodic_general(box,
           fractional_coordinates=True)
       energy_fn = energy.soft_sphere_pair(displacement, sigma=sigma)
       assert( jnp.max(jnp.abs(grad(energy_fn)(R))) < max_grad_thresh )
@@ -222,24 +221,24 @@ class ElasticityTest(jtu.JaxTestCase):
       assert( C.shape == (spatial_dimension,spatial_dimension,
         spatial_dimension,spatial_dimension) )
       if converged:
-        self.assertAllClose(cijkl,elasticity._extract_elements(C,False), 
+        self.assertAllClose(cijkl,elasticity._extract_elements(C,False),
             atol=atol, rtol=rtol)
-        
+
         #make sure the symmetries are there
         self.assertAllClose(C, jnp.einsum("ijkl->jikl", C))
         self.assertAllClose(C, jnp.einsum("ijkl->ijlk", C))
         self.assertAllClose(C, jnp.einsum("ijkl->lkij", C))
 
-      
+
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}_dtype={}_lowpressure={}'.format(dim, 
+          'testcase_name': '_dim={}_dtype={}_lowpressure={}'.format(dim,
             dtype.__name__, low_pressure),
           'spatial_dimension': dim,
           'dtype': dtype,
           'low_pressure': low_pressure
-      } for dim in SPATIAL_DIMENSION 
-        for dtype in DTYPE 
+      } for dim in SPATIAL_DIMENSION
+        for dtype in DTYPE
         for low_pressure in LOWPRESSURE))
   def test_EMT_from_db_dynamic(self, spatial_dimension, dtype, low_pressure):
     if spatial_dimension == 2:
@@ -258,14 +257,14 @@ class ElasticityTest(jtu.JaxTestCase):
 
     for index in range(NUM_SAMPLES):
       cijkl, R, sigma, box = test_util.load_elasticity_test_data(
-          spatial_dimension, low_pressure, dtype, index) 
+          spatial_dimension, low_pressure, dtype, index)
       R = space.transform(box, R)
       box = box[0,0]
 
       displacement, shift = space.periodic(box)
       #Below we use the wrong sigma, so we must pass it dynamically
-      energy_fn = energy.soft_sphere_pair(displacement, sigma=1.0) 
-      maxgrad = jnp.max(jnp.abs(grad(energy_fn)(R, sigma=sigma))) 
+      energy_fn = energy.soft_sphere_pair(displacement, sigma=1.0)
+      maxgrad = jnp.max(jnp.abs(grad(energy_fn)(R, sigma=sigma)))
       assert( maxgrad < max_grad_thresh )
 
       EMT_fn = jit(elasticity.athermal_moduli(energy_fn,check_convergence=True))
@@ -274,9 +273,9 @@ class ElasticityTest(jtu.JaxTestCase):
       assert( C.shape == (spatial_dimension,spatial_dimension,
         spatial_dimension,spatial_dimension) )
       if converged:
-        self.assertAllClose(cijkl,elasticity._extract_elements(C,False), 
+        self.assertAllClose(cijkl,elasticity._extract_elements(C,False),
             atol=atol, rtol=rtol)
-        
+
         #make sure the symmetries are there
         self.assertAllClose(C, jnp.einsum("ijkl->jikl", C))
         self.assertAllClose(C, jnp.einsum("ijkl->ijlk", C))
@@ -285,13 +284,13 @@ class ElasticityTest(jtu.JaxTestCase):
 
   @parameterized.named_parameters(jtu.cases_from_list(
       {
-          'testcase_name': '_dim={}_dtype={}_lowpressure={}'.format(dim, 
+          'testcase_name': '_dim={}_dtype={}_lowpressure={}'.format(dim,
             dtype.__name__, low_pressure),
           'spatial_dimension': dim,
           'dtype': dtype,
           'low_pressure': low_pressure
-      } for dim in SPATIAL_DIMENSION 
-      for dtype in DTYPE 
+      } for dim in SPATIAL_DIMENSION
+      for dtype in DTYPE
       for low_pressure in LOWPRESSURE))
   def test_EMT_from_db_nbrlist(self, spatial_dimension, dtype, low_pressure):
     if spatial_dimension == 2:
@@ -310,9 +309,9 @@ class ElasticityTest(jtu.JaxTestCase):
 
     for index in range(NUM_SAMPLES):
       cijkl, R, sigma, box = test_util.load_elasticity_test_data(
-          spatial_dimension, low_pressure, dtype, index) 
+          spatial_dimension, low_pressure, dtype, index)
 
-      displacement, shift = space.periodic_general(box, 
+      displacement, shift = space.periodic_general(box,
           fractional_coordinates=True)
       neighbor_fn, energy_fn = energy.soft_sphere_neighbor_list(
           displacement, box, sigma=sigma, fractional_coordinates=True)
@@ -325,9 +324,9 @@ class ElasticityTest(jtu.JaxTestCase):
       assert( C.shape == (spatial_dimension,spatial_dimension,
         spatial_dimension,spatial_dimension) )
       if converged:
-        self.assertAllClose(cijkl,elasticity._extract_elements(C,False), 
+        self.assertAllClose(cijkl,elasticity._extract_elements(C,False),
             atol=atol, rtol=rtol)
-        
+
         #make sure the symmetries are there
         self.assertAllClose(C, jnp.einsum("ijkl->jikl", C))
         self.assertAllClose(C, jnp.einsum("ijkl->ijlk", C))
@@ -345,7 +344,7 @@ class ElasticityTest(jtu.JaxTestCase):
 
     for _ in range(NUM_SAMPLES):
       key, split = random.split(key, 2)
-      
+
       if spatial_dimension == 2:
         C = jnp.array(
             [[[[ 1.13172135,  0.00230386],
@@ -402,13 +401,13 @@ class ElasticityTest(jtu.JaxTestCase):
                [ 1.15577485e-02, -1.62693657e-02,  5.45653623e-01]]]],
               dtype = dtype)
 
-      e = random.uniform(split, (spatial_dimension,spatial_dimension), 
+      e = random.uniform(split, (spatial_dimension,spatial_dimension),
           minval=-1, maxval=1, dtype=dtype)
       e = (e + e.T) / 2.0
-      
+
       e_m = elasticity.tensor_to_mandel(e)
-      C_m = elasticity.tensor_to_mandel(C) 
-      
+      C_m = elasticity.tensor_to_mandel(C)
+
       sum_m = jnp.einsum('i,ij,j->',e_m, C_m, e_m)
       sum_t = jnp.einsum('ij,ijkl,kl->',e, C, e)
 
@@ -419,40 +418,5 @@ class ElasticityTest(jtu.JaxTestCase):
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 if __name__ == '__main__':
   absltest.main()
-
-
-
-
-
-
-
-
-
-
-
-
-

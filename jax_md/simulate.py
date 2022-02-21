@@ -947,9 +947,7 @@ def brownian(energy_or_force: Callable[..., Array],
              shift: ShiftFn,
              dt: float,
              kT: float,
-             sigma: Array = 1.0,
-             eta: float = f32(1 / (3 * jnp.pi)),
-             dynamic_sigma = False) -> Simulator:
+             gamma: float=0.1) -> Simulator:
   """Simulation of Brownian dynamics.
 
   Simulates Brownian dynamics which are synonymous with the overdamped
@@ -969,9 +967,8 @@ def brownian(energy_or_force: Callable[..., Array],
     kT: Floating point number specifying the temperature inunits of Boltzmann
       constant. To update the temperature dynamically during a simulation one
       should pass `kT` as a keyword argument to the step function.
-    eta: A float specifying the dynamic viscosity of the solvent.
-    dynamic_sigma: A boolean specifying whether the diameter of the particles
-      would change during the simulation or not.
+    gamma: A float specifying the friction coefficient between the particles
+      and the solvent. Specifically, gamma = 6 pi eta R/mass.
 
   Returns:
     See above.
@@ -983,50 +980,30 @@ def brownian(energy_or_force: Callable[..., Array],
 
   force_fn = quantity.canonicalize_force(energy_or_force)
 
-  dt, eta = static_cast(dt, eta)
+  dt, gamma = static_cast(dt, gamma)
 
-  def init_fn(key, R):
-    return BrownianState(R, key)  # pytype: disable=wrong-arg-count
+  def init_fn(key, R, mass=f32(1)):
+    mass = quantity.canonicalize_mass(mass)
 
-  if dynamic_sigma:
+    return BrownianState(R, mass, key)  # pytype: disable=wrong-arg-count
 
-    def apply_fn(state, update_sigma_fn = lambda x: x, _sigma = sigma, **kwargs):
-      _kT = kT if 'kT' not in kwargs else kwargs['kT']
+  def apply_fn(state, **kwargs):
+    _kT = kT if 'kT' not in kwargs else kwargs['kT']
+    _gamma = gamma if 'gamma' not in kwargs else kwargs['gamma']
 
-      R, key = dataclasses.astuple(state)
+    R, mass, key = dataclasses.astuple(state)
 
-      dim = R.shape[1]
+    key, split = random.split(key)
 
-      key, split = random.split(key)
+    F = force_fn(R, **kwargs)
+    xi = random.normal(split, R.shape, R.dtype)
 
-      F = force_fn(R, **kwargs)
-      xi = random.normal(split, R.shape, R.dtype)
+    nu = f32(1) / (mass * _gamma)
 
-      nu = f32(1) / (f32(3) * jnp.pi * eta * _sigma) #6 pi eta r = 3 pi eta sigma
-      nu = jnp.repeat(nu, dim).reshape(R.shape)
+    dR = F * dt * nu + jnp.sqrt(f32(2) * _kT * dt * nu) * xi
+    R = shift(R, dR, **kwargs)
 
-      dR = F * dt * nu + jnp.sqrt(f32(2) * _kT * dt * nu) * xi
-      R = shift(R, dR, **kwargs)
-      _sigma = update_sigma_fn(_sigma, **kwargs)
-      return BrownianState(R, key)  # pytype: disable=wrong-arg-count
-    
-  else:
-      
-    nu = f32(1) / (f32(3) * jnp.pi * eta * sigma) #6 pi eta r = 3 pi eta sigma
-    def apply_fn(state, **kwargs):
-      _kT = kT if 'kT' not in kwargs else kwargs['kT']
-
-      R, key = dataclasses.astuple(state)
-
-      key, split = random.split(key)
-
-      F = force_fn(R, **kwargs)
-      xi = random.normal(split, R.shape, R.dtype)
-
-      dR = F * dt * nu + jnp.sqrt(f32(2) * _kT * dt * nu) * xi
-
-      R = shift(R, dR, **kwargs)
-      return BrownianState(R, key)  # pytype: disable=wrong-arg-count
+    return BrownianState(R, mass, key)  # pytype: disable=wrong-arg-count
 
   return init_fn, apply_fn
 
