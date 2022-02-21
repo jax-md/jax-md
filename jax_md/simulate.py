@@ -972,7 +972,7 @@ def brownian(energy_or_force: Callable[..., Array],
       constant. To update the temperature dynamically during a simulation one
       should pass `kT` as a keyword argument to the step function.
     gamma: A float specifying the friction coefficient between the particles
-      and the solvent.
+      and the solvent. Specifically, gamma = 6 pi eta R/mass.
 
   Returns:
     See above.
@@ -993,6 +993,7 @@ def brownian(energy_or_force: Callable[..., Array],
 
   def apply_fn(state, **kwargs):
     _kT = kT if 'kT' not in kwargs else kwargs['kT']
+    _gamma = gamma if 'gamma' not in kwargs else kwargs['gamma']
 
     R, mass, key = dataclasses.astuple(state)
 
@@ -1001,7 +1002,7 @@ def brownian(energy_or_force: Callable[..., Array],
     F = force_fn(R, **kwargs)
     xi = random.normal(split, R.shape, R.dtype)
 
-    nu = f32(1) / (mass * gamma)
+    nu = f32(1) / (mass * _gamma)
 
     dR = F * dt * nu + jnp.sqrt(f32(2) * _kT * dt * nu) * xi
     R = shift(R, dR, **kwargs)
