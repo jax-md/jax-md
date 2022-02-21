@@ -940,6 +940,7 @@ class BrownianState:
     rng: The current state of the random number generator.
   """
   position: Array
+  mass: Array
   rng: Array
 
 
