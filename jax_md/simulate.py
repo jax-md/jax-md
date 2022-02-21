@@ -937,6 +937,8 @@ class BrownianState:
   Attributes:
     position: The current position of the particles. An ndarray of floats with
       shape [n, spatial_dimension].
+    mass: The mass of particles. Will either be a float or an ndarray of floats
+      with shape [n].
     rng: The current state of the random number generator.
   """
   position: Array
