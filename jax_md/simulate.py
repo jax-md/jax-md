@@ -930,7 +930,6 @@ def nvt_langevin(energy_or_force: Callable[..., Array],
     return NVTLangevinState(R, V, F_new, mass, key)  # pytype: disable=wrong-arg-count
   return init_fn, apply_fn
 
-
 @dataclasses.dataclass
 class BrownianState:
   """A tuple containing state information for Brownian dynamics.
@@ -938,12 +937,9 @@ class BrownianState:
   Attributes:
     position: The current position of the particles. An ndarray of floats with
       shape [n, spatial_dimension].
-    mass: The mmass of particles. Will either be a float or an ndarray of floats
-      with shape [n].
     rng: The current state of the random number generator.
   """
   position: Array
-  mass: Array
   rng: Array
 
 
@@ -1019,7 +1015,6 @@ Below are simulation environments whose implementation is somewhat
 experimental / preliminary. These environments might not be as ergonomic
 as the more polished environments above.
 """
-
 
 @dataclasses.dataclass
 class SwapMCState:
