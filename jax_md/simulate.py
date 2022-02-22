@@ -971,7 +971,9 @@ def brownian(energy_or_force: Callable[..., Array],
       constant. To update the temperature dynamically during a simulation one
       should pass `kT` as a keyword argument to the step function.
     gamma: A float specifying the friction coefficient between the particles
-      and the solvent. Specifically, gamma = 6 pi eta R/mass.
+      and the solvent. The gamma here is the friction coeifficient divided by
+      the mass. For example, when the particles are 3 diemsional spheres
+      gamma = 6 pi eta R/mass. See quantity.gamma_from_stokes_law for detail.
 
   Returns:
     See above.
