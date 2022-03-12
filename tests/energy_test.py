@@ -726,7 +726,7 @@ class EnergyTest(jtu.JaxTestCase):
     else:
       self.assertAllClose(E, dtype(-3.3633387837793505))
 
-  
+
   @parameterized.named_parameters(jtu.cases_from_list(
       {
           'testcase_name': '_dtype={}'.format(dtype.__name__),
@@ -744,18 +744,23 @@ class EnergyTest(jtu.JaxTestCase):
        [0.50, 0.50, 0.00],
        [0.75, 0.75, 0.25]], dtype=dtype)
     atoms = lattice(atoms, 2, lattice_vectors)
+    if dtype == f32:
+      atoms = f32(atoms)
     lattice_vectors *= 2
-    displacement, _ = space.periodic_general(lattice_vectors, fractional_coordinates=True)
+    displacement, _ = space.periodic_general(lattice_vectors,
+                                             fractional_coordinates=True)
     box_size = np.linalg.det(lattice_vectors) ** (1 / 3)
-    tersoff_parameters = energy.load_lammps_tersoff_parameters(open('tests/data/Si.tersoff', 'r'))
-
-    neighbor_fn, energy_fn = energy.tersoff_neighbor_list(displacement, box_size, tersoff_parameters)
+    with open('tests/data/Si.tersoff', 'r') as fh:
+      tersoff_parameters = energy.load_lammps_tersoff_parameters(fh)
+    neighbor_fn, energy_fn = energy.tersoff_neighbor_list(displacement,
+                                                          box_size,
+                                                          tersoff_parameters)
     nbrs = neighbor_fn.allocate(atoms)
     E = energy_fn(atoms, nbrs)
     if dtype is f64:
       self.assertAllClose(E, dtype(-296.3463784635968), atol=1e-8, rtol=1e-8)
     else:
-      self.assertAllClose(E, dtype(-296.3463784635968))    
+      self.assertAllClose(E, dtype(-296.3463784635968))
 
 
   @parameterized.named_parameters(jtu.cases_from_list(
