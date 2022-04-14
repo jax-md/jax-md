@@ -232,9 +232,9 @@ def pair_correlation(displacement_or_metric: Union[DisplacementFn, MetricFn],
 
   The pair correlation function measures the number of particles at a given
   distance from a central particle. The pair correlation function is defined
-  by $g(r) = <\sum_{i\neq j}\delta(r - |r_i - r_j|)>.$ We make the
+  by :math:`g(r) = <\sum_{i\neq j}\delta(r - |r_i - r_j|)>.` We make the
   approximation
-  $\delta(r) \approx {1 \over \sqrt{2\pi\sigma^2}e^{-r / (2\sigma^2)}}$.
+  :math:`\delta(r) \approx {1 \over \sqrt{2\pi\sigma^2}e^{-r / (2\sigma^2)}}`.
 
   Args:
     displacement_or_metric: A function that computes the displacement or
@@ -296,9 +296,9 @@ def pair_correlation_neighbor_list(
 
   The pair correlation function measures the number of particles at a given
   distance from a central particle. The pair correlation function is defined
-  by $g(r) = <\sum_{i\neq j}\delta(r - |r_i - r_j|)>.$ We make the
+  by :math:`g(r) = <\sum_{i\neq j}\delta(r - |r_i - r_j|)>.` We make the
   approximation,
-  $\delta(r) \approx {1 \over \sqrt{2\pi\sigma^2}e^{-r / (2\sigma^2)}}$.
+  :math:`\delta(r) \approx {1 \over \sqrt{2\pi\sigma^2}e^{-r / (2\sigma^2)}}`.
 
   This function uses neighbor lists to speed up the calculation.
 

@@ -265,40 +265,40 @@ def periodic_general(box: Box,
                      wrapped: bool=True) -> Space:
   """Periodic boundary conditions on a parallelepiped.
 
-  This function defines a simulation on a parallelepiped, $X$, formed by
-  applying an affine transformation, $T$, to the unit hypercube
-  $U = [0, 1]^d$ along with periodic boundary conditions across all
+  This function defines a simulation on a parallelepiped, :math:`X`, formed by
+  applying an affine transformation, :math:`T`, to the unit hypercube
+  :math:`U = [0, 1]^d` along with periodic boundary conditions across all
   of the faces.
 
-  Formally, the space is defined such that $X = {Tu : u \in [0, 1]^d}$.
+  Formally, the space is defined such that :math:`X = {Tu : u \in [0, 1]^d}`.
 
-  The affine transformation, $T$, can be specified in a number of different
-  ways. For a parallelepiped that is: 1) a cube of side length $L$, the affine
+  The affine transformation, :math:`T`, can be specified in a number of different
+  ways. For a parallelepiped that is: 1) a cube of side length :math:`L`, the affine
   transformation can simply be a scalar; 2) an orthorhombic unit cell can be
   specified by a vector `[Lx, Ly, Lz]` of lengths for each axis; 3) a general
   triclinic cell can be specified by an upper triangular matrix.
 
-  There are a number of ways to parameterize a simulation on $X$.
-  `periodic_general` supports two parametrizations of $X$ that can be selected
+  There are a number of ways to parameterize a simulation on :math:`X`.
+  `periodic_general` supports two parametrizations of :math:`X` that can be selected
   using the `fractional_coordinates` keyword argument.
     1) When `fractional_coordinates=True`, particle positions are stored in the
-       unit cube, $u\in U$. Here, the displacement function computes the
-       displacement between $x, y \in X$ as $d_X(x, y) = Td_U(u, v)$ where
-       $d_U$ is the displacement function on the unit cube, $U$, $x = Tu$, and
-       $v = Tv$ with $u, v\in U$. The derivative of the displacement function
-       is defined so that derivatives live in $X$ (as opposed to being
-       backpropagated to $U$). The shift function, `shift_fn(R, dR)` is defined
-       so that $R$ is expected to lie in $U$ while $dR$ should lie in $X$. This
+       unit cube, :math:`u\in U`. Here, the displacement function computes the
+       displacement between :math:`x, y \in X` as :math:`d_X(x, y) = Td_U(u, v)` where
+       :math:`d_U` is the displacement function on the unit cube, :math:`U`, :math:`x = Tu`, and
+       :math:`v = Tv` with :math:`u, v \in U`. The derivative of the displacement function
+       is defined so that derivatives live in :math:`X` (as opposed to being
+       backpropagated to :math:`U`). The shift function, `shift_fn(R, dR)` is defined
+       so that :math:`R` is expected to lie in :math:`U` while :math:`dR` should lie in :math:`X`. This
        combination enables code such as `shift_fn(R, force_fn(R))` to work as
        intended.
 
     2) When `fractional_coordinates=False`, particle positions are stored in
-       the parallelepiped $X$. Here, for $x, y\in X$, the displacement function
-       is defined as $d_X(x, y) = Td_U(T^{-1}x, T^{-1}y)$. Since there is an
-       extra multiplication by $T^{-1}$, this parameterization is typically
+       the parallelepiped :math:`X`. Here, for :math:`x, y \in X`, the displacement function
+       is defined as :math:`d_X(x, y) = Td_U(T^{-1}x, T^{-1}y)`. Since there is an
+       extra multiplication by :math:`T^{-1}`, this parameterization is typically
        slower than `fractional_coordinates=False`. As in 1), the displacement
-       function is defined to compute derivatives in $X$. The shift function
-       is defined so that $R$ and $dR$ should both lie in $X$.
+       function is defined to compute derivatives in :math:`X`. The shift function
+       is defined so that :math:`R` and :math:`dR` should both lie in :math:`X`.
 
 
   Example:
@@ -326,9 +326,9 @@ def periodic_general(box: Box,
   deformation during a simulation, or using an infinitesimal deformation while
   computing elastic constants. To do this using fractional coordinates, we can
   supply a new affine transformation as `displacement_fn(Ra, Rb, box=new_box)`.
-  When using real coordinates, we can specify positions in a space $X$ defined
-  by an affine transformation $T$ and compute displacements in a deformed space
-  $X'$ defined by an affine transformation $T'$. This is done by writing
+  When using real coordinates, we can specify positions in a space :math:`X` defined
+  by an affine transformation :math:`T` and compute displacements in a deformed space
+  :math:`X'` defined by an affine transformation :math:`T'`. This is done by writing
   `displacement_fn(Ra, Rb, new_box=new_box)`.
 
   There are a few caveats when using `periodic_general`. `periodic_general`
