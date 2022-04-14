@@ -302,24 +302,25 @@ def periodic_general(box: Box,
 
 
   Example:
-  ```python
-    from jax import random
-    side_length = 10.0
-    disp_frac, shift_frac = periodic_general(side_length,
-                                             fractional_coordinates=True)
-    disp_real, shift_real = periodic_general(side_length,
-                                             fractional_coordinates=False)
+  
+  .. code-block:: python
 
-    # Instantiate random positions in both parameterizations.
-    R_frac = random.uniform(random.PRNGKey(0), (4, 3))
-    R_real = side_length * R_frac
+     from jax import random
+     side_length = 10.0
+     disp_frac, shift_frac = periodic_general(side_length,
+                                               fractional_coordinates=True)
+     disp_real, shift_real = periodic_general(side_length,
+                                               fractional_coordinates=False) 
 
-    # Make some shfit vectors.
-    dR = random.normal(random.PRNGKey(0), (4, 3))
+     # Instantiate random positions in both parameterizations.
+     R_frac = random.uniform(random.PRNGKey(0), (4, 3))
+     R_real = side_length * R_frac
 
-    disp_real(R_real[0], R_real[1]) == disp_frac(R_frac[0], R_frac[1])
-    transform(side_length, shift_frac(R_frac, 1.0)) == shift_real(R_real, 1.0)
-  ```
+     # Make some shfit vectors.
+     dR = random.normal(random.PRNGKey(0), (4, 3))
+
+     disp_real(R_real[0], R_real[1]) == disp_frac(R_frac[0], R_frac[1])
+     transform(side_length, shift_frac(R_frac, 1.0)) == shift_real(R_real, 1.0)
 
   It is often desirable to deform a simulation cell either: using a finite
   deformation during a simulation, or using an infinitesimal deformation while
