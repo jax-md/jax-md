@@ -351,7 +351,7 @@ def cell_list(box_size: Box,
     # particle to have a cell id = hash * cell_capacity + grid_id where
     # grid_id is a flat list that repeats 0, .., cell_capacity. So long as
     # there are fewer than cell_capacity particles per cell, each particle is
-    # guarenteed to get a cell id that is unique.
+    # guaranteed to get a cell id that is unique.
     sort_map = jnp.argsort(hashes)
     sorted_position = position[sort_map]
     sorted_hash = hashes[sort_map]
@@ -448,7 +448,7 @@ def is_sparse(fmt: NeighborListFormat) -> bool:
 def is_format_valid(fmt: NeighborListFormat):
   if fmt not in list(NeighborListFormat):
     raise ValueError((
-        'Neighbor list format must be a member of NeighorListFormat'
+        'Neighbor list format must be a member of NeighborListFormat'
         f' found {fmt}.'))
 
 
@@ -458,7 +458,7 @@ class NeighborList(object):
 
   Attributes:
     idx: For an N particle system this is an `[N, max_occupancy]` array of
-      integers such that `idx[i, j]` is the jth neighbor of particle i.
+      integers such that `idx[i, j]` is the j-th neighbor of particle i.
     reference_position: The positions of particles when the neighbor list was
       constructed. This is used to decide whether the neighbor list ought to be
       updated.
@@ -523,7 +523,7 @@ class NeighborListFns:
     Returns:
       A neighbor list object.
     """
-    logging.warning('Using a depricated code path to create / update neighbor '
+    logging.warning('Using a deprecated code path to create / update neighbor '
                     'lists. It will be removed in a later version of JAX MD. '
                     'Using `neighbor_fn.allocate` and `neighbor_fn.update` '
                     'is preferred.')
@@ -552,7 +552,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                   **static_kwargs) -> NeighborFn:
   """Returns a function that builds a list neighbors for collections of points.
 
-  Neighbor lists must balance the need to be jit compatable with the fact that
+  Neighbor lists must balance the need to be jit compatible with the fact that
   under a jit the maximum number of neighbors cannot change (owing to static
   shape requirements). To deal with this, our `neighbor_list` returns a
   `NeighborListFns` object that contains two functions: 1)

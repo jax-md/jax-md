@@ -284,7 +284,7 @@ def pair(fn: Callable[..., Array],
       be None (in which case it is assumed that all the particles have the same
       species), an integer ndarray of shape [n] with species data, or an
       integer in which case the species data will be specified dynamically with
-      `species` giving the naximum number of types of particles. Note: that
+      `species` giving the maximum number of types of particles. Note: that
       dynamic species specification is less efficient, because we cannot
       specialize shape information.
     reduce_axis: A list of axes to reduce over. This is supplied to jnp.sum and
@@ -612,7 +612,7 @@ def triplet(fn: Callable[..., Array],
       be None (in which case it is assumed that all the particles have the same
       species), an integer ndarray of shape [n] with species data, or an
       integer in which case the species data will be specified dynamically with
-      `species` giving the naximum number of types of particles. Note: that
+      `species` giving the maximum number of types of particles. Note: that
       dynamic species specification is less efficient, because we cannot
       specialize shape information.
     reduce_axis: A list of axis to reduce over. This is supplied to np.sum and
@@ -624,7 +624,7 @@ def triplet(fn: Callable[..., Array],
       specified keyword arguments passed to the mapped function get ignored
       if they were not first specified as keyword arguments when calling
       `smap.triplet(...)`.
-    kwargs: Arguement providing parameters to the mapped function. In cases
+    kwargs: Argument providing parameters to the mapped function. In cases
         where no species information is provided, these should either be 1)
         a scalar, 2) an ndarray of shape [n] based on the central atom,
         3) an ndarray of shape [n, n, n] defining triplet interactions.

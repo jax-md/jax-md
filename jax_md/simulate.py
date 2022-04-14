@@ -84,7 +84,7 @@ M. E. Tuckerman, J. Alejandre, R. López-Rendón, A. L Jochim, and G. J. Martyna
 J. Phys. A: Math. Gen. 39 5629 (2006)
 
 As such, we define several primitives that are generically useful in describing
-simulations of this type. Namely, the velocity-verlet integration step that is
+simulations of this type. Namely, the velocity-Verlet integration step that is
 used in the NVE and NVT simulations. We also define a general Nose-Hoover chain
 primitive that is used to couple components of the system to a chain that
 regulates the temperature. These primitives can be combined to construct more
@@ -97,7 +97,7 @@ def velocity_verlet(force_fn: Callable[..., Array],
                     dt: float,
                     state: T,
                     **kwargs) -> T:
-  """Apply a single step of velocity verlet integration to a state."""
+  """Apply a single step of velocity Verlet integration to a state."""
   dt = f32(dt)
   dt_2 = f32(dt / 2)
   dt2_2 = f32(dt ** 2 / 2)
@@ -150,7 +150,7 @@ def nve(energy_or_force_fn: Callable[..., Array],
 
   Samples from the microcanonical ensemble in which the number of particles
   (N), the system volume (V), and the energy (E) are held constant. We use a
-  standard velocity verlet integration scheme.
+  standard velocity Verlet integration scheme.
 
   Args:
     energy_or_force: A function that produces either an energy or a force from
@@ -260,7 +260,7 @@ def nose_hoover_chain(dt: float,
   `sy_steps` arguments.
 
   Consequently, the Nose-Hoover chains are described by three functions: an
-  `init_fn` that initializes the state of the chian, a `half_step_fn` that
+  `init_fn` that initializes the state of the chain, a `half_step_fn` that
   updates the chain for one half-step, and an `update_chain_mass_fn` that
   updates the masses of the chain to enforce the correct period of oscillation.
 
@@ -428,7 +428,7 @@ def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
       and dR should be ndarrays of shape [n, spatial_dimension].
     dt: Floating point number specifying the timescale (step size) of the
       simulation.
-    kT: Floating point number specifying the temperature inunits of Boltzmann
+    kT: Floating point number specifying the temperature in units of Boltzmann
       constant. To update the temperature dynamically during a simulation one
       should pass `kT` as a keyword argument to the step function.
     chain_length: An integer specifying the number of particles in
@@ -829,7 +829,7 @@ class NVTLangevinState:
       shape [n, spatial_dimension].
     velocity: The velocity of particles. An ndarray of floats with shape
       [n, spatial_dimension].
-    force: The (non-stochistic) force on particles. An ndarray of floats with
+    force: The (non-stochastic) force on particles. An ndarray of floats with
       shape [n, spatial_dimension].
     mass: The mass of particles. Will either be a float or an ndarray of floats
       with shape [n].
@@ -867,7 +867,7 @@ def nvt_langevin(energy_or_force: Callable[..., Array],
       and dR should be ndarrays of shape [n, spatial_dimension].
     dt: Floating point number specifying the timescale (step size) of the
       simulation.
-    kT: Floating point number specifying the temperature inunits of Boltzmann
+    kT: Floating point number specifying the temperature in units of Boltzmann
       constant. To update the temperature dynamically during a simulation one
       should pass `kT` as a keyword argument to the step function.
     gamma: A float specifying the friction coefficient between the particles
@@ -968,7 +968,7 @@ def brownian(energy_or_force: Callable[..., Array],
       and dR should be ndarrays of shape [n, spatial_dimension].
     dt: Floating point number specifying the timescale (step size) of the
       simulation.
-    kT: Floating point number specifying the temperature inunits of Boltzmann
+    kT: Floating point number specifying the temperature in units of Boltzmann
       constant. To update the temperature dynamically during a simulation one
       should pass `kT` as a keyword argument to the step function.
     gamma: A float specifying the friction coefficient between the particles

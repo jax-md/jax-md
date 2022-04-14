@@ -500,7 +500,7 @@ def behler_parrinello_symmetry_functions(displacement: DisplacementFn,
   Our implementation here is based off the outstanding GraphNets library by
   DeepMind at, www.github.com/deepmind/graph_nets. This implementation was also
   heavily influenced by work done by Thomas Keck. We implement a subset of the
-  functionality from the graph nets library to be compatable with jax-md
+  functionality from the graph nets library to be compatible with jax-md
   states and neighbor lists, end-to-end jit compilation, and easy batching.
 
   Graphs are described by node states, edge states, a global state, and
@@ -533,7 +533,7 @@ class GraphsTuple(object):
         state of the outgoing edge from node `i` to node `edge_idx[i, j]`.
       globals: An array of shape `[global_dimension]`.
       edge_idx: An integer array of shape `[N_nodes, max_degree]` where
-        `edge_idx[i, j]` is the id of the jth outgoing edge from node `i`.
+        `edge_idx[i, j]` is the id of the j-th outgoing edge from node `i`.
         Empty entries (that don't contain an edge) are denoted by
         `edge_idx[i, j] == N_nodes`.
     """

@@ -177,7 +177,7 @@ def athermal_moduli(energy_fn: Callable[..., Array],
 
   Args:
     energy_fn: A function that computes the energy of the system. This
-      function must take as an argument `perturbation` which perturbes the
+      function must take as an argument `perturbation` which perturbs the
       box shape. Any energy function constructed using `smap` or in `energy.py`
       with a standard space will satisfy this property.
     tether_strength: scalar. Strength of the "tether" applied to each particle,
@@ -198,10 +198,10 @@ def athermal_moduli(energy_fn: Callable[..., Array],
       Therefore, if this check fails, the calculation will return an array
       of jnp.nan's. It is the users responsibility, if they want to use this
       check, to then ensure that the returned array is not full of nans.
-    cg_tol: scalar. Tolorance used when solving for the non-affine response.
+    cg_tol: scalar. Tolerance used when solving for the non-affine response.
     check_convergence: bool. If true, calculate_EMT will return a boolean
-      flag specifiying if the cg solve routine converged to the desired
-      tolorance. The default is False, but convergence checking is highly
+      flag specifying if the cg solve routine converged to the desired
+      tolerance. The default is False, but convergence checking is highly
       recommended especially when using 32-bit precision data.
 
   Return: A function to calculate the elastic modulus tensor
@@ -503,7 +503,7 @@ def extract_isotropic_moduli(C: Array) -> Dict:
   """ Extract commonly used isotropic constants.
 
   There are a number of important constants used to describe the linear
-  elastic behavior of isotropic systems, including the bulk modulud, B,
+  elastic behavior of isotropic systems, including the bulk modulus, B,
   the shear modulus, G, the longitudinal modulus, M, the Young's modulus,
   E, and the Poisson's ratio, nu. This convenience function extracts them
   from an elastic modulus tensor C.

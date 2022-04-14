@@ -115,7 +115,7 @@ def pressure(energy_fn: EnergyFn, position: Array, box: Box,
 
   Args:
     energy_fn: A function that computes the energy of the system. This
-      function must take as an argument `perturbation` which perturbes the
+      function must take as an argument `perturbation` which perturbs the
       box shape. Any energy function constructed using `smap` or in `energy.py`
       with a standard space will satisfy this property.
     position: An array of particle positions.
@@ -144,7 +144,7 @@ def stress(energy_fn: EnergyFn, position: Array, box: Box,
 
   Args:
     energy_fn: A function that computes the energy of the system. This
-      function must take as an argument `perturbation` which perturbes the
+      function must take as an argument `perturbation` which perturbs the
       box shape. Any energy function constructed using `smap` or in `energy.py`
       with a standard space will satisfy this property.
     position: An array of particle positions.
@@ -311,7 +311,7 @@ def pair_correlation_neighbor_list(
     species: An optional array specifying the species of each particle. If
       species is None then we compute a single g(r) for all particles,
       otherwise we compute one g(r) for each species.
-    dr_threshold: A float specifying the halo size of the neighobr list.
+    dr_threshold: A float specifying the halo size of the neighbor list.
     eps: A small additive constant used to ensure stability if the radius is
       zero.
     fractional_coordinates: Bool determining whether positions are stored in

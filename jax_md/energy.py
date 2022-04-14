@@ -56,7 +56,7 @@ def simple_spring(dr: Array,
                   **unused_kwargs) -> Array:
   """Isotropic spring potential with a given rest length.
 
-  We define `simple_spring` to be a generalized Hookian spring with
+  We define `simple_spring` to be a generalized Hookean spring with
   agreement when alpha = 2.
   """
   return epsilon / alpha * (dr - length) ** alpha
@@ -236,7 +236,7 @@ def lennard_jones_neighbor_list(
     format: partition.NeighborListFormat=partition.OrderedSparse,
     **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
-  """Convenience wrapper to compute lennard-jones using a neighbor list."""
+  """Convenience wrapper to compute Lennard-Jones using a neighbor list."""
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
   r_onset = maybe_downcast(r_onset) * jnp.max(sigma)
@@ -480,7 +480,7 @@ def dsf_coulomb(r: Array,
                 alpha: Array=0.25,
                 cutoff: float=8.0) -> Array:
   """Damped-shifted-force approximation of the coulombic interaction."""
-  qqr2e = 332.06371  # Coulmbic conversion factor: 1/(4*pi*epo).
+  qqr2e = 332.06371  # Coulombic conversion factor: 1/(4*pi*epo).
 
   cutoffsq = cutoff * cutoff
   erfcc = erfc(alpha * cutoff)
@@ -514,7 +514,7 @@ def bks(dr: Array,
     attractive_coeff: An ndarray of shape [n, m] for the coefficient of the
     attractive 6th order term.
     repulsive_coeff: An ndarray of shape [n, m] for the coefficient of the
-    repulsive 24th order term, to prevent the ujnphysical fusion of atoms.
+    repulsive 24th order term, to prevent the unphysical fusion of atoms.
     coulomb_alpha: Damping parameter for the approximation of the long-range
     coulombic interactions (a scalar).
     cutoff: Cutoff distance for considering pairwise interactions.
@@ -642,7 +642,7 @@ def _bks_silica_self(Q_sq: Array, alpha: Array, cutoff: float) -> Array:
   erfcd = jnp.exp(-alpha * alpha * cutoffsq)
   f_shift = -(erfcc / cutoffsq + 2.0 / jnp.sqrt(jnp.pi) * alpha * erfcd / cutoff)
   e_shift = erfcc / cutoff - f_shift * cutoff
-  qqr2e = 332.06371  # kcal/mol coulmbic conversion factor: 1/(4*pi*epo)
+  qqr2e = 332.06371  # kcal/mol coulombic conversion factor: 1/(4*pi*epo)
   return -(e_shift / 2.0 + alpha / jnp.sqrt(jnp.pi)) * Q_sq * qqr2e
 
 
@@ -765,7 +765,7 @@ def stillinger_weber(displacement: DisplacementFn,
   silicon and similar systems. This function uses the default SW parameters
   from the original paper. The SW potential was originally proposed to
   model diamond in the diamond crystal phase and the liquid phase, and is
-  known to give ujnphysical amorphous configurations [2, 3]. For this reason,
+  known to give unphysical amorphous configurations [2, 3]. For this reason,
   we provide a three_body_strength parameter. Changing this number to 1.5
   or 2.0 has been know to produce more physical amorphous phase, preventing
   most atoms from having more than four nearest neighbors. Note that this
@@ -831,7 +831,7 @@ def stillinger_weber_neighbor_list(
   silicon and similar systems. This function uses the default SW parameters
   from the original paper. The SW potential was originally proposed to
   model diamond in the diamond crystal phase and the liquid phase, and is
-  known to give ujnphysical amorphous configurations [2, 3]. For this reason,
+  known to give unphysical amorphous configurations [2, 3]. For this reason,
   we provide a three_body_strength parameter. Changing this number to 1.5
   or 2.0 has been know to produce more physical amorphous phase, preventing
   most atoms from having more than four nearest neighbors. Note that this
@@ -1100,7 +1100,7 @@ def eam_neighbor_list(
       pairwise_energy = ops.segment_sum(pairwise_fn(dr) * self_mask,
                                         neighbor.idx[0], N)
     else:
-      raise NotImplementedError('EAM potentail not implemented for '
+      raise NotImplementedError('EAM potential not implemented for '
                                 'OrderedSparse neighbor lists.')
 
     return util.high_precision_sum(
