@@ -37,6 +37,7 @@ def dataclass(clz):
   Returns:
     The new class.
   """
+  clz.set = lambda self, **kwargs: dataclasses.replace(self, **kwargs)
   data_clz = dataclasses.dataclass(frozen=True)(clz)
   meta_fields = []
   data_fields = []
@@ -71,5 +72,6 @@ def static_field():
 replace = dataclasses.replace
 asdict = dataclasses.asdict
 astuple = dataclasses.astuple
+
 def unpack(dc) -> tuple:
     return tuple(getattr(dc, field.name) for field in dataclasses.fields(dc))
