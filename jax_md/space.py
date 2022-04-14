@@ -316,7 +316,7 @@ def periodic_general(box: Box,
      R_frac = random.uniform(random.PRNGKey(0), (4, 3))
      R_real = side_length * R_frac
 
-     # Make some shfit vectors.
+     # Make some shift vectors.
      dR = random.normal(random.PRNGKey(0), (4, 3))
 
      disp_real(R_real[0], R_real[1]) == disp_frac(R_frac[0], R_frac[1])
