@@ -252,9 +252,9 @@ def nose_hoover_chain(dt: float,
   timescale than the rest of the simulation. Therefore, it sometimes necessary
   to integrate the chain over several substeps for each step of MD. To do this
   we follow the Suzuki-Yoshida scheme. Specifically, we subdivide our chain
-  simulation into $n_c$ substeps. These substeps are further subdivided into
-  $n_sy$ steps. Each $n_sy$ step has length $\delta_i = \Delta t w_i / n_c$
-  where $w_i$ are constants such that $\sum_i w_i = 1$. See the table of
+  simulation into :math:`n_c` substeps. These substeps are further subdivided into
+  :math:`n_sy` steps. Each :math:`n_sy` step has length :math:`\delta_i = \Delta t w_i / n_c`
+  where :math:`w_i` are constants such that :math:`\sum_i w_i = 1`. See the table of
   Suzuki_Yoshida weights above for specific values. The number of substeps
   and the number of Suzuki-Yoshida steps are set using the `chain_steps` and
   `sy_steps` arguments.
@@ -274,7 +274,7 @@ def nose_hoover_chain(dt: float,
       simulation.
     chain_length: An integer specifying the number of particles in
       the Nose-Hoover chain.
-    chain_steps: An integer specifying the number, $n_c$, of outer substeps.
+    chain_steps: An integer specifying the number, :math:`n_c`, of outer substeps.
     sy_steps: An integer specifying the number of Suzuki-Yoshida steps. This
       must be either 1, 3, 5, or 7.
     tau: A floating point timescale over which temperature equilibration occurs.
@@ -433,7 +433,7 @@ def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
       should pass `kT` as a keyword argument to the step function.
     chain_length: An integer specifying the number of particles in
       the Nose-Hoover chain.
-    chain_steps: An integer specifying the number, $n_c$, of outer substeps.
+    chain_steps: An integer specifying the number, :math:`n_c`, of outer substeps.
     sy_steps: An integer specifying the number of Suzuki-Yoshida steps. This
       must be either 1, 3, 5, or 7.
     tau: A floating point timescale over which temperature equilibration occurs.

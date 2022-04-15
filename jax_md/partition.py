@@ -569,26 +569,28 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
 
   Here is a typical example of a simulation loop with neighbor lists:
 
-  >>> init_fn, apply_fn = simulate.nve(energy_fn, shift, 1e-3)
-  >>> exact_init_fn, exact_apply_fn = simulate.nve(exact_energy_fn, shift, 1e-3)
-  >>>
-  >>> nbrs = neighbor_fn.allocate(R)
-  >>> state = init_fn(random.PRNGKey(0), R, neighbor_idx=nbrs.idx)
-  >>>
-  >>> def body_fn(i, state):
-  >>>   state, nbrs = state
-  >>>   nbrs = nbrs.update(state.position)
-  >>>   state = apply_fn(state, neighbor_idx=nbrs.idx)
-  >>>   return state, nbrs
-  >>>
-  >>> step = 0
-  >>> for _ in range(20):
-  >>>   new_state, nbrs = lax.fori_loop(0, 100, body_fn, (state, nbrs))
-  >>>   if nbrs.did_buffer_overflow:
-  >>>     nbrs = neighbor_fn.allocate(state.position)
-  >>>   else:
-  >>>     state = new_state
-  >>>     step += 1
+  .. code-block:: python
+
+     init_fn, apply_fn = simulate.nve(energy_fn, shift, 1e-3)
+     exact_init_fn, exact_apply_fn = simulate.nve(exact_energy_fn, shift, 1e-3)
+  
+     nbrs = neighbor_fn.allocate(R)
+     state = init_fn(random.PRNGKey(0), R, neighbor_idx=nbrs.idx)
+  
+     def body_fn(i, state):
+       state, nbrs = state
+       nbrs = nbrs.update(state.position)
+       state = apply_fn(state, neighbor_idx=nbrs.idx)
+       return state, nbrs
+  
+     step = 0
+     for _ in range(20):
+       new_state, nbrs = lax.fori_loop(0, 100, body_fn, (state, nbrs))
+       if nbrs.did_buffer_overflow:
+         nbrs = neighbor_fn.allocate(state.position)
+       else:
+         state = new_state
+         step += 1
 
   Args:
     displacement: A function `d(R_a, R_b)` that computes the displacement
