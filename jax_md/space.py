@@ -31,12 +31,12 @@ Although displacement functions are compute the displacement between two
 points, it is often useful to compute displacements between multiple particles
 in a vectorized fashion. To do this we provide three functions: `map_product`,
 `map_bond`, and `map_neighbor`.
-  * `map_pair` computes displacements betweeen all pairs of points such that if
+  * `map_pair` computes displacements between all pairs of points such that if
     Ra has shape [n, spatial_dim] and Rb has shape `[m, spatial_dim]` then the
     output has shape `[n, m, spatial_dim]`.
   * `map_bond` computes displacements between all points in a list such that if
     Ra has shape [n, spatial_dim] and Rb has shape [m, spatial_dim] then the
-    otuput has shape [n, spatial_dim].
+    output has shape [n, spatial_dim].
   * `map_neighbor` computes displacements between points and all of their
     neighbors such that if Ra has shape [n, spatial_dim] and Rb has shape
     [n, neighbors, spatial_dim] then the output has shape
@@ -240,7 +240,7 @@ def periodic(side: Box, wrapped: bool=True) -> Space:
                       **unused_kwargs) -> Array:
     if 'box' in unused_kwargs:
       raise ValueError(('`space.periodic` does not accept a box argument.'
-                        'Perhaps you maent to use `space.periodic_general`?'))
+                        'Perhaps you meant to use `space.periodic_general`?'))
     dR = periodic_displacement(side, pairwise_displacement(Ra, Rb))
     if perturbation is not None:
       dR = raw_transform(perturbation, dR)
@@ -249,13 +249,13 @@ def periodic(side: Box, wrapped: bool=True) -> Space:
     def shift_fn(R: Array, dR: Array, **unused_kwargs) -> Array:
       if 'box' in unused_kwargs:
         raise ValueError(('`space.periodic` does not accept a box argument.'
-                          'Perhaps you maent to use `space.periodic_general`?'))
+                          'Perhaps you meant to use `space.periodic_general`?'))
       return periodic_shift(side, R, dR)
   else:
     def shift_fn(R: Array, dR: Array, **unused_kwargs) -> Array:
       if 'box' in unused_kwargs:
         raise ValueError(('`space.periodic` does not accept a box argument.'
-                          'Perhaps you maent to use `space.periodic_general`?'))
+                          'Perhaps you meant to use `space.periodic_general`?'))
       return R + dR
   return displacement_fn, shift_fn
 

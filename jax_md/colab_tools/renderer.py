@@ -108,7 +108,7 @@ class Bond:
   """Bonds are lines between geometric objects.
 
   Args:
-    reference_geometery: The name of the geometry object to draw bonds between.
+    reference_geometry: The name of the geometry object to draw bonds between.
     neighbor_idx: An array of ids of objects that should have bonds drawn
       between them. This uses the same encoding as in `partition.neighbor_list`.
       Essentially, ids is a `(steps, count, max_neighbors)` or
