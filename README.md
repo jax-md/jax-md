@@ -76,7 +76,7 @@ We now summarize the main components of the library.
 In general we must have a way of computing the pairwise distance between atoms.
 We must also have efficient strategies for moving atoms in some space that may
 or may not be globally isomorphic to R^N. For example, periodic boundary
-conditions are commonplace in simulations and must be respected. Spaces are defined as a pair of functions, `(displacement_fn, shift_fn)`. Given two points `displacement_fn(R_1, R_2)` computes the displacement vector between the two points. If you would like to compute displacement vectors between all pairs of points in a given `(N, dim)` matrix the function `space.map_product` appropriately vectorizes `displacement_fn`. It is often useful to define a metric instead of a displcement function in which case you can use the helper function `space.metric` to convert a displacement function to a metric function. Given a point and a shift `shift_fn(R, dR)` displaces the point `R` by an amount `dR`.
+conditions are commonplace in simulations and must be respected. Spaces are defined as a pair of functions, `(displacement_fn, shift_fn)`. Given two points `displacement_fn(R_1, R_2)` computes the displacement vector between the two points. If you would like to compute displacement vectors between all pairs of points in a given `(N, dim)` matrix the function `space.map_product` appropriately vectorizes `displacement_fn`. It is often useful to define a metric instead of a displacement function in which case you can use the helper function `space.metric` to convert a displacement function to a metric function. Given a point and a shift `shift_fn(R, dR)` displaces the point `R` by an amount `dR`.
 
 The following spaces are currently supported:
 - `space.free()` specifies a space with free boundary conditions.
@@ -100,8 +100,8 @@ that we get forces for free! The second part of the code is devoted to computing
 energies.
 
 We provide the following classical potentials:
-- `energy.soft_sphere` a soft sphere whose energy incrases as the overlap of the spheres to some power, `alpha`.
-- `energy.lennard_jones` a standard 12-6 lennard-jones potential.
+- `energy.soft_sphere` a soft sphere whose energy increases as the overlap of the spheres to some power, `alpha`.
+- `energy.lennard_jones` a standard 12-6 Lennard-Jones potential.
 - `energy.morse` a morse potential.
 - `energy.eam` embedded atom model potential with ability to load parameters from LAMMPS files.
 - `energy.stillinger_weber` used to model Silicon-like systems.
@@ -141,7 +141,7 @@ function does a single step of dynamics to the dynamical state variables and
 returns an updated state.
 
 We include a several different kinds of dynamics. However, there is certainly room
-to add more for e.g. constaint strain simulations.
+to add more for e.g. constant strain simulations.
 
 It is often desirable to find an energy minimum of the system. We provide
 two methods to do this. We provide simple gradient descent minimization. This is
@@ -152,10 +152,10 @@ We provide the following dynamics:
 - `simulate.nve` Constant energy simulation; numerically integrates Newton's laws directly.
 - `simulate.nvt_nose_hoover` Uses Nose-Hoover chain to simulate a constant temperature system.
 - `simulate.npt_nose_hoover` Uses Nose-Hoover chain to simulate a system at constant pressure and temperature.
-- `simulate.nvt_langevin` Simulates a system by numerically integrating the Langevin stochistic differential equation.
+- `simulate.nvt_langevin` Simulates a system by numerically integrating the Langevin stochastic differential equation.
 - `simulate.hybrid_swap_mc` Alternates NVT dynamics with Monte-Carlo swapping moves to generate low energy glasses.
 - `simulate.brownian` Simulates brownian motion.
-- `minimize.gradient_descent` Mimimizes a system using gradient descent.
+- `minimize.gradient_descent` Minimizes a system using gradient descent.
 - `minimize.fire_descent` Minimizes a system using the fast inertial relaxation engine.
 
 Example:

@@ -136,7 +136,7 @@ def pressure(energy_fn: EnergyFn, position: Array, box: Box,
 
   Args:
     energy_fn: A function that computes the energy of the system. This
-      function must take as an argument `perturbation` which perturbes the
+      function must take as an argument `perturbation` which perturbs the
       box shape. Any energy function constructed using `smap` or in `energy.py`
       with a standard space will satisfy this property.
     position: An array of particle positions.
@@ -165,7 +165,7 @@ def stress(energy_fn: EnergyFn, position: Array, box: Box,
 
   Args:
     energy_fn: A function that computes the energy of the system. This
-      function must take as an argument `perturbation` which perturbes the
+      function must take as an argument `perturbation` which perturbs the
       box shape. Any energy function constructed using `smap` or in `energy.py`
       with a standard space will satisfy this property.
     position: An array of particle positions.
@@ -251,9 +251,9 @@ def pair_correlation(displacement_or_metric: Union[DisplacementFn, MetricFn],
 
   The pair correlation function measures the number of particles at a given
   distance from a central particle. The pair correlation function is defined
-  by $g(r) = <\sum_{i\neq j}\delta(r - |r_i - r_j|)>.$ We make the
+  by :math:`g(r) = <\sum_{i\neq j}\delta(r - |r_i - r_j|)>.` We make the
   approximation
-  $\delta(r) \approx {1 \over \sqrt{2\pi\sigma^2}e^{-r / (2\sigma^2)}}$.
+  :math:`\delta(r) \approx {1 \over \sqrt{2\pi\sigma^2}e^{-r / (2\sigma^2)}}`.
 
   Args:
     displacement_or_metric: A function that computes the displacement or
@@ -315,9 +315,9 @@ def pair_correlation_neighbor_list(
 
   The pair correlation function measures the number of particles at a given
   distance from a central particle. The pair correlation function is defined
-  by $g(r) = <\sum_{i\neq j}\delta(r - |r_i - r_j|)>.$ We make the
+  by :math:`g(r) = <\sum_{i\neq j}\delta(r - |r_i - r_j|)>.` We make the
   approximation,
-  $\delta(r) \approx {1 \over \sqrt{2\pi\sigma^2}e^{-r / (2\sigma^2)}}$.
+  :math:`\delta(r) \approx {1 \over \sqrt{2\pi\sigma^2}e^{-r / (2\sigma^2)}}`.
 
   This function uses neighbor lists to speed up the calculation.
 
@@ -330,7 +330,7 @@ def pair_correlation_neighbor_list(
     species: An optional array specifying the species of each particle. If
       species is None then we compute a single g(r) for all particles,
       otherwise we compute one g(r) for each species.
-    dr_threshold: A float specifying the halo size of the neighobr list.
+    dr_threshold: A float specifying the halo size of the neighbor list.
     eps: A small additive constant used to ensure stability if the radius is
       zero.
     fractional_coordinates: Bool determining whether positions are stored in

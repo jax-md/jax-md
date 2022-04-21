@@ -17,22 +17,35 @@
   The elastic modulus tensor describes a material's response to different
   boundary deformations. Specifically, for a small deformation given by a
   symmetric strain tensor e, the change in energy is
-    U / V^0 = U^0/V^0 + s^0_{ij} e_{ji} + (1/2) C_{ijkl} e_{ij} e_{kl} + ...
-  where V^0 is the volume, U^0 is the initial energy, s^0 is the residual stress
-  tensor of the undeformed system, and C is the elastic modulus tensor. C is
+
+  .. math::
+
+     U / V^0 = U^0/V^0 + s^0_{ij} e_{ji} + (1/2) C_{ijkl} e_{ij} e_{kl} + \ldots{}
+  
+  where :math:`V^0` is the volume, :math:`U^0` is the initial energy, :math:`s^0` is the residual stress
+  tensor of the undeformed system, and :math:`C` is the elastic modulus tensor. :math:`C` is
   a fourth-rank tensor of shape (dimension,dimension,dimension,dimension), with
   the following symmetries.
 
     Minor symmetries:
-      C_ijkl = C_jikl = C_ijlk
+
+    .. math::
+
+       C_{ijkl} = C_{jikl} = C_{ijlk}
 
     Major symmetries:
-      C_ijkl = C_lkij
+
+    .. math::
+
+       C_{ijkl} = C_{lkij}
 
   The minor symmetries are also reflected in the symmetric nature
   of stress and strain tensors:
-    s_ij = s_ji
-    e_ij = e_ji
+
+  .. math::
+  
+     s_{ij} = s_{ji}
+     e_{ij} = e_{ji}
 
   In general, there are 21 independent elastic constants in 3 dimension (6 in 2
   dimensions). While systems with additional symmetries (e.g. isotropic,
@@ -177,7 +190,7 @@ def athermal_moduli(energy_fn: Callable[..., Array],
 
   Args:
     energy_fn: A function that computes the energy of the system. This
-      function must take as an argument `perturbation` which perturbes the
+      function must take as an argument `perturbation` which perturbs the
       box shape. Any energy function constructed using `smap` or in `energy.py`
       with a standard space will satisfy this property.
     tether_strength: scalar. Strength of the "tether" applied to each particle,
@@ -198,10 +211,10 @@ def athermal_moduli(energy_fn: Callable[..., Array],
       Therefore, if this check fails, the calculation will return an array
       of jnp.nan's. It is the users responsibility, if they want to use this
       check, to then ensure that the returned array is not full of nans.
-    cg_tol: scalar. Tolorance used when solving for the non-affine response.
+    cg_tol: scalar. Tolerance used when solving for the non-affine response.
     check_convergence: bool. If true, calculate_EMT will return a boolean
-      flag specifiying if the cg solve routine converged to the desired
-      tolorance. The default is False, but convergence checking is highly
+      flag specifying if the cg solve routine converged to the desired
+      tolerance. The default is False, but convergence checking is highly
       recommended especially when using 32-bit precision data.
 
   Return: A function to calculate the elastic modulus tensor
@@ -503,7 +516,7 @@ def extract_isotropic_moduli(C: Array) -> Dict:
   """ Extract commonly used isotropic constants.
 
   There are a number of important constants used to describe the linear
-  elastic behavior of isotropic systems, including the bulk modulud, B,
+  elastic behavior of isotropic systems, including the bulk modulus, B,
   the shear modulus, G, the longitudinal modulus, M, the Young's modulus,
   E, and the Poisson's ratio, nu. This convenience function extracts them
   from an elastic modulus tensor C.
