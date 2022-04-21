@@ -444,5 +444,179 @@ class SimulateTest(jtu.JaxTestCase):
     self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
     assert E_final.dtype == dtype
 
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dtype={}'.format(dtype.__name__),
+          'dtype': dtype
+      } for dtype in DTYPE))
+  def test_nve_3d_multi_shape_species(self, dtype):
+    N = PARTICLE_COUNT
+    box_size = quantity.box_size_at_number_density(N, 0.1, 3)
+
+    displacement, shift = space.periodic(box_size)
+
+    key = random.PRNGKey(0)
+
+    key, pos_key, quat_key = random.split(key, 3)
+
+    R = box_size * random.uniform(pos_key, (N, 3), dtype=dtype)
+    quat_key = random.split(quat_key, N)
+    quaternion = rand_quat(quat_key, dtype)
+
+    species = onp.where(onp.arange(N) < N // 2, 0, 1)
+
+    body = rigid_body.RigidBody(R, quaternion)
+    shape = rigid_body.rigid_body_shape(
+      rigid_body.tetrahedron.points * jnp.array([[1.0, 2.0, 3.0]], f32),
+      rigid_body.tetrahedron.masses)
+    shape = rigid_body.concatenate_shapes(rigid_body.tetrahedron, shape)
+
+    energy_fn = rigid_body.energy(energy.soft_sphere_pair(displacement),
+                                  shape,
+                                  species)
+
+    init_fn, step_fn = simulate.nve(energy_fn, shift)
+
+    step_fn = jit(step_fn)
+
+    @jit
+    def total_energy(state):
+      pos = state.position
+      mom = state.momentum
+      mass = state.mass
+
+      return energy_fn(pos) + rigid_body.kinetic_energy(pos, mom, mass)
+
+    state = init_fn(key, body, 1e-3, mass=shape.mass(species))
+    E_initial = total_energy(state)
+
+    for i in range(DYNAMICS_STEPS):
+      state = step_fn(state)
+    E_final = total_energy(state)
+
+    tol = 5e-8 if dtype == f64 else 5e-5
+
+    self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
+    assert E_final.dtype == dtype
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dtype={}'.format(dtype.__name__),
+          'dtype': dtype
+      } for dtype in DTYPE))
+  def test_nve_3d_multi_atom_shape_species(self, dtype):
+    N = PARTICLE_COUNT
+    box_size = quantity.box_size_at_number_density(N, 0.1, 3)
+
+    displacement, shift = space.periodic(box_size)
+
+    key = random.PRNGKey(0)
+
+    key, pos_key, quat_key = random.split(key, 3)
+
+    R = box_size * random.uniform(pos_key, (N, 3), dtype=dtype)
+    quat_key = random.split(quat_key, N)
+    quaternion = rand_quat(quat_key, dtype)
+
+    species = onp.where(onp.arange(N) < N // 2, 0, 1)
+
+    body = rigid_body.RigidBody(R, quaternion)
+
+    shape = rigid_body.rigid_body_shape(
+      rigid_body.tetrahedron.points * jnp.array([[1.0, 2.0, 3.0]], f32),
+      rigid_body.tetrahedron.masses)
+    shape = rigid_body.concatenate_shapes(rigid_body.tetrahedron, shape)
+    shape = shape.set(point_species=jnp.array([0, 1, 0, 1, 1, 0, 1, 0]))
+
+    pair_energy_fn = energy.soft_sphere_pair(displacement,
+                                             sigma=jnp.array([[0.5, 1.0],
+                                                              [1.0, 1.5]],
+                                                             f32),
+                                             species=2)
+    energy_fn = rigid_body.energy(pair_energy_fn, shape, species)
+
+    init_fn, step_fn = simulate.nve(energy_fn, shift)
+
+    step_fn = jit(step_fn)
+
+    @jit
+    def total_energy(state):
+      pos = state.position
+      mom = state.momentum
+      mass = state.mass
+
+      return energy_fn(pos) + rigid_body.kinetic_energy(pos, mom, mass)
+
+    state = init_fn(key, body, 1e-3, mass=shape.mass(species))
+    E_initial = total_energy(state)
+
+    for i in range(DYNAMICS_STEPS):
+      state = step_fn(state)
+    E_final = total_energy(state)
+
+    tol = 5e-8 if dtype == f64 else 5e-5
+
+    self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
+    assert E_final.dtype == dtype
+
+  @parameterized.named_parameters(jtu.cases_from_list(
+      {
+          'testcase_name': '_dtype={}'.format(dtype.__name__),
+          'dtype': dtype
+      } for dtype in DTYPE))
+  def test_nve_3d_neighbor_list(self, dtype):
+    N = PARTICLE_COUNT
+    box_size = quantity.box_size_at_number_density(N, 0.1, 3)
+
+    displacement, shift = space.periodic(box_size)
+
+    key = random.PRNGKey(0)
+
+    key, pos_key, quat_key = random.split(key, 3)
+
+    R = box_size * random.uniform(pos_key, (N, 3), dtype=dtype)
+    quat_key = random.split(quat_key, N)
+    quaternion = rand_quat(quat_key, dtype)
+
+    body = rigid_body.RigidBody(R, quaternion)
+    shape = rigid_body.rigid_body_shape(
+      rigid_body.tetrahedron.points * jnp.array([[1.0, 2.0, 3.0]], dtype),
+      rigid_body.tetrahedron.masses
+    )
+
+    neighbor_fn, energy_fn = energy.soft_sphere_neighbor_list(displacement,
+                                                              box_size)
+    neighbor_fn, energy_fn = rigid_body.energy_neighbor_list(energy_fn,
+                                                             neighbor_fn,
+                                                             shape)
+
+    init_fn, step_fn = simulate.nve(energy_fn, shift)
+
+    step_fn = jit(step_fn)
+
+    @jit
+    def total_energy(state, nbrs):
+      pos = state.position
+      mom = state.momentum
+      mass = state.mass
+
+      return (energy_fn(pos, neighbor=nbrs) +
+              rigid_body.kinetic_energy(pos, mom, mass))
+
+    nbrs = neighbor_fn.allocate(body)
+    state = init_fn(key, body, 1e-3, mass=shape.mass(), neighbor=nbrs)
+    E_initial = total_energy(state, nbrs)
+
+    for i in range(DYNAMICS_STEPS):
+      state = step_fn(state, neighbor=nbrs)
+      nbrs = jit(nbrs.update)(state.position)
+    E_final = total_energy(state, nbrs)
+
+    tol = 5e-8 if dtype == f64 else 5e-5
+
+    self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
+    assert E_final.dtype == dtype
+
+
 if __name__ == '__main__':
   absltest.main()

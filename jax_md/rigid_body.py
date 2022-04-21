@@ -101,6 +101,11 @@ class Quaternion:
   def __rmul__(self, qp: 'Quaternion') -> 'Quaternion':
     return Quaternion(_quaternion_multiply(qp.vec, self.vec))
 
+  def __getitem__(self, idx):
+    # TODO: Better error message.
+    assert self.vec.ndim > 1
+    return Quaternion(self.vec[idx])
+
 
 def quaternion_apply(q: Quaternion, v: Array) -> Array:
   return _quaternion_apply(q.vec, v)
