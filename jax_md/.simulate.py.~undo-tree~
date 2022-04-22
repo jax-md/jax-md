@@ -1,0 +1,34 @@
+(undo-tree-save-format-version . 1)
+"0723cfd2baadecb6971408d034da59024d425a52"
+[nil nil nil nil (25187 11316 402302 0) 0 nil]
+([nil nil ((nil rear-nonsticky nil 26541 . 26542) (nil fontified nil 26072 . 26542) (26072 . 26542) (t 25187 10367 461861 237000)) nil (25187 11316 402301 0) 0 nil])
+([nil nil ((26072 . 26073)) nil (25187 11316 402299 0) 0 nil])
+([nil nil ((#("
+" 0 1 (fontified t)) . 26543) (undo-tree-id38 . -1) (undo-tree-id39 . 1)) nil (25187 11316 402297 0) 0 nil])
+([nil nil ((#("  def box_force(alpha, vol, box_fn, position, velocity, mass, force, pressure,
+" 0 2 (fontified t) 2 5 (fontified t face font-lock-keyword-face) 5 6 (fontified t) 6 15 (fontified t face font-lock-function-name-face) 15 16 (fontified t face (rainbow-delimiters-depth-1-face)) 16 78 (fontified t) 78 79 (fontified t)) . 26543) (undo-tree-id35 . -79) (undo-tree-id36 . 79) (undo-tree-id37 . -78)) nil (25187 11316 402294 0) 0 nil])
+([nil nil ((#("                **kwargs):
+" 0 24 (fontified t) 24 25 (fontified t face (rainbow-delimiters-unmatched-face)) 25 26 (fontified t) 26 27 (fontified t)) . 26543) (undo-tree-id32 . -27) (undo-tree-id33 . 27) (undo-tree-id34 . -26)) nil (25187 11316 402289 0) 0 nil])
+([nil nil ((#("    N, dim = position.shape
+" 0 4 (fontified t) 4 5 (fontified t face font-lock-variable-name-face) 5 7 (fontified t) 7 10 (fontified t face font-lock-variable-name-face) 10 27 (fontified t) 27 28 (fontified t)) . 26543) (undo-tree-id29 . -28) (undo-tree-id30 . 28) (undo-tree-id31 . -27)) nil (25187 11316 402281 0) 0 nil])
+([nil nil ((#("
+" 0 1 (fontified t)) . 26543) (undo-tree-id27 . -1) (undo-tree-id28 . 1)) nil (25187 11316 402276 0) 0 nil])
+([nil nil ((#("    def U(vol):
+" 0 4 (fontified t) 4 7 (fontified t face font-lock-keyword-face) 7 8 (fontified t) 8 9 (fontified t face font-lock-function-name-face) 9 10 (fontified t face (rainbow-delimiters-depth-1-face)) 10 13 (fontified t) 13 14 (fontified t face (rainbow-delimiters-depth-1-face)) 14 15 (fontified t) 15 16 (fontified t)) . 26543) (undo-tree-id23 . -16) (undo-tree-id24 . -16) (undo-tree-id25 . 16) (undo-tree-id26 . -15)) nil (25187 11316 402272 0) 0 nil])
+([nil nil ((#("      return energy_fn(position, box=box_fn(vol), **kwargs)
+" 0 6 (fontified t) 6 12 (fontified t face font-lock-keyword-face) 12 20 (fontified t) 20 22 (fontified t) 22 23 (fontified t face (rainbow-delimiters-depth-1-face)) 23 43 (fontified t) 43 44 (fontified t face (rainbow-delimiters-depth-2-face)) 44 47 (fontified t) 47 48 (fontified t face (rainbow-delimiters-depth-2-face)) 48 58 (fontified t) 58 59 (fontified t face (rainbow-delimiters-depth-1-face)) 59 60 (fontified t)) . 26543) (undo-tree-id19 . -60) (undo-tree-id20 . -20) (undo-tree-id21 . 60) (undo-tree-id22 . -59)) nil (25187 11316 402267 0) 0 nil])
+([nil nil ((#("
+" 0 1 (fontified t)) . 26543) (undo-tree-id17 . -1) (undo-tree-id18 . 1)) nil (25187 11316 402261 0) 0 nil])
+([nil nil ((#("    dUdV = grad(U)
+" 0 4 (fontified t) 4 8 (fontified t face font-lock-variable-name-face) 8 15 (fontified t) 15 16 (fontified t face (rainbow-delimiters-depth-1-face)) 16 17 (fontified t) 17 18 (fontified t face (rainbow-delimiters-depth-1-face)) 18 19 (fontified t)) . 26543) (undo-tree-id14 . -19) (undo-tree-id15 . 19) (undo-tree-id16 . -18)) nil (25187 11316 402257 0) 0 nil])
+([nil nil ((#("    KE2 = util.high_precision_sum(velocity ** 2 * mass)
+" 0 4 (fontified t) 4 7 (fontified t face font-lock-variable-name-face) 7 33 (fontified t) 33 34 (fontified t face (rainbow-delimiters-depth-1-face)) 34 46 (fontified t) 46 47 (fontified t face highlight-numbers-number) 47 54 (fontified t) 54 55 (fontified t face (rainbow-delimiters-depth-1-face)) 55 56 (fontified t)) . 26543) (undo-tree-id11 . -56) (undo-tree-id12 . 56) (undo-tree-id13 . -55)) nil (25187 11316 402252 0) 0 nil])
+([nil nil ((#("    R = space.transform(box_fn(vol), position)
+" 0 4 (fontified t) 4 5 (fontified t face font-lock-variable-name-face) 5 23 (fontified t) 23 24 (fontified t face (rainbow-delimiters-depth-1-face)) 24 30 (fontified t) 30 31 (fontified t face (rainbow-delimiters-depth-2-face)) 31 34 (fontified t) 34 35 (fontified t face (rainbow-delimiters-depth-2-face)) 35 45 (fontified t) 45 46 (fontified t face (rainbow-delimiters-depth-1-face)) 46 47 (fontified t)) . 26543) (undo-tree-id8 . -47) (undo-tree-id9 . 47) (undo-tree-id10 . -46)) nil (25187 11316 402247 0) 0 nil])
+([nil nil ((#("    RdotF = util.high_precision_sum(R * force)
+" 0 4 (fontified t) 4 9 (fontified t face font-lock-variable-name-face) 9 35 (fontified t) 35 36 (fontified t face (rainbow-delimiters-depth-1-face)) 36 45 (fontified t) 45 46 (fontified t face (rainbow-delimiters-depth-1-face)) 46 47 (fontified t)) . 26543) (undo-tree-id5 . -47) (undo-tree-id6 . 47) (undo-tree-id7 . -46)) nil (25187 11316 402242 0) 0 nil])
+([nil nil ((#("
+" 0 1 (fontified t)) . 26543) (undo-tree-id3 . -1) (undo-tree-id4 . 1)) nil (25187 11316 402236 0) 0 nil])
+([nil current ((#("    return alpha * KE2 + RdotF - dim * vol * dUdV(vol) - pressure * vol * dim
+" 0 4 (fontified t) 4 10 (fontified t face font-lock-keyword-face) 10 49 (fontified t) 49 50 (fontified t face (rainbow-delimiters-depth-1-face)) 50 53 (fontified t) 53 54 (fontified t face (rainbow-delimiters-depth-1-face)) 54 77 (fontified t) 77 78 (fontified t)) . 26543) (undo-tree-id0 . -78) (undo-tree-id1 . 78) (undo-tree-id2 . -77)) nil (25187 11316 402228 0) 0 nil])
+nil

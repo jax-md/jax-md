@@ -74,6 +74,13 @@ Space = Tuple[DisplacementFn, ShiftFn]
 Box = Array
 
 
+# Exceptions
+
+
+class UnexpectedBoxException(Exception):
+  pass
+
+
 # Primitive Spatial Transforms
 
 
@@ -239,8 +246,9 @@ def periodic(side: Box, wrapped: bool=True) -> Space:
                       perturbation: Optional[Array] = None,
                       **unused_kwargs) -> Array:
     if 'box' in unused_kwargs:
-      raise ValueError(('`space.periodic` does not accept a box argument.'
-                        'Perhaps you meant to use `space.periodic_general`?'))
+      raise UnexpectedBoxException(('`space.periodic` does not accept a box '
+                                    'argument. Perhaps you meant to use '
+                                    '`space.periodic_general`?'))
     dR = periodic_displacement(side, pairwise_displacement(Ra, Rb))
     if perturbation is not None:
       dR = raw_transform(perturbation, dR)
@@ -248,14 +256,17 @@ def periodic(side: Box, wrapped: bool=True) -> Space:
   if wrapped:
     def shift_fn(R: Array, dR: Array, **unused_kwargs) -> Array:
       if 'box' in unused_kwargs:
-        raise ValueError(('`space.periodic` does not accept a box argument.'
-                          'Perhaps you meant to use `space.periodic_general`?'))
+        raise UnexpectedBoxException(('`space.periodic` does not accept a box '
+                                      'argument. Perhaps you meant to use '
+                                      '`space.periodic_general`?'))
+
       return periodic_shift(side, R, dR)
   else:
     def shift_fn(R: Array, dR: Array, **unused_kwargs) -> Array:
       if 'box' in unused_kwargs:
-        raise ValueError(('`space.periodic` does not accept a box argument.'
-                          'Perhaps you meant to use `space.periodic_general`?'))
+        raise UnexpectedBoxException(('`space.periodic` does not accept a box '
+                                      'argument. Perhaps you meant to use '
+                                      '`space.periodic_general`?'))
       return R + dR
   return displacement_fn, shift_fn
 
