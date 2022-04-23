@@ -129,7 +129,10 @@ def pressure(energy_fn: EnergyFn, position: Array, box: Box,
   dim = position.shape[1]
 
   def U(eps):
-    return energy_fn(position, perturbation=(1 + eps), **kwargs)
+    try:
+      return energy_fn(position, box=box, perturbation=(1 + eps), **kwargs)
+    except space.UnexpectedBoxException:
+      return energy_fn(position, perturbation=(1 + eps), **kwargs)
 
   dUdV = grad(U)
   vol_0 = volume(dim, box)
@@ -163,7 +166,10 @@ def stress(energy_fn: EnergyFn, position: Array, box: Box,
   I = jnp.eye(dim, dtype=position.dtype)
 
   def U(eps):
-    return energy_fn(position, perturbation=(I + eps), **kwargs)
+    try:
+      return energy_fn(position, box=box, perturbation=(I + eps), **kwargs)
+    except space.UnexpectedBoxException:
+      return energy_fn(position, perturbation=(I + eps), **kwargs)
 
   dUdV = grad(U)
   vol_0 = volume(dim, box)

@@ -684,26 +684,27 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
                 **kwargs):
     N, dim = position.shape
 
-    def U(vol):
-      return energy_fn(position, box=box_fn(vol), **kwargs)
+    def U(eps):
+      return energy_fn(position, box=box_fn(vol), perturbation=(1+eps), **kwargs)
 
     dUdV = grad(U)
     KE2 = util.high_precision_sum(velocity ** 2 * mass)
     R = space.transform(box_fn(vol), position)
     RdotF = util.high_precision_sum(R * force)
 
-    return alpha * KE2 + RdotF - dim * vol * dUdV(vol) - pressure * vol * dim
+    return alpha * KE2 + RdotF - dUdV(0.0) - pressure * vol * dim
 
   def sinhx_x(x):
     """Taylor series for sinh(x) / x as x -> 0."""
-    return 1 + x ** 2 / 6 + x ** 4 / 120
+    return (1 + x ** 2 / 6 + x ** 4 / 120 + x ** 6 / 5040 +
+            x ** 8 / 362_880 + x ** 10 / 39_916_800)
 
   def exp_iL1(box, R, V, V_b, **kwargs):
     x = V_b * dt
     x_2 = x / 2
     sinhV = sinhx_x(x_2)  # jnp.sinh(x_2) / x_2
-    return shift_fn(R * jnp.exp(x), dt * V * jnp.exp(x_2) * sinhV, box=box,
-                    **kwargs)  # pytype: disable=wrong-keyword-args
+    return shift_fn(R, R * (jnp.exp(x) - 1) + dt * V * jnp.exp(x_2) * sinhV,
+                    box=box, **kwargs)  # pytype: disable=wrong-keyword-args
 
   def exp_iL2(alpha, V, A, V_b):
     x = alpha * V_b * dt_2
