@@ -394,7 +394,7 @@ class SimulateTest(jtu.JaxTestCase):
     Ps = np.zeros((DYNAMICS_STEPS,))
     state, Es, Ps = lax.fori_loop(0, DYNAMICS_STEPS, step_fn, (state, Es, Ps))
 
-    tol = 1e-3 if dtype is f32 else 1e-7
+    tol = 1e-3 if dtype is f32 else 1e-4
     self.assertEqual(state.position.dtype, dtype)
     self.assertAllClose(Es, E_initial, rtol=tol, atol=tol)
     self.assertAllClose(Ps, P_target, rtol=0.05, atol=0.05)
