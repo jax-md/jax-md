@@ -151,7 +151,7 @@ def stress(energy_fn: EnergyFn, position: Array, box: Box,
     box: A box specifying the shape of the simulation volume. Used to infer the
       volume of the unit cell.
     mass: The mass of the particles; only used to compute the kinetic
-      contribution if `velocity` is not None.
+      contribution if `velocity` is not `None`.
     velocity: An array of atomic velocities.
 
   Returns:

@@ -193,7 +193,7 @@ def athermal_moduli(energy_fn: Callable[..., Array],
       function must take as an argument `perturbation` which perturbs the
       box shape. Any energy function constructed using `smap` or in `energy.py`
       with a standard space will satisfy this property.
-    tether_strength: scalar. Strength of the "tether" applied to each particle,
+    tether_strength: Scalar. Strength of the "tether" applied to each particle,
       which can be necessary to make the Hessian matrix non-singular. Solving
       for the non-affine response of each particle requires that the Hessian is
       positive definite. However, there can often be zero modes (eigenvectors of
@@ -201,24 +201,23 @@ def athermal_moduli(energy_fn: Callable[..., Array],
       therefore do not affect the elastic constants despite the zero eigenvalue.
       The most common example is the global translational modes. To solve for
       the non-affine response, we consider the "tethered Hessian"
-        H + tether_strength * I,
-      where I is the identity matrix and tether_strength is a small constant.
-    gradient_check: None or scalar. If not None, a check will be performed
+      `H + tether_strength * I`, 
+      where `I` is the identity matrix and `tether_strength` is a small constant.
+    gradient_check: `None` or scalar. If not `None`, a check will be performed
       to guarantee that the maximum component of the gradient is less than
-      gradient_check. In other words, that
-        jnp.amax(jnp.abs(grad(energy_fn)(R, box=box))) < gradient_check == True
+      `gradient_check`. In other words, that
+      `jnp.amax(jnp.abs(grad(energy_fn)(R, box=box))) < gradient_check == True`
       NOTE: JAX currently does not support proper runtime error handling.
       Therefore, if this check fails, the calculation will return an array
-      of jnp.nan's. It is the users responsibility, if they want to use this
+      of `jnp.nan`'s. It is the users responsibility, if they want to use this
       check, to then ensure that the returned array is not full of nans.
     cg_tol: scalar. Tolerance used when solving for the non-affine response.
-    check_convergence: bool. If true, calculate_EMT will return a boolean
+    check_convergence: bool. If true, `calculate_EMT` will return a boolean
       flag specifying if the cg solve routine converged to the desired
-      tolerance. The default is False, but convergence checking is highly
+      tolerance. The default is `False`, but convergence checking is highly
       recommended especially when using 32-bit precision data.
 
   Return: A function to calculate the elastic modulus tensor
-
   """
 
   def calculate_emt(R: Array,
@@ -226,7 +225,7 @@ def athermal_moduli(energy_fn: Callable[..., Array],
                     **kwargs) -> Array:
     """Calculate the elastic modulus tensor.
 
-    energy_fn(R) corresponds to the state around which we are expanding
+    `energy_fn(R)` corresponds to the state around which we are expanding
 
     Args:
       R: array of shape `[N,dimension]` of particle positions. This does not

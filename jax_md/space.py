@@ -233,7 +233,7 @@ def periodic(side: Box, wrapped: bool=True) -> Space:
     wrapped: A boolean specifying whether or not particle positions are
       remapped back into the box after each step
   Returns:
-    (displacement_fn, shift_fn) tuple.
+    `(displacement_fn, shift_fn)` tuple.
   """
   def displacement_fn(Ra: Array, Rb: Array,
                       perturbation: Optional[Array] = None,
@@ -345,7 +345,7 @@ def periodic_general(box: Box,
     wrapped: A boolean specifying whether or not particle positions are
       remapped back into the box after each step
   Returns:
-    (displacement_fn, shift_fn) tuple.
+    `(displacement_fn, shift_fn)` tuple.
   """
   inv_box = inverse(box)
 

@@ -57,7 +57,7 @@ def simple_spring(dr: Array,
   """Isotropic spring potential with a given rest length.
 
   We define `simple_spring` to be a generalized Hookean spring with
-  agreement when alpha = 2.
+  agreement when `alpha = 2`.
   """
   return epsilon / alpha * (dr - length) ** alpha
 
@@ -375,7 +375,7 @@ def gupta_potential(displacement, p, q, r_0n, U_n, A, cutoff):
     will be ignored.
 
   Returns:
-    A function that takes in positions of gold atoms (shape [n, 3] where n is
+    A function that takes in positions of gold atoms (shape `[n, 3]` where `n` is
     the number of atoms) and returns the total energy of the system in units
     of eV.
 
@@ -1280,7 +1280,7 @@ def graph_network(displacement_fn: DisplacementFn,
     r_cutoff: A floating point cutoff; Edges will be added to the graph
       for pairs of particles whose separation is smaller than the cutoff.
     nodes: None or an ndarray of shape `[N, node_dim]` specifying the state
-      of the nodes. If None this is set to the zeroes vector. Often, for a
+      of the nodes. If None this is set to the zeros vector. Often, for a
       system with multiple species, this could be the species id.
     n_recurrences: The number of steps of message passing in the graph network.
     mlp_sizes: A tuple specifying the layer-widths for the fully-connected

@@ -160,8 +160,8 @@ def nve(energy_or_force_fn: Callable[..., Array],
       and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
     dt: Floating point number specifying the timescale (step size) of the
       simulation.
-    quant: Either a quantity.Energy or a quantity.Force specifying whether
-      energy_or_force is an energy or force respectively.
+    quant: Either a quantity. Energy or a quantity. Force specifying whether
+      `energy_or_force` is an energy or force respectively.
   Returns:
     See above.
   """
@@ -274,11 +274,11 @@ def nose_hoover_chain(dt: float,
       simulation.
     chain_length: An integer specifying the number of particles in
       the Nose-Hoover chain.
-    chain_steps: An integer specifying the number, :math:`n_c`, of outer substeps.
+    chain_steps: An integer specifying the number :math:`n_c` of outer substeps.
     sy_steps: An integer specifying the number of Suzuki-Yoshida steps. This
-      must be either 1, 3, 5, or 7.
+      must be either `1`, `3`, `5`, or `7`.
     tau: A floating point timescale over which temperature equilibration occurs.
-      Measured in units of dt. The performance of the Nose-Hoover chain
+      Measured in units of `dt`. The performance of the Nose-Hoover chain
       thermostat can be quite sensitive to this choice.
   Returns:
     A triple of functions that initialize the chain, do a half step of
@@ -423,9 +423,9 @@ def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
   Args:
     energy_or_force: A function that produces either an energy or a force from
       a set of particle positions specified as an ndarray of shape
-      [n, spatial_dimension].
-    shift_fn: A function that displaces positions, R, by an amount dR. Both R
-      and dR should be ndarrays of shape [n, spatial_dimension].
+      `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`. Both `R`
+      and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
     dt: Floating point number specifying the timescale (step size) of the
       simulation.
     kT: Floating point number specifying the temperature in units of Boltzmann
@@ -435,9 +435,9 @@ def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
       the Nose-Hoover chain.
     chain_steps: An integer specifying the number, :math:`n_c`, of outer substeps.
     sy_steps: An integer specifying the number of Suzuki-Yoshida steps. This
-      must be either 1, 3, 5, or 7.
+      must be either `1`, `3`, `5`, or `7`.
     tau: A floating point timescale over which temperature equilibration occurs.
-      Measured in units of dt. The performance of the Nose-Hoover chain
+      Measured in units of `dt`. The performance of the Nose-Hoover chain
       thermostat can be quite sensitive to this choice.
   Returns:
     See above.
@@ -862,9 +862,9 @@ def nvt_langevin(energy_or_force: Callable[..., Array],
   Args:
     energy_or_force: A function that produces either an energy or a force from
       a set of particle positions specified as an ndarray of shape
-      [n, spatial_dimension].
-    shift_fn: A function that displaces positions, R, by an amount dR. Both R
-      and dR should be ndarrays of shape [n, spatial_dimension].
+      `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`. Both `R`
+      and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
     dt: Floating point number specifying the timescale (step size) of the
       simulation.
     kT: Floating point number specifying the temperature in units of Boltzmann
@@ -937,9 +937,9 @@ class BrownianState:
 
   Attributes:
     position: The current position of the particles. An ndarray of floats with
-      shape [n, spatial_dimension].
-    mass: The mmass of particles. Will either be a float or an ndarray of floats
-      with shape [n].
+      shape `[n, spatial_dimension]`.
+    mass: The mass of particles. Will either be a float or an ndarray of floats
+      with shape `[n]`.
     rng: The current state of the random number generator.
   """
   position: Array

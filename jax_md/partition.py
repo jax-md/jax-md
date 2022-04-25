@@ -73,9 +73,9 @@ class CellList:
 
   Attributes:
     position_buffer: An ndarray of floating point positions with shape
-      S + [spatial_dimension].
-    id_buffer: An ndarray of int32 particle ids of shape S. Note that empty
-      slots are specified by id = N where N is the number of particles in the
+      `S + [spatial_dimension]`.
+    id_buffer: An ndarray of int32 particle ids of shape `S`. Note that empty
+      slots are specified by `id = N` where N is the number of particles in the
       system.
     kwarg_buffers: A dictionary of ndarrays of shape `S + [...]`. This contains
       side data placed into the cell list.
@@ -271,7 +271,7 @@ def cell_list(box_size: Box,
       estimated cell capacity to allow for fluctuations in the maximum cell
       occupancy.
   Returns:
-    A CellListFns object that contains two methods, one to allocate the cell
+    A `CellListFns` object that contains two methods, one to allocate the cell
     list and one to update the cell list. The update function can be called
     with either a cell list from which the capacity can be inferred or with
     an explicit integer denoting the capacity. Note that an existing cell list

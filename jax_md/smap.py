@@ -287,10 +287,10 @@ def pair(fn: Callable[..., Array],
       `species` giving the maximum number of types of particles. Note: that
       dynamic species specification is less efficient, because we cannot
       specialize shape information.
-    reduce_axis: A list of axes to reduce over. This is supplied to jnp.sum and
+    reduce_axis: A list of axes to reduce over. This is supplied to `jnp.sum` and
       so the same convention is used.
     keepdims: A boolean specifying whether the empty dimensions should be kept
-      upon reduction. This is supplied to jnp.sum and so the same convention is
+      upon reduction. This is supplied to `jnp.sum` and so the same convention is
       used.
     ignore_unused_parameters: A boolean that denotes whether dynamically
       specified keyword arguments passed to the mapped function get ignored
@@ -506,7 +506,7 @@ def pair_neighbor_list(fn: Callable[..., Array],
       0 corresponds to the particles, axis 1 corresponds to neighbors, and the
       remaining axes correspond to the output axes of `fn`. Note that it is not
       well-defined to sum over particles without summing over neighbors. One
-      also cannot report per-particle values (excluding axis 0) for neighbor
+      also cannot report per-particle values (excluding axis `0`) for neighbor
       lists whose format is `OrderedSparse`.
     ignore_unused_parameters: A boolean that denotes whether dynamically
       specified keyword arguments passed to the mapped function get ignored
@@ -634,7 +634,7 @@ def triplet(fn: Callable[..., Array],
         max_species] defining triplet interactions.
 
   Returns:
-    A function fn_mapped.
+    A function `fn_mapped`.
 
     If species is None or statically specified, then `fn_mapped` takes as
     arguments an ndarray of positions of shape `[n, spatial_dimension]`.
