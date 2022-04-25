@@ -240,8 +240,8 @@ def cell_list(box_size: Box,
               ) -> CellListFns:
   r"""Returns a function that partitions point data spatially.
 
-  Given a set of points {x_i \in R^d} with associated data {k_i \in R^m} it is
-  often useful to partition the points / data spatially. A simple partitioning
+  Given a set of points :math:`\{x_i \in R^d\}` with associated data :math:`\{k_i \in R^m\}` 
+  it is often useful to partition the points / data spatially. A simple partitioning
   that can be implemented efficiently within XLA is a dense partition into a
   uniform grid called a cell list.
 
