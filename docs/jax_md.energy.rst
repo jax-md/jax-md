@@ -30,7 +30,6 @@ Classical Potentials
 .. autofunction:: bks_pair
 .. autofunction:: bks_neighbor_list
 
-.. autofunction:: bks_silica
 .. autofunction:: bks_silica_pair
 .. autofunction:: bks_silica_neighbor_list
 
