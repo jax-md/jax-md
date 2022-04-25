@@ -15,13 +15,12 @@
 """Spaces in which particles are simulated.
 
 Spaces are pairs of functions containing:
-
-  `displacement_fn(Ra, Rb, **kwargs)`
+  `displacement_fn(Ra, Rb, **kwargs)`:
     Computes displacements between pairs of particles. `Ra` and `Rb` should
-    be ndarrays of shape `[spatial_dim]`. Returns an ndarray of shape
-    `[spatial_dim]`. To compute the displacement over more than one particle
-    at a time see the :meth:`map_product`, :meth:`map_bond`, and :meth:`map_neighbor` functions.
-  `shift_fn(R, dR, **kwargs)`
+    be ndarrays of shape `[spatial_dim]`. Returns an ndarray of shape `[spatial_dim]`. 
+    To compute the displacement over more than one particle at a time see the 
+    :meth:`map_product`, :meth:`map_bond`, and :meth:`map_neighbor` functions.
+  `shift_fn(R, dR, **kwargs)`:
     Moves points at position `R` by an amount `dR`.
 
 Spaces can accept keyword arguments allowing the space to be changed over the
@@ -31,15 +30,15 @@ Although displacement functions are compute the displacement between two
 points, it is often useful to compute displacements between multiple particles
 in a vectorized fashion. To do this we provide three functions: `map_product`,
 `map_bond`, and `map_neighbor`:
-  `map_product` 
+  map_product:
     Computes displacements between all pairs of points such that if
     `Ra` has shape `[n, spatial_dim]` and `Rb` has shape `[m, spatial_dim]` then the
     output has shape `[n, m, spatial_dim]`.
-  `map_bond` 
+  map_bond:
     Computes displacements between all points in a list such that if
     `Ra` has shape `[n, spatial_dim]` and `Rb` has shape `[m, spatial_dim]` then the
     output has shape `[n, spatial_dim]`.
-  `map_neighbor` 
+  map_neighbor:
     Computes displacements between points and all of their
     neighbors such that if `Ra` has shape `[n, spatial_dim]` and `Rb` has shape
     `[n, neighbors, spatial_dim]` then the output has shape
@@ -284,6 +283,7 @@ def periodic_general(box: Box,
   There are a number of ways to parameterize a simulation on :math:`X`.
   `periodic_general` supports two parametrizations of :math:`X` that can be selected
   using the `fractional_coordinates` keyword argument.
+
     1) When `fractional_coordinates=True`, particle positions are stored in the
        unit cube, :math:`u\in U`. Here, the displacement function computes the
        displacement between :math:`x, y \in X` as :math:`d_X(x, y) = Td_U(u, v)` where
@@ -302,7 +302,6 @@ def periodic_general(box: Box,
        slower than `fractional_coordinates=False`. As in 1), the displacement
        function is defined to compute derivatives in :math:`X`. The shift function
        is defined so that :math:`R` and :math:`dR` should both lie in :math:`X`.
-
 
   Example:
   

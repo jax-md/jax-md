@@ -567,7 +567,6 @@ def extract_isotropic_moduli(C: Array) -> Dict:
       satisfy both the major and minor symmetries, but this is not checked.
 
   Return: a dictionary containing the elastic constants.
-
   """
   if C.shape[0] == 2:
     cxxxx,cyyyy,cxyxy,cxxyy,cxxxy,cyyxy = _extract_elements(C,False)
