@@ -16,31 +16,34 @@
 
 Spaces are pairs of functions containing:
 
-  * `displacement_fn(Ra, Rb, **kwargs)`
-    Computes displacements between pairs of particles. Ra and Rb should
-    be ndarrays of shape [spatial_dim]. Returns an ndarray of shape
-    [spatial_dim]. To compute the displacement over more than one particle
-    at a time see the `map_product`, `map_bond`, and `map_neighbor` functions.
-
-  * `shift_fn(R, dR, **kwargs)` Moves points at position R by an amount dR.
+  `displacement_fn(Ra, Rb, **kwargs)`
+    Computes displacements between pairs of particles. `Ra` and `Rb` should
+    be ndarrays of shape `[spatial_dim]`. Returns an ndarray of shape
+    `[spatial_dim]`. To compute the displacement over more than one particle
+    at a time see the :meth:`map_product`, :meth:`map_bond`, and :meth:`map_neighbor` functions.
+  `shift_fn(R, dR, **kwargs)`
+    Moves points at position `R` by an amount `dR`.
 
 Spaces can accept keyword arguments allowing the space to be changed over the
-course of a simulation. For an example of this use see `periodic_general`.
+course of a simulation. For an example of this use see :meth:`periodic_general`.
 
 Although displacement functions are compute the displacement between two
 points, it is often useful to compute displacements between multiple particles
 in a vectorized fashion. To do this we provide three functions: `map_product`,
-`map_bond`, and `map_neighbor`.
-  * `map_pair` computes displacements between all pairs of points such that if
-    Ra has shape [n, spatial_dim] and Rb has shape `[m, spatial_dim]` then the
+`map_bond`, and `map_neighbor`:
+  `map_product` 
+    Computes displacements between all pairs of points such that if
+    `Ra` has shape `[n, spatial_dim]` and `Rb` has shape `[m, spatial_dim]` then the
     output has shape `[n, m, spatial_dim]`.
-  * `map_bond` computes displacements between all points in a list such that if
-    Ra has shape [n, spatial_dim] and Rb has shape [m, spatial_dim] then the
-    output has shape [n, spatial_dim].
-  * `map_neighbor` computes displacements between points and all of their
-    neighbors such that if Ra has shape [n, spatial_dim] and Rb has shape
-    [n, neighbors, spatial_dim] then the output has shape
-    [n, neighbors, spatial_dim].
+  `map_bond` 
+    Computes displacements between all points in a list such that if
+    `Ra` has shape `[n, spatial_dim]` and `Rb` has shape `[m, spatial_dim]` then the
+    output has shape `[n, spatial_dim]`.
+  `map_neighbor` 
+    Computes displacements between points and all of their
+    neighbors such that if `Ra` has shape `[n, spatial_dim]` and `Rb` has shape
+    `[n, neighbors, spatial_dim]` then the output has shape
+    `[n, neighbors, spatial_dim]`.
 """
 
 from typing import Callable, Union, Tuple, Any, Optional

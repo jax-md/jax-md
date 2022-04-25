@@ -19,10 +19,13 @@
 
   In general, simulation code follows the same overall structure as optimizers
   in JAX. Simulations are tuples of two functions:
-    init_fn: function that initializes the  state of a system. Should take
-      positions as an ndarray of shape [n, output_dimension]. Returns a state
+
+    init_fn: 
+      Function that initializes the  state of a system. Should take
+      positions as an ndarray of shape `[n, output_dimension]`. Returns a state
       which will be a namedtuple.
-    apply_fn: function that takes a state and produces a new state after one
+    apply_fn: 
+      Function that takes a state and produces a new state after one
       step of optimization.
 
   One question that we need to think about is whether the simulations should
@@ -72,13 +75,12 @@ Simulator = Tuple[InitFn, ApplyFn]
 JAX MD includes integrators for deterministic simulations of the NVE, NVT, and
 NPT ensembles. For a qualitative description of statistical physics ensembles
 see the wikipedia article here:
-
 en.wikipedia.org/wiki/Statistical_ensemble_(mathematical_physics)
 
 Integrators are based direct translation method outlined in the paper,
 
 "A Liouville-operator derived measure-preserving integrator for molecular
- dynamics simulations in the isothermal–isobaric ensemble"
+dynamics simulations in the isothermal–isobaric ensemble"
 
 M. E. Tuckerman, J. Alejandre, R. López-Rendón, A. L Jochim, and G. J. Martyna
 J. Phys. A: Math. Gen. 39 5629 (2006)

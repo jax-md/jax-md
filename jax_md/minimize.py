@@ -20,10 +20,12 @@
 
   Minimization code follows the same overall structure as optimizers in JAX.
   Optimizers return two functions:
-    init_fn: function that initializes the  state of an optimizer. Should take
-      positions as an ndarray of shape [n, output_dimension]. Returns a state
+    init_fn: 
+      Function that initializes the  state of an optimizer. Should take
+      positions as an ndarray of shape `[n, output_dimension]`. Returns a state
       which will be a namedtuple.
-    apply_fn: function that takes a state and produces a new state after one
+    apply_fn: 
+      Function that takes a state and produces a new state after one
       step of optimization.
 """
 
@@ -123,7 +125,7 @@ def fire_descent(energy_or_force: Callable[..., Array],
       `[n, spatial_dimension]`.
     shift_fn: A function that displaces positions `R`, by an amount `dR`. Both `R`
       and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
-    quant: Either a quantity.Energy or a quantity.Force specifying whether
+    quant: Either a quantity.Energy or a quantity. Force specifying whether
       energy_or_force is an energy or force respectively.
     dt_start: The initial step size during minimization as a float.
     dt_max: The maximum step size during minimization as a float.

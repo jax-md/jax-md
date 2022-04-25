@@ -92,7 +92,7 @@ def bond(fn: Callable[..., Array],
   """Promotes a function that acts on a single pair to one on a set of bonds.
 
   TODO(schsam): It seems like bonds might potentially have poor memory access.
-    Should think about this a bit and potentially optimize.
+  Should think about this a bit and potentially optimize.
 
   Args:
     fn: A function that takes an ndarray of pairwise distances or displacements
@@ -116,14 +116,19 @@ def bond(fn: Callable[..., Array],
       if they were not first specified as keyword arguments when calling
       `smap.bond(...)`.
     kwargs: Arguments providing parameters to the mapped function. In cases
-      where no bond type information is provided these should be either 1) a
-      scalar or 2) an ndarray of shape [b]. If bond type information is
-      provided then the parameters should be specified as either 1) a scalar or
-      2) an ndarray of shape [max_bond_type].
+      where no bond type information is provided these should be either
+
+        1. a scalar
+        2. an ndarray of shape `[b]`. 
+      
+      If bond type information is provided then the parameters should be specified as either
+
+        1. a scalar
+        2. an ndarray of shape `[max_bond_type]`.
 
   Returns:
-    A function fn_mapped. Note that fn_mapped can take arguments bonds and
-    bond_types which will be bonds that are specified dynamically. This will
+    A function `fn_mapped`. Note that `fn_mapped` can take arguments bonds and
+    `bond_types` which will be bonds that are specified dynamically. This will
     incur a recompilation when the number of bonds changes. Improving this
     state of affairs I will leave as a TODO until someone actually uses this
     feature and runs into speed issues.
@@ -297,14 +302,20 @@ def pair(fn: Callable[..., Array],
       if they were not first specified as keyword arguments when calling
       `smap.pair(...)`.
     kwargs: Arguments providing parameters to the mapped function. In cases
-      where no species information is provided these should be either 1) a
-      scalar, 2) an ndarray of shape [n], 3) an ndarray of shape [n, n],
-      3) a binary function that determines how per-particle parameters are to
-      be combined, 4) a binary function as well as a default set of parameters
-      as in 2). If unspecified then this is taken to be the average of the
+      where no species information is provided these should be either 
+
+        1) a scalar 
+        2) an ndarray of shape `[n]`
+        3) an ndarray of shape `[n, n]`,
+        4) a binary function that determines how per-particle parameters are to be combined
+        5) a binary function as well as a default set of parameters as in 2)
+      
+      If unspecified then this is taken to be the average of the
       two per-particle parameters. If species information is provided then the
-      parameters should be specified as either 1) a scalar or 2) an ndarray of
-      shape [max_species, max_species].
+      parameters should be specified as either 
+      
+        1) a scalar 
+        2) an ndarray of shape `[max_species, max_species]`
 
   Returns:
     A function fn_mapped.
@@ -513,14 +524,20 @@ def pair_neighbor_list(fn: Callable[..., Array],
       if they were not first specified as keyword arguments when calling
       `smap.pair_neighbor_list(...)`.
     kwargs: Arguments providing parameters to the mapped function. In cases
-      where no species information is provided these should be either 1) a
-      scalar, 2) an ndarray of shape [n], 3) an ndarray of shape [n, n],
-      3) a binary function that determines how per-particle parameters are to
-      be combined. If unspecified then this is taken to be the average of the
-      two per-particle parameters. If species information is provided then the
-      parameters should be specified as either 1) a scalar or 2) an ndarray of
-      shape [max_species, max_species].
+      where no species information is provided these should be either 
 
+        1) a scalar 
+        2) an ndarray of shape `[n]`
+        3) an ndarray of shape `[n, n]`,
+        4) a binary function that determines how per-particle parameters are to be combined
+      
+      If unspecified then this is taken to be the average of the
+      two per-particle parameters. If species information is provided then the
+      parameters should be specified as either 
+      
+        1) a scalar 
+        2) an ndarray of shape `[max_species, max_species]`
+      
   Returns:
     A function `fn_mapped` that takes an ndarray of floats of shape `[N, d_in]` of
     positions and and ndarray of integers of shape `[N, max_neighbors]`
@@ -625,13 +642,18 @@ def triplet(fn: Callable[..., Array],
       if they were not first specified as keyword arguments when calling
       `smap.triplet(...)`.
     kwargs: Argument providing parameters to the mapped function. In cases
-        where no species information is provided, these should either be 1)
-        a scalar, 2) an ndarray of shape [n] based on the central atom,
-        3) an ndarray of shape [n, n, n] defining triplet interactions.
+        where no species information is provided, these should either be 
+          
+          1) a scalar
+          2) an ndarray of shape `[n]` based on the central atom
+          3) an ndarray of shape `[n, n, n]` defining triplet interactions.
+
         If species information is provided, then the parameters should
-        be specified as either 1) a scalar,  2) an ndarray of shape
-        [max_species], 3) an ndarray of shape [max_species, max_species,
-        max_species] defining triplet interactions.
+        be specified as either 
+        
+          1) a scalar
+          2) an ndarray of shape `[max_species]`
+          3) an ndarray of shape `[max_species, max_species, max_species]` defining triplet interactions.
 
   Returns:
     A function `fn_mapped`.
