@@ -64,7 +64,7 @@ MaskFn = Callable[[Array], Array]
 class CellList:
   """Stores the spatial partition of a system into a cell list.
 
-  See cell_list(...) for details on the construction / specification.
+  See :meth:`cell_list` for details on the construction / specification.
   Cell list buffers all have a common shape, S, where
     * `S = [cell_count_x, cell_count_y, cell_capacity]`
     * `S = [cell_count_x, cell_count_y, cell_count_z, cell_capacity]`

@@ -88,7 +88,9 @@ def soft_sphere(dr: Array,
                 epsilon: Array=1,
                 alpha: Array=2,
                 **unused_kwargs) -> Array:
-  """Finite ranged repulsive interaction between soft spheres.
+  """.. _soft-sphere:
+  
+  Finite ranged repulsive interaction between soft spheres.
 
   Args:
     dr: An ndarray of shape `[n, m]` of pairwise distances between particles.
@@ -118,7 +120,7 @@ def soft_sphere_pair(displacement_or_metric: DisplacementOrMetricFn,
                      epsilon: Array=1.0,
                      alpha: Array=2.0,
                      per_particle: bool=False) -> Callable[[Array], Array]:
-  """Convenience wrapper to compute soft sphere energy over a system."""
+  """Convenience wrapper to compute :ref:`soft sphere energy <soft-sphere>` over a system."""
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
   alpha = maybe_downcast(alpha)
@@ -146,7 +148,7 @@ def soft_sphere_neighbor_list(
     format: NeighborListFormat=partition.OrderedSparse,
     **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
-  """Convenience wrapper to compute soft spheres using a neighbor list."""
+  """Convenience wrapper to compute :ref:`soft spheres <soft-sphere>` using a neighbor list."""
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
   alpha = maybe_downcast(alpha)
@@ -178,7 +180,9 @@ def lennard_jones(dr: Array,
                   sigma: Array=1,
                   epsilon: Array=1,
                   **unused_kwargs) -> Array:
-  """Lennard-Jones interaction between particles with a minimum at sigma.
+  """.. _lj-pot:
+  
+  Lennard-Jones interaction between particles with a minimum at `sigma`.
 
   Args:
     dr: An ndarray of shape `[n, m]` of pairwise distances between particles.
@@ -206,7 +210,7 @@ def lennard_jones_pair(displacement_or_metric: DisplacementOrMetricFn,
                        r_onset: Array=2.0,
                        r_cutoff: Array=2.5,
                        per_particle: bool=False) -> Callable[[Array], Array]:
-  """Convenience wrapper to compute Lennard-Jones energy over a system."""
+  """Convenience wrapper to compute :ref:`Lennard-Jones energy <lj-pot>` over a system."""
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
   r_onset = maybe_downcast(r_onset) * jnp.max(sigma)
@@ -236,7 +240,7 @@ def lennard_jones_neighbor_list(
     format: partition.NeighborListFormat=partition.OrderedSparse,
     **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
-  """Convenience wrapper to compute Lennard-Jones using a neighbor list."""
+  """Convenience wrapper to compute :ref:`Lennard-Jones <lj-pot>` using a neighbor list."""
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
   r_onset = maybe_downcast(r_onset) * jnp.max(sigma)
@@ -268,7 +272,10 @@ def morse(dr: Array,
           epsilon: Array=5.0,
           alpha: Array=5.0,
           **unused_kwargs) -> Array:
-  """Morse interaction between particles with a minimum at r0.
+  """.. _morse-pot:
+  
+  Morse interaction between particles with a minimum at `sigma`.
+
   Args:
     dr: An ndarray of shape `[n, m]` of pairwise distances between particles.
     sigma: Distance between particles where the energy has a minimum. Should
@@ -294,7 +301,7 @@ def morse_pair(displacement_or_metric: DisplacementOrMetricFn,
                r_onset: float=2.0,
                r_cutoff: float=2.5,
                per_particle: bool=False) -> Callable[[Array], Array]:
-  """Convenience wrapper to compute Morse energy over a system."""
+  """Convenience wrapper to compute :ref:`Morse energy <morse-pot>` over a system."""
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
   alpha = maybe_downcast(alpha)
@@ -324,7 +331,7 @@ def morse_neighbor_list(
     format: partition.NeighborListFormat=partition.OrderedSparse,
     **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
-  """Convenience wrapper to compute Morse using a neighbor list."""
+  """Convenience wrapper to compute :ref:`Morse <morse-pot>` using a neighbor list."""
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
   alpha = maybe_downcast(alpha)
@@ -553,7 +560,7 @@ def bks_pair(displacement_or_metric: DisplacementOrMetricFn,
              repulsive_coeff: Array,
              coulomb_alpha: Array,
              cutoff: float) -> Callable[[Array], Array]:
-  """Convenience wrapper to compute BKS energy over a system."""
+  """Convenience wrapper to compute :ref:`BKS energy <bks-pot>` over a system."""
   Q_sq = maybe_downcast(Q_sq)
   exp_coeff = maybe_downcast(exp_coeff)
   exp_decay = maybe_downcast(exp_decay)
@@ -588,7 +595,7 @@ def bks_neighbor_list(
     format: partition.NeighborListFormat=partition.OrderedSparse,
     **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
-  """Convenience wrapper to compute BKS energy using a neighbor list."""
+  """Convenience wrapper to compute :ref:`BKS energy <bks-pot>` using a neighbor list."""
   Q_sq = maybe_downcast(Q_sq)
   exp_coeff = maybe_downcast(exp_coeff)
   exp_decay = maybe_downcast(exp_decay)
@@ -655,7 +662,7 @@ def _bks_silica_self(Q_sq: Array, alpha: Array, cutoff: float) -> Array:
 def bks_silica_pair(displacement_or_metric: DisplacementOrMetricFn,
                     species: Array,
                     cutoff: float=8.0):
-  """Convenience wrapper to compute BKS energy for SiO2."""
+  """Convenience wrapper to compute :ref:`BKS energy <bks-pot>` for SiO2."""
   bks_pair_fn = bks_pair(displacement_or_metric,
                          species,
                          cutoff=cutoff,
@@ -684,7 +691,7 @@ def bks_silica_neighbor_list(
     format: partition.NeighborListFormat=partition.OrderedSparse,
     **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
-  """Convenience wrapper to compute BKS energy using neighbor lists."""
+  """Convenience wrapper to compute :ref:`BKS energy <bks-pot>` using neighbor lists."""
   kwargs = {**BKS_SILICA_DICT, **neighbor_kwargs}
   neighbor_fn, bks_pair_fn = bks_neighbor_list(
     displacement_or_metric,
@@ -974,7 +981,9 @@ def eam(displacement: DisplacementFn,
         embedding_fn: Callable[[Array], Array],
         pairwise_fn: Callable[[Array], Array],
         axis: Optional[Tuple[int, ...]]=None) -> Callable[[Array], Array]:
-  """Interatomic potential as approximated by embedded atom model (EAM).
+  """.. _eam-pot:
+  
+  Interatomic potential as approximated by embedded atom model (EAM).
 
   This code implements the EAM approximation to interactions between metallic
   atoms. In EAM, the potential energy of an atom is given by two terms: a
@@ -1038,7 +1047,7 @@ def eam(displacement: DisplacementFn,
 
 def eam_from_lammps_parameters(displacement: DisplacementFn,
                                f: TextIO) -> Callable[[Array], Array]:
-  """Convenience wrapper to compute EAM energy with LAMMPS parameters."""
+  """Convenience wrapper to compute :ref:`EAM energy <eam-pot>` with LAMMPS parameters."""
   return eam(displacement, *load_lammps_eam_parameters(f)[:-1])
 
 
@@ -1147,7 +1156,8 @@ def eam_from_lammps_parameters_neighbor_list(
     fractional_coordinates=True,
     **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
-  """Convenience wrapper to compute EAM energy with parameters from LAMMPS."""
+  """Convenience wrapper to compute :ref:`EAM energy <eam-pot>` 
+  with parameters from LAMMPS using a neighbor list.."""
   return eam_neighbor_list(displacement,
                            box_size,
                            *load_lammps_eam_parameters(f),
