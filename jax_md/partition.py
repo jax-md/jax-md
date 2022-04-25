@@ -77,7 +77,7 @@ class CellList:
     id_buffer: An ndarray of int32 particle ids of shape S. Note that empty
       slots are specified by id = N where N is the number of particles in the
       system.
-    kwarg_buffers: A dictionary of ndarrays of shape S + [...]. This contains
+    kwarg_buffers: A dictionary of ndarrays of shape `S + [...]`. This contains
       side data placed into the cell list.
     did_buffer_overflow: A boolean specifying whether or not the cell list
       exceeded the maximum allocated capacity.

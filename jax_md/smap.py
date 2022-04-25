@@ -96,18 +96,18 @@ def bond(fn: Callable[..., Array],
 
   Args:
     fn: A function that takes an ndarray of pairwise distances or displacements
-      of shape [n, m] or [n, m, d_in] respectively as well as kwargs specifying
-      parameters for the function. fn returns an ndarray of evaluations of shape
-      [n, m, d_out].
+      of shape `[n, m]` or `[n, m, d_in]` respectively as well as kwargs specifying
+      parameters for the function. `fn` returns an ndarray of evaluations of shape
+      `[n, m, d_out]`.
     metric: A function that takes two ndarray of positions of shape
-      [spatial_dimension] and [spatial_dimension] respectively and returns
-      an ndarray of distances or displacements of shape [] or [d_in]
+      `[spatial_dimension]` and `[spatial_dimension]` respectively and returns
+      an ndarray of distances or displacements of shape `[]` or `[d_in]`
       respectively. The metric can optionally take a floating point time as a
       third argument.
-    static_bonds: An ndarray of integer pairs wth shape [b, 2] where each pair
-      specifies a bond. static_bonds are baked into the returned compute
+    static_bonds: An ndarray of integer pairs wth shape `[b, 2]` where each pair
+      specifies a bond. `static_bonds` are baked into the returned compute
       function statically and cannot be changed after the fact.
-    static_bond_types: An ndarray of integers of shape [b] specifying the type
+    static_bond_types: An ndarray of integers of shape `[b]` specifying the type
       of each bond. Only specify bond types if you want to specify bond
       parameters by type. One can also specify constant or per-bond parameters
       (see below).
@@ -272,17 +272,17 @@ def pair(fn: Callable[..., Array],
 
   Args:
     fn: A function that takes an ndarray of pairwise distances or displacements
-      of shape [n, m] or [n, m, d_in] respectively as well as kwargs specifying
+      of shape `[n, m]` or `[n, m, d_in]` respectively as well as kwargs specifying
       parameters for the function. fn returns an ndarray of evaluations of shape
-      [n, m, d_out].
+      `[n, m, d_out]`.
     metric: A function that takes two ndarray of positions of shape
-      [spatial_dimension] and [spatial_dimension] respectively and returns
-      an ndarray of distances or displacements of shape [] or [d_in]
+      `[spatial_dimension]` and `[spatial_dimension]` respectively and returns
+      an ndarray of distances or displacements of shape `[]` or `[d_in]`
       respectively. The metric can optionally take a floating point time as a
       third argument.
     species: A list of species for the different particles. This should either
       be None (in which case it is assumed that all the particles have the same
-      species), an integer ndarray of shape [n] with species data, or an
+      species), an integer ndarray of shape `[n]` with species data, or an
       integer in which case the species data will be specified dynamically with
       `species` giving the maximum number of types of particles. Note: that
       dynamic species specification is less efficient, because we cannot
@@ -309,11 +309,11 @@ def pair(fn: Callable[..., Array],
   Returns:
     A function fn_mapped.
 
-    If species is None or statically specified then fn_mapped takes as arguments
-    an ndarray of positions of shape [n, spatial_dimension].
+    If species is `None` or statically specified then `fn_mapped` takes as arguments
+    an ndarray of positions of shape `[n, spatial_dimension]`.
 
-    If species is dynamic then fn_mapped takes as input an ndarray of shape
-    [n, spatial_dimension], an integer ndarray of species of shape [n], and an
+    If species is dynamic then `fn_mapped` takes as input an ndarray of shape
+    `[n, spatial_dimension]`, an integer ndarray of species of shape `[n]`, and an
     integer specifying the maximum species.
 
     The mapped function can also optionally take keyword arguments that get
@@ -489,17 +489,17 @@ def pair_neighbor_list(fn: Callable[..., Array],
 
   Args:
     fn: A function that takes an ndarray of pairwise distances or displacements
-      of shape [n, m] or [n, m, d_in] respectively as well as kwargs specifying
+      of shape `[n, m]` or `[n, m, d_in]` respectively as well as kwargs specifying
       parameters for the function. fn returns an ndarray of evaluations of
-      shape [n, m, d_out].
+      shape `[n, m, d_out]`.
     metric: A function that takes two ndarray of positions of shape
-      [spatial_dimension] and [spatial_dimension] respectively and returns
-      an ndarray of distances or displacements of shape [] or [d_in]
+      `[spatial_dimension]` and `[spatial_dimension]` respectively and returns
+      an ndarray of distances or displacements of shape `[]` or `[d_in]`
       respectively. The metric can optionally take a floating point time as a
       third argument.
     species: Species information for the different particles. Should either
       be None (in which case it is assumed that all the particles have the same
-      species), an integer array of shape [n] with species data. Note that
+      species), an integer array of shape `[n]` with species data. Note that
       species data can be specified dynamically by passing a `species` keyword
       argument to the mapped function.
     reduce_axis: A list of axes to reduce over. We use a convention where axis
@@ -522,8 +522,8 @@ def pair_neighbor_list(fn: Callable[..., Array],
       shape [max_species, max_species].
 
   Returns:
-    A function fn_mapped that takes an ndarray of floats of shape [N, d_in] of
-    positions and and ndarray of integers of shape [N, max_neighbors]
+    A function `fn_mapped` that takes an ndarray of floats of shape `[N, d_in]` of
+    positions and and ndarray of integers of shape `[N, max_neighbors]`
     specifying neighbors.
   """
   kwargs, param_combinators = _split_params_and_combinators(kwargs)
@@ -601,16 +601,16 @@ def triplet(fn: Callable[..., Array],
 
   Args:
     fn: A function that takes an ndarray of two distances or displacements
-        from a central atom, both of shape [n, m] or [n, m, d_in] respectively,
+        from a central atom, both of shape `[n, m]` or `[n, m, d_in]` respectively,
         as well as kwargs specifying parameters for the function.
     metric: A function that takes two ndarray of positions of shape
-        [spatial_dimensions] and [spatial_dimensions] respectively and
-        returns an ndarray of distances or displacements of shape [] or [d_in]
+        `[spatial_dimensions]` and `[spatial_dimensions]` respectively and
+        returns an ndarray of distances or displacements of shape `[]` or `[d_in]`
         respectively. The metric can optionally take a floating point time as a
         third argument.
     species: A list of species for the different particles. This should either
       be None (in which case it is assumed that all the particles have the same
-      species), an integer ndarray of shape [n] with species data, or an
+      species), an integer ndarray of shape `[n]` with species data, or an
       integer in which case the species data will be specified dynamically with
       `species` giving the maximum number of types of particles. Note: that
       dynamic species specification is less efficient, because we cannot
@@ -636,11 +636,11 @@ def triplet(fn: Callable[..., Array],
   Returns:
     A function fn_mapped.
 
-    If species is None or statically specified, then fn_mapped takes as
-    arguments an ndarray of positions of shape [n, spatial_dimension].
+    If species is None or statically specified, then `fn_mapped` takes as
+    arguments an ndarray of positions of shape `[n, spatial_dimension]`.
 
-    If species is dynamic then fn_mapped takes as input an ndarray of shape
-    [n, spatial_dimension], an integer ndarray of species of shape [n], and
+    If species is dynamic then `fn_mapped` takes as input an ndarray of shape
+    `[n, spatial_dimension]`, an integer ndarray of species of shape `[n]`, and
     an integer specifying the maximum species.
 
     The mapped function can also optionally take keyword arguments that get

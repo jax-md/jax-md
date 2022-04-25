@@ -146,11 +146,11 @@ def pairwise_displacement(Ra: Array, Rb: Array) -> Array:
   """Compute a matrix of pairwise displacements given two sets of positions.
 
   Args:
-    Ra: Vector of positions; ndarray(shape=[spatial_dim]).
-    Rb: Vector of positions; ndarray(shape=[spatial_dim]).
+    Ra: Vector of positions; `ndarray(shape=[spatial_dim])`.
+    Rb: Vector of positions; `ndarray(shape=[spatial_dim])`.
 
   Returns:
-    Matrix of displacements; ndarray(shape=[spatial_dim]).
+    Matrix of displacements; `ndarray(shape=[spatial_dim])`.
   """
   if len(Ra.shape) != 1:
     msg = (
@@ -173,9 +173,9 @@ def periodic_displacement(side: Box, dR: Array) -> Array:
     side: Specification of hypercube size. Either,
       (a) float if all sides have equal length.
       (b) ndarray(spatial_dim) if sides have different lengths.
-    dR: Matrix of displacements; ndarray(shape=[..., spatial_dim]).
+    dR: Matrix of displacements; `ndarray(shape=[..., spatial_dim])`.
   Returns:
-    Matrix of wrapped displacements; ndarray(shape=[..., spatial_dim]).
+    Matrix of wrapped displacements; `ndarray(shape=[..., spatial_dim])`.
   """
   return jnp.mod(dR + side * f32(0.5), side) - f32(0.5) * side
 
@@ -184,9 +184,9 @@ def square_distance(dR: Array) -> Array:
   """Computes square distances.
 
   Args:
-    dR: Matrix of displacements; ndarray(shape=[..., spatial_dim]).
+    dR: Matrix of displacements; `ndarray(shape=[..., spatial_dim])`.
   Returns:
-    Matrix of squared distances; ndarray(shape=[...]).
+    Matrix of squared distances; `ndarray(shape=[...])`.
   """
   return jnp.sum(dR ** 2, axis=-1)
 
@@ -195,9 +195,9 @@ def distance(dR: Array) -> Array:
   """Computes distances.
 
   Args:
-    dR: Matrix of displacements; ndarray(shape=[..., spatial_dim]).
+    dR: Matrix of displacements; `ndarray(shape=[..., spatial_dim])`.
   Returns:
-    Matrix of distances; ndarray(shape=[...]).
+    Matrix of distances; `ndarray(shape=[...])`.
   """
   dr = square_distance(dR)
   return safe_mask(dr > 0, jnp.sqrt, dr)

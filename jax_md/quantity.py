@@ -206,12 +206,12 @@ def cosine_angles(dR: Array) -> Array:
   """Returns cosine of angles for all atom triplets.
 
   Args:
-    dR: Matrix of displacements; ndarray(shape=[num_atoms, num_neighbors,
-      spatial_dim]).
+    dR: Matrix of displacements; `ndarray(shape=[num_atoms, num_neighbors,
+      spatial_dim])`.
 
   Returns:
     Tensor of cosine of angles;
-    ndarray(shape=[num_atoms, num_neighbors, num_neighbors]).
+    `ndarray(shape=[num_atoms, num_neighbors, num_neighbors])`.
   """
 
   angles_between_all_triplets = vmap(

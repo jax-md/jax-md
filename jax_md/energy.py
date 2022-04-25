@@ -91,16 +91,16 @@ def soft_sphere(dr: Array,
   """Finite ranged repulsive interaction between soft spheres.
 
   Args:
-    dr: An ndarray of shape [n, m] of pairwise distances between particles.
+    dr: An ndarray of shape `[n, m]` of pairwise distances between particles.
     sigma: Particle diameter. Should either be a floating point scalar or an
-      ndarray whose shape is [n, m].
+      ndarray whose shape is `[n, m]`.
     epsilon: Interaction energy scale. Should either be a floating point scalar
-      or an ndarray whose shape is [n, m].
+      or an ndarray whose shape is `[n, m]`.
     alpha: Exponent specifying interaction stiffness. Should either be a float
-      point scalar or an ndarray whose shape is [n, m].
+      point scalar or an ndarray whose shape is `[n, m]`.
     unused_kwargs: Allows extra data (e.g. time) to be passed to the energy.
   Returns:
-    Matrix of energies whose shape is [n, m].
+    Matrix of energies whose shape is `[n, m]`.
   """
 
   dr = dr / sigma
@@ -181,14 +181,14 @@ def lennard_jones(dr: Array,
   """Lennard-Jones interaction between particles with a minimum at sigma.
 
   Args:
-    dr: An ndarray of shape [n, m] of pairwise distances between particles.
+    dr: An ndarray of shape `[n, m]` of pairwise distances between particles.
     sigma: Distance between particles where the energy has a minimum. Should
-      either be a floating point scalar or an ndarray whose shape is [n, m].
+      either be a floating point scalar or an ndarray whose shape is `[n, m]`.
     epsilon: Interaction energy scale. Should either be a floating point scalar
-      or an ndarray whose shape is [n, m].
+      or an ndarray whose shape is `[n, m]`.
     unused_kwargs: Allows extra data (e.g. time) to be passed to the energy.
   Returns:
-    Matrix of energies of shape [n, m].
+    Matrix of energies of shape `[n, m]`.
   """
   idr = (sigma / dr)
   idr = idr * idr
@@ -270,16 +270,16 @@ def morse(dr: Array,
           **unused_kwargs) -> Array:
   """Morse interaction between particles with a minimum at r0.
   Args:
-    dr: An ndarray of shape [n, m] of pairwise distances between particles.
+    dr: An ndarray of shape `[n, m]` of pairwise distances between particles.
     sigma: Distance between particles where the energy has a minimum. Should
-      either be a floating point scalar or an ndarray whose shape is [n, m].
+      either be a floating point scalar or an ndarray whose shape is `[n, m]`.
     epsilon: Interaction energy scale. Should either be a floating point scalar
-      or an ndarray whose shape is [n, m].
+      or an ndarray whose shape is `[n, m]`.
     alpha: Range parameter. Should either be a floating point scalar or an
-      ndarray whose shape is [n, m].
+      ndarray whose shape is `[n, m]`.
     unused_kwargs: Allows extra data (e.g. time) to be passed to the energy.
   Returns:
-    Matrix of energies of shape [n, m].
+    Matrix of energies of shape `[n, m]`.
   """
   U = epsilon * (f32(1) - jnp.exp(-alpha * (dr - sigma)))**f32(2) - epsilon
   # TODO(cpgoodri): ErrorChecking following lennard_jones
@@ -443,7 +443,7 @@ def multiplicative_isotropic_cutoff(fn: Callable[..., Array],
   Then f'(r) = S(r)f(r).
 
   Args:
-    fn: A function that takes an ndarray of distances of shape [n, m] as well
+    fn: A function that takes an ndarray of distances of shape `[n, m]` as well
       as varargs.
     r_onset: A float specifying the distance marking the onset of deformation.
     r_cutoff: A float specifying the cutoff distance.
@@ -521,7 +521,7 @@ def bks(dr: Array,
     unused_kwargs: Allows extra data (e.g. time) to be passed to the energy.
 
   Returns:
-    Matrix of energies of shape [n, m].
+    Matrix of energies of shape `[n, m]`.
 
   [1] Van Beest, B. W. H., Gert Jan Kramer, and R. A. Van Santen. "Force fields
   for silicas and aluminophosphates based on ab initio calculations." Physical
@@ -921,8 +921,9 @@ def load_lammps_eam_parameters(file: TextIO) -> Tuple[Callable[[Array], Array],
   Returns:
     charge_fn: A function that takes an ndarray of shape [n, m] of distances
       between particles and returns a matrix of charge contributions.
-    embedding_fn: Function that takes an ndarray of shape [n] of charges and
-      returns an ndarray of shape [n] of the energy cost of embedding an atom
+    embedding_fn: 
+      Function that takes an ndarray of shape `[n]` of charges and
+      returns an ndarray of shape `[n]` of the energy cost of embedding an atom
       into the charge.
     pairwise_fn: A function that takes an ndarray of shape [n, m] of distances
       and returns an ndarray of shape [n, m] of pairwise energies.
@@ -978,8 +979,8 @@ def eam(displacement: DisplacementFn,
       spatial_dimension] respectively.
     charge_fn: A function that takes an ndarray of shape [n, m] of distances
       between particles and returns a matrix of charge contributions.
-    embedding_fn: Function that takes an ndarray of shape [n] of charges and
-      returns an ndarray of shape [n] of the energy cost of embedding an atom
+    embedding_fn: Function that takes an ndarray of shape `[n]` of charges and
+      returns an ndarray of shape `[n]` of the energy cost of embedding an atom
       into the charge.
     pairwise_fn: A function that takes an ndarray of shape [n, m] of distances
       and returns an ndarray of shape [n, m] of pairwise energies.

@@ -127,13 +127,13 @@ class NVEState:
   the (E)nergy of the system are held fixed.
 
   Attributes:
-    position: An ndarray of shape [n, spatial_dimension] storing the position
+    position: An ndarray of shape `[n, spatial_dimension]` storing the position
       of particles.
-    velocity: An ndarray of shape [n, spatial_dimension] storing the velocity
+    velocity: An ndarray of shape `[n, spatial_dimension]` storing the velocity
       of particles.
-    force: An ndarray of shape [n, spatial_dimension] storing the force acting
+    force: An ndarray of shape `[n, spatial_dimension]` storing the force acting
       on particles from the previous step.
-    mass: A float or an ndarray of shape [n] containing the masses of the
+    mass: A float or an ndarray of shape `[n]` containing the masses of the
       particles.
   """
   position: Array
@@ -155,9 +155,9 @@ def nve(energy_or_force_fn: Callable[..., Array],
   Args:
     energy_or_force: A function that produces either an energy or a force from
       a set of particle positions specified as an ndarray of shape
-      [n, spatial_dimension].
-    shift_fn: A function that displaces positions, R, by an amount dR. Both R
-      and dR should be ndarrays of shape [n, spatial_dimension].
+      `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`. Both `R`
+      and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
     dt: Floating point number specifying the timescale (step size) of the
       simulation.
     quant: Either a quantity.Energy or a quantity.Force specifying whether
@@ -203,11 +203,11 @@ class NoseHooverChain:
   """State information for a Nose-Hoover chain.
 
   Attributes:
-    position: An ndarray of shape [chain_length] that stores the position of
+    position: An ndarray of shape `[chain_length]` that stores the position of
       the chain.
-    velocity: An ndarray of shape [chain_length] that stores the velocity of
+    velocity: An ndarray of shape `[chain_length]` that stores the velocity of
       the chain.
-    mass: An ndarray of shape [chain_length] that stores the mass of the
+    mass: An ndarray of shape `[chain_length]` that stores the mass of the
       chain.
     tau: The desired period of oscillation for the chain. Longer periods result
       is better stability but worse temperature control.
@@ -388,13 +388,13 @@ class NVTNoseHooverState:
 
   Attributes:
     position: The current position of particles. An ndarray of floats
-      with shape [n, spatial_dimension].
+      with shape `[n, spatial_dimension]`.
     velocity: The velocity of particles. An ndarray of floats
-      with shape [n, spatial_dimension].
+      with shape `[n, spatial_dimension]`.
     force: The current force on the particles. An ndarray of floats with shape
-      [n, spatial_dimension].
+      `[n, spatial_dimension]`.
     mass: The mass of the particles. Can either be a float or an ndarray
-      of floats with shape [n].
+      of floats with shape `[n]`.
     chain: The variables describing the Nose-Hoover chain.
   """
   position: Array
@@ -530,13 +530,13 @@ class NPTNoseHooverState:
 
   Attributes:
     position: The current position of particles. An ndarray of floats
-      with shape [n, spatial_dimension].
+      with shape `[n, spatial_dimension]`.
     velocity: The velocity of particles. An ndarray of floats
-      with shape [n, spatial_dimension].
+      with shape `[n, spatial_dimension]`.
     force: The current force on the particles. An ndarray of floats with shape
-      [n, spatial_dimension].
+      `[n, spatial_dimension]`.
     mass: The mass of the particles. Can either be a float or an ndarray
-      of floats with shape [n].
+      of floats with shape `[n]`.
     reference_box: A box used to measure relative changes to the simulation
       environment.
     box_position: A positional degree of freedom used to describe the current
@@ -602,9 +602,9 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
 
   Args:
     energy_fn: A function that produces either an energy from a set of particle
-      positions specified as an ndarray of shape [n, spatial_dimension].
-    shift_fn: A function that displaces positions, R, by an amount dR. Both R
-      and dR should be ndarrays of shape [n, spatial_dimension].
+      positions specified as an ndarray of shape `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`. Both `R`
+      and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
     dt: Floating point number specifying the timescale (step size) of the
       simulation.
     pressure: Floating point number specifying the target pressure. To update
@@ -826,13 +826,13 @@ class NVTLangevinState:
 
   Attributes:
     position: The current position of the particles. An ndarray of floats with
-      shape [n, spatial_dimension].
+      shape `[n, spatial_dimension]`.
     velocity: The velocity of particles. An ndarray of floats with shape
-      [n, spatial_dimension].
+      `[n, spatial_dimension]`.
     force: The (non-stochastic) force on particles. An ndarray of floats with
-      shape [n, spatial_dimension].
+      shape `[n, spatial_dimension]`.
     mass: The mass of particles. Will either be a float or an ndarray of floats
-      with shape [n].
+      with shape `[n]`.
     rng: The current state of the random number generator.
   """
   position: Array
@@ -963,9 +963,9 @@ def brownian(energy_or_force: Callable[..., Array],
   Args:
     energy_or_force: A function that produces either an energy or a force from
       a set of particle positions specified as an ndarray of shape
-      [n, spatial_dimension].
-    shift_fn: A function that displaces positions, R, by an amount dR. Both R
-      and dR should be ndarrays of shape [n, spatial_dimension].
+      `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`. Both `R`
+      and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
     dt: Floating point number specifying the timescale (step size) of the
       simulation.
     kT: Floating point number specifying the temperature in units of Boltzmann
@@ -1026,7 +1026,7 @@ class SwapMCState:
 
   Attributes:
     md: A NVTNoseHooverState containing continuous molecular dynamics data.
-    sigma: An [n,] array of particle radii.
+    sigma: An `[n,]` array of particle radii.
     key: A JAX PRGNKey used for random number generation.
     neighbor: A NeighborList for the system.
   """

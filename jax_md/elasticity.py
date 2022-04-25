@@ -229,16 +229,15 @@ def athermal_moduli(energy_fn: Callable[..., Array],
     energy_fn(R) corresponds to the state around which we are expanding
 
     Args:
-      R: array of shape (N,dimension) of particle positions. This does not
+      R: array of shape `[N,dimension]` of particle positions. This does not
         generalize to arbitrary dimensions and is only implemented for
-          dimension == 2
-          dimension == 3
+        `dimension == 2` and `dimension == 3`.
       box: A box specifying the shape of the simulation volume. Used to infer
         the volume of the unit cell.
 
     Return: C or the tuple (C,converged)
-      where C is the Elastic modulus tensor as an array of shape (dimension,
-      dimension,dimension,dimension) that respects the major and minor
+      where C is the Elastic modulus tensor as an array of shape `[dimension,
+      dimension,dimension,dimension]` that respects the major and minor
       symmetries, and converged is a boolean flag (see above).
 
     """

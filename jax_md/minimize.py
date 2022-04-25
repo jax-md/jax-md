@@ -64,9 +64,9 @@ def gradient_descent(energy_or_force: Callable[..., Array],
     Args:
       energy_or_force: A function that produces either an energy or a force from
         a set of particle positions specified as an ndarray of shape
-        [n, spatial_dimension].
-      shift_fn: A function that displaces positions, R, by an amount dR. Both R
-        and dR should be ndarrays of shape [n, spatial_dimension].
+        `[n, spatial_dimension]`.
+      shift_fn: A function that displaces positions, `R`, by an amount `dR`. Both `R`
+        and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
       step_size: A floating point specifying the size of each step.
 
     Returns:
@@ -87,11 +87,11 @@ class FireDescentState:
 
   Attributes:
     position: The current position of particles. An ndarray of floats
-      with shape [n, spatial_dimension].
+      with shape `[n, spatial_dimension]`.
     velocity: The current velocity of particles. An ndarray of floats
-      with shape [n, spatial_dimension].
+      with shape `[n, spatial_dimension]`.
     force: The current force on particles. An ndarray of floats
-      with shape [n, spatial_dimension].
+      with shape `[n, spatial_dimension]`.
     dt: A float specifying the current step size.
     alpha: A float specifying the current momentum.
     n_pos: The number of steps in the right direction, so far.
@@ -120,9 +120,9 @@ def fire_descent(energy_or_force: Callable[..., Array],
   Args:
     energy_or_force: A function that produces either an energy or a force from
       a set of particle positions specified as an ndarray of shape
-      [n, spatial_dimension].
-    shift_fn: A function that displaces positions, R, by an amount dR. Both R
-      and dR should be ndarrays of shape [n, spatial_dimension].
+      `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions `R`, by an amount `dR`. Both `R`
+      and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
     quant: Either a quantity.Energy or a quantity.Force specifying whether
       energy_or_force is an energy or force respectively.
     dt_start: The initial step size during minimization as a float.
