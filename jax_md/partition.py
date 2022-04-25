@@ -75,7 +75,7 @@ class CellList:
     position_buffer: An ndarray of floating point positions with shape
       `S + [spatial_dimension]`.
     id_buffer: An ndarray of int32 particle ids of shape `S`. Note that empty
-      slots are specified by `id = N` where N is the number of particles in the
+      slots are specified by `id = N` where `N` is the number of particles in the
       system.
     kwarg_buffers: A dictionary of ndarrays of shape `S + [...]`. This contains
       side data placed into the cell list.
@@ -261,7 +261,7 @@ def cell_list(box_size: Box,
   will be set to True.
 
   Args:
-    box_size: A float or an ndarray of shape [spatial_dimension] specifying the
+    box_size: A float or an ndarray of shape `[spatial_dimension]` specifying the
       size of the system. Note, this code is written for the case where the
       boundaries are periodic. If this is not the case, then the current code
       will be slightly less efficient.
@@ -596,28 +596,28 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
     displacement: A function `d(R_a, R_b)` that computes the displacement
       between pairs of points.
     box_size: Either a float specifying the size of the box or an array of
-      shape [spatial_dim] specifying the box size in each spatial dimension.
+      shape `[spatial_dim]` specifying the box size in each spatial dimension.
     r_cutoff: A scalar specifying the neighborhood radius.
     dr_threshold: A scalar specifying the maximum distance particles can move
       before rebuilding the neighbor list.
     capacity_multiplier: A floating point scalar specifying the fractional
       increase in maximum neighborhood occupancy we allocate compared with the
       maximum in the example positions.
-    disable_cell_list: An optional boolean. If set to True then the neighbor
+    disable_cell_list: An optional boolean. If set to `True` then the neighbor
       list is constructed using only distances. This can be useful for
-      debugging but should generally be left as False.
+      debugging but should generally be left as `False`.
     mask_self: An optional boolean. Determines whether points can consider
       themselves to be their own neighbors.
     custom_mask_function: An optional function. Takes the neighbor array
       and masks selected elements. Note: The input array to the function is
-      (n_particles, m) where the index of particle 1 is in index in the first
+      `(n_particles, m)` where the index of particle 1 is in index in the first
       dimension of the array, the index of particle 2 is given by the value in
       the array
     fractional_coordinates: An optional boolean. Specifies whether positions
-      will be supplied in fractional coordinates in the unit cube, [0, 1]^d.
-      If this is set to True then the box_size will be set to 1.0 and the
-      cell size used in the cell list will be set to cutoff / box_size.
-    format: The format of the neighbor list; see the NeighborListFormat enum
+      will be supplied in fractional coordinates in the unit cube, :math:`[0, 1]^d`.
+      If this is set to True then the `box_size` will be set to `1.0` and the
+      cell size used in the cell list will be set to `cutoff / box_size`.
+    format: The format of the neighbor list; see the :meth:`NeighborListFormat` enum
       for details about the different choices for formats. Defaults to `Dense`.
     **static_kwargs: kwargs that get threaded through the calculation of
       example positions.
