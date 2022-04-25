@@ -841,41 +841,8 @@ def stillinger_weber_neighbor_list(
     format: NeighborListFormat=partition.Dense,
     **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
-  """Computes the Stillinger-Weber potential.
-
-  The Stillinger-Weber (SW) potential [1] which is commonly used to model
-  silicon and similar systems. This function uses the default SW parameters
-  from the original paper. The SW potential was originally proposed to
-  model diamond in the diamond crystal phase and the liquid phase, and is
-  known to give unphysical amorphous configurations [2, 3]. For this reason,
-  we provide a three_body_strength parameter. Changing this number to 1.5
-  or 2.0 has been know to produce more physical amorphous phase, preventing
-  most atoms from having more than four nearest neighbors. Note that this
-  function currently assumes nearest-image-convention.
-
-  Args:
-    displacement: The displacement function for the space.
-    sigma: A scalar that sets the distance scale between neighbors.
-    A: A scalar that determines the scale of two-body term.
-    B: A scalar that determines the scale of the 1 / r^p term.
-    lam: A scalar that determines the scale of the three-body term.
-    epsilon: A scalar that sets the total energy scale.
-    gamma: A scalar used to fit the angle interaction.
-    three_body_strength: A scalar that determines the relative strength
-    of the angular interaction. Default value is 1.0, which works well
-    for the diamond crystal and liquid phases. 1.5 and 2.0 have been used
-    to model amorphous silicon.
-  Returns:
-    A function that computes the total energy.
-
-  [1] Stillinger, Frank H., and Thomas A. Weber. "Computer simulation of
-  local order in condensed phases of silicon." Physical review B 31.8
-  (1985): 5262.
-  [2] Holender, J. M., and G. J. Morgan. "Generation of a large structure
-  (105 atoms) of amorphous Si using molecular dynamics." Journal of
-  Physics: Condensed Matter 3.38 (1991): 7241.
-  [3] Barkema, G. T., and Normand Mousseau. "Event-based relaxation of
-  continuous disordered systems." Physical review letters 77.21 (1996): 4358.
+  """Convenience wrapper to compute :ref:`Stillinger-Weber <sw-pot>` 
+  using a neighbor list.
   """
   two_body_fn = partial(_sw_radial_interaction, sigma, B, cutoff)
   three_body_fn = partial(_sw_angle_interaction, gamma, sigma, cutoff)
@@ -1064,51 +1031,7 @@ def eam_neighbor_list(
     format: partition.NeighborListFormat = partition.Sparse,
     **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
-  """Interatomic potential as approximated by embedded atom model (EAM).
-
-  This code implements the EAM approximation to interactions between metallic
-  atoms. In EAM, the potential energy of an atom is given by two terms: a
-  pairwise energy and an embedding energy due to the interaction between the
-  atom and background charge density. The EAM potential for a single atomic
-  species is often
-  determined by three functions:
-    1) Charge density contribution of an atom as a function of distance.
-    2) Energy of embedding an atom in the background charge density.
-    3) Pairwise energy.
-  These three functions are usually provided as spline fits, and we follow the
-  implementation and spline fits given by [1]. Note that in current
-  implementation, the three functions listed above can also be expressed by a
-  any function with the correct signature, including neural networks.
-
-  Args:
-    displacement: A function that produces an ndarray of shape [n, m,
-      spatial_dimension] of particle displacements from particle positions
-      specified as an ndarray of shape [n, spatial_dimension] and [m,
-      spatial_dimension] respectively.
-    box_size: The size of the simulation box.
-    charge_fn: A function that takes an ndarray of shape [n, m] of distances
-      between particles and returns a matrix of charge contributions.
-    embedding_fn: Function that takes an ndarray of shape [n] of charges and
-      returns an ndarray of shape [n] of the energy cost of embedding an atom
-      into the charge.
-    pairwise_fn: A function that takes an ndarray of shape [n, m] of distances
-      and returns an ndarray of shape [n, m] of pairwise energies.
-    cutoff: A float specifying the maximum interaction distance.
-    dr_threshold: A float specifying the halo in the neighbor list.
-    axis: Specifies which axis the total energy should be summed over.
-    fractional_coordinates: A boolean specifying whether or not the coordinates
-      will be in the unit cube.
-    format: The format of the neighbor list.
-
-  Returns:
-    A tuple containing a function to build the neighbor list and function that
-    computes the EAM energy of a set of atoms with positions given by an
-    [n, spatial_dimension] ndarray.
-
-  [1] Y. Mishin, D. Farkas, M.J. Mehl, DA Papaconstantopoulos, "Interatomic
-  potentials for monoatomic metals from experimental data and ab initio
-  calculations." Physical Review B, 59 (1999)
-  """
+  """Convenience wrapper to compute :ref:`EAM <eam-pot>` using a neighbor list."""
   metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
 
   neighbor_fn = partition.neighbor_list(displacement_or_metric,
