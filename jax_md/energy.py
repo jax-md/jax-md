@@ -354,10 +354,12 @@ def morse_neighbor_list(
 
 
 def gupta_potential(displacement, p, q, r_0n, U_n, A, cutoff):
-  """Gupta potential with default parameters for Au_55 cluster. Gupta
-  potential was introduced by R. P. Gupta [1]. This potential uses parameters
-  that were fit for bulk gold by Jellinek [2]. This particular implementation
-  of the Gupta potential was introduced by Garzon and Posada-Amarillas [3].
+  """.. _gupta-pot:
+
+  Gupta potential with default parameters for Au_55 cluster. Gupta
+  potential was introduced by R. P. Gupta [#gupta]_. This potential uses parameters
+  that were fit for bulk gold by Jellinek [#jellinek]_. This particular implementation
+  of the Gupta potential was introduced by Garzon and Posada-Amarillas [#garzon]_.
 
   Args:
     displacement: Function to compute displacement between two positions.
@@ -378,10 +380,11 @@ def gupta_potential(displacement, p, q, r_0n, U_n, A, cutoff):
     the number of atoms) and returns the total energy of the system in units
     of eV.
 
-  [1] R.P. Gupta, Phys. Rev. B 23, 6265 (1981)
-  [2] J. Jellinek, in Metal-Ligand Interactions, edited by N. Russo and
-  D. R. Salahub (Kluwer Academic, Dordrecht, 1996), p. 325.
-  [3] I. L. Garzon, A. Posada-Amarillas, Phys. Rev. B 54, 16 (1996)
+  .. rubric:: References
+  .. [#gupta] R.P. Gupta, Phys. Rev. B 23, 6265 (1981)
+  .. [#jellinek] J. Jellinek, in Metal-Ligand Interactions, edited by N. Russo and
+    D. R. Salahub (Kluwer Academic, Dordrecht, 1996), p. 325.
+  .. [#garzon] I.L. Garzon, A. Posada-Amarillas, Phys. Rev. B 54, 16 (1996)
   """
   def _gupta_term1(r, p, r_0n, cutoff):
     """Repulsive term in Gupta potential."""
@@ -434,12 +437,12 @@ def multiplicative_isotropic_cutoff(fn: Callable[..., Array],
                                     r_cutoff: float) -> Callable[..., Array]:
   """Takes an isotropic function and constructs a truncated function.
 
-  Given a function f:R -> R, we construct a new function f':R -> R such that
-  f'(r) = f(r) for r < r_onset, f'(r) = 0 for r > r_cutoff, and f(r) is C^1
-  everywhere. To do this, we follow the approach outlined in HOOMD Blue [1]
-  (thanks to Carl Goodrich for the pointer). We construct a function S(r) such
-  that S(r) = 1 for r < r_onset, S(r) = 0 for r > r_cutoff, and S(r) is C^1.
-  Then f'(r) = S(r)f(r).
+  Given a function `f:R -> R`, we construct a new function `f':R -> R` such that
+  `f'(r) = f(r)` for `r < r_onset`, `f'(r) = 0` for `r > r_cutoff`, and `f(r)` is :math:`C^1`
+  everywhere. To do this, we follow the approach outlined in HOOMD Blue  [#hoomd]_
+  (thanks to Carl Goodrich for the pointer). We construct a function `S(r)` such
+  that `S(r) = 1` for `r < r_onset`, `S(r) = 0` for `r > r_cutoff`, and `S(r)` is :math:`C^1`.
+  Then `f'(r) = S(r)f(r)`.
 
   Args:
     fn: A function that takes an ndarray of distances of shape `[n, m]` as well
@@ -451,7 +454,8 @@ def multiplicative_isotropic_cutoff(fn: Callable[..., Array],
     A new function with the same signature as fn, with the properties outlined
     above.
 
-  [1] HOOMD Blue documentation. Accessed on 05/31/2019.
+  .. rubric:: References
+  .. [#hoomd] HOOMD Blue documentation. Accessed on 05/31/2019.
       https://hoomd-blue.readthedocs.io/en/stable/module-md-pair.html#hoomd.md.pair.pair
   """
 
@@ -500,10 +504,12 @@ def bks(dr: Array,
         coulomb_alpha: Array,
         cutoff: float,
         **unused_kwargs) -> Array:
-  """Beest-Kramer-van Santen (BKS) potential[1] which is commonly used to
+  """.. _bks-pot:
+  
+  Beest-Kramer-van Santen (BKS) potential [#bks]_ which is commonly used to
   model silicas. This function computes the interaction between two
-  given atoms within the Buckingham form[2], following the implementation
-  from Ref. [3]
+  given atoms within the Buckingham form [#carre]_ , following the implementation
+  from Liu et al. [#liu]_ .
 
   Args:
     dr: An ndarray of shape `[n, m]` of pairwise distances between particles.
@@ -522,14 +528,15 @@ def bks(dr: Array,
   Returns:
     Matrix of energies of shape `[n, m]`.
 
-  [1] Van Beest, B. W. H., Gert Jan Kramer, and R. A. Van Santen. "Force fields
-  for silicas and aluminophosphates based on ab initio calculations." Physical
-  Review Letters 64.16 (1990): 1955.
-  [2] Carré, Antoine, et al. "Developing empirical potentials from ab initio
-  simulations: The case of amorphous silica." Computational Materials Science
-  124 (2016): 323-334.
-  [3] Liu, Han, et al. "Machine learning Forcefield for silicate glasses."
-  arXiv preprint arXiv:1902.03486 (2019).
+  .. rubric:: References
+  .. [#bks] Van Beest, B. W. H., Gert Jan Kramer, and R. A. Van Santen. "Force fields
+    for silicas and aluminophosphates based on ab initio calculations." Physical
+    Review Letters 64.16 (1990): 1955.
+  .. [#carre] Carré, Antoine, et al. "Developing empirical potentials from ab initio
+    simulations: The case of amorphous silica." Computational Materials Science
+    124 (2016): 323-334.
+  .. [#liu] Liu, Han, et al. "Machine learning Forcefield for silicate glasses."
+    arXiv preprint arXiv:1902.03486 (2019).
   """
   energy = (dsf_coulomb(dr, Q_sq, coulomb_alpha, cutoff) + \
             exp_coeff * jnp.exp(-dr / exp_decay) + \
@@ -758,15 +765,17 @@ def stillinger_weber(displacement: DisplacementFn,
                      epsilon: float = 2.16826,
                      three_body_strength: float =1.0,
                      cutoff: float = 3.77118) -> Callable[[Array], Array]:
-  """Computes the Stillinger-Weber potential.
+  """.. _sw-pot:
 
-  The Stillinger-Weber (SW) potential [1] which is commonly used to model
+  Computes the Stillinger-Weber potential.
+
+  The Stillinger-Weber (SW) potential [#stillinger]_ which is commonly used to model
   silicon and similar systems. This function uses the default SW parameters
   from the original paper. The SW potential was originally proposed to
   model diamond in the diamond crystal phase and the liquid phase, and is
-  known to give unphysical amorphous configurations [2, 3]. For this reason,
-  we provide a three_body_strength parameter. Changing this number to 1.5
-  or 2.0 has been know to produce more physical amorphous phase, preventing
+  known to give unphysical amorphous configurations [#holender]_ [#barkema]_ . 
+  For this reason, we provide a `three_body_strength` parameter. Changing this number to `1.5`
+  or `2.0` has been know to produce more physical amorphous phase, preventing
   most atoms from having more than four nearest neighbors. Note that this
   function currently assumes nearest-image-convention.
 
@@ -786,14 +795,14 @@ def stillinger_weber(displacement: DisplacementFn,
   Returns:
     A function that computes the total energy.
 
-  [1] Stillinger, Frank H., and Thomas A. Weber. "Computer simulation of
-  local order in condensed phases of silicon." Physical review B 31.8
-  (1985): 5262.
-  [2] Holender, J. M., and G. J. Morgan. "Generation of a large structure
-  (105 atoms) of amorphous Si using molecular dynamics." Journal of
-  Physics: Condensed Matter 3.38 (1991): 7241.
-  [3] Barkema, G. T., and Normand Mousseau. "Event-based relaxation of
-  continuous disordered systems." Physical review letters 77.21 (1996): 4358.
+  .. rubric:: References
+  .. [#stillinger] Stillinger, Frank H., and Thomas A. Weber. "Computer simulation of
+    local order in condensed phases of silicon." Physical review B 31.8 (1985): 5262.
+  .. [#holender] Holender, J. M., and G. J. Morgan. "Generation of a large structure
+    (105 atoms) of amorphous Si using molecular dynamics." Journal of
+    Physics: Condensed Matter 3.38 (1991): 7241.
+  .. [#barkema] Barkema, G. T., and Normand Mousseau. "Event-based relaxation of
+    continuous disordered systems." Physical review letters 77.21 (1996): 4358.
   """
   two_body_fn = partial(_sw_radial_interaction, sigma, B, cutoff)
   three_body_fn = partial(_sw_angle_interaction, gamma, sigma, cutoff)
@@ -978,9 +987,10 @@ def eam(displacement: DisplacementFn,
   3) Pairwise energy.
 
   These three functions are usually provided as spline fits, and we follow the
-  implementation and spline fits given by [1]. Note that in current
-  implementation, the three functions listed above can also be expressed by a
-  any function with the correct signature, including neural networks.
+  implementation and spline fits given by Mishin et al. [#mishin]_
+  Note that in current implementation, the three functions listed above 
+  can also be expressed by a any function with the correct signature, 
+  including neural networks.
 
   Args:
     displacement: A function that produces an ndarray of shape `[n, m,
@@ -1006,10 +1016,11 @@ def eam(displacement: DisplacementFn,
     A tuple containing a function to build the neighbor list and function that
     computes the EAM energy of a set of atoms with positions given by an
     `[n, spatial_dimension]` ndarray.
-
-  [1] Y. Mishin, D. Farkas, M.J. Mehl, DA Papaconstantopoulos, "Interatomic
-  potentials for monoatomic metals from experimental data and ab initio
-  calculations." Physical Review B, 59 (1999)
+  
+  .. rubric:: References
+  .. [#mishin] Y. Mishin, D. Farkas, M.J. Mehl, DA Papaconstantopoulos, "Interatomic
+    potentials for monoatomic metals from experimental data and ab initio
+    calculations." Physical Review B, 59 (1999)
   """
   metric = space.map_product(space.metric(displacement))
 

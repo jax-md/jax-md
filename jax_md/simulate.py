@@ -243,21 +243,21 @@ def nose_hoover_chain(dt: float,
 
   This function is used in simulations that sample from thermal ensembles by
   coupling the system to one, or more, Nose-Hoover chains. We use the direct
-  translation method outlined in [1] and the Nose-Hoover chains are updated
+  translation method outlined in Martyna et al. [#martyna92]_ and the Nose-Hoover chains are updated
   using two half steps: one at the beginning of a simulation step and one at
   the end. The masses of the Nose-Hoover chains are updated automatically to
   enforce a specific period of oscillation, `tau`. Larger values of `tau` will
   yield systems that reach the target temperature more slowly but are also more
   stable.
 
-  As described in [1], the Nose-Hoover chain often evolves on a faster
+  As described in Martyna et al. [#martyna92]_, the Nose-Hoover chain often evolves on a faster
   timescale than the rest of the simulation. Therefore, it sometimes necessary
   to integrate the chain over several substeps for each step of MD. To do this
   we follow the Suzuki-Yoshida scheme. Specifically, we subdivide our chain
   simulation into :math:`n_c` substeps. These substeps are further subdivided into
   :math:`n_sy` steps. Each :math:`n_sy` step has length :math:`\delta_i = \Delta t w_i / n_c`
   where :math:`w_i` are constants such that :math:`\sum_i w_i = 1`. See the table of
-  Suzuki_Yoshida weights above for specific values. The number of substeps
+  Suzuki-Yoshida weights above for specific values. The number of substeps
   and the number of Suzuki-Yoshida steps are set using the `chain_steps` and
   `sy_steps` arguments.
 
@@ -418,9 +418,9 @@ def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
 
   Samples from the canonical ensemble in which the number of particles (N),
   the system volume (V), and the temperature (T) are held constant. We use a
-  Nose Hoover Chain (NHC) thermostat described in [1, 2, 3]. We follow the
-  direct translation method outlined in [3] and the interested reader might
-  want to look at that paper as a reference.
+  Nose Hoover Chain (NHC) thermostat described in [#martyna92]_ [#martyna98]_ [#tuckerman]_ . 
+  We follow the direct translation method outlined in Tuckerman et al. [#tuckerman]_ 
+  and the interested reader might want to look at that paper as a reference.
 
   Args:
     energy_or_force: A function that produces either an energy or a force from
@@ -444,17 +444,18 @@ def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
   Returns:
     See above.
 
-  [1] Martyna, Glenn J., Michael L. Klein, and Mark Tuckerman.
-      "Nose-Hoover chains: The canonical ensemble via continuous dynamics."
-      The Journal of chemical physics 97, no. 4 (1992): 2635-2643.
-  [2] Martyna, Glenn, Mark Tuckerman, Douglas J. Tobias, and Michael L. Klein.
-      "Explicit reversible integrators for extended systems dynamics."
-      Molecular Physics 87. (1998) 1117-1157.
-  [3] Tuckerman, Mark E., Jose Alejandre, Roberto Lopez-Rendon,
-      Andrea L. Jochim, and Glenn J. Martyna.
-      "A Liouville-operator derived measure-preserving integrator for molecular
-      dynamics simulations in the isothermal-isobaric ensemble."
-      Journal of Physics A: Mathematical and General 39, no. 19 (2006): 5629.
+  .. rubric:: References
+  .. [#martyna92] Martyna, Glenn J., Michael L. Klein, and Mark Tuckerman.
+    "Nose-Hoover chains: The canonical ensemble via continuous dynamics."
+    The Journal of chemical physics 97, no. 4 (1992): 2635-2643.
+  .. [#martyna98] Martyna, Glenn, Mark Tuckerman, Douglas J. Tobias, and Michael L. Klein.
+    "Explicit reversible integrators for extended systems dynamics."
+    Molecular Physics 87. (1998) 1117-1157.
+  .. [#tuckerman] Tuckerman, Mark E., Jose Alejandre, Roberto Lopez-Rendon,
+    Andrea L. Jochim, and Glenn J. Martyna.
+    "A Liouville-operator derived measure-preserving integrator for molecular
+    dynamics simulations in the isothermal-isobaric ensemble."
+    Journal of Physics A: Mathematical and General 39, no. 19 (2006): 5629.
   """
   dt = f32(dt)
   if tau is None:
@@ -596,11 +597,12 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
   """Simulation in the NPT ensemble using a pair of Nose Hoover Chains.
 
   Samples from the canonical ensemble in which the number of particles (N),
-  the system pressure (P), and the temperature (T) are held constant. We use a
-  pair of Nose Hoover Chains (NHC) described in [1, 2, 3] coupled to the
+  the system pressure (P), and the temperature (T) are held constant. 
+  We use a pair of Nose Hoover Chains (NHC) described in 
+  [#martyna92]_ [#martyna98]_ [#tuckerman]_ coupled to the
   barostat and the thermostat respectively. We follow the direct translation
-  method outlined in [3] and the interested reader might want to look at that
-  paper as a reference.
+  method outlined in Tuckerman et al. [#tuckerman]_ and the interested reader 
+  might want to look at that paper as a reference.
 
   Args:
     energy_fn: A function that produces either an energy from a set of particle
@@ -625,17 +627,6 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
   Returns:
     See above.
 
-  [1] Martyna, Glenn J., Michael L. Klein, and Mark Tuckerman.
-      "Nose-Hoover chains: The canonical ensemble via continuous dynamics."
-      The Journal of chemical physics 97, no. 4 (1992): 2635-2643.
-  [2] Martyna, Glenn, Mark Tuckerman, Douglas J. Tobias, and Michael L. Klein.
-      "Explicit reversible integrators for extended systems dynamics."
-      Molecular Physics 87. (1998) 1117-1157.
-  [3] Tuckerman, Mark E., Jose Alejandre, Roberto Lopez-Rendon,
-      Andrea L. Jochim, and Glenn J. Martyna.
-      "A Liouville-operator derived measure-preserving integrator for molecular
-      dynamics simulations in the isothermal-isobaric ensemble."
-      Journal of Physics A: Mathematical and General 39, no. 19 (2006): 5629.
   """
 
   t = f32(dt)
@@ -859,7 +850,7 @@ def nvt_langevin(energy_or_force: Callable[..., Array],
   ODE described by a friction coefficient and noise of a given covariance.
 
   Our implementation follows the excellent set of lecture notes by Carlon,
-  Laleman, and Nomidis [1].
+  Laleman, and Nomidis [#carlon]_ .
 
   Args:
     energy_or_force: A function that produces either an energy or a force from
@@ -879,9 +870,10 @@ def nvt_langevin(energy_or_force: Callable[..., Array],
   Returns:
     See above.
 
-    [1] E. Carlon, M. Laleman, S. Nomidis. "Molecular Dynamics Simulation."
-        http://itf.fys.kuleuven.be/~enrico/Teaching/molecular_dynamics_2015.pdf
-        Accessed on 06/05/2019.
+  .. rubric:: References
+  .. [#carlon] E. Carlon, M. Laleman, S. Nomidis. "Molecular Dynamics Simulation."
+    http://itf.fys.kuleuven.be/~enrico/Teaching/molecular_dynamics_2015.pdf
+    Accessed on 06/05/2019.
   """
 
   force_fn = quantity.canonicalize_force(energy_or_force)
@@ -960,7 +952,7 @@ def brownian(energy_or_force: Callable[..., Array],
   regime of Langevin dynamics. However, in this case we don't need to take into
   account velocity information and the dynamics simplify. Consequently, when
   Brownian dynamics can be used they will be faster than Langevin. As in the
-  case of Langevin dynamics our implementation follows [1].
+  case of Langevin dynamics our implementation follows Carlon et al. [#carlon]_
 
   Args:
     energy_or_force: A function that produces either an energy or a force from
@@ -978,10 +970,6 @@ def brownian(energy_or_force: Callable[..., Array],
 
   Returns:
     See above.
-
-    [1] E. Carlon, M. Laleman, S. Nomidis. "Molecular Dynamics Simulation."
-        http://itf.fys.kuleuven.be/~enrico/Teaching/molecular_dynamics_2015.pdf
-        Accessed on 06/05/2019.
   """
 
   force_fn = quantity.canonicalize_force(energy_or_force)
@@ -1051,7 +1039,8 @@ def hybrid_swap_mc(space_fns: space.Space,
                    ) -> Simulator:
   """Simulation of Hybrid Swap Monte-Carlo.
 
-  This code simulates the hybrid Swap Monte Carlo algorithm introduced in [1].
+  This code simulates the hybrid Swap Monte Carlo algorithm introduced in 
+  Berthier et al. [#berthier]_
   Here an NVT simulation is performed for `t_md` time and then `N_swap` MC
   moves are performed that swap the radii of randomly chosen particles. The
   random swaps are accepted with Metropolis-Hastings step. Each call to the
@@ -1082,10 +1071,10 @@ def hybrid_swap_mc(space_fns: space.Space,
   Returns:
     See above.
 
-  [1] L. Berthier, E. Flenner, C. J. Fullerton, C. Scalliet, and M. Singh.
-      "Efficient swap algorithms for molecular dynamics simulations of
-       equilibrium supercooled liquids"
-      J. Stat. Mech. (2019) 064004
+  .. rubric:: References
+  .. [#berthier] L. Berthier, E. Flenner, C. J. Fullerton, C. Scalliet, and M. Singh.
+    "Efficient swap algorithms for molecular dynamics simulations of
+    equilibrium supercooled liquids", J. Stat. Mech. (2019) 064004
   """
   displacement_fn, shift_fn = space_fns
   metric_fn = space.metric(displacement_fn)

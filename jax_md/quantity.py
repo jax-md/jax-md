@@ -436,10 +436,7 @@ def phop(displacement: DisplacementFn, window_size: int) -> PHopCalculator:
   .. math::
     phop = \sqrt{E_A[(R_i(t) - E_B[R_i(t)])^2]E_B[(R_i(t) - E_A[R_i(t)])^2]}
 
-    R. Candelier et al.
-    "Spatiotemporal Hierarchy of Relaxation Events, Dynamical Heterogeneities,
-     and Structural Reorganization in a Supercooled Liquid"
-    Physical Review Letters 105, 135702 (2010).
+  phop was first introduced in Candelier et al. [#candelier]_
 
   Args:
     displacement: A function that computes displacements between pairs of
@@ -451,6 +448,12 @@ def phop(displacement: DisplacementFn, window_size: int) -> PHopCalculator:
     A pair of functions, `(init_fn, update_fn)` that initialize the state of a
     phop measurement and update the state of a phop measurement to include new
     positions.
+
+  .. rubric:: References
+  .. [#candelier] R. Candelier et al.
+    "Spatiotemporal Hierarchy of Relaxation Events, Dynamical Heterogeneities,
+    and Structural Reorganization in a Supercooled Liquid"
+    Physical Review Letters 105, 135702 (2010).
   """
 
   half_window_size = window_size // 2

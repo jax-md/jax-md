@@ -117,7 +117,7 @@ def fire_descent(energy_or_force: Callable[..., Array],
                  f_alpha: float=0.99) -> Minimizer[FireDescentState]:
   """Defines FIRE minimization.
 
-  This code implements the "Fast Inertial Relaxation Engine" from [1].
+  This code implements the "Fast Inertial Relaxation Engine" from Bitzek et al. [#bitzek]_
 
   Args:
     energy_or_force: A function that produces either an energy or a force from
@@ -140,7 +140,8 @@ def fire_descent(energy_or_force: Callable[..., Array],
   Returns:
     See above.
 
-  [1] Bitzek, Erik, Pekka Koskinen, Franz Gahler, Michael Moseler,
+  .. rubric:: References
+  .. [#bitzek] Bitzek, Erik, Pekka Koskinen, Franz Gahler, Michael Moseler,
       and Peter Gumbsch. "Structural relaxation made simple."
       Physical review letters 97, no. 17 (2006): 170201.
   """
