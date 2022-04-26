@@ -931,7 +931,6 @@ def nvt_langevin(energy_or_force: Callable[..., Array],
     return NVTLangevinState(R, V, F_new, mass, key)  # pytype: disable=wrong-arg-count
   return init_fn, apply_fn
 
-
 @dataclasses.dataclass
 class BrownianState:
   """A tuple containing state information for Brownian dynamics.
@@ -939,7 +938,7 @@ class BrownianState:
   Attributes:
     position: The current position of the particles. An ndarray of floats with
       shape [n, spatial_dimension].
-    mass: The mmass of particles. Will either be a float or an ndarray of floats
+    mass: The mass of particles. Will either be a float or an ndarray of floats
       with shape [n].
     rng: The current state of the random number generator.
   """
@@ -973,7 +972,9 @@ def brownian(energy_or_force: Callable[..., Array],
       constant. To update the temperature dynamically during a simulation one
       should pass `kT` as a keyword argument to the step function.
     gamma: A float specifying the friction coefficient between the particles
-      and the solvent.
+      and the solvent. The gamma here is the friction coeifficient divided by
+      the mass. For example, when the particles are 3 diemsional spheres
+      gamma = 6 pi eta R/mass. See quantity.gamma_from_stokes_law for detail.
 
   Returns:
     See above.
@@ -994,6 +995,7 @@ def brownian(energy_or_force: Callable[..., Array],
 
   def apply_fn(state, **kwargs):
     _kT = kT if 'kT' not in kwargs else kwargs['kT']
+    _gamma = gamma if 'gamma' not in kwargs else kwargs['gamma']
 
     R, mass, key = dataclasses.astuple(state)
 
@@ -1002,7 +1004,7 @@ def brownian(energy_or_force: Callable[..., Array],
     F = force_fn(R, **kwargs)
     xi = random.normal(split, R.shape, R.dtype)
 
-    nu = f32(1) / (mass * gamma)
+    nu = f32(1) / (mass * _gamma)
 
     dR = F * dt * nu + jnp.sqrt(f32(2) * _kT * dt * nu) * xi
     R = shift(R, dR, **kwargs)
@@ -1019,7 +1021,6 @@ Below are simulation environments whose implementation is somewhat
 experimental / preliminary. These environments might not be as ergonomic
 as the more polished environments above.
 """
-
 
 @dataclasses.dataclass
 class SwapMCState:
