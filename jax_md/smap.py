@@ -92,22 +92,22 @@ def bond(fn: Callable[..., Array],
   """Promotes a function that acts on a single pair to one on a set of bonds.
 
   TODO(schsam): It seems like bonds might potentially have poor memory access.
-    Should think about this a bit and potentially optimize.
+  Should think about this a bit and potentially optimize.
 
   Args:
     fn: A function that takes an ndarray of pairwise distances or displacements
-      of shape [n, m] or [n, m, d_in] respectively as well as kwargs specifying
-      parameters for the function. fn returns an ndarray of evaluations of shape
-      [n, m, d_out].
+      of shape `[n, m]` or `[n, m, d_in]` respectively as well as kwargs specifying
+      parameters for the function. `fn` returns an ndarray of evaluations of shape
+      `[n, m, d_out]`.
     metric: A function that takes two ndarray of positions of shape
-      [spatial_dimension] and [spatial_dimension] respectively and returns
-      an ndarray of distances or displacements of shape [] or [d_in]
+      `[spatial_dimension]` and `[spatial_dimension]` respectively and returns
+      an ndarray of distances or displacements of shape `[]` or `[d_in]`
       respectively. The metric can optionally take a floating point time as a
       third argument.
-    static_bonds: An ndarray of integer pairs wth shape [b, 2] where each pair
-      specifies a bond. static_bonds are baked into the returned compute
+    static_bonds: An ndarray of integer pairs wth shape `[b, 2]` where each pair
+      specifies a bond. `static_bonds` are baked into the returned compute
       function statically and cannot be changed after the fact.
-    static_bond_types: An ndarray of integers of shape [b] specifying the type
+    static_bond_types: An ndarray of integers of shape `[b]` specifying the type
       of each bond. Only specify bond types if you want to specify bond
       parameters by type. One can also specify constant or per-bond parameters
       (see below).
@@ -116,14 +116,19 @@ def bond(fn: Callable[..., Array],
       if they were not first specified as keyword arguments when calling
       `smap.bond(...)`.
     kwargs: Arguments providing parameters to the mapped function. In cases
-      where no bond type information is provided these should be either 1) a
-      scalar or 2) an ndarray of shape [b]. If bond type information is
-      provided then the parameters should be specified as either 1) a scalar or
-      2) an ndarray of shape [max_bond_type].
+      where no bond type information is provided these should be either
+
+        1. a scalar
+        2. an ndarray of shape `[b]`. 
+      
+      If bond type information is provided then the parameters should be specified as either
+
+        1. a scalar
+        2. an ndarray of shape `[max_bond_type]`.
 
   Returns:
-    A function fn_mapped. Note that fn_mapped can take arguments bonds and
-    bond_types which will be bonds that are specified dynamically. This will
+    A function `fn_mapped`. Note that `fn_mapped` can take arguments bonds and
+    `bond_types` which will be bonds that are specified dynamically. This will
     incur a recompilation when the number of bonds changes. Improving this
     state of affairs I will leave as a TODO until someone actually uses this
     feature and runs into speed issues.
@@ -272,48 +277,54 @@ def pair(fn: Callable[..., Array],
 
   Args:
     fn: A function that takes an ndarray of pairwise distances or displacements
-      of shape [n, m] or [n, m, d_in] respectively as well as kwargs specifying
+      of shape `[n, m]` or `[n, m, d_in]` respectively as well as kwargs specifying
       parameters for the function. fn returns an ndarray of evaluations of shape
-      [n, m, d_out].
+      `[n, m, d_out]`.
     metric: A function that takes two ndarray of positions of shape
-      [spatial_dimension] and [spatial_dimension] respectively and returns
-      an ndarray of distances or displacements of shape [] or [d_in]
+      `[spatial_dimension]` and `[spatial_dimension]` respectively and returns
+      an ndarray of distances or displacements of shape `[]` or `[d_in]`
       respectively. The metric can optionally take a floating point time as a
       third argument.
     species: A list of species for the different particles. This should either
       be None (in which case it is assumed that all the particles have the same
-      species), an integer ndarray of shape [n] with species data, or an
+      species), an integer ndarray of shape `[n]` with species data, or an
       integer in which case the species data will be specified dynamically with
       `species` giving the maximum number of types of particles. Note: that
       dynamic species specification is less efficient, because we cannot
       specialize shape information.
-    reduce_axis: A list of axes to reduce over. This is supplied to jnp.sum and
+    reduce_axis: A list of axes to reduce over. This is supplied to `jnp.sum` and
       so the same convention is used.
     keepdims: A boolean specifying whether the empty dimensions should be kept
-      upon reduction. This is supplied to jnp.sum and so the same convention is
+      upon reduction. This is supplied to `jnp.sum` and so the same convention is
       used.
     ignore_unused_parameters: A boolean that denotes whether dynamically
       specified keyword arguments passed to the mapped function get ignored
       if they were not first specified as keyword arguments when calling
       `smap.pair(...)`.
     kwargs: Arguments providing parameters to the mapped function. In cases
-      where no species information is provided these should be either 1) a
-      scalar, 2) an ndarray of shape [n], 3) an ndarray of shape [n, n],
-      3) a binary function that determines how per-particle parameters are to
-      be combined, 4) a binary function as well as a default set of parameters
-      as in 2). If unspecified then this is taken to be the average of the
+      where no species information is provided these should be either 
+
+        1) a scalar 
+        2) an ndarray of shape `[n]`
+        3) an ndarray of shape `[n, n]`,
+        4) a binary function that determines how per-particle parameters are to be combined
+        5) a binary function as well as a default set of parameters as in 2)
+      
+      If unspecified then this is taken to be the average of the
       two per-particle parameters. If species information is provided then the
-      parameters should be specified as either 1) a scalar or 2) an ndarray of
-      shape [max_species, max_species].
+      parameters should be specified as either 
+      
+        1) a scalar 
+        2) an ndarray of shape `[max_species, max_species]`
 
   Returns:
     A function fn_mapped.
 
-    If species is None or statically specified then fn_mapped takes as arguments
-    an ndarray of positions of shape [n, spatial_dimension].
+    If species is `None` or statically specified then `fn_mapped` takes as arguments
+    an ndarray of positions of shape `[n, spatial_dimension]`.
 
-    If species is dynamic then fn_mapped takes as input an ndarray of shape
-    [n, spatial_dimension], an integer ndarray of species of shape [n], and an
+    If species is dynamic then `fn_mapped` takes as input an ndarray of shape
+    `[n, spatial_dimension]`, an integer ndarray of species of shape `[n]`, and an
     integer specifying the maximum species.
 
     The mapped function can also optionally take keyword arguments that get
@@ -489,41 +500,47 @@ def pair_neighbor_list(fn: Callable[..., Array],
 
   Args:
     fn: A function that takes an ndarray of pairwise distances or displacements
-      of shape [n, m] or [n, m, d_in] respectively as well as kwargs specifying
+      of shape `[n, m]` or `[n, m, d_in]` respectively as well as kwargs specifying
       parameters for the function. fn returns an ndarray of evaluations of
-      shape [n, m, d_out].
+      shape `[n, m, d_out]`.
     metric: A function that takes two ndarray of positions of shape
-      [spatial_dimension] and [spatial_dimension] respectively and returns
-      an ndarray of distances or displacements of shape [] or [d_in]
+      `[spatial_dimension]` and `[spatial_dimension]` respectively and returns
+      an ndarray of distances or displacements of shape `[]` or `[d_in]`
       respectively. The metric can optionally take a floating point time as a
       third argument.
     species: Species information for the different particles. Should either
       be None (in which case it is assumed that all the particles have the same
-      species), an integer array of shape [n] with species data. Note that
+      species), an integer array of shape `[n]` with species data. Note that
       species data can be specified dynamically by passing a `species` keyword
       argument to the mapped function.
     reduce_axis: A list of axes to reduce over. We use a convention where axis
       0 corresponds to the particles, axis 1 corresponds to neighbors, and the
       remaining axes correspond to the output axes of `fn`. Note that it is not
       well-defined to sum over particles without summing over neighbors. One
-      also cannot report per-particle values (excluding axis 0) for neighbor
+      also cannot report per-particle values (excluding axis `0`) for neighbor
       lists whose format is `OrderedSparse`.
     ignore_unused_parameters: A boolean that denotes whether dynamically
       specified keyword arguments passed to the mapped function get ignored
       if they were not first specified as keyword arguments when calling
       `smap.pair_neighbor_list(...)`.
     kwargs: Arguments providing parameters to the mapped function. In cases
-      where no species information is provided these should be either 1) a
-      scalar, 2) an ndarray of shape [n], 3) an ndarray of shape [n, n],
-      3) a binary function that determines how per-particle parameters are to
-      be combined. If unspecified then this is taken to be the average of the
-      two per-particle parameters. If species information is provided then the
-      parameters should be specified as either 1) a scalar or 2) an ndarray of
-      shape [max_species, max_species].
+      where no species information is provided these should be either 
 
+        1) a scalar 
+        2) an ndarray of shape `[n]`
+        3) an ndarray of shape `[n, n]`,
+        4) a binary function that determines how per-particle parameters are to be combined
+      
+      If unspecified then this is taken to be the average of the
+      two per-particle parameters. If species information is provided then the
+      parameters should be specified as either 
+      
+        1) a scalar 
+        2) an ndarray of shape `[max_species, max_species]`
+      
   Returns:
-    A function fn_mapped that takes an ndarray of floats of shape [N, d_in] of
-    positions and and ndarray of integers of shape [N, max_neighbors]
+    A function `fn_mapped` that takes an ndarray of floats of shape `[N, d_in]` of
+    positions and and ndarray of integers of shape `[N, max_neighbors]`
     specifying neighbors.
   """
   kwargs, param_combinators = _split_params_and_combinators(kwargs)
@@ -601,16 +618,16 @@ def triplet(fn: Callable[..., Array],
 
   Args:
     fn: A function that takes an ndarray of two distances or displacements
-        from a central atom, both of shape [n, m] or [n, m, d_in] respectively,
+        from a central atom, both of shape `[n, m]` or `[n, m, d_in]` respectively,
         as well as kwargs specifying parameters for the function.
     metric: A function that takes two ndarray of positions of shape
-        [spatial_dimensions] and [spatial_dimensions] respectively and
-        returns an ndarray of distances or displacements of shape [] or [d_in]
+        `[spatial_dimensions]` and `[spatial_dimensions]` respectively and
+        returns an ndarray of distances or displacements of shape `[]` or `[d_in]`
         respectively. The metric can optionally take a floating point time as a
         third argument.
     species: A list of species for the different particles. This should either
       be None (in which case it is assumed that all the particles have the same
-      species), an integer ndarray of shape [n] with species data, or an
+      species), an integer ndarray of shape `[n]` with species data, or an
       integer in which case the species data will be specified dynamically with
       `species` giving the maximum number of types of particles. Note: that
       dynamic species specification is less efficient, because we cannot
@@ -625,22 +642,27 @@ def triplet(fn: Callable[..., Array],
       if they were not first specified as keyword arguments when calling
       `smap.triplet(...)`.
     kwargs: Argument providing parameters to the mapped function. In cases
-        where no species information is provided, these should either be 1)
-        a scalar, 2) an ndarray of shape [n] based on the central atom,
-        3) an ndarray of shape [n, n, n] defining triplet interactions.
+        where no species information is provided, these should either be 
+          
+          1) a scalar
+          2) an ndarray of shape `[n]` based on the central atom
+          3) an ndarray of shape `[n, n, n]` defining triplet interactions.
+
         If species information is provided, then the parameters should
-        be specified as either 1) a scalar,  2) an ndarray of shape
-        [max_species], 3) an ndarray of shape [max_species, max_species,
-        max_species] defining triplet interactions.
+        be specified as either 
+        
+          1) a scalar
+          2) an ndarray of shape `[max_species]`
+          3) an ndarray of shape `[max_species, max_species, max_species]` defining triplet interactions.
 
   Returns:
-    A function fn_mapped.
+    A function `fn_mapped`.
 
-    If species is None or statically specified, then fn_mapped takes as
-    arguments an ndarray of positions of shape [n, spatial_dimension].
+    If species is None or statically specified, then `fn_mapped` takes as
+    arguments an ndarray of positions of shape `[n, spatial_dimension]`.
 
-    If species is dynamic then fn_mapped takes as input an ndarray of shape
-    [n, spatial_dimension], an integer ndarray of species of shape [n], and
+    If species is dynamic then `fn_mapped` takes as input an ndarray of shape
+    `[n, spatial_dimension]`, an integer ndarray of species of shape `[n]`, and
     an integer specifying the maximum species.
 
     The mapped function can also optionally take keyword arguments that get

@@ -104,15 +104,15 @@ def radial_symmetry_functions(displacement_or_metric: DisplacementOrMetricFn,
     species: An `[N_atoms]` that contains the species of each particle.
     etas: List of radial symmetry function parameters that control the spatial
       extension.
-    cutoff_distance: Neighbors whose distance is larger than cutoff_distance do
+    cutoff_distance: Neighbors whose distance is larger than `cutoff_distance` do
       not contribute to each others symmetry functions. The contribution of a
       neighbor to the symmetry function and its derivative goes to zero at this
       distance.
 
   Returns:
     A function that computes the radial symmetry function from input `[N_atoms,
-    spatial_dimension]` and returns `[N_atoms, N_etas * N_types]` where N_etas
-    is the number of eta parameters, N_types is the number of types of
+    spatial_dimension]` and returns `[N_atoms, N_etas * N_types]` where `N_etas`
+    is the number of eta parameters, `N_types` is the number of types of
     particles in the system.
   """
   metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
@@ -157,15 +157,15 @@ def radial_symmetry_functions_neighbor_list(
     species: An `[N_atoms]` that contains the species of each particle.
     etas: List of radial symmetry function parameters that control the spatial
       extension.
-    cutoff_distance: Neighbors whose distance is larger than cutoff_distance do
+    cutoff_distance: Neighbors whose distance is larger than `cutoff_distance` do
       not contribute to each others symmetry functions. The contribution of a
       neighbor to the symmetry function and its derivative goes to zero at this
       distance.
 
   Returns:
     A function that computes the radial symmetry function from input `[N_atoms,
-    spatial_dimension]` and returns `[N_atoms, N_etas * N_types]` where N_etas
-    is the number of eta parameters, N_types is the number of types of
+    spatial_dimension]` and returns `[N_atoms, N_etas * N_types]` where `N_etas`
+    is the number of eta parameters, `N_types` is the number of types of
     particles in the system.
   """
   metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
@@ -258,14 +258,14 @@ def angular_symmetry_functions(displacement: DisplacementFn,
       extension.
     lam:
     zeta:
-    cutoff_distance: Neighbors whose distance is larger than cutoff_distance do
+    cutoff_distance: Neighbors whose distance is larger than `cutoff_distance` do
       not contribute to each others symmetry functions. The contribution of a
       neighbor to the symmetry function and its derivative goes to zero at this
       distance.
   Returns:
     A function that computes the angular symmetry function from input `[N_atoms,
     spatial_dimension]` and returns `[N_atoms, N_types * (N_types + 1) / 2]`
-    where N_types is the number of types of particles in the system.
+    where `N_types` is the number of types of particles in the system.
   """
 
   _angular_fn = vmap(single_pair_angular_symmetry_function,
@@ -326,14 +326,14 @@ def angular_symmetry_functions_neighbor_list(
       extension.
     lam:
     zeta:
-    cutoff_distance: Neighbors whose distance is larger than cutoff_distance do
+    cutoff_distance: Neighbors whose distance is larger than `cutoff_distance` do
       not contribute to each others symmetry functions. The contribution of a
       neighbor to the symmetry function and its derivative goes to zero at this
       distance.
   Returns:
     A function that computes the angular symmetry function from input
     `[N_atoms, spatial_dimension]` and returns
-    `[N_atoms, N_types * (N_types + 1) / 2]` where N_types is the number of
+    `[N_atoms, N_types * (N_types + 1) / 2]` where `N_types` is the number of
     types of particles in the system.
   """
 
@@ -526,7 +526,7 @@ class GraphsTuple(object):
     """A struct containing graph data.
 
     Attributes:
-      nodes: For a graph with N_nodes, this is an `[N_nodes, node_dimension]`
+      nodes: For a graph with `N_nodes`, this is an `[N_nodes, node_dimension]`
         array containing the state of each node in the graph.
       edges: For a graph whose degree is bounded by max_degree, this is an
         `[N_nodes, max_degree, edge_dimension]`. Here `edges[i, j]` is the
