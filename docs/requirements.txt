@@ -9,5 +9,5 @@ nbsphinx
 sphinx-autodoc-typehints==1.11.1
 sphinx-copybutton>=0.5.0
 
-docsutils==0.16.0
+docutils==0.16.0
 .
