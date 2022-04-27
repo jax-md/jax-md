@@ -2,6 +2,7 @@ Useful Quantities
 ===========================
 
 .. default-role:: code
+.. automodule:: jax_md.quantity
 
 Forces
 -------
