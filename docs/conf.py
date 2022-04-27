@@ -58,10 +58,8 @@ extensions = [
     'sphinx.ext.viewcode',
     'sphinx.ext.napoleon',
     'sphinx_autodoc_typehints',
-    'matplotlib.sphinxext.plot_directive',
     'sphinx_remove_toctrees',
     'sphinx_copybutton',
-    'jax_extensions',
 ]
 
 # Add any paths that contain templates here, relative to this directory.
