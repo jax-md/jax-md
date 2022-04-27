@@ -58,7 +58,6 @@ extensions = [
     'sphinx.ext.viewcode',
     'sphinx.ext.napoleon',
     'sphinx_autodoc_typehints',
-    'sphinx_remove_toctrees',
     'sphinx_copybutton',
 ]
 
