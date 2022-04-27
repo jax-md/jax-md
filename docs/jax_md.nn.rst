@@ -30,14 +30,9 @@ how the BP-NN works.
 
 .. rubric:: References
 
-.. [#behler07] Behler, Jörg, and Michele Parrinello. "Generalized neural-network
-representation of high-dimensional potential-energy surfaces." Physical
-Review Letters 98.14 (2007): 146401.
+.. [#behler07] Behler, Jörg, and Michele Parrinello. "Generalized neural-network representation of high-dimensional potential-energy surfaces." Physical Review Letters 98.14 (2007): 146401.
 
-.. [#nongunuch13] Artrith, Nongnuch, Björn Hiller, and Jörg Behler. "Neural network
-potentials for metals and oxides–First applications to copper clusters at zinc
-oxide."
-Physica Status Solidi (b) 250.6 (2013): 1191-1203.
+.. [#nongnuch13] Artrith, Nongnuch, Björn Hiller, and Jörg Behler. "Neural network potentials for metals and oxides–First applications to copper clusters at zinc oxide." Physica Status Solidi (b) 250.6 (2013): 1191-1203.
 
 .. autofunction:: radial_symmetry_functions
 .. autofunction:: radial_symmetry_functions_neighbor_list
@@ -67,6 +62,7 @@ We provide two components:
   1) A GraphIndependent layer that applies a neural network separately to the
      node states, the edge states, and the globals. This is often used as an
      encoding or decoding step.
+     
   2) A GraphNetwork layer that transforms the nodes, edges, and globals using
      neural networks following Battaglia et al. (). Here, we use
      sum-message-aggregation.
