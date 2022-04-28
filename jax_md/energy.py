@@ -59,7 +59,7 @@ def simple_spring(dr: Array,
   We define `simple_spring` to be a generalized Hookean spring with
   agreement when `alpha = 2`.
   """
-  return epsilon / alpha * (dr - length) ** alpha
+  return epsilon / alpha * jnp.abs(dr - length) ** alpha
 
 
 def simple_spring_bond(displacement_or_metric: DisplacementOrMetricFn,
@@ -89,7 +89,7 @@ def soft_sphere(dr: Array,
                 alpha: Array=2,
                 **unused_kwargs) -> Array:
   """.. _soft-sphere:
-  
+
   Finite ranged repulsive interaction between soft spheres.
 
   Args:

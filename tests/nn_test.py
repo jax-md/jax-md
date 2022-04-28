@@ -26,12 +26,9 @@ import numpy as onp
 from jax import jit, grad
 from jax_md import space, quantity, nn, dataclasses, partition
 from jax_md.util import f32, f64
-from jax_md.test_util import update_test_tolerance
-
-from jax import test_util as jtu
+from jax_md import test_util
 
 jax_config.parse_flags_with_absl()
-jax_config.enable_omnistaging()
 FLAGS = jax_config.FLAGS
 
 if FLAGS.jax_enable_x64:
@@ -43,9 +40,8 @@ N_TYPES_TO_TEST = [1, 2]
 N_ETAS_TO_TEST = [1, 2]
 
 
-@jtu.with_config(jax_numpy_rank_promotion='allow')
-class SymmetryFunctionTest(jtu.JaxTestCase):
-  @parameterized.named_parameters(jtu.cases_from_list(
+class SymmetryFunctionTest(test_util.JAXMDTestCase):
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_N_types={}_N_etas={}_d_type={}'.format(
               N_types, N_etas, dtype.__name__),
@@ -67,7 +63,7 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
     self.assertAllClose(gr_out.shape, (3, N_types * N_etas))
     self.assertAllClose(gr_out[2, 0], dtype(0.411717), rtol=1e-6, atol=1e-6)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_N_types={}_N_etas={}_dtype={}_dim={}'.format(
               N_types, N_etas, dtype.__name__, dim),
@@ -111,7 +107,7 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
     tol = 1e-13 if FLAGS.jax_enable_x64 else 1e-6
     self.assertAllClose(gr_exact, gr_nbrs, atol=tol, rtol=tol)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_N_types={}_N_etas={}_dtype={}_dim={}'.format(
               N_types, N_etas, dtype.__name__, dim),
@@ -165,7 +161,7 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
     tol = 1e-13 if FLAGS.jax_enable_x64 else 1e-6
     self.assertAllClose(gr_exact, gr_nbrs, atol=tol, rtol=tol)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_N_types={}_N_etas={}_d_type={}'.format(
               N_types, N_etas, dtype.__name__),
@@ -190,7 +186,7 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
                         (3, N_etas *  N_types * (N_types + 1) // 2))
     self.assertAllClose(gr_out[2, 0], dtype(1.577944), rtol=1e-6, atol=1e-6)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_N_types={}_N_etas={}_d_type={}'.format(
               N_types, N_etas, dtype.__name__),
@@ -216,7 +212,7 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
                          N_etas *  (N_types + N_types * (N_types + 1) // 2)))
     self.assertAllClose(gr_out[2, 0], dtype(1.885791), rtol=1e-6, atol=1e-6)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_N_types={}_N_etas={}_d_type={}'.format(
               N_types, N_etas, dtype.__name__),
@@ -323,9 +319,8 @@ def _get_graphs():
   ]
 
 
-@jtu.with_config(jax_numpy_rank_promotion="allow")
-class NeuralNetworkTest(jtu.JaxTestCase):
-  @parameterized.named_parameters(jtu.cases_from_list(
+class NeuralNetworkTest(test_util.JAXMDTestCase):
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_fn={}_dtype={}'.format(fn.__name__, dtype.__name__),
           'network_fn': fn,

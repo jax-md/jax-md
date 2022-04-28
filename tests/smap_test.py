@@ -24,7 +24,6 @@ import jax.numpy as np
 
 from jax import grad
 
-from jax import test_util as jtu
 from jax import jit, vmap
 
 from jax_md import smap, space, energy, quantity, partition
@@ -32,10 +31,9 @@ from jax_md.util import *
 from jax_md import test_util
 
 jax_config.parse_flags_with_absl()
-jax_config.enable_omnistaging()
 FLAGS = jax_config.FLAGS
 
-test_util.update_test_tolerance(f32_tolerance=5e-6, f64_tolerance=1e-14)
+test_util.update_test_tolerance(f32_tol=5e-6, f64_tol=1e-14)
 
 PARTICLE_COUNT = 1000
 STOCHASTIC_SAMPLES = 3
@@ -51,9 +49,9 @@ if FLAGS.jax_enable_x64:
 else:
   POSITION_DTYPE = [f32]
 
-class SMapTest(jtu.JaxTestCase):
+class SMapTest(test_util.JAXMDTestCase):
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -77,7 +75,7 @@ class SMapTest(jtu.JaxTestCase):
 
       self.assertAllClose(mapped(R), dtype(accum))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -102,7 +100,7 @@ class SMapTest(jtu.JaxTestCase):
 
       self.assertAllClose(mapped(R, bonds), dtype(accum))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -130,7 +128,7 @@ class SMapTest(jtu.JaxTestCase):
 
       self.assertAllClose(mapped(R), dtype(accum))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -158,7 +156,7 @@ class SMapTest(jtu.JaxTestCase):
 
       self.assertAllClose(mapped(R, bonds, bond_types), dtype(accum))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -185,7 +183,7 @@ class SMapTest(jtu.JaxTestCase):
 
       self.assertAllClose(mapped(R, bonds, sigma=sigma), dtype(accum))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -242,7 +240,7 @@ class SMapTest(jtu.JaxTestCase):
     self.assertAllClose(
         smap._get_matrix_parameters(params_scalar, None), params_scalar)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -267,7 +265,7 @@ class SMapTest(jtu.JaxTestCase):
         mapped_square(R),
         np.array(0.5 * np.sum(square(metric(R, R))), dtype=dtype))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -294,7 +292,7 @@ class SMapTest(jtu.JaxTestCase):
         np.array(0.5 * np.sum(
           square(metric(R, R), mat_epsilon)), dtype=dtype))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -316,7 +314,7 @@ class SMapTest(jtu.JaxTestCase):
       mapped_ref = np.array(0.5 * np.sum(square(disp(R, R))), dtype=dtype)
       self.assertAllClose(mapped_square(R), mapped_ref)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -342,7 +340,7 @@ class SMapTest(jtu.JaxTestCase):
                             dtype=dtype)
       self.assertAllClose(mapped_square(R, params=params), mapped_ref)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -378,7 +376,7 @@ class SMapTest(jtu.JaxTestCase):
           total = total + 0.5 * np.sum(square(metric(R_1, R_2), param))
       self.assertAllClose(mapped_square(R), np.array(total, dtype=dtype))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -416,7 +414,7 @@ class SMapTest(jtu.JaxTestCase):
       self.assertAllClose(
         mapped_square(R, param=params), np.array(total, dtype=dtype))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -436,7 +434,7 @@ class SMapTest(jtu.JaxTestCase):
 
     mapped(R, t=f32(0))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -469,7 +467,7 @@ class SMapTest(jtu.JaxTestCase):
           total = total + 0.5 * np.sum(square(disp(R_1, R_2), param))
       self.assertAllClose(mapped_square(R), np.array(total, dtype=dtype))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -504,7 +502,7 @@ class SMapTest(jtu.JaxTestCase):
       self.assertAllClose(mapped_square(R, species),
                           np.array(total, dtype=dtype))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -539,7 +537,7 @@ class SMapTest(jtu.JaxTestCase):
       self.assertAllClose(mapped_square(R, species),
                           np.array(total, dtype=dtype))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
                             f'_format={format}'),
@@ -577,7 +575,7 @@ class SMapTest(jtu.JaxTestCase):
       self.assertAllClose(mapped_square(R, sigma=sigma),
                           neighbor_square(R, nbrs, sigma=sigma))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
                             f'_format={format}'),
@@ -615,7 +613,7 @@ class SMapTest(jtu.JaxTestCase):
       self.assertAllClose(mapped_square(R, sigma=sigma),
                           neighbor_square(R, nbrs, sigma=sigma))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
                             f'_format={format}'),
@@ -654,7 +652,7 @@ class SMapTest(jtu.JaxTestCase):
       self.assertAllClose(mapped_square(R, sigma=sigma),
                           neighbor_square(R, nbrs, sigma=sigma))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
                             f'_format={format}'),
@@ -692,7 +690,7 @@ class SMapTest(jtu.JaxTestCase):
       self.assertAllClose(mapped_square(R, sigma=sigma),
                           neighbor_square(R, nbrs, sigma=sigma))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
                             f'_format={format}'),
@@ -731,7 +729,7 @@ class SMapTest(jtu.JaxTestCase):
       self.assertAllClose(mapped_square(R, sigma=sigma),
                           neighbor_square(R, nbrs, sigma=sigma))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
                             f'_format={format}'),
@@ -774,7 +772,7 @@ class SMapTest(jtu.JaxTestCase):
       nbrs = neighbor_fn.allocate(R)
       self.assertAllClose(mapped_square(R, sigma=sigma),
                           neighbor_square(R, nbrs, sigma=sigma))
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
                             f'_format={format}'),
@@ -818,7 +816,7 @@ class SMapTest(jtu.JaxTestCase):
         mapped_square(R, sigma=sigma),
         neighbor_square(R, nbrs, sigma=sigma, species=species))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
                             f'_format={str(format).split(".")[-1]}'),
@@ -859,7 +857,7 @@ class SMapTest(jtu.JaxTestCase):
       self.assertAllClose(mapped_square(R, sigma=sigma),
                           neighbor_square(R, nbrs, sigma=sigma))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
                             f'_format={format}'),
@@ -908,7 +906,7 @@ class SMapTest(jtu.JaxTestCase):
       self.assertAllClose(mapped_square(R, sigma=sigma_pair),
                           neighbor_square(R, nbrs, sigma=sigma))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
                             f'_format={format}'),
@@ -951,7 +949,7 @@ class SMapTest(jtu.JaxTestCase):
       self.assertAllClose(mapped_square(R, sigma=sigma_pair),
                           neighbor_square(R, nbrs, sigma=sigma))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -980,7 +978,7 @@ class SMapTest(jtu.JaxTestCase):
             triplet_square(R) / count / 2.,
             np.array(0.5 * np.sum(metric(R, R)), dtype=dtype))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,

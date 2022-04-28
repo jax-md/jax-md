@@ -71,5 +71,6 @@ def static_field():
 replace = dataclasses.replace
 asdict = dataclasses.asdict
 astuple = dataclasses.astuple
+is_dataclass = dataclasses.is_dataclass
 def unpack(dc) -> tuple:
     return tuple(getattr(dc, field.name) for field in dataclasses.fields(dc))
