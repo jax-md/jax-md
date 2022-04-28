@@ -57,9 +57,9 @@ def simple_spring(dr: Array,
   """Isotropic spring potential with a given rest length.
 
   We define `simple_spring` to be a generalized Hookean spring with
-  agreement when alpha = 2.
+  agreement when `alpha = 2`.
   """
-  return epsilon / alpha * (dr - length) ** alpha
+  return epsilon / alpha * jnp.abs(dr - length) ** alpha
 
 
 def simple_spring_bond(displacement_or_metric: DisplacementOrMetricFn,
@@ -88,19 +88,21 @@ def soft_sphere(dr: Array,
                 epsilon: Array=1,
                 alpha: Array=2,
                 **unused_kwargs) -> Array:
-  """Finite ranged repulsive interaction between soft spheres.
+  """.. _soft-sphere:
+
+  Finite ranged repulsive interaction between soft spheres.
 
   Args:
-    dr: An ndarray of shape [n, m] of pairwise distances between particles.
+    dr: An ndarray of shape `[n, m]` of pairwise distances between particles.
     sigma: Particle diameter. Should either be a floating point scalar or an
-      ndarray whose shape is [n, m].
+      ndarray whose shape is `[n, m]`.
     epsilon: Interaction energy scale. Should either be a floating point scalar
-      or an ndarray whose shape is [n, m].
+      or an ndarray whose shape is `[n, m]`.
     alpha: Exponent specifying interaction stiffness. Should either be a float
-      point scalar or an ndarray whose shape is [n, m].
+      point scalar or an ndarray whose shape is `[n, m]`.
     unused_kwargs: Allows extra data (e.g. time) to be passed to the energy.
   Returns:
-    Matrix of energies whose shape is [n, m].
+    Matrix of energies whose shape is `[n, m]`.
   """
 
   dr = dr / sigma
@@ -118,7 +120,7 @@ def soft_sphere_pair(displacement_or_metric: DisplacementOrMetricFn,
                      epsilon: Array=1.0,
                      alpha: Array=2.0,
                      per_particle: bool=False) -> Callable[[Array], Array]:
-  """Convenience wrapper to compute soft sphere energy over a system."""
+  """Convenience wrapper to compute :ref:`soft sphere energy <soft-sphere>` over a system."""
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
   alpha = maybe_downcast(alpha)
@@ -146,7 +148,7 @@ def soft_sphere_neighbor_list(
     format: NeighborListFormat=partition.OrderedSparse,
     **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
-  """Convenience wrapper to compute soft spheres using a neighbor list."""
+  """Convenience wrapper to compute :ref:`soft spheres <soft-sphere>` using a neighbor list."""
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
   alpha = maybe_downcast(alpha)
@@ -178,17 +180,19 @@ def lennard_jones(dr: Array,
                   sigma: Array=1,
                   epsilon: Array=1,
                   **unused_kwargs) -> Array:
-  """Lennard-Jones interaction between particles with a minimum at sigma.
+  """.. _lj-pot:
+  
+  Lennard-Jones interaction between particles with a minimum at `sigma`.
 
   Args:
-    dr: An ndarray of shape [n, m] of pairwise distances between particles.
+    dr: An ndarray of shape `[n, m]` of pairwise distances between particles.
     sigma: Distance between particles where the energy has a minimum. Should
-      either be a floating point scalar or an ndarray whose shape is [n, m].
+      either be a floating point scalar or an ndarray whose shape is `[n, m]`.
     epsilon: Interaction energy scale. Should either be a floating point scalar
-      or an ndarray whose shape is [n, m].
+      or an ndarray whose shape is `[n, m]`.
     unused_kwargs: Allows extra data (e.g. time) to be passed to the energy.
   Returns:
-    Matrix of energies of shape [n, m].
+    Matrix of energies of shape `[n, m]`.
   """
   idr = (sigma / dr)
   idr = idr * idr
@@ -206,7 +210,7 @@ def lennard_jones_pair(displacement_or_metric: DisplacementOrMetricFn,
                        r_onset: Array=2.0,
                        r_cutoff: Array=2.5,
                        per_particle: bool=False) -> Callable[[Array], Array]:
-  """Convenience wrapper to compute Lennard-Jones energy over a system."""
+  """Convenience wrapper to compute :ref:`Lennard-Jones energy <lj-pot>` over a system."""
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
   r_onset = maybe_downcast(r_onset) * jnp.max(sigma)
@@ -236,7 +240,7 @@ def lennard_jones_neighbor_list(
     format: partition.NeighborListFormat=partition.OrderedSparse,
     **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
-  """Convenience wrapper to compute Lennard-Jones using a neighbor list."""
+  """Convenience wrapper to compute :ref:`Lennard-Jones <lj-pot>` using a neighbor list."""
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
   r_onset = maybe_downcast(r_onset) * jnp.max(sigma)
@@ -268,18 +272,21 @@ def morse(dr: Array,
           epsilon: Array=5.0,
           alpha: Array=5.0,
           **unused_kwargs) -> Array:
-  """Morse interaction between particles with a minimum at r0.
+  """.. _morse-pot:
+  
+  Morse interaction between particles with a minimum at `sigma`.
+
   Args:
-    dr: An ndarray of shape [n, m] of pairwise distances between particles.
+    dr: An ndarray of shape `[n, m]` of pairwise distances between particles.
     sigma: Distance between particles where the energy has a minimum. Should
-      either be a floating point scalar or an ndarray whose shape is [n, m].
+      either be a floating point scalar or an ndarray whose shape is `[n, m]`.
     epsilon: Interaction energy scale. Should either be a floating point scalar
-      or an ndarray whose shape is [n, m].
+      or an ndarray whose shape is `[n, m]`.
     alpha: Range parameter. Should either be a floating point scalar or an
-      ndarray whose shape is [n, m].
+      ndarray whose shape is `[n, m]`.
     unused_kwargs: Allows extra data (e.g. time) to be passed to the energy.
   Returns:
-    Matrix of energies of shape [n, m].
+    Matrix of energies of shape `[n, m]`.
   """
   U = epsilon * (f32(1) - jnp.exp(-alpha * (dr - sigma)))**f32(2) - epsilon
   # TODO(cpgoodri): ErrorChecking following lennard_jones
@@ -294,7 +301,7 @@ def morse_pair(displacement_or_metric: DisplacementOrMetricFn,
                r_onset: float=2.0,
                r_cutoff: float=2.5,
                per_particle: bool=False) -> Callable[[Array], Array]:
-  """Convenience wrapper to compute Morse energy over a system."""
+  """Convenience wrapper to compute :ref:`Morse energy <morse-pot>` over a system."""
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
   alpha = maybe_downcast(alpha)
@@ -324,7 +331,7 @@ def morse_neighbor_list(
     format: partition.NeighborListFormat=partition.OrderedSparse,
     **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
-  """Convenience wrapper to compute Morse using a neighbor list."""
+  """Convenience wrapper to compute :ref:`Morse <morse-pot>` using a neighbor list."""
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
   alpha = maybe_downcast(alpha)
@@ -354,35 +361,37 @@ def morse_neighbor_list(
 
 
 def gupta_potential(displacement, p, q, r_0n, U_n, A, cutoff):
-  """Gupta potential with default parameters for Au_55 cluster. Gupta
-  potential was introduced by R. P. Gupta [1]. This potential uses parameters
-  that were fit for bulk gold by Jellinek [2]. This particular implementation
-  of the Gupta potential was introduced by Garzon and Posada-Amarillas [3].
+  """.. _gupta-pot:
+
+  Gupta potential with default parameters for Au_55 cluster. Gupta
+  potential was introduced by R. P. Gupta [#gupta]_. This potential uses parameters
+  that were fit for bulk gold by Jellinek [#jellinek]_. This particular implementation
+  of the Gupta potential was introduced by Garzon and Posada-Amarillas [#garzon]_.
 
   Args:
     displacement: Function to compute displacement between two positions.
-    p: Gupta potential parameter of the repulsive term that was fitted for
-    bulk gold.
-    q: Gupta potential parameter of the attractive term that was fitted for
-    bulk gold.
-    r_0n: Parameter that determines the length scale of the potential. This
-    value was particularly fit for gold clusters of size 55 atoms.
-    U_n: Parameter that determines the energy scale, fit particularly for
-    gold clusters of size 55 atoms.
-    A: Parameter that was obtained using the cohesive energy of the fcc gold
-    metal.
-    cutoff: Pairwise interactions that are farther than the cutoff distance
-    will be ignored.
+    p: Gupta potential parameter of the repulsive term that was fitted for bulk gold.
+    q: Gupta potential parameter of the attractive term that was fitted for bulk gold.
+    r_0n: 
+      Parameter that determines the length scale of the potential. This
+      value was particularly fit for gold clusters of size 55 atoms.
+    U_n: 
+      Parameter that determines the energy scale, fit particularly for
+      gold clusters of size 55 atoms.
+    A: Parameter that was obtained using the cohesive energy of the fcc gold metal.
+    cutoff: 
+      Pairwise interactions that are farther than the cutoff distance will be ignored.
 
   Returns:
-    A function that takes in positions of gold atoms (shape [n, 3] where n is
+    A function that takes in positions of gold atoms (shape `[n, 3]` where `n` is
     the number of atoms) and returns the total energy of the system in units
     of eV.
 
-  [1] R.P. Gupta, Phys. Rev. B 23, 6265 (1981)
-  [2] J. Jellinek, in Metal-Ligand Interactions, edited by N. Russo and
-  D. R. Salahub (Kluwer Academic, Dordrecht, 1996), p. 325.
-  [3] I. L. Garzon, A. Posada-Amarillas, Phys. Rev. B 54, 16 (1996)
+  .. rubric:: References
+  .. [#gupta] R.P. Gupta, Phys. Rev. B 23, 6265 (1981)
+  .. [#jellinek] J. Jellinek, in Metal-Ligand Interactions, edited by N. Russo and
+    D. R. Salahub (Kluwer Academic, Dordrecht, 1996), p. 325.
+  .. [#garzon] I.L. Garzon, A. Posada-Amarillas, Phys. Rev. B 54, 16 (1996)
   """
   def _gupta_term1(r, p, r_0n, cutoff):
     """Repulsive term in Gupta potential."""
@@ -435,15 +444,15 @@ def multiplicative_isotropic_cutoff(fn: Callable[..., Array],
                                     r_cutoff: float) -> Callable[..., Array]:
   """Takes an isotropic function and constructs a truncated function.
 
-  Given a function f:R -> R, we construct a new function f':R -> R such that
-  f'(r) = f(r) for r < r_onset, f'(r) = 0 for r > r_cutoff, and f(r) is C^1
-  everywhere. To do this, we follow the approach outlined in HOOMD Blue [1]
-  (thanks to Carl Goodrich for the pointer). We construct a function S(r) such
-  that S(r) = 1 for r < r_onset, S(r) = 0 for r > r_cutoff, and S(r) is C^1.
-  Then f'(r) = S(r)f(r).
+  Given a function `f:R -> R`, we construct a new function `f':R -> R` such that
+  `f'(r) = f(r)` for `r < r_onset`, `f'(r) = 0` for `r > r_cutoff`, and `f(r)` is :math:`C^1`
+  everywhere. To do this, we follow the approach outlined in HOOMD Blue  [#hoomd]_
+  (thanks to Carl Goodrich for the pointer). We construct a function `S(r)` such
+  that `S(r) = 1` for `r < r_onset`, `S(r) = 0` for `r > r_cutoff`, and `S(r)` is :math:`C^1`.
+  Then `f'(r) = S(r)f(r)`.
 
   Args:
-    fn: A function that takes an ndarray of distances of shape [n, m] as well
+    fn: A function that takes an ndarray of distances of shape `[n, m]` as well
       as varargs.
     r_onset: A float specifying the distance marking the onset of deformation.
     r_cutoff: A float specifying the cutoff distance.
@@ -452,7 +461,8 @@ def multiplicative_isotropic_cutoff(fn: Callable[..., Array],
     A new function with the same signature as fn, with the properties outlined
     above.
 
-  [1] HOOMD Blue documentation. Accessed on 05/31/2019.
+  .. rubric:: References
+  .. [#hoomd] HOOMD Blue documentation. Accessed on 05/31/2019.
       https://hoomd-blue.readthedocs.io/en/stable/module-md-pair.html#hoomd.md.pair.pair
   """
 
@@ -501,36 +511,39 @@ def bks(dr: Array,
         coulomb_alpha: Array,
         cutoff: float,
         **unused_kwargs) -> Array:
-  """Beest-Kramer-van Santen (BKS) potential[1] which is commonly used to
+  """.. _bks-pot:
+  
+  Beest-Kramer-van Santen (BKS) potential [#bks]_ which is commonly used to
   model silicas. This function computes the interaction between two
-  given atoms within the Buckingham form[2], following the implementation
-  from Ref. [3]
+  given atoms within the Buckingham form [#carre]_ , following the implementation
+  from Liu et al. [#liu]_ .
 
   Args:
-    dr: An ndarray of shape [n, m] of pairwise distances between particles.
-    Q_sq: An ndarray of shape [n, m] of pairwise product of partial charges.
-    exp_coeff: An ndarray of shape [n, m] that sets the scale of the
-    exponential decay of the short-range interaction.
-    attractive_coeff: An ndarray of shape [n, m] for the coefficient of the
-    attractive 6th order term.
-    repulsive_coeff: An ndarray of shape [n, m] for the coefficient of the
-    repulsive 24th order term, to prevent the unphysical fusion of atoms.
+    dr: An ndarray of shape `[n, m]` of pairwise distances between particles.
+    Q_sq: An ndarray of shape `[n, m]` of pairwise product of partial charges.
+    exp_coeff: An ndarray of shape `[n, m]` that sets the scale of the
+      exponential decay of the short-range interaction.
+    attractive_coeff: An ndarray of shape `[n, m]` for the coefficient of the
+      attractive 6th order term.
+    repulsive_coeff: An ndarray of shape `[n, m]` for the coefficient of the
+      repulsive 24th order term, to prevent the unphysical fusion of atoms.
     coulomb_alpha: Damping parameter for the approximation of the long-range
-    coulombic interactions (a scalar).
+      coulombic interactions (a scalar).
     cutoff: Cutoff distance for considering pairwise interactions.
     unused_kwargs: Allows extra data (e.g. time) to be passed to the energy.
 
   Returns:
-    Matrix of energies of shape [n, m].
+    Matrix of energies of shape `[n, m]`.
 
-  [1] Van Beest, B. W. H., Gert Jan Kramer, and R. A. Van Santen. "Force fields
-  for silicas and aluminophosphates based on ab initio calculations." Physical
-  Review Letters 64.16 (1990): 1955.
-  [2] Carré, Antoine, et al. "Developing empirical potentials from ab initio
-  simulations: The case of amorphous silica." Computational Materials Science
-  124 (2016): 323-334.
-  [3] Liu, Han, et al. "Machine learning Forcefield for silicate glasses."
-  arXiv preprint arXiv:1902.03486 (2019).
+  .. rubric:: References
+  .. [#bks] Van Beest, B. W. H., Gert Jan Kramer, and R. A. Van Santen. "Force fields
+    for silicas and aluminophosphates based on ab initio calculations." Physical
+    Review Letters 64.16 (1990): 1955.
+  .. [#carre] Carré, Antoine, et al. "Developing empirical potentials from ab initio
+    simulations: The case of amorphous silica." Computational Materials Science
+    124 (2016): 323-334.
+  .. [#liu] Liu, Han, et al. "Machine learning Forcefield for silicate glasses."
+    arXiv preprint arXiv:1902.03486 (2019).
   """
   energy = (dsf_coulomb(dr, Q_sq, coulomb_alpha, cutoff) + \
             exp_coeff * jnp.exp(-dr / exp_decay) + \
@@ -547,7 +560,7 @@ def bks_pair(displacement_or_metric: DisplacementOrMetricFn,
              repulsive_coeff: Array,
              coulomb_alpha: Array,
              cutoff: float) -> Callable[[Array], Array]:
-  """Convenience wrapper to compute BKS energy over a system."""
+  """Convenience wrapper to compute :ref:`BKS energy <bks-pot>` over a system."""
   Q_sq = maybe_downcast(Q_sq)
   exp_coeff = maybe_downcast(exp_coeff)
   exp_decay = maybe_downcast(exp_decay)
@@ -582,7 +595,7 @@ def bks_neighbor_list(
     format: partition.NeighborListFormat=partition.OrderedSparse,
     **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
-  """Convenience wrapper to compute BKS energy using a neighbor list."""
+  """Convenience wrapper to compute :ref:`BKS energy <bks-pot>` using a neighbor list."""
   Q_sq = maybe_downcast(Q_sq)
   exp_coeff = maybe_downcast(exp_coeff)
   exp_decay = maybe_downcast(exp_decay)
@@ -649,7 +662,7 @@ def _bks_silica_self(Q_sq: Array, alpha: Array, cutoff: float) -> Array:
 def bks_silica_pair(displacement_or_metric: DisplacementOrMetricFn,
                     species: Array,
                     cutoff: float=8.0):
-  """Convenience wrapper to compute BKS energy for SiO2."""
+  """Convenience wrapper to compute :ref:`BKS energy <bks-pot>` for SiO2."""
   bks_pair_fn = bks_pair(displacement_or_metric,
                          species,
                          cutoff=cutoff,
@@ -678,7 +691,7 @@ def bks_silica_neighbor_list(
     format: partition.NeighborListFormat=partition.OrderedSparse,
     **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
-  """Convenience wrapper to compute BKS energy using neighbor lists."""
+  """Convenience wrapper to compute :ref:`BKS energy <bks-pot>` using neighbor lists."""
   kwargs = {**BKS_SILICA_DICT, **neighbor_kwargs}
   neighbor_fn, bks_pair_fn = bks_neighbor_list(
     displacement_or_metric,
@@ -759,15 +772,17 @@ def stillinger_weber(displacement: DisplacementFn,
                      epsilon: float = 2.16826,
                      three_body_strength: float =1.0,
                      cutoff: float = 3.77118) -> Callable[[Array], Array]:
-  """Computes the Stillinger-Weber potential.
+  """.. _sw-pot:
 
-  The Stillinger-Weber (SW) potential [1] which is commonly used to model
+  Computes the Stillinger-Weber potential.
+
+  The Stillinger-Weber (SW) potential [#stillinger]_ which is commonly used to model
   silicon and similar systems. This function uses the default SW parameters
   from the original paper. The SW potential was originally proposed to
   model diamond in the diamond crystal phase and the liquid phase, and is
-  known to give unphysical amorphous configurations [2, 3]. For this reason,
-  we provide a three_body_strength parameter. Changing this number to 1.5
-  or 2.0 has been know to produce more physical amorphous phase, preventing
+  known to give unphysical amorphous configurations [#holender]_ [#barkema]_ . 
+  For this reason, we provide a `three_body_strength` parameter. Changing this number to `1.5`
+  or `2.0` has been know to produce more physical amorphous phase, preventing
   most atoms from having more than four nearest neighbors. Note that this
   function currently assumes nearest-image-convention.
 
@@ -775,25 +790,26 @@ def stillinger_weber(displacement: DisplacementFn,
     displacement: The displacement function for the space.
     sigma: A scalar that sets the distance scale between neighbors.
     A: A scalar that determines the scale of two-body term.
-    B: A scalar that determines the scale of the 1 / r^p term.
+    B: A scalar that determines the scale of the :math:`1 / r^p` term.
     lam: A scalar that determines the scale of the three-body term.
     epsilon: A scalar that sets the total energy scale.
     gamma: A scalar used to fit the angle interaction.
-    three_body_strength: A scalar that determines the relative strength
-    of the angular interaction. Default value is 1.0, which works well
-    for the diamond crystal and liquid phases. 1.5 and 2.0 have been used
-    to model amorphous silicon.
+    three_body_strength: 
+      A scalar that determines the relative strength
+      of the angular interaction. Default value is `1.0`, which works well
+      for the diamond crystal and liquid phases. `1.5` and `2.0` have been used
+      to model amorphous silicon.
   Returns:
     A function that computes the total energy.
 
-  [1] Stillinger, Frank H., and Thomas A. Weber. "Computer simulation of
-  local order in condensed phases of silicon." Physical review B 31.8
-  (1985): 5262.
-  [2] Holender, J. M., and G. J. Morgan. "Generation of a large structure
-  (105 atoms) of amorphous Si using molecular dynamics." Journal of
-  Physics: Condensed Matter 3.38 (1991): 7241.
-  [3] Barkema, G. T., and Normand Mousseau. "Event-based relaxation of
-  continuous disordered systems." Physical review letters 77.21 (1996): 4358.
+  .. rubric:: References
+  .. [#stillinger] Stillinger, Frank H., and Thomas A. Weber. "Computer simulation of
+    local order in condensed phases of silicon." Physical review B 31.8 (1985): 5262.
+  .. [#holender] Holender, J. M., and G. J. Morgan. "Generation of a large structure
+    (105 atoms) of amorphous Si using molecular dynamics." Journal of
+    Physics: Condensed Matter 3.38 (1991): 7241.
+  .. [#barkema] Barkema, G. T., and Normand Mousseau. "Event-based relaxation of
+    continuous disordered systems." Physical review letters 77.21 (1996): 4358.
   """
   two_body_fn = partial(_sw_radial_interaction, sigma, B, cutoff)
   three_body_fn = partial(_sw_angle_interaction, gamma, sigma, cutoff)
@@ -825,41 +841,8 @@ def stillinger_weber_neighbor_list(
     format: NeighborListFormat=partition.Dense,
     **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
-  """Computes the Stillinger-Weber potential.
-
-  The Stillinger-Weber (SW) potential [1] which is commonly used to model
-  silicon and similar systems. This function uses the default SW parameters
-  from the original paper. The SW potential was originally proposed to
-  model diamond in the diamond crystal phase and the liquid phase, and is
-  known to give unphysical amorphous configurations [2, 3]. For this reason,
-  we provide a three_body_strength parameter. Changing this number to 1.5
-  or 2.0 has been know to produce more physical amorphous phase, preventing
-  most atoms from having more than four nearest neighbors. Note that this
-  function currently assumes nearest-image-convention.
-
-  Args:
-    displacement: The displacement function for the space.
-    sigma: A scalar that sets the distance scale between neighbors.
-    A: A scalar that determines the scale of two-body term.
-    B: A scalar that determines the scale of the 1 / r^p term.
-    lam: A scalar that determines the scale of the three-body term.
-    epsilon: A scalar that sets the total energy scale.
-    gamma: A scalar used to fit the angle interaction.
-    three_body_strength: A scalar that determines the relative strength
-    of the angular interaction. Default value is 1.0, which works well
-    for the diamond crystal and liquid phases. 1.5 and 2.0 have been used
-    to model amorphous silicon.
-  Returns:
-    A function that computes the total energy.
-
-  [1] Stillinger, Frank H., and Thomas A. Weber. "Computer simulation of
-  local order in condensed phases of silicon." Physical review B 31.8
-  (1985): 5262.
-  [2] Holender, J. M., and G. J. Morgan. "Generation of a large structure
-  (105 atoms) of amorphous Si using molecular dynamics." Journal of
-  Physics: Condensed Matter 3.38 (1991): 7241.
-  [3] Barkema, G. T., and Normand Mousseau. "Event-based relaxation of
-  continuous disordered systems." Physical review letters 77.21 (1996): 4358.
+  """Convenience wrapper to compute :ref:`Stillinger-Weber <sw-pot>` 
+  using a neighbor list.
   """
   two_body_fn = partial(_sw_radial_interaction, sigma, B, cutoff)
   three_body_fn = partial(_sw_angle_interaction, gamma, sigma, cutoff)
@@ -903,30 +886,40 @@ def load_lammps_eam_parameters(file: TextIO) -> Tuple[Callable[[Array], Array],
 
   This function reads single-element EAM potential fit parameters from a file
   in DYNAMO funcl format. In summary, the file contains:
-  Line 1-3: comments,
-  Line 4: Number of elements and the element type,
-  Line 5: The number of charge values that the embedding energy is evaluated
-  on (num_drho), interval between the charge values (drho), the number of
-  distances the pairwise energy and the charge density is evaluated on (num_dr),
-  the interval between these distances (dr), and the cutoff distance (cutoff).
-  The lines that come after are the embedding function evaluated on num_drho
-  charge values, charge function evaluated at num_dr distance values, and
-  pairwise energy evaluated at num_dr distance values. Note that the pairwise
-  energy is multiplied by distance (in units of eV x Angstroms). For more
-  details of the DYNAMO file format, see:
+
+  * Line 1-3: Comments
+  * Line 4: Number of elements and the element type
+  * Line 5: The number of charge values that the embedding energy is evaluated
+    on (`num_drho`), interval between the charge values (`drho`), the number of
+    distances the pairwise energy and the charge density is evaluated on (`num_dr`),
+    the interval between these distances (`dr`), and the cutoff distance (`cutoff`).
+
+  The lines that come after are the embedding function evaluated on `num_drho`
+  charge values, charge function evaluated at `num_dr` distance values, and
+  pairwise energy evaluated at `num_dr` distance values. Note that the pairwise
+  energy is multiplied by distance (in units of eV x Angstroms). 
+  
+  For more details of the DYNAMO file format, see:
   https://sites.google.com/a/ncsu.edu/cjobrien/tutorials-and-guides/eam
+  
   Args:
     f: File handle for the EAM parameters text file.
 
   Returns:
-    charge_fn: A function that takes an ndarray of shape [n, m] of distances
+    A tuple containing three functions and a cutoff distance.
+    
+    charge_fn: 
+      A function that takes an ndarray of shape `[n, m]` of distances
       between particles and returns a matrix of charge contributions.
-    embedding_fn: Function that takes an ndarray of shape [n] of charges and
-      returns an ndarray of shape [n] of the energy cost of embedding an atom
+    embedding_fn: 
+      Function that takes an ndarray of shape `[n]` of charges and
+      returns an ndarray of shape `[n]` of the energy cost of embedding an atom
       into the charge.
-    pairwise_fn: A function that takes an ndarray of shape [n, m] of distances
-      and returns an ndarray of shape [n, m] of pairwise energies.
-    cutoff: Cutoff distance for the embedding_fn and pairwise_fn.
+    pairwise_fn: 
+      A function that takes an ndarray of shape `[n, m]` of distances
+      and returns an ndarray of shape `[n, m]` of pairwise energies.
+    cutoff: 
+      Cutoff distance for the `embedding_fn` and `pairwise_fn`.
   """
   raw_text = file.read().split('\n')
   if 'setfl' not in raw_text[0]:
@@ -955,43 +948,55 @@ def eam(displacement: DisplacementFn,
         embedding_fn: Callable[[Array], Array],
         pairwise_fn: Callable[[Array], Array],
         axis: Optional[Tuple[int, ...]]=None) -> Callable[[Array], Array]:
-  """Interatomic potential as approximated by embedded atom model (EAM).
+  """.. _eam-pot:
+  
+  Interatomic potential as approximated by embedded atom model (EAM).
 
   This code implements the EAM approximation to interactions between metallic
   atoms. In EAM, the potential energy of an atom is given by two terms: a
   pairwise energy and an embedding energy due to the interaction between the
   atom and background charge density. The EAM potential for a single atomic
-  species is often
-  determined by three functions:
-    1) Charge density contribution of an atom as a function of distance.
-    2) Energy of embedding an atom in the background charge density.
-    3) Pairwise energy.
+  species is often determined by three functions:
+
+  1) Charge density contribution of an atom as a function of distance.
+  2) Energy of embedding an atom in the background charge density.
+  3) Pairwise energy.
+
   These three functions are usually provided as spline fits, and we follow the
-  implementation and spline fits given by [1]. Note that in current
-  implementation, the three functions listed above can also be expressed by a
-  any function with the correct signature, including neural networks.
+  implementation and spline fits given by Mishin et al. [#mishin]_
+  Note that in current implementation, the three functions listed above 
+  can also be expressed by a any function with the correct signature, 
+  including neural networks.
 
   Args:
-    displacement: A function that produces an ndarray of shape [n, m,
-      spatial_dimension] of particle displacements from particle positions
-      specified as an ndarray of shape [n, spatial_dimension] and [m,
-      spatial_dimension] respectively.
-    charge_fn: A function that takes an ndarray of shape [n, m] of distances
+    displacement: A function that produces an ndarray of shape `[n, m,
+      spatial_dimension]` of particle displacements from particle positions
+      specified as an ndarray of shape `[n, spatial_dimension]` and `[m,
+      spatial_dimension]` respectively.
+    box_size: The size of the simulation box.
+    charge_fn: A function that takes an ndarray of shape `[n, m]` of distances
       between particles and returns a matrix of charge contributions.
-    embedding_fn: Function that takes an ndarray of shape [n] of charges and
-      returns an ndarray of shape [n] of the energy cost of embedding an atom
+    embedding_fn: Function that takes an ndarray of shape `[n]` of charges and
+      returns an ndarray of shape `[n]` of the energy cost of embedding an atom
       into the charge.
-    pairwise_fn: A function that takes an ndarray of shape [n, m] of distances
-      and returns an ndarray of shape [n, m] of pairwise energies.
+    pairwise_fn: A function that takes an ndarray of shape `[n, m]` of distances
+      and returns an ndarray of shape `[n, m]` of pairwise energies.
+    cutoff: A float specifying the maximum interaction distance.
+    dr_threshold: A float specifying the halo in the neighbor list.
     axis: Specifies which axis the total energy should be summed over.
+    fractional_coordinates: A boolean specifying whether or not the coordinates
+      will be in the unit cube.
+    format: The format of the neighbor list.
 
   Returns:
-    A function that computes the EAM energy of a set of atoms with positions
-    given by an [n, spatial_dimension] ndarray.
-
-  [1] Y. Mishin, D. Farkas, M.J. Mehl, DA Papaconstantopoulos, "Interatomic
-  potentials for monoatomic metals from experimental data and ab initio
-  calculations." Physical Review B, 59 (1999)
+    A tuple containing a function to build the neighbor list and function that
+    computes the EAM energy of a set of atoms with positions given by an
+    `[n, spatial_dimension]` ndarray.
+  
+  .. rubric:: References
+  .. [#mishin] Y. Mishin, D. Farkas, M.J. Mehl, DA Papaconstantopoulos, "Interatomic
+    potentials for monoatomic metals from experimental data and ab initio
+    calculations." Physical Review B, 59 (1999)
   """
   metric = space.map_product(space.metric(displacement))
 
@@ -1009,7 +1014,7 @@ def eam(displacement: DisplacementFn,
 
 def eam_from_lammps_parameters(displacement: DisplacementFn,
                                f: TextIO) -> Callable[[Array], Array]:
-  """Convenience wrapper to compute EAM energy with LAMMPS parameters."""
+  """Convenience wrapper to compute :ref:`EAM energy <eam-pot>` with LAMMPS parameters."""
   return eam(displacement, *load_lammps_eam_parameters(f)[:-1])
 
 
@@ -1026,51 +1031,7 @@ def eam_neighbor_list(
     format: partition.NeighborListFormat = partition.Sparse,
     **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
-  """Interatomic potential as approximated by embedded atom model (EAM).
-
-  This code implements the EAM approximation to interactions between metallic
-  atoms. In EAM, the potential energy of an atom is given by two terms: a
-  pairwise energy and an embedding energy due to the interaction between the
-  atom and background charge density. The EAM potential for a single atomic
-  species is often
-  determined by three functions:
-    1) Charge density contribution of an atom as a function of distance.
-    2) Energy of embedding an atom in the background charge density.
-    3) Pairwise energy.
-  These three functions are usually provided as spline fits, and we follow the
-  implementation and spline fits given by [1]. Note that in current
-  implementation, the three functions listed above can also be expressed by a
-  any function with the correct signature, including neural networks.
-
-  Args:
-    displacement: A function that produces an ndarray of shape [n, m,
-      spatial_dimension] of particle displacements from particle positions
-      specified as an ndarray of shape [n, spatial_dimension] and [m,
-      spatial_dimension] respectively.
-    box_size: The size of the simulation box.
-    charge_fn: A function that takes an ndarray of shape [n, m] of distances
-      between particles and returns a matrix of charge contributions.
-    embedding_fn: Function that takes an ndarray of shape [n] of charges and
-      returns an ndarray of shape [n] of the energy cost of embedding an atom
-      into the charge.
-    pairwise_fn: A function that takes an ndarray of shape [n, m] of distances
-      and returns an ndarray of shape [n, m] of pairwise energies.
-    cutoff: A float specifying the maximum interaction distance.
-    dr_threshold: A float specifying the halo in the neighbor list.
-    axis: Specifies which axis the total energy should be summed over.
-    fractional_coordinates: A boolean specifying whether or not the coordinates
-      will be in the unit cube.
-    format: The format of the neighbor list.
-
-  Returns:
-    A tuple containing a function to build the neighbor list and function that
-    computes the EAM energy of a set of atoms with positions given by an
-    [n, spatial_dimension] ndarray.
-
-  [1] Y. Mishin, D. Farkas, M.J. Mehl, DA Papaconstantopoulos, "Interatomic
-  potentials for monoatomic metals from experimental data and ab initio
-  calculations." Physical Review B, 59 (1999)
-  """
+  """Convenience wrapper to compute :ref:`EAM <eam-pot>` using a neighbor list."""
   metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
 
   neighbor_fn = partition.neighbor_list(displacement_or_metric,
@@ -1118,7 +1079,8 @@ def eam_from_lammps_parameters_neighbor_list(
     fractional_coordinates=True,
     **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
-  """Convenience wrapper to compute EAM energy with parameters from LAMMPS."""
+  """Convenience wrapper to compute :ref:`EAM energy <eam-pot>` 
+  with parameters from LAMMPS using a neighbor list.."""
   return eam_neighbor_list(displacement,
                            box_size,
                            *load_lammps_eam_parameters(f),
@@ -1279,7 +1241,7 @@ def graph_network(displacement_fn: DisplacementFn,
     r_cutoff: A floating point cutoff; Edges will be added to the graph
       for pairs of particles whose separation is smaller than the cutoff.
     nodes: None or an ndarray of shape `[N, node_dim]` specifying the state
-      of the nodes. If None this is set to the zeroes vector. Often, for a
+      of the nodes. If None this is set to the zeros vector. Often, for a
       system with multiple species, this could be the species id.
     n_recurrences: The number of steps of message passing in the graph network.
     mlp_sizes: A tuple specifying the layer-widths for the fully-connected

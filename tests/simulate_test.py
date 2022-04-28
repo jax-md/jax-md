@@ -22,7 +22,6 @@ from absl.testing import parameterized
 from jax import jit
 from jax import vmap
 from jax import random
-from jax import test_util as jtu
 from jax import lax
 
 from jax.config import config as jax_config
@@ -41,7 +40,6 @@ from jax_md.util import *
 from functools import partial
 
 jax_config.parse_flags_with_absl()
-
 FLAGS = jax_config.FLAGS
 
 
@@ -64,10 +62,10 @@ if FLAGS.jax_enable_x64:
 
 
 # pylint: disable=invalid-name
-class SimulateTest(jtu.JaxTestCase):
+class SimulateTest(test_util.JAXMDTestCase):
 
   # pylint: disable=g-complex-comprehension
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -101,7 +99,7 @@ class SimulateTest(jtu.JaxTestCase):
       assert np.abs(E_total - E_initial) < E_initial * 0.01
       assert state.position.dtype == dtype
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -137,7 +135,7 @@ class SimulateTest(jtu.JaxTestCase):
     self.assertEqual(state.position.dtype, dtype)
     self.assertAllClose(Es, E_initial, rtol=tol, atol=tol)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -173,7 +171,7 @@ class SimulateTest(jtu.JaxTestCase):
     self.assertEqual(state.position.dtype, dtype)
     self.assertAllClose(Es, E_initial, rtol=tol, atol=tol)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': f'_dtype={dtype.__name__}_coordinates={coords}',
           'dtype': dtype,
@@ -210,7 +208,7 @@ class SimulateTest(jtu.JaxTestCase):
     self.assertEqual(state.position.dtype, dtype)
     self.assertAllClose(Es, E_initial, rtol=tol, atol=tol)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -261,7 +259,7 @@ class SimulateTest(jtu.JaxTestCase):
     assert state.position.dtype == dtype
     self.assertAllClose(state.position, exact_state.position, atol=tol, rtol=tol)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': f'_dim={dim}_dtype={dtype.__name__}_sy_steps={sy_steps}',
           'spatial_dimension': dim,
@@ -313,7 +311,7 @@ class SimulateTest(jtu.JaxTestCase):
       self.assertAllClose(invariant(state, T), initial, rtol=tol)
       self.assertEqual(state.position.dtype, dtype)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': f'dtype={dtype.__name__}_sy_steps={sy_steps}',
           'dtype': dtype,
@@ -351,7 +349,7 @@ class SimulateTest(jtu.JaxTestCase):
     self.assertEqual(state.position.dtype, dtype)
     self.assertAllClose(Es, E_initial, rtol=tol, atol=tol)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': f'dtype={dtype.__name__}_sy_steps={sy_steps}',
           'dtype': dtype,
@@ -394,13 +392,13 @@ class SimulateTest(jtu.JaxTestCase):
     Ps = np.zeros((DYNAMICS_STEPS,))
     state, Es, Ps = lax.fori_loop(0, DYNAMICS_STEPS, step_fn, (state, Es, Ps))
 
-    tol = 1e-3 if dtype is f32 else 1e-7
+    tol = 1e-3 if dtype is f32 else 1e-4
     self.assertEqual(state.position.dtype, dtype)
     self.assertAllClose(Es, E_initial, rtol=tol, atol=tol)
     self.assertAllClose(Ps, P_target, rtol=0.05, atol=0.05)
 
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -438,7 +436,7 @@ class SimulateTest(jtu.JaxTestCase):
           T_list += [quantity.temperature(state.momentum, state.mass)]
 
       # TODO(schsam): It would be good to check Gaussinity of R and V in the
-      # noninteracting case.
+        # noninteracting case.
       T_emp = np.mean(np.array(T_list))
       assert np.abs(T_emp - T) < 0.1
       assert state.position.dtype == dtype
@@ -494,7 +492,7 @@ class SimulateTest(jtu.JaxTestCase):
                         rtol=tol,
                         atol=tol)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -529,7 +527,7 @@ class SimulateTest(jtu.JaxTestCase):
     assert np.abs(msd - th_msd) / msd < 1e-2
     assert state.position.dtype == dtype
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': f'_dtype={dtype.__name__}',
           'dtype': dtype,

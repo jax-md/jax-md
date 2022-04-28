@@ -150,7 +150,10 @@ def pressure(energy_fn: EnergyFn, position: Array, box: Box,
   dim = position.shape[1]
 
   def U(eps):
-    return energy_fn(position, perturbation=(1 + eps), **kwargs)
+    try:
+      return energy_fn(position, box=box, perturbation=(1 + eps), **kwargs)
+    except space.UnexpectedBoxException:
+      return energy_fn(position, perturbation=(1 + eps), **kwargs)
 
   dUdV = grad(U)
   vol_0 = volume(dim, box)
@@ -172,7 +175,7 @@ def stress(energy_fn: EnergyFn, position: Array, box: Box,
     box: A box specifying the shape of the simulation volume. Used to infer the
       volume of the unit cell.
     mass: The mass of the particles; only used to compute the kinetic
-      contribution if `velocity` is not None.
+      contribution if `velocity` is not `None`.
     velocity: An array of atomic velocities.
 
   Returns:
@@ -184,7 +187,10 @@ def stress(energy_fn: EnergyFn, position: Array, box: Box,
   I = jnp.eye(dim, dtype=position.dtype)
 
   def U(eps):
-    return energy_fn(position, perturbation=(I + eps), **kwargs)
+    try:
+      return energy_fn(position, box=box, perturbation=(I + eps), **kwargs)
+    except space.UnexpectedBoxException:
+      return energy_fn(position, perturbation=(I + eps), **kwargs)
 
   dUdV = grad(U)
   vol_0 = volume(dim, box)
@@ -225,12 +231,12 @@ def cosine_angles(dR: Array) -> Array:
   """Returns cosine of angles for all atom triplets.
 
   Args:
-    dR: Matrix of displacements; ndarray(shape=[num_atoms, num_neighbors,
-      spatial_dim]).
+    dR: Matrix of displacements; `ndarray(shape=[num_atoms, num_neighbors,
+      spatial_dim])`.
 
   Returns:
     Tensor of cosine of angles;
-    ndarray(shape=[num_atoms, num_neighbors, num_neighbors]).
+    `ndarray(shape=[num_atoms, num_neighbors, num_neighbors])`.
   """
 
   angles_between_all_triplets = vmap(
@@ -250,19 +256,24 @@ def pair_correlation(displacement_or_metric: Union[DisplacementFn, MetricFn],
   """Computes the pair correlation function at a mesh of distances.
 
   The pair correlation function measures the number of particles at a given
-  distance from a central particle. The pair correlation function is defined
-  by :math:`g(r) = <\sum_{i\neq j}\delta(r - |r_i - r_j|)>.` We make the
-  approximation
-  :math:`\delta(r) \approx {1 \over \sqrt{2\pi\sigma^2}e^{-r / (2\sigma^2)}}`.
+  distance from a central particle. The pair correlation function is defined by
+
+  .. math::
+    g(r) = <\sum_{i \\neq j}\delta(r - |r_i - r_j|)>
+  
+  We make the approximation,
+
+  .. math::
+    \delta(r) \\approx {1 \over \sqrt{2\pi\sigma^2}e^{-r / (2\sigma^2)}}
 
   Args:
-    displacement_or_metric: A function that computes the displacement or
-      distance between two points.
-    radii: An array of radii at which we would like to compute g(r).
+    displacement_or_metric: 
+      A function that computes the displacement or distance between two points.
+    radii: An array of radii at which we would like to compute :math:`g(r)`.
     sigima: A float specifying the width of the approximating Gaussian.
     species: An optional array specifying the species of each particle. If
-      species is None then we compute a single g(r) for all particles,
-      otherwise we compute one g(r) for each species.
+      species is None then we compute a single :math:`g(r)` for all particles,
+      otherwise we compute one :math:`g(r)` for each species.
     eps: A small additive constant used to ensure stability if the radius is
       zero.
 
@@ -314,10 +325,15 @@ def pair_correlation_neighbor_list(
   """Computes the pair correlation function at a mesh of distances.
 
   The pair correlation function measures the number of particles at a given
-  distance from a central particle. The pair correlation function is defined
-  by :math:`g(r) = <\sum_{i\neq j}\delta(r - |r_i - r_j|)>.` We make the
-  approximation,
-  :math:`\delta(r) \approx {1 \over \sqrt{2\pi\sigma^2}e^{-r / (2\sigma^2)}}`.
+  distance from a central particle. The pair correlation function is defined by 
+  
+  .. math::
+    g(r) = <\sum_{i \\neq j}\delta(r - |r_i - r_j|)>
+  
+  We make the approximation,
+
+  .. math::
+    \delta(r) \\approx {1 \over \sqrt{2\pi\sigma^2}e^{-r / (2\sigma^2)}}
 
   This function uses neighbor lists to speed up the calculation.
 
@@ -325,11 +341,11 @@ def pair_correlation_neighbor_list(
     displacement_or_metric: A function that computes the displacement or
       distance between two points.
     box_size: The size of the box containing the particles.
-    radii: An array of radii at which we would like to compute g(r).
+    radii: An array of radii at which we would like to compute :math:`g(r)`.
     sigima: A float specifying the width of the approximating Gaussian.
     species: An optional array specifying the species of each particle. If
-      species is None then we compute a single g(r) for all particles,
-      otherwise we compute one g(r) for each species.
+      species is None then we compute a single :math:`g(r)` for all particles,
+      otherwise we compute one :math:`g(r)` for each species.
     dr_threshold: A float specifying the halo size of the neighbor list.
     eps: A small additive constant used to ensure stability if the radius is
       zero.
@@ -433,21 +449,19 @@ def phop(displacement: DisplacementFn, window_size: int) -> PHopCalculator:
   in a quiescent system have experienced a rearrangement. Qualitatively, phop
   measures when the average position of a particle has changed significantly.
 
-  Formally, given a window of size \Delta t we two averages before and after
+  Formally, given a window of size :math:`\Delta t` we two averages before and after
   the current time,
 
+  .. math::
     E_A[f] = E_{t\in[t - \Delta t / 2, t]}[f(t)]
     E_B[f] = E_{t\in[t, t + \Delta t / 2]}[f(t)].
 
   In terms of these expectations, phop is given by,
-    phop = \sqrt{E_A[(R_i(t) - E_B[R_i(t)])^2]E_B[(R_i(t) - E_A[R_i(t)])^2]}.
 
-  phop was first introduced in
+  .. math::
+    phop = \sqrt{E_A[(R_i(t) - E_B[R_i(t)])^2]E_B[(R_i(t) - E_A[R_i(t)])^2]}
 
-    R. Candelier et al.
-    "Spatiotemporal Hierarchy of Relaxation Events, Dynamical Heterogeneities,
-     and Structural Reorganization in a Supercooled Liquid"
-    Physical Review Letters 105, 135702 (2010).
+  phop was first introduced in Candelier et al. [#candelier]_
 
   Args:
     displacement: A function that computes displacements between pairs of
@@ -459,6 +473,12 @@ def phop(displacement: DisplacementFn, window_size: int) -> PHopCalculator:
     A pair of functions, `(init_fn, update_fn)` that initialize the state of a
     phop measurement and update the state of a phop measurement to include new
     positions.
+
+  .. rubric:: References
+  .. [#candelier] R. Candelier et al.
+    "Spatiotemporal Hierarchy of Relaxation Events, Dynamical Heterogeneities,
+    and Structural Reorganization in a Supercooled Liquid"
+    Physical Review Letters 105, 135702 (2010).
   """
 
   half_window_size = window_size // 2

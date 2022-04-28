@@ -28,11 +28,11 @@ import jax.numpy as np
 
 from jax import grad
 
-from jax import test_util as jtu
 from jax import jit, vmap
 
 from jax_md import smap, partition, space, energy, quantity
 from jax_md.util import *
+from jax_md import test_util
 
 jax_config.parse_flags_with_absl()
 
@@ -49,10 +49,9 @@ else:
   POSITION_DTYPE = [f32]
 
 
-@jtu.with_config(jax_numpy_rank_promotion="allow")
-class CellListTest(jtu.JaxTestCase):
+class CellListTest(test_util.JAXMDTestCase):
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dtype={}'.format(dtype.__name__),
           'dtype': dtype,
@@ -90,7 +89,7 @@ class CellListTest(jtu.JaxTestCase):
     R_out = R_out.at[id_flat].set(R_flat)[:-1]
     self.assertAllClose(R_out, R)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dtype={}_dim={}'.format(dtype.__name__, dim),
           'dtype': dtype,
@@ -114,7 +113,7 @@ class CellListTest(jtu.JaxTestCase):
 
     self.assertAllClose(R_out, R)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dtype={}_dim={}'.format(dtype.__name__, dim),
           'dtype': dtype,
@@ -137,7 +136,7 @@ class CellListTest(jtu.JaxTestCase):
     R_out = R_out.at[id_flat].set(R_flat)[:-1]
     self.assertAllClose(R_out, R)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dtype={}_dim={}'.format(dtype.__name__, dim),
           'dtype': dtype,
@@ -173,9 +172,8 @@ class CellListTest(jtu.JaxTestCase):
     self.assertAllClose(side_data_out, side_data)
 
 
-@jtu.with_config(jax_numpy_rank_promotion="allow")
-class NeighborListTest(jtu.JaxTestCase):
-  @parameterized.named_parameters(jtu.cases_from_list(
+class NeighborListTest(test_util.JAXMDTestCase):
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dtype={}_dim={}'.format(dtype.__name__, dim),
           'dtype': dtype,
@@ -223,7 +221,7 @@ class NeighborListTest(jtu.JaxTestCase):
 
       self.assertAllClose(dR_row, dR_exact_row)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dtype={}_dim={}'.format(dtype.__name__, dim),
           'dtype': dtype,
@@ -270,7 +268,7 @@ class NeighborListTest(jtu.JaxTestCase):
 
       self.assertAllClose(dR_row, dR_exact_row)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dtype={}_dim={}'.format(dtype.__name__, dim),
           'dtype': dtype,

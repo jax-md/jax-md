@@ -17,30 +17,25 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 
-import os
-from jax.config import config as jax_config
+from jax.config import config
 from jax import random
-from jax import jit, vmap
+from jax import jit, vmap, grad
 import optax
 import jax.numpy as np
 
 import numpy as onp
 
-from jax import grad
 from jax_md import space
 from jax_md.util import *
 from jax_md import test_util
 from jax_md import quantity
 
-from jax import test_util as jtu
-
 from jax_md import energy
 from jax_md import partition
 from jax_md.interpolate import spline
 
-jax_config.parse_flags_with_absl()
-jax_config.enable_omnistaging()
-FLAGS = jax_config.FLAGS
+config.parse_flags_with_absl()
+FLAGS = config.FLAGS
 
 PARTICLE_COUNT = 100
 STOCHASTIC_SAMPLES = 10
@@ -50,7 +45,7 @@ UNIT_CELL_SIZE = [7, 8]
 SOFT_SPHERE_ALPHA = [2.0, 2.5, 3.0]
 N_TYPES_TO_TEST = [1, 2]
 
-if FLAGS.jax_enable_x64:
+if config.x64_enabled:
   POSITION_DTYPE = [f32, f64]
 else:
   POSITION_DTYPE = [f32]
@@ -147,10 +142,9 @@ def lattice(R_unit_cell, copies, lattice_vectors):
   return np.array(onp.concatenate(Rs))
 
 
-@jtu.with_config(jax_numpy_rank_promotion="allow")
-class EnergyTest(jtu.JaxTestCase):
+class EnergyTest(test_util.JAXMDTestCase):
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -172,11 +166,11 @@ class EnergyTest(jtu.JaxTestCase):
       length = random.uniform(key, (), minval=0.1, maxval=3.0, dtype=dtype)
       alpha = random.uniform(key, (), minval=2., maxval=4., dtype=dtype)
       E = energy.simple_spring_bond(disp, bonds, length=length, alpha=alpha)
-      E_exact = dtype((dist - length) ** alpha / alpha)
+      E_exact = dtype(np.abs(dist - length) ** alpha / alpha)
       self.assertAllClose(E(R), E_exact)
 
   # pylint: disable=g-complex-comprehension
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_alpha={}_dtype={}'.format(
             dim, alpha, dtype.__name__),
@@ -211,7 +205,7 @@ class EnergyTest(jtu.JaxTestCase):
         g = grad_energy(dtype(sigma), sigma, epsilon, alpha)
         self.assertAllClose(g, np.array(0, dtype=dtype))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -233,7 +227,7 @@ class EnergyTest(jtu.JaxTestCase):
       g = grad(energy.lennard_jones)(dr, sigma, epsilon)
       self.assertAllClose(g, np.array(0, dtype=dtype))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': 'dtype={}'.format(dtype.__name__),
           'dtype': dtype
@@ -245,7 +239,7 @@ class EnergyTest(jtu.JaxTestCase):
       self.assertAllClose(-5.4632421255957135, energy_fn(pos))
 
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': 'dtype={}'.format(dtype.__name__),
           'dtype': dtype
@@ -259,7 +253,7 @@ class EnergyTest(jtu.JaxTestCase):
       energy_fn = energy.bks_silica_pair(dist_fun, species=species)
       self.assertAllClose(-857939.528386092, energy_fn(R_f))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': f'dtype={dtype.__name__}_format={format}',
           'dtype': dtype,
@@ -276,7 +270,7 @@ class EnergyTest(jtu.JaxTestCase):
     nbrs = neighbor_fn.allocate(R_f)
     self.assertAllClose(-857939.528386092, energy_nei(R_f, nbrs))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': (f'dtype={dtype.__name__}_'
                             f'num_repetitions={num_repetitions}'),
@@ -295,7 +289,7 @@ class EnergyTest(jtu.JaxTestCase):
     N = positions.shape[0]
     self.assertAllClose(energy_fn(positions) / N, -4.336503155764325)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
         'testcase_name': (f'dtype={dtype.__name__}'
                           f'_num_repetitions={num_repetitions}'
@@ -328,7 +322,7 @@ class EnergyTest(jtu.JaxTestCase):
     self.assertAllClose(energy_fn(positions, neighbor=nbrs) / N,
                         -4.336503155764325)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -369,7 +363,7 @@ class EnergyTest(jtu.JaxTestCase):
                        dtype=dtype)
       self.assertAllClose(U, Ucomp)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -401,7 +395,7 @@ class EnergyTest(jtu.JaxTestCase):
       self.assertAllClose(
         E(r_large, sigma, epsilon), np.zeros_like(r_large, dtype=dtype))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name':
         f'_dim={dim}_dtype={dtype.__name__}_format={format}',
@@ -430,7 +424,7 @@ class EnergyTest(jtu.JaxTestCase):
       np.array(exact_energy_fn(R), dtype=dtype),
       energy_fn(R, nbrs))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name':
         f'_dim={dim}_dtype={dtype.__name__}_format={format}',
@@ -459,7 +453,7 @@ class EnergyTest(jtu.JaxTestCase):
       np.array(exact_energy_fn(R), dtype=dtype),
       energy_fn(R, nbrs))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name':
         f'_dim={dim}_dtype={dtype.__name__}_format={format}',
@@ -488,7 +482,7 @@ class EnergyTest(jtu.JaxTestCase):
       np.array(exact_energy_fn(R), dtype=dtype),
       energy_fn(R, nbrs))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name':
         f'_dim={dim}_dtype={dtype.__name__}_format={format}',
@@ -517,7 +511,7 @@ class EnergyTest(jtu.JaxTestCase):
       np.array(exact_energy_fn(R), dtype=dtype),
       energy_fn(R, nbrs))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name':
         f'_dim={dim}_dtype={dtype.__name__}_format={format}',
@@ -546,7 +540,7 @@ class EnergyTest(jtu.JaxTestCase):
       np.array(exact_energy_fn(R), dtype=dtype),
       energy_fn(R, nbrs))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name':
         f'_dim={dim}_dtype={dtype.__name__}_format={format}',
@@ -581,7 +575,7 @@ class EnergyTest(jtu.JaxTestCase):
         np.array(exact_force_fn(r), dtype=dtype),
         force_fn(r, nbrs))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_N_types={}_dtype={}'.format(N_types, dtype.__name__),
           'N_types': N_types,
@@ -602,7 +596,7 @@ class EnergyTest(jtu.JaxTestCase):
     self.assertAllClose(np.any(np.isnan(nn_force)), False)
     self.assertAllClose(nn_force.shape, [3,3])
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name':
         f'_N_types={N_types}_dtype={dtype.__name__}_format={str(format).split(".")[-1]}',
@@ -634,7 +628,7 @@ class EnergyTest(jtu.JaxTestCase):
     self.assertAllClose(np.any(np.isnan(nn_force)), False)
     self.assertAllClose(nn_force.shape, [3,3])
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name':
         f'_dim={dim}_dtype={dtype.__name__}_format={format}',
@@ -668,7 +662,7 @@ class EnergyTest(jtu.JaxTestCase):
         np.array(exact_force_fn(r), dtype=dtype),
         force_fn(r, nbrs))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_num_reps={}_dtype={}'.format(
             num_repetitions, dtype.__name__),
@@ -695,7 +689,7 @@ class EnergyTest(jtu.JaxTestCase):
     else:
       self.assertAllClose(E, dtype(-3.3633387837793505))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
         'testcase_name': (f'_num_reps={num_repetitions}'
                           f'_dtype={dtype.__name__}'
@@ -731,7 +725,7 @@ class EnergyTest(jtu.JaxTestCase):
       self.assertAllClose(E, dtype(-3.3633387837793505))
 
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -754,7 +748,7 @@ class EnergyTest(jtu.JaxTestCase):
     assert E_out.shape == ()
     assert E_out.dtype == dtype
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name':
         f'_dim={dim}_dtype={dtype.__name__}_format={str(format).split(".")[-1]}',
@@ -790,7 +784,7 @@ class EnergyTest(jtu.JaxTestCase):
       self.assertAllClose(energy_fn(params, R), nl_energy_fn(params, R, nbrs),
                           rtol=2e-4, atol=2e-4)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name':
         f'_dim={dim}_dtype={dtype.__name__}_format={str(format).split(".")[-1]}',
@@ -835,7 +829,7 @@ class EnergyTest(jtu.JaxTestCase):
                           rtol=2e-4, atol=2e-4)
 
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,

@@ -19,10 +19,13 @@
 
   In general, simulation code follows the same overall structure as optimizers
   in JAX. Simulations are tuples of two functions:
-    init_fn: function that initializes the  state of a system. Should take
-      positions as an ndarray of shape [n, output_dimension]. Returns a state
+
+    init_fn: 
+      Function that initializes the  state of a system. Should take
+      positions as an ndarray of shape `[n, output_dimension]`. Returns a state
       which will be a namedtuple.
-    apply_fn: function that takes a state and produces a new state after one
+    apply_fn: 
+      Function that takes a state and produces a new state after one
       step of optimization.
 
   One question that we need to think about is whether the simulations should
@@ -103,13 +106,12 @@ def kinetic_energy(R: Array, P: Array, M: Array):
 JAX MD includes integrators for deterministic simulations of the NVE, NVT, and
 NPT ensembles. For a qualitative description of statistical physics ensembles
 see the wikipedia article here:
-
 en.wikipedia.org/wiki/Statistical_ensemble_(mathematical_physics)
 
 Integrators are based direct translation method outlined in the paper,
 
 "A Liouville-operator derived measure-preserving integrator for molecular
- dynamics simulations in the isothermal–isobaric ensemble"
+dynamics simulations in the isothermal–isobaric ensemble"
 
 M. E. Tuckerman, J. Alejandre, R. López-Rendón, A. L Jochim, and G. J. Martyna
 J. Phys. A: Math. Gen. 39 5629 (2006)
@@ -163,13 +165,13 @@ class NVEState:
   the (E)nergy of the system are held fixed.
 
   Attributes:
-    position: An ndarray of shape [n, spatial_dimension] storing the position
+    position: An ndarray of shape `[n, spatial_dimension]` storing the position
       of particles.
-    momentum: An ndarray of shape [n, spatial_dimension] storing the momentum
+    momentum: An ndarray of shape `[n, spatial_dimension]` storing the momentum
       of particles.
-    force: An ndarray of shape [n, spatial_dimension] storing the force acting
+    force: An ndarray of shape `[n, spatial_dimension]` storing the force acting
       on particles from the previous step.
-    mass: A float or an ndarray of shape [n] containing the masses of the
+    mass: A float or an ndarray of shape `[n]` containing the masses of the
       particles.
   """
   position: Array
@@ -193,9 +195,9 @@ def nve(energy_or_force_fn, shift_fn, dt=1e-3, **sim_kwargs):
   Args:
     energy_or_force: A function that produces either an energy or a force from
       a set of particle positions specified as an ndarray of shape
-      [n, spatial_dimension].
-    shift_fn: A function that displaces positions, R, by an amount dR. Both R
-      and dR should be ndarrays of shape [n, spatial_dimension].
+      `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`. Both `R`
+      and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
     dt: Floating point number specifying the timescale (step size) of the
       simulation.
   Returns:
@@ -246,11 +248,11 @@ class NoseHooverChain:
   """State information for a Nose-Hoover chain.
 
   Attributes:
-    position: An ndarray of shape [chain_length] that stores the position of
+    position: An ndarray of shape `[chain_length]` that stores the position of
       the chain.
-    momentum: An ndarray of shape [chain_length] that stores the momentum of
+    momentum: An ndarray of shape `[chain_length]` that stores the momentum of
       the chain.
-    mass: An ndarray of shape [chain_length] that stores the mass of the
+    mass: An ndarray of shape `[chain_length]` that stores the mass of the
       chain.
     tau: The desired period of oscillation for the chain. Longer periods result
       is better stability but worse temperature control.
@@ -284,21 +286,21 @@ def nose_hoover_chain(dt: float,
 
   This function is used in simulations that sample from thermal ensembles by
   coupling the system to one, or more, Nose-Hoover chains. We use the direct
-  translation method outlined in [1] and the Nose-Hoover chains are updated
+  translation method outlined in Martyna et al. [#martyna92]_ and the Nose-Hoover chains are updated
   using two half steps: one at the beginning of a simulation step and one at
   the end. The masses of the Nose-Hoover chains are updated automatically to
   enforce a specific period of oscillation, `tau`. Larger values of `tau` will
   yield systems that reach the target temperature more slowly but are also more
   stable.
 
-  As described in [1], the Nose-Hoover chain often evolves on a faster
+  As described in Martyna et al. [#martyna92]_, the Nose-Hoover chain often evolves on a faster
   timescale than the rest of the simulation. Therefore, it sometimes necessary
   to integrate the chain over several substeps for each step of MD. To do this
   we follow the Suzuki-Yoshida scheme. Specifically, we subdivide our chain
   simulation into :math:`n_c` substeps. These substeps are further subdivided into
   :math:`n_sy` steps. Each :math:`n_sy` step has length :math:`\delta_i = \Delta t w_i / n_c`
   where :math:`w_i` are constants such that :math:`\sum_i w_i = 1`. See the table of
-  Suzuki_Yoshida weights above for specific values. The number of substeps
+  Suzuki-Yoshida weights above for specific values. The number of substeps
   and the number of Suzuki-Yoshida steps are set using the `chain_steps` and
   `sy_steps` arguments.
 
@@ -317,11 +319,11 @@ def nose_hoover_chain(dt: float,
       simulation.
     chain_length: An integer specifying the number of particles in
       the Nose-Hoover chain.
-    chain_steps: An integer specifying the number, :math:`n_c`, of outer substeps.
+    chain_steps: An integer specifying the number :math:`n_c` of outer substeps.
     sy_steps: An integer specifying the number of Suzuki-Yoshida steps. This
-      must be either 1, 3, 5, or 7.
+      must be either `1`, `3`, `5`, or `7`.
     tau: A floating point timescale over which temperature equilibration occurs.
-      Measured in units of dt. The performance of the Nose-Hoover chain
+      Measured in units of `dt`. The performance of the Nose-Hoover chain
       thermostat can be quite sensitive to this choice.
   Returns:
     A triple of functions that initialize the chain, do a half step of
@@ -430,13 +432,13 @@ class NVTNoseHooverState:
 
   Attributes:
     position: The current position of particles. An ndarray of floats
-      with shape [n, spatial_dimension].
+      with shape `[n, spatial_dimension]`.
     momentum: The momentum of particles. An ndarray of floats
-      with shape [n, spatial_dimension].
+      with shape `[n, spatial_dimension]`.
     force: The current force on the particles. An ndarray of floats with shape
-      [n, spatial_dimension].
+      `[n, spatial_dimension]`.
     mass: The mass of the particles. Can either be a float or an ndarray
-      of floats with shape [n].
+      of floats with shape `[n]`.
     chain: The variables describing the Nose-Hoover chain.
   """
   position: Array
@@ -459,16 +461,16 @@ def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
 
   Samples from the canonical ensemble in which the number of particles (N),
   the system volume (V), and the temperature (T) are held constant. We use a
-  Nose Hoover Chain (NHC) thermostat described in [1, 2, 3]. We follow the
-  direct translation method outlined in [3] and the interested reader might
-  want to look at that paper as a reference.
+  Nose Hoover Chain (NHC) thermostat described in [#martyna92]_ [#martyna98]_ [#tuckerman]_ .
+  We follow the direct translation method outlined in Tuckerman et al. [#tuckerman]_
+  and the interested reader might want to look at that paper as a reference.
 
   Args:
     energy_or_force: A function that produces either an energy or a force from
       a set of particle positions specified as an ndarray of shape
-      [n, spatial_dimension].
-    shift_fn: A function that displaces positions, R, by an amount dR. Both R
-      and dR should be ndarrays of shape [n, spatial_dimension].
+      `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`. Both `R`
+      and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
     dt: Floating point number specifying the timescale (step size) of the
       simulation.
     kT: Floating point number specifying the temperature in units of Boltzmann
@@ -478,24 +480,25 @@ def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
       the Nose-Hoover chain.
     chain_steps: An integer specifying the number, :math:`n_c`, of outer substeps.
     sy_steps: An integer specifying the number of Suzuki-Yoshida steps. This
-      must be either 1, 3, 5, or 7.
+      must be either `1`, `3`, `5`, or `7`.
     tau: A floating point timescale over which temperature equilibration occurs.
-      Measured in units of dt. The performance of the Nose-Hoover chain
+      Measured in units of `dt`. The performance of the Nose-Hoover chain
       thermostat can be quite sensitive to this choice.
   Returns:
     See above.
 
-  [1] Martyna, Glenn J., Michael L. Klein, and Mark Tuckerman.
-      "Nose-Hoover chains: The canonical ensemble via continuous dynamics."
-      The Journal of chemical physics 97, no. 4 (1992): 2635-2643.
-  [2] Martyna, Glenn, Mark Tuckerman, Douglas J. Tobias, and Michael L. Klein.
-      "Explicit reversible integrators for extended systems dynamics."
-      Molecular Physics 87. (1998) 1117-1157.
-  [3] Tuckerman, Mark E., Jose Alejandre, Roberto Lopez-Rendon,
-      Andrea L. Jochim, and Glenn J. Martyna.
-      "A Liouville-operator derived measure-preserving integrator for molecular
-      dynamics simulations in the isothermal-isobaric ensemble."
-      Journal of Physics A: Mathematical and General 39, no. 19 (2006): 5629.
+  .. rubric:: References
+  .. [#martyna92] Martyna, Glenn J., Michael L. Klein, and Mark Tuckerman.
+    "Nose-Hoover chains: The canonical ensemble via continuous dynamics."
+    The Journal of chemical physics 97, no. 4 (1992): 2635-2643.
+  .. [#martyna98] Martyna, Glenn, Mark Tuckerman, Douglas J. Tobias, and Michael L. Klein.
+    "Explicit reversible integrators for extended systems dynamics."
+    Molecular Physics 87. (1998) 1117-1157.
+  .. [#tuckerman] Tuckerman, Mark E., Jose Alejandre, Roberto Lopez-Rendon,
+    Andrea L. Jochim, and Glenn J. Martyna.
+    "A Liouville-operator derived measure-preserving integrator for molecular
+    dynamics simulations in the isothermal-isobaric ensemble."
+    Journal of Physics A: Mathematical and General 39, no. 19 (2006): 5629.
   """
   force_fn = quantity.canonicalize_force(energy_or_force_fn)
   dt = f32(dt)
@@ -513,7 +516,7 @@ def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
     mass = quantity.canonicalize_mass(mass)
 
     P = initialize_momenta(R, mass, key, _kT)
-    KE = quantity.kinetic_energy(P, mass)
+    KE = kinetic_energy(R, P, mass)
     dof = quantity.count_dof(R)
     return NVTNoseHooverState(R, P, force_fn(R, **kwargs), mass,
                               chain_fns.initialize(dof, KE, _kT))
@@ -533,7 +536,7 @@ def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
 
     state = velocity_verlet(force_fn, update_fn, dt, state, **kwargs)
 
-    KE = quantity.kinetic_energy(state.momentum, state.mass)
+    KE = kinetic_energy(state.position, state.momentum, state.mass)
     chain = dataclasses.replace(chain, kinetic_energy=KE)
 
     p, chain = chain_fns.half_step(state.momentum, chain, _kT)
@@ -560,7 +563,7 @@ def nvt_nose_hoover_invariant(energy_fn: Callable[..., Array],
     The Hamiltonian of the extended NVT dynamics.
   """
   PE = energy_fn(state.position, **kwargs)
-  KE = quantity.kinetic_energy(state.momentum, state.mass)
+  KE = kinetic_energy(state.position, state.momentum, state.mass)
 
   DOF = quantity.count_dof(state.position)
   E = PE + KE
@@ -583,13 +586,13 @@ class NPTNoseHooverState:
 
   Attributes:
     position: The current position of particles. An ndarray of floats
-      with shape [n, spatial_dimension].
+      with shape `[n, spatial_dimension]`.
     momentum: The velocity of particles. An ndarray of floats
-      with shape [n, spatial_dimension].
+      with shape `[n, spatial_dimension]`.
     force: The current force on the particles. An ndarray of floats with shape
-      [n, spatial_dimension].
+      `[n, spatial_dimension]`.
     mass: The mass of the particles. Can either be a float or an ndarray
-      of floats with shape [n].
+      of floats with shape `[n]`.
     reference_box: A box used to measure relative changes to the simulation
       environment.
     box_position: A positional degree of freedom used to describe the current
@@ -647,17 +650,18 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
   """Simulation in the NPT ensemble using a pair of Nose Hoover Chains.
 
   Samples from the canonical ensemble in which the number of particles (N),
-  the system pressure (P), and the temperature (T) are held constant. We use a
-  pair of Nose Hoover Chains (NHC) described in [1, 2, 3] coupled to the
+  the system pressure (P), and the temperature (T) are held constant.
+  We use a pair of Nose Hoover Chains (NHC) described in
+  [#martyna92]_ [#martyna98]_ [#tuckerman]_ coupled to the
   barostat and the thermostat respectively. We follow the direct translation
-  method outlined in [3] and the interested reader might want to look at that
-  paper as a reference.
+  method outlined in Tuckerman et al. [#tuckerman]_ and the interested reader
+  might want to look at that paper as a reference.
 
   Args:
     energy_fn: A function that produces either an energy from a set of particle
-      positions specified as an ndarray of shape [n, spatial_dimension].
-    shift_fn: A function that displaces positions, R, by an amount dR. Both R
-      and dR should be ndarrays of shape [n, spatial_dimension].
+      positions specified as an ndarray of shape `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`. Both `R`
+      and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
     dt: Floating point number specifying the timescale (step size) of the
       simulation.
     pressure: Floating point number specifying the target pressure. To update
@@ -676,17 +680,6 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
   Returns:
     See above.
 
-  [1] Martyna, Glenn J., Michael L. Klein, and Mark Tuckerman.
-      "Nose-Hoover chains: The canonical ensemble via continuous dynamics."
-      The Journal of chemical physics 97, no. 4 (1992): 2635-2643.
-  [2] Martyna, Glenn, Mark Tuckerman, Douglas J. Tobias, and Michael L. Klein.
-      "Explicit reversible integrators for extended systems dynamics."
-      Molecular Physics 87. (1998) 1117-1157.
-  [3] Tuckerman, Mark E., Jose Alejandre, Roberto Lopez-Rendon,
-      Andrea L. Jochim, and Glenn J. Martyna.
-      "A Liouville-operator derived measure-preserving integrator for molecular
-      dynamics simulations in the isothermal-isobaric ensemble."
-      Journal of Physics A: Mathematical and General 39, no. 19 (2006): 5629.
   """
 
   t = f32(dt)
@@ -736,26 +729,25 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
                 **kwargs):
     N, dim = position.shape
 
-    def U(vol):
-      return energy_fn(position, box=box_fn(vol), **kwargs)
+    def U(eps):
+      return energy_fn(position, box=box_fn(vol), perturbation=(1 + eps), **kwargs)
 
     dUdV = grad(U)
     KE2 = util.high_precision_sum(momentum ** 2 / mass)
-    R = space.transform(box_fn(vol), position)
-    RdotF = util.high_precision_sum(R * force)
 
-    return alpha * KE2 + RdotF - dim * vol * dUdV(vol) - pressure * vol * dim
+    return alpha * KE2 - dUdV(0.0) - pressure * vol * dim
 
   def sinhx_x(x):
     """Taylor series for sinh(x) / x as x -> 0."""
-    return 1 + x ** 2 / 6 + x ** 4 / 120
+    return (1 + x ** 2 / 6 + x ** 4 / 120 + x ** 6 / 5040 +
+            x ** 8 / 362_880 + x ** 10 / 39_916_800)
 
   def exp_iL1(box, R, V, V_b, **kwargs):
     x = V_b * dt
     x_2 = x / 2
     sinhV = sinhx_x(x_2)  # jnp.sinh(x_2) / x_2
-    return shift_fn(R * jnp.exp(x), dt * V * jnp.exp(x_2) * sinhV, box=box,
-                    **kwargs)  # pytype: disable=wrong-keyword-args
+    return shift_fn(R, R * (jnp.exp(x) - 1) + dt * V * jnp.exp(x_2) * sinhV,
+                    box=box, **kwargs)  # pytype: disable=wrong-keyword-args
 
   def exp_iL2(alpha, P, F, P_b):
     x = alpha * P_b * dt_2
@@ -881,13 +873,13 @@ class NVTLangevinState:
 
   Attributes:
     position: The current position of the particles. An ndarray of floats with
-      shape [n, spatial_dimension].
+      shape `[n, spatial_dimension]`.
     momentum: The momentum of particles. An ndarray of floats with shape
-      [n, spatial_dimension].
+      `[n, spatial_dimension]`.
     force: The (non-stochastic) force on particles. An ndarray of floats with
-      shape [n, spatial_dimension].
+      shape `[n, spatial_dimension]`.
     mass: The mass of particles. Will either be a float or an ndarray of floats
-      with shape [n].
+      with shape `[n]`.
     rng: The current state of the random number generator.
   """
   position: Array
@@ -912,14 +904,14 @@ def nvt_langevin(energy_or_force: Callable[..., Array],
   ODE described by a friction coefficient and noise of a given covariance.
 
   Our implementation follows the excellent set of lecture notes by Carlon,
-  Laleman, and Nomidis [1].
+  Laleman, and Nomidis [#carlon]_ .
 
   Args:
     energy_or_force: A function that produces either an energy or a force from
       a set of particle positions specified as an ndarray of shape
-      [n, spatial_dimension].
-    shift_fn: A function that displaces positions, R, by an amount dR. Both R
-      and dR should be ndarrays of shape [n, spatial_dimension].
+      `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`. Both `R`
+      and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
     dt: Floating point number specifying the timescale (step size) of the
       simulation.
     kT: Floating point number specifying the temperature in units of Boltzmann
@@ -932,9 +924,10 @@ def nvt_langevin(energy_or_force: Callable[..., Array],
   Returns:
     See above.
 
-    [1] E. Carlon, M. Laleman, S. Nomidis. "Molecular Dynamics Simulation."
-        http://itf.fys.kuleuven.be/~enrico/Teaching/molecular_dynamics_2015.pdf
-        Accessed on 06/05/2019.
+  .. rubric:: References
+  .. [#carlon] E. Carlon, M. Laleman, S. Nomidis. "Molecular Dynamics Simulation."
+    http://itf.fys.kuleuven.be/~enrico/Teaching/molecular_dynamics_2015.pdf
+    Accessed on 06/05/2019.
   """
 
   force_fn = quantity.canonicalize_force(energy_or_force)
@@ -989,9 +982,9 @@ class BrownianState:
 
   Attributes:
     position: The current position of the particles. An ndarray of floats with
-      shape [n, spatial_dimension].
-    mass: The mmass of particles. Will either be a float or an ndarray of floats
-      with shape [n].
+      shape `[n, spatial_dimension]`.
+    mass: The mass of particles. Will either be a float or an ndarray of floats
+      with shape `[n]`.
     rng: The current state of the random number generator.
   """
   position: Array
@@ -1010,14 +1003,14 @@ def brownian(energy_or_force: Callable[..., Array],
   regime of Langevin dynamics. However, in this case we don't need to take into
   account velocity information and the dynamics simplify. Consequently, when
   Brownian dynamics can be used they will be faster than Langevin. As in the
-  case of Langevin dynamics our implementation follows [1].
+  case of Langevin dynamics our implementation follows Carlon et al. [#carlon]_
 
   Args:
     energy_or_force: A function that produces either an energy or a force from
       a set of particle positions specified as an ndarray of shape
-      [n, spatial_dimension].
-    shift_fn: A function that displaces positions, R, by an amount dR. Both R
-      and dR should be ndarrays of shape [n, spatial_dimension].
+      `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`. Both `R`
+      and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
     dt: Floating point number specifying the timescale (step size) of the
       simulation.
     kT: Floating point number specifying the temperature in units of Boltzmann
@@ -1028,10 +1021,6 @@ def brownian(energy_or_force: Callable[..., Array],
 
   Returns:
     See above.
-
-    [1] E. Carlon, M. Laleman, S. Nomidis. "Molecular Dynamics Simulation."
-        http://itf.fys.kuleuven.be/~enrico/Teaching/molecular_dynamics_2015.pdf
-        Accessed on 06/05/2019.
   """
 
   force_fn = quantity.canonicalize_force(energy_or_force)
@@ -1078,7 +1067,7 @@ class SwapMCState:
 
   Attributes:
     md: A NVTNoseHooverState containing continuous molecular dynamics data.
-    sigma: An [n,] array of particle radii.
+    sigma: An `[n,]` array of particle radii.
     key: A JAX PRGNKey used for random number generation.
     neighbor: A NeighborList for the system.
   """
@@ -1101,7 +1090,8 @@ def hybrid_swap_mc(space_fns: space.Space,
                    ) -> Simulator:
   """Simulation of Hybrid Swap Monte-Carlo.
 
-  This code simulates the hybrid Swap Monte Carlo algorithm introduced in [1].
+  This code simulates the hybrid Swap Monte Carlo algorithm introduced in 
+  Berthier et al. [#berthier]_
   Here an NVT simulation is performed for `t_md` time and then `N_swap` MC
   moves are performed that swap the radii of randomly chosen particles. The
   random swaps are accepted with Metropolis-Hastings step. Each call to the
@@ -1132,10 +1122,10 @@ def hybrid_swap_mc(space_fns: space.Space,
   Returns:
     See above.
 
-  [1] L. Berthier, E. Flenner, C. J. Fullerton, C. Scalliet, and M. Singh.
-      "Efficient swap algorithms for molecular dynamics simulations of
-       equilibrium supercooled liquids"
-      J. Stat. Mech. (2019) 064004
+  .. rubric:: References
+  .. [#berthier] L. Berthier, E. Flenner, C. J. Fullerton, C. Scalliet, and M. Singh.
+    "Efficient swap algorithms for molecular dynamics simulations of
+    equilibrium supercooled liquids", J. Stat. Mech. (2019) 064004
   """
   displacement_fn, shift_fn = space_fns
   metric_fn = space.metric(displacement_fn)

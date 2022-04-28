@@ -197,8 +197,14 @@ class RigidBodyShape:
     elif ndim == 3:
       I = self.moment_of_inertia()
       I_diag = vmap(jnp.diag)(I)
-      if jnp.any(jnp.abs(I - vmap(jnp.diag)(I_diag)) > 0.0):
-        raise ValueError('Expected diagonal moment of inertia.')
+      # NOTE: Here epsilon has to take into account numerical error from
+      # diagonalization. Maybe there's a more systematic way to figure this
+      # out. It might also be worth always trying to diagonalize at float64.
+      eps = 1e-5
+      if jnp.any(jnp.abs(I - vmap(jnp.diag)(I_diag)) > eps):
+        max_dev = jnp.max(jnp.abs(I - vmap(jnp.diag)(I_diag)))
+        raise ValueError('Expected diagonal moment of inertia.'
+                         f'Maximum deviation: {max_dev}. Tolerance: {eps}.')
       if species is not None:
         return RigidBody(self.sum_over_shapes(self.masses)[species],
                          I_diag[species])

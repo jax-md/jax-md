@@ -20,10 +20,12 @@
 
   Minimization code follows the same overall structure as optimizers in JAX.
   Optimizers return two functions:
-    init_fn: function that initializes the  state of an optimizer. Should take
-      positions as an ndarray of shape [n, output_dimension]. Returns a state
+    init_fn: 
+      Function that initializes the  state of an optimizer. Should take
+      positions as an ndarray of shape `[n, output_dimension]`. Returns a state
       which will be a namedtuple.
-    apply_fn: function that takes a state and produces a new state after one
+    apply_fn: 
+      Function that takes a state and produces a new state after one
       step of optimization.
 """
 
@@ -64,9 +66,9 @@ def gradient_descent(energy_or_force: Callable[..., Array],
     Args:
       energy_or_force: A function that produces either an energy or a force from
         a set of particle positions specified as an ndarray of shape
-        [n, spatial_dimension].
-      shift_fn: A function that displaces positions, R, by an amount dR. Both R
-        and dR should be ndarrays of shape [n, spatial_dimension].
+        `[n, spatial_dimension]`.
+      shift_fn: A function that displaces positions, `R`, by an amount `dR`. Both `R`
+        and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
       step_size: A floating point specifying the size of each step.
 
     Returns:
@@ -87,11 +89,11 @@ class FireDescentState:
 
   Attributes:
     position: The current position of particles. An ndarray of floats
-      with shape [n, spatial_dimension].
+      with shape `[n, spatial_dimension]`.
     velocity: The current velocity of particles. An ndarray of floats
-      with shape [n, spatial_dimension].
+      with shape `[n, spatial_dimension]`.
     force: The current force on particles. An ndarray of floats
-      with shape [n, spatial_dimension].
+      with shape `[n, spatial_dimension]`.
     dt: A float specifying the current step size.
     alpha: A float specifying the current momentum.
     n_pos: The number of steps in the right direction, so far.
@@ -115,15 +117,15 @@ def fire_descent(energy_or_force: Callable[..., Array],
                  f_alpha: float=0.99) -> Minimizer[FireDescentState]:
   """Defines FIRE minimization.
 
-  This code implements the "Fast Inertial Relaxation Engine" from [1].
+  This code implements the "Fast Inertial Relaxation Engine" from Bitzek et al. [#bitzek]_
 
   Args:
     energy_or_force: A function that produces either an energy or a force from
       a set of particle positions specified as an ndarray of shape
-      [n, spatial_dimension].
-    shift_fn: A function that displaces positions, R, by an amount dR. Both R
-      and dR should be ndarrays of shape [n, spatial_dimension].
-    quant: Either a quantity.Energy or a quantity.Force specifying whether
+      `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions `R`, by an amount `dR`. Both `R`
+      and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
+    quant: Either a quantity.Energy or a quantity. Force specifying whether
       energy_or_force is an energy or force respectively.
     dt_start: The initial step size during minimization as a float.
     dt_max: The maximum step size during minimization as a float.
@@ -138,7 +140,8 @@ def fire_descent(energy_or_force: Callable[..., Array],
   Returns:
     See above.
 
-  [1] Bitzek, Erik, Pekka Koskinen, Franz Gahler, Michael Moseler,
+  .. rubric:: References
+  .. [#bitzek] Bitzek, Erik, Pekka Koskinen, Franz Gahler, Michael Moseler,
       and Peter Gumbsch. "Structural relaxation made simple."
       Physical review letters 97, no. 17 (2006): 170201.
   """

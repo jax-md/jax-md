@@ -25,15 +25,13 @@ from jax import jit
 from jax import lax
 import jax.numpy as np
 
-from jax import test_util as jtu
-
 from jax_md import space
 from jax_md import minimize
 from jax_md import quantity
 from jax_md.util import *
+from jax_md import test_util
 
 jax_config.parse_flags_with_absl()
-jax_config.enable_omnistaging()
 FLAGS = jax_config.FLAGS
 
 PARTICLE_COUNT = 10
@@ -46,9 +44,9 @@ if FLAGS.jax_enable_x64:
 else:
   DTYPE = [f32]
 
-class DynamicsTest(jtu.JaxTestCase):
+class DynamicsTest(test_util.JAXMDTestCase):
   # pylint: disable=g-complex-comprehension
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -87,7 +85,7 @@ class DynamicsTest(jtu.JaxTestCase):
         E_current = E_new
         dr_current = dr_new
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,

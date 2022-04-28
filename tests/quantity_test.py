@@ -30,10 +30,8 @@ from jax_md import partition
 from jax_md import smap
 from jax_md.util import *
 
-from jax import test_util as jtu
 
 jax_config.parse_flags_with_absl()
-jax_config.enable_omnistaging()
 FLAGS = jax_config.FLAGS
 
 PARTICLE_COUNT = 10
@@ -48,15 +46,14 @@ DTYPES = [f32, f64] if FLAGS.jax_enable_x64 else [f32]
 COORDS = ['fractional', 'real']
 
 
-@jtu.with_config(jax_numpy_rank_promotion='allow')
-class QuantityTest(jtu.JaxTestCase):
+class QuantityTest(test_util.JAXMDTestCase):
 
   def test_canonicalize_mass(self):
     assert quantity.canonicalize_mass(3.0) == 3.0
     assert quantity.canonicalize_mass(f32(3.0)) == f32(3.0)
     assert quantity.canonicalize_mass(f64(3.0)) == f64(3.0)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}'.format(dim),
           'spatial_dimension': dim,
@@ -73,7 +70,7 @@ class QuantityTest(jtu.JaxTestCase):
 
     grad(do_fn)(2.0)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dtype={}'.format(dtype.__name__),
           'dtype': dtype,
@@ -101,7 +98,7 @@ class QuantityTest(jtu.JaxTestCase):
     tol = 3e-7
     self.assertAllClose(cangles, true_cangles, atol=tol, rtol=tol)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dtype={}'.format(dtype.__name__),
           'dtype': dtype,
@@ -130,7 +127,7 @@ class QuantityTest(jtu.JaxTestCase):
     tol = 3e-7
     self.assertAllClose(cangles, true_cangles, atol=tol, rtol=tol)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': f'_dtype={dtype.__name__}',
           'dtype': dtype
@@ -149,7 +146,7 @@ class QuantityTest(jtu.JaxTestCase):
     self.assertAllClose(quantity.pressure(E, pos, state.box), state.pressure,
                         atol=tol, rtol=tol)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': f'_dtype={dtype.__name__}_coordinates={coords}',
           'dtype': dtype,
@@ -170,7 +167,7 @@ class QuantityTest(jtu.JaxTestCase):
     self.assertAllClose(quantity.pressure(E, pos, state.box), state.pressure,
                         atol=tol, rtol=tol)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': f'dim={dim}_dtype={dtype.__name__}',
           'dim': dim,
@@ -204,7 +201,7 @@ class QuantityTest(jtu.JaxTestCase):
 
     self.assertAllClose(exact_pressure, ad_pressure, atol=tol, rtol=tol)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': f'dim={dim}_dtype={dtype.__name__}',
           'dim': dim,
@@ -238,7 +235,7 @@ class QuantityTest(jtu.JaxTestCase):
 
     self.assertAllClose(exact_pressure, ad_pressure, atol=tol, rtol=tol)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': (f'dim={dim}_dtype={dtype.__name__}'
                             f'_coordinates={coords}'),
@@ -275,7 +272,7 @@ class QuantityTest(jtu.JaxTestCase):
 
     self.assertAllClose(exact_pressure, ad_pressure, atol=tol, rtol=tol)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': f'dim={dim}_dtype={dtype.__name__}',
           'dim': dim,
@@ -309,7 +306,7 @@ class QuantityTest(jtu.JaxTestCase):
 
     self.assertAllClose(exact_stress, ad_stress, atol=tol, rtol=tol)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': f'dim={dim}_dtype={dtype.__name__}',
           'dim': dim,
@@ -343,7 +340,7 @@ class QuantityTest(jtu.JaxTestCase):
 
     self.assertAllClose(exact_stress, ad_stress, atol=tol, rtol=tol)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': (f'dim={dim}_dtype={dtype.__name__}_'
                             f'coords={coords}'),
@@ -380,7 +377,7 @@ class QuantityTest(jtu.JaxTestCase):
 
     self.assertAllClose(exact_stress, ad_stress, atol=tol, rtol=tol)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': f'dim={dim}_dtype={dtype.__name__}_',
           'dim': dim,
@@ -406,7 +403,7 @@ class QuantityTest(jtu.JaxTestCase):
     self.assertAllClose(energy_fn(R) / len(R), E, atol=tol, rtol=tol)
     self.assertAllClose(C, ad_stress, atol=tol, rtol=tol)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dtype={}'.format(dtype.__name__),
           'dtype': dtype,
@@ -424,7 +421,7 @@ class QuantityTest(jtu.JaxTestCase):
     assert np.argmax(gs) == np.argmin((rs - 1.) ** 2)
     assert gs.dtype == dtype
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dtype={}'.format(dtype.__name__),
           'dtype': dtype,
@@ -447,7 +444,7 @@ class QuantityTest(jtu.JaxTestCase):
     assert g_0.dtype == dtype
     assert g_1.dtype == dtype
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
         'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
                           f'_format={str(format).split(".")[-1]}'),
@@ -487,7 +484,7 @@ class QuantityTest(jtu.JaxTestCase):
     self.assertAllClose(g_0, g_0_neigh)
     self.assertAllClose(g_1, g_1_neigh)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
         'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
                           f'_format={str(format).split(".")[-1]}'),
@@ -522,7 +519,7 @@ class QuantityTest(jtu.JaxTestCase):
 
     self.assertAllClose(g_0, g_0_neigh)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': f'_dim={dim}_dtype={dtype.__name__}_window={window}',
           'spatial_dim': dim,
