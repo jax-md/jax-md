@@ -210,7 +210,7 @@ class JAXMDTestCase(parameterized.TestCase):
 
     if dataclasses.is_dataclass(x):
       self.assertIs(type(y), type(x))
-      for field in dataclasses.fields(x):
+      for field in dataclasses.fields(x):  # pytype: disable=module-attr
         key = field.name
         x_value, y_value = getattr(x, key), getattr(y, key)
         is_pytree_node = field.metadata.get('pytree_node', True)
