@@ -640,7 +640,8 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
   cell_size = cutoff
   if fractional_coordinates:
     cell_size = cutoff / box_size
-    box_size = f32(1)
+    box_size = (f32(box_size) if onp.isscalar(box_size) 
+                else onp.ones_like(box_size, f32))
 
   use_cell_list = jnp.all(cell_size < box_size / 3.) and not disable_cell_list
   if use_cell_list:
