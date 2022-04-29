@@ -20,7 +20,6 @@ from absl.testing import parameterized
 from jax.config import config
 from jax import random
 from jax import jit, vmap, grad
-import optax
 import jax.numpy as np
 
 import numpy as onp
@@ -857,8 +856,10 @@ class EnergyTest(test_util.JAXMDTestCase):
     def loss(params, R):
       return np.mean((vmap(energy_fn, (None, 0))(params, R) - E_gt(R, dr0)) ** 2)
 
+    # For some reason, importing optax at the top level causes flags to clash with
+    # `jax_md.test_util`.
+    import optax
     opt = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(1e-4))
-
 
     @jit
     def update(params, opt_state, R):
