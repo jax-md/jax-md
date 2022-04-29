@@ -377,7 +377,7 @@ class NeighborListTest(test_util.JAXMDTestCase):
 
     def acceptable_id_pair(id1, id2):
       '''
-      Don't allow particles to have an interaction when their id's 
+      Don't allow particles to have an interaction when their id's
       are closer than 3 (eg disabling 1-2 and 1-3 interactions)
       '''
       return jnp.abs(id1-id2)>3
@@ -406,12 +406,12 @@ class NeighborListTest(test_util.JAXMDTestCase):
 
     ids = jnp.arange(n_particles) # id is just particle index here.
     mask_val = n_particles
-    custom_mask_function = partial(mask_id_based, 
-      ids=ids, 
-      mask_val=mask_val, 
+    custom_mask_function = partial(mask_id_based,
+      ids=ids,
+      mask_val=mask_val,
       _acceptable_id_pair=acceptable_id_pair
     )
-    
+
     neighbor_list_fn = partition.neighbor_list(
       displacement_fn,
       box_size=box_size,
@@ -427,6 +427,72 @@ class NeighborListTest(test_util.JAXMDTestCase):
     With masking -> 42.
     '''
     self.assertEqual(42, (neighbors.idx!=mask_val).sum())
+
+  def test_issue191_1(self):
+    box_vector = jnp.ones(3) * 3
+
+    r_cut = 0.1
+    _positions = jnp.linspace(0.5, 0.7, 20)
+    positions = jnp.stack([_positions, _positions, _positions], axis=1)
+
+    displacement, _ = space.periodic_general(box_vector)
+
+    neighbor_fn = partition.neighbor_list(displacement, box_vector, r_cut,
+                                          0.1 * r_cut,
+                                          fractional_coordinates=True)
+
+    neighbor2_fn = partition.neighbor_list(displacement, box_vector[0], r_cut,
+                                          0.1 * r_cut,
+                                          fractional_coordinates=True,
+                                          disable_cell_list=True)
+
+    nbrs = neighbor_fn.allocate(positions)
+    nbrs2 = neighbor2_fn.allocate(positions)
+    self.assertAllClose(nbrs, nbrs)
+
+  @parameterized.named_parameters(test_util.cases_from_list(
+    {
+      'testcase_name': f'_case={i}_mask_self={ms}_format={fmt.name}',
+      'r_cut': r_cut,
+      'disable_cell_list': dc,
+      'capacity_multiplier': cm,
+      'mask_self': ms,
+      'format': fmt,
+    } for i, (r_cut, dc, cm) in enumerate(
+      [(0.12, True, 1.5), (0.25, False, 1.5),
+       (0.31, False, 1.5), (0.31, False, 1.0)]) for ms in [False, True]
+      for fmt in [partition.Dense, partition.Sparse, partition.OrderedSparse]))
+  def test_issue191_2(self, r_cut, disable_cell_list, capacity_multiplier,
+                      mask_self, format):
+    box = jnp.ones(3)
+    if format is partition.Dense:
+      desired_shape = (20, 19) if mask_self else (20, 20)
+      _positions = jnp.linspace(0.5, 0.7, 20)
+    elif format is partition.Sparse:
+      desired_shape = (2, 20 * 19) if mask_self else (2, 20**2)
+      _positions = jnp.ones((20,)) * 0.5
+    elif format is partition.OrderedSparse:
+      desired_shape = (2, 20 * 19 // 2)
+      _positions = jnp.ones((20,)) * 0.5
+    positions = jnp.stack([_positions, _positions, _positions], axis=1)
+    displacement, _ = space.periodic(box)
+
+    neighbor_fn = partition.neighbor_list(
+      displacement, box,
+      r_cut, 0.1 * r_cut,
+      capacity_multiplier=capacity_multiplier,
+      disable_cell_list=disable_cell_list,
+      mask_self=mask_self,
+      format=format)
+    nbrs = neighbor_fn.allocate(positions)
+
+    self.assertFalse(nbrs.did_buffer_overflow)
+    self.assertEqual(nbrs.idx.shape, desired_shape)
+    new_nbrs = nbrs.update(positions)
+    self.assertFalse(new_nbrs.did_buffer_overflow)
+    self.assertEqual(new_nbrs.idx.shape, desired_shape)
+
+
 
 if __name__ == '__main__':
   absltest.main()
