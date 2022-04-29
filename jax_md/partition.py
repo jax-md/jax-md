@@ -766,8 +766,8 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
         _extra_capacity = (extra_capacity if not is_sparse(format)
                            else N * extra_capacity)
         max_occupancy = int(occupancy * capacity_multiplier + _extra_capacity)
-        if max_occupancy > position.shape[0] and not is_sparse(format):
-          max_occupancy = position.shape[0]
+        if max_occupancy > N and not is_sparse(format):
+          max_occupancy = N - 1 if mask_self else N
         if max_occupancy > occupancy:
           padding = max_occupancy - occupancy
           pad = N * jnp.ones((idx.shape[0], padding), dtype=idx.dtype)
