@@ -760,7 +760,7 @@ class EnergyTest(test_util.JAXMDTestCase):
       self.assertAllClose(E, dtype(-296.3463784635968))
 
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
