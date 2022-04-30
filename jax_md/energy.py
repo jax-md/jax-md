@@ -1153,7 +1153,7 @@ def tersoff_neighbor_list(displacement: DisplacementFn,
                           params: Array,
                           species: Optional[Array]=None,
                           dr_threshold: float=0.5,
-                          fractional_coords: bool=True,
+                          fractional_coordinates: bool=True,
                           format: NeighborListFormat=partition.Dense,
                           **neighbor_kwargs
                           ) -> Tuple[NeighborFn,
@@ -1207,14 +1207,15 @@ def tersoff_neighbor_list(displacement: DisplacementFn,
   # define a neighbor function.
   # TODO: other neighbor list construction method will be implemented.
   if format is partition.Dense:
-    neighbor_fn = partition.neighbor_list(displacement,
-                                          box_size,
-                                          params['R'] + params['D'],
-                                          dr_threshold,
-                                          disable_cell_list=True,
-                                          fractional_coordinates=frac_coords,
-                                          format=format,
-                                          **neighbor_kwargs)
+    neighbor_fn = partition.neighbor_list(
+      displacement,
+      box_size,
+      params['R'] + params['D'],
+      dr_threshold,
+      disable_cell_list=True,
+      fractional_coordinates=fractional_coordinates,
+      format=format,
+      **neighbor_kwargs)
   else:
     raise NotImplementedError('Tersoff potential only implemented '
                                 'with Dense neighbor lists.')
