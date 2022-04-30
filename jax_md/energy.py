@@ -848,7 +848,7 @@ def stillinger_weber_neighbor_list(
     format: NeighborListFormat=partition.Dense,
     **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
-  """Convenience wrapper to compute :ref:`Stillinger-Weber <sw-pot>:
+  """Convenience wrapper to compute :ref:`Stillinger-Weber <sw-pot>`
   using a neighbor list.
   """
   two_body_fn = partial(_sw_radial_interaction, sigma, B, cutoff)
@@ -1103,7 +1103,7 @@ def tersoff(displacement: DisplacementFn,
     displacement: The displacement function for the space.
     params: A dictionary of parameters for the tersoff potential. Usually this
       should be loaded from lammps using the
-      :ref:`load_lammps_tersoff_parameters <ts-lammps>: function.
+      :ref:`load_lammps_tersoff_parameters <ts-lammps>` function.
     species: An array of species. Currently only `None` is supported.
 
   Returns:
@@ -1171,7 +1171,7 @@ def tersoff_neighbor_list(displacement: DisplacementFn,
     box_size: A float or vector specifying the size of the simulation box.
     params: A dictionary of parameters for the tersoff potential. Usually this
       should be loaded from lammps using the
-      :ref:`load_lammps_tersoff_parameters <ts-lammps>: function.
+      :ref:`load_lammps_tersoff_parameters <ts-lammps>` function.
     species: An array of species. Currently only `None` is supported.
     dr_threshold: A distance threshold that controls how often the neighor list
       is recomputed.
