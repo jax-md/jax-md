@@ -379,7 +379,7 @@ def cell_list(box_size: Box,
 
     occupancy = ops.segment_sum(jnp.ones_like(hashes), hashes, cell_count)
     max_occupancy = jnp.max(occupancy)
-    overflow = overflow | (max_occupancy >= cell_capacity)
+    overflow = overflow | (max_occupancy > cell_capacity)
 
     return CellList(cell_position, cell_id, cell_kwargs,
                     overflow, cell_capacity, update_fn)  # pytype: disable=wrong-arg-count
