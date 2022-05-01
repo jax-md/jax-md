@@ -516,7 +516,7 @@ def bks(dr: Array,
         cutoff: float,
         **unused_kwargs) -> Array:
   """.. _bks-pot:
-  
+
   Beest-Kramer-van Santen (BKS) potential [#bks]_ which is commonly used to
   model silicas. This function computes the interaction between two
   given atoms within the Buckingham form [#carre]_ , following the implementation
@@ -956,7 +956,7 @@ def _ters_cutoff(dr, R, D) -> Array:
   """The cut-off function of the Tersoff potential.
   Args:
     R: A Parameter that is the average of inner and outer cutoff radii
-    D: A Parameter that is the half of the difference 
+    D: A Parameter that is the half of the difference
        between inner and outer cutoff radii
 
   Returns:
@@ -1084,7 +1084,7 @@ def _ters_repulsive(A: f64, lam1: f64, R: f64, D: f64,
   """
 
   fC = _ters_cutoff(dr, R, D)
-  fR = A * ajnp.exp(-lam1 * dr)
+  fR = A * jnp.exp(-lam1 * dr)
   return 0.5 * fC * fR
 
 def tersoff(displacement: DisplacementFn,
@@ -1274,28 +1274,28 @@ def load_lammps_eam_parameters(file: TextIO) -> Tuple[Callable[[Array], Array],
   The lines that come after are the embedding function evaluated on `num_drho`
   charge values, charge function evaluated at `num_dr` distance values, and
   pairwise energy evaluated at `num_dr` distance values. Note that the pairwise
-  energy is multiplied by distance (in units of eV x Angstroms). 
-  
+  energy is multiplied by distance (in units of eV x Angstroms).
+
   For more details of the DYNAMO file format, see:
   https://sites.google.com/a/ncsu.edu/cjobrien/tutorials-and-guides/eam
-  
+
   Args:
     f: File handle for the EAM parameters text file.
 
   Returns:
     A tuple containing three functions and a cutoff distance.
-    
-    charge_fn: 
+
+    charge_fn:
       A function that takes an ndarray of shape `[n, m]` of distances
       between particles and returns a matrix of charge contributions.
-    embedding_fn: 
+    embedding_fn:
       Function that takes an ndarray of shape `[n]` of charges and
       returns an ndarray of shape `[n]` of the energy cost of embedding an atom
       into the charge.
-    pairwise_fn: 
+    pairwise_fn:
       A function that takes an ndarray of shape `[n, m]` of distances
       and returns an ndarray of shape `[n, m]` of pairwise energies.
-    cutoff: 
+    cutoff:
       Cutoff distance for the `embedding_fn` and `pairwise_fn`.
   """
   raw_text = file.read().split('\n')
@@ -1326,7 +1326,7 @@ def eam(displacement: DisplacementFn,
         pairwise_fn: Callable[[Array], Array],
         axis: Optional[Tuple[int, ...]]=None) -> Callable[[Array], Array]:
   """.. _eam-pot:
-  
+
   Interatomic potential as approximated by embedded atom model (EAM).
 
   This code implements the EAM approximation to interactions between metallic
@@ -1341,8 +1341,8 @@ def eam(displacement: DisplacementFn,
 
   These three functions are usually provided as spline fits, and we follow the
   implementation and spline fits given by Mishin et al. [#mishin]_
-  Note that in current implementation, the three functions listed above 
-  can also be expressed by a any function with the correct signature, 
+  Note that in current implementation, the three functions listed above
+  can also be expressed by a any function with the correct signature,
   including neural networks.
 
   Args:
@@ -1369,7 +1369,7 @@ def eam(displacement: DisplacementFn,
     A tuple containing a function to build the neighbor list and function that
     computes the EAM energy of a set of atoms with positions given by an
     `[n, spatial_dimension]` ndarray.
-  
+
   .. rubric:: References
   .. [#mishin] Y. Mishin, D. Farkas, M.J. Mehl, DA Papaconstantopoulos, "Interatomic
     potentials for monoatomic metals from experimental data and ab initio
@@ -1456,7 +1456,7 @@ def eam_from_lammps_parameters_neighbor_list(
     fractional_coordinates=True,
     **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
-  """Convenience wrapper to compute :ref:`EAM energy <eam-pot>` 
+  """Convenience wrapper to compute :ref:`EAM energy <eam-pot>`
   with parameters from LAMMPS using a neighbor list.."""
   return eam_neighbor_list(displacement,
                            box_size,

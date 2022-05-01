@@ -755,7 +755,7 @@ class EnergyTest(test_util.JAXMDTestCase):
     nbrs = neighbor_fn.allocate(atoms)
     E = energy_fn(atoms, nbrs)
     if dtype is f64:
-      self.assertAllClose(E, dtype(-296.3463784635968), atol=1e-8, rtol=1e-8)
+      self.assertAllClose(E, dtype(-296.3463784635968), atol=1e-5, rtol=2e-8)
     else:
       self.assertAllClose(E, dtype(-296.3463784635968))
 
