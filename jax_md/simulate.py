@@ -682,10 +682,8 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
 
     dUdV = grad(U)
     KE2 = util.high_precision_sum(velocity ** 2 * mass)
-    R = space.transform(box_fn(vol), position)
-    RdotF = util.high_precision_sum(R * force)
 
-    return alpha * KE2 + RdotF - dUdV(0.0) - pressure * vol * dim
+    return alpha * KE2 - dUdV(0.0) - pressure * vol * dim
 
   def sinhx_x(x):
     """Taylor series for sinh(x) / x as x -> 0."""
