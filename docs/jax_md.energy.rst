@@ -36,6 +36,12 @@ Classical Potentials
 .. autofunction:: stillinger_weber
 .. autofunction:: stillinger_weber_neighbor_list
 
+.. autofunction:: load_lammps_tersoff_parameters
+.. autofunction:: tersoff
+.. autofunction:: tersoff_neighbor_list
+.. autofunction:: tersoff_from_lammps_parameters_neighbor_list
+
+.. autofunction:: load_lammps_eam_parameters
 .. autofunction:: eam
 .. autofunction:: eam_from_lammps_parameters
 .. autofunction:: eam_neighbor_list

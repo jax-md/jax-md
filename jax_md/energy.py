@@ -181,7 +181,7 @@ def lennard_jones(dr: Array,
                   epsilon: Array=1,
                   **unused_kwargs) -> Array:
   """.. _lj-pot:
-  
+
   Lennard-Jones interaction between particles with a minimum at `sigma`.
 
   Args:
@@ -273,7 +273,7 @@ def morse(dr: Array,
           alpha: Array=5.0,
           **unused_kwargs) -> Array:
   """.. _morse-pot:
-  
+
   Morse interaction between particles with a minimum at `sigma`.
 
   Args:
@@ -370,17 +370,21 @@ def gupta_potential(displacement, p, q, r_0n, U_n, A, cutoff):
 
   Args:
     displacement: Function to compute displacement between two positions.
-    p: Gupta potential parameter of the repulsive term that was fitted for bulk gold.
-    q: Gupta potential parameter of the attractive term that was fitted for bulk gold.
-    r_0n: 
+    p: Gupta potential parameter of the repulsive term that was fitted for
+      bulk gold.
+    q: Gupta potential parameter of the attractive term that was fitted for
+      bulk gold.
+    r_0n:
       Parameter that determines the length scale of the potential. This
       value was particularly fit for gold clusters of size 55 atoms.
-    U_n: 
+    U_n:
       Parameter that determines the energy scale, fit particularly for
       gold clusters of size 55 atoms.
-    A: Parameter that was obtained using the cohesive energy of the fcc gold metal.
-    cutoff: 
-      Pairwise interactions that are farther than the cutoff distance will be ignored.
+    A: Parameter that was obtained using the cohesive energy of the fcc gold
+      metal.
+    cutoff:
+      Pairwise interactions that are farther than the cutoff distance will be
+      ignored.
 
   Returns:
     A function that takes in positions of gold atoms (shape `[n, 3]` where `n` is
@@ -512,7 +516,7 @@ def bks(dr: Array,
         cutoff: float,
         **unused_kwargs) -> Array:
   """.. _bks-pot:
-  
+
   Beest-Kramer-van Santen (BKS) potential [#bks]_ which is commonly used to
   model silicas. This function computes the interaction between two
   given atoms within the Buckingham form [#carre]_ , following the implementation
@@ -716,6 +720,8 @@ def bks_silica_neighbor_list(
 
 
 # Stillinger-Weber Potential
+
+
 def _sw_angle_interaction(gamma: float, sigma: float, cutoff: float,
                           dR12: Array, dR13: Array) -> Array:
   """The angular interaction for the Stillinger-Weber potential.
@@ -776,15 +782,15 @@ def stillinger_weber(displacement: DisplacementFn,
 
   Computes the Stillinger-Weber potential.
 
-  The Stillinger-Weber (SW) potential [#stillinger]_ which is commonly used to model
-  silicon and similar systems. This function uses the default SW parameters
-  from the original paper. The SW potential was originally proposed to
-  model diamond in the diamond crystal phase and the liquid phase, and is
-  known to give unphysical amorphous configurations [#holender]_ [#barkema]_ . 
-  For this reason, we provide a `three_body_strength` parameter. Changing this number to `1.5`
-  or `2.0` has been know to produce more physical amorphous phase, preventing
-  most atoms from having more than four nearest neighbors. Note that this
-  function currently assumes nearest-image-convention.
+  The Stillinger-Weber (SW) potential [#stillinger]_ which is commonly used to
+  model silicon and similar systems. This function uses the default SW
+  parameters from the original paper. The SW potential was originally proposed
+  to model diamond in the diamond crystal phase and the liquid phase, and is
+  known to give unphysical amorphous configurations [#holender]_ [#barkema]_ .
+  For this reason, we provide a `three_body_strength` parameter. Changing this
+  number to `1.5` or `2.0` has been know to produce more physical amorphous
+  phase, preventing most atoms from having more than four nearest neighbors.
+  Note that this function currently assumes nearest-image-convention.
 
   Args:
     displacement: The displacement function for the space.
@@ -794,7 +800,7 @@ def stillinger_weber(displacement: DisplacementFn,
     lam: A scalar that determines the scale of the three-body term.
     epsilon: A scalar that sets the total energy scale.
     gamma: A scalar used to fit the angle interaction.
-    three_body_strength: 
+    three_body_strength:
       A scalar that determines the relative strength
       of the angular interaction. Default value is `1.0`, which works well
       for the diamond crystal and liquid phases. `1.5` and `2.0` have been used
@@ -803,10 +809,11 @@ def stillinger_weber(displacement: DisplacementFn,
     A function that computes the total energy.
 
   .. rubric:: References
-  .. [#stillinger] Stillinger, Frank H., and Thomas A. Weber. "Computer simulation of
-    local order in condensed phases of silicon." Physical review B 31.8 (1985): 5262.
-  .. [#holender] Holender, J. M., and G. J. Morgan. "Generation of a large structure
-    (105 atoms) of amorphous Si using molecular dynamics." Journal of
+  .. [#stillinger] Stillinger, Frank H., and Thomas A. Weber. "Computer
+    simulation of local order in condensed phases of silicon."
+    Physical review B 31.8 (1985): 5262.
+  .. [#holender] Holender, J. M., and G. J. Morgan. "Generation of a large
+    structure (105 atoms) of amorphous Si using molecular dynamics." Journal of
     Physics: Condensed Matter 3.38 (1991): 7241.
   .. [#barkema] Barkema, G. T., and Normand Mousseau. "Event-based relaxation of
     continuous disordered systems." Physical review letters 77.21 (1996): 4358.
@@ -841,7 +848,7 @@ def stillinger_weber_neighbor_list(
     format: NeighborListFormat=partition.Dense,
     **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
-  """Convenience wrapper to compute :ref:`Stillinger-Weber <sw-pot>` 
+  """Convenience wrapper to compute :ref:`Stillinger-Weber <sw-pot>`
   using a neighbor list.
   """
   two_body_fn = partial(_sw_radial_interaction, sigma, B, cutoff)
@@ -874,6 +881,376 @@ def stillinger_weber_neighbor_list(
   return neighbor_fn, compute_fn
 
 
+# Tersoff model
+
+
+def load_lammps_tersoff_parameters(file: TextIO) -> Array:
+  """.. _ts-lammps:
+
+  Reads Tersoff parameters from a LAMMPS file and returns parameter tables.
+
+  This function reads multi-element original Tersoff potential parameters
+  from a file.
+
+  Args:
+    file: A parameter file that is written with lammps format.
+
+  Returns:
+    params: An array that contains Tersoff parameters.
+  """
+  # start to read file.
+  # todo: params_per_line becomes input variables.
+  #       depending on the various type of tersoff model.
+  params = []
+  params_per_line = 17
+
+  # read parameters.
+  # skip if the line has \# or empty
+  # if the number of parameters in one line is less than params_per_line,
+  # additional line is appended to match.
+  skip = False
+  for line in file.read().split('\n'):
+    words = line.strip().split()
+    nwords = len(words)
+    if '#' in words or nwords == 0:
+      continue
+
+    if nwords < params_per_line and skip is False:
+      line_keep = line
+      skip = True
+      continue
+
+    line_keep += ' ' + line
+    words = line_keep.strip().split()
+    nwords = len(words)
+
+    if nwords != params_per_line:
+      raise ValueError('Incorrect format: %d not in %d'
+        % (nwords, params_per_line))
+    else:
+      skip = False
+
+    words[3:] = f32(words[3:])
+    params.append({
+        'element1': words[0],
+        'element2': words[1],
+        'element3': words[2],
+        'mTf': words[3],
+        'gamma': words[4],
+        'lam3': words[5],
+        'cTf': words[6],
+        'dTf': words[7],
+        'hTf': words[8],
+        'nTf': words[9],
+        'beta': words[10],
+        'lam2': words[11],
+        'B': words[12],
+        'R': words[13],
+        'D': words[14],
+        'lam1': words[15],
+        'A': words[16],
+    })
+  return params
+
+def _ters_cutoff(dr, R, D) -> Array:
+  """The cut-off function of the Tersoff potential.
+  Args:
+    R: A Parameter that is the average of inner and outer cutoff radii
+    D: A Parameter that is the half of the difference
+       between inner and outer cutoff radii
+
+  Returns:
+    cut-off values
+  """
+  outer = jnp.where(dr < R + D,
+                    0.5*(1.0 - jnp.sin(jnp.pi/2*(dr - R)/D)),
+                    0)
+  inner = jnp.where(dr < R - D, 1, outer)
+  return inner
+
+def _ters_bij(R, D, c, d, h, lam3, beta, n, m,
+              dRij, dRik, mask_ijk) -> Array:
+  """The bond-order term of the Tersoff potential.
+  Args:
+    # parameters for cut-off functions
+    R: A Parameter that is the average of inner and outer cutoff radii
+    D: A Parameter that is the half of the difference
+       between inner and outer cutoff radii
+
+    # parameters related to the angle Penalty function in the bond-order
+    # function
+    # h(\theta) = 1 + c^2/d^2 + c^2/(d^2 + (h - cos(\theta)^2))
+    c: A Parameter that determines angle penalty
+    d: A Parameter that determines angle penalty
+    h: A cosine value that is a desirable angle between 3 atoms.
+
+    # parameters related to the distance penalty function in the bond-order
+    # function
+    lam3: A Parameter that determines distance penalty value
+    m: A Parameter that determines distance penalty value
+
+    # parameters related to the bond-order function
+    beta: A Parameter that determines bond-order value
+    n: A Parameter that determines bond-order value
+
+    dRij: A ndarray of shape [n, neighbors, dim] of pairwise distances between
+     particles
+    dRik: A ndarray of shape [n, neighbors, dim] of pairwise distances between
+      particles TODO - Currently, it is the same as the dRij
+
+
+  Returns:
+    Bond-order values between i and j atoms
+  """
+  drij = space.distance(dRij)
+  drik = space.distance(dRik)
+
+  # compute g_ijk - angle penalty value
+  costheta = quantity.cosine_angles(dRij)
+  gijk = 1.0 + (c**2 / d**2) - (c**2 / (d**2 + (h - costheta)**2))
+  gijk *= mask_ijk
+  gijk = vmap(lambda x: x.at[jnp.diag_indices(x.shape[0])].set(0))(gijk)
+
+  # compute exponential term - distance penalty value
+  dr_diff = vmap(vmap(jnp.subtract, (None, 0)))(drij, drik)
+  explr3 = jnp.exp(lam3**m * dr_diff**m)
+  explr3 *= mask_ijk
+  explr3 = vmap(lambda x: x.at[jnp.diag_indices(x.shape[0])].set(0))(explr3)
+
+  # compute fC with dr_ik
+  fC = _ters_cutoff(drik, R, D)
+
+  # compute zeta without diagonal term
+  tmp = jnp.multiply(gijk, explr3)
+  zeta_ij = jnp.einsum('ik,ikj->ij', fC, tmp)
+  bij = (1 + (beta*zeta_ij)**n)**(-1 / 2 / n)
+
+  return bij
+
+def _ters_attractive(B: f64, lam2: f64,
+                     R: f64, D: f64,
+                     c: f64, d: f64, h: f64,
+                     lam3: f64, beta: f64, n: f64, m: f64,
+                     dR12: Array, dR13: Array,
+                     mask_ijk) -> Array:
+  """The attractive term of the Tersoff potential.
+  Args:
+    dR12: A ndarray of shape [n, neighbors, dim] of pairwise distnaces between
+      particles.
+    dR13: A ndarray of shape [n, neighbors, dim] of pairwise distnaces between
+      particles. TODO - Currently, it is the same as the dR12
+    R: A Parameter that is the average of inner and outer cutoff radii.
+    D: A Parameter that is the half of the difference.
+       between inner and outer cutoff radii.
+
+    # parameters related to the angle Penalty function in the bond-order
+    # function.
+    # h(\theta) = 1 + c^2/d^2 + c^2/(d^2 + (h - cos(\theta)^2))
+    c: A Parameter that determines angle penalty.
+    d: A Parameter that determines angle penalty.
+    h: A cosine value that is a desirable angle between 3 atoms.
+
+    # parameters related to the distance penalty function in the bond-order
+    # function.
+    lam3: A Parameter that determines distance penalty value.
+    m: A Parameter that determines distance penalty value.
+
+    # parameters related to the bond-order function
+    beta: A Parameter that determines bond-order value.
+    n: A Parameter that determines bond-order value.
+
+  Returns:
+    Attractive interaction energy for one pair of neighbors.
+  """
+
+  dr12 = space.distance(dR12)
+  fC = _ters_cutoff(dr12, R, D)
+  fA = -B*jnp.exp(-lam2*dr12)
+  bij = _ters_bij(R, D, c, d, h, lam3, beta, n, m,
+                  dR12, dR13, mask_ijk)
+  return 0.5*fC*bij*fA
+
+def _ters_repulsive(A: f64, lam1: f64, R: f64, D: f64,
+                    dr: Array) -> Array:
+  """The repulsive term of the Tersoff potential.
+  Args:
+    A: A scalar that determines repulsive energy (eV).
+    lam1: A scalar that determines the scale two-body distance (Angstrom).
+    R: A scalar that is the average of inner and outer cutoff radii.
+    D: A scalar that is the half of the difference
+       between inner and outer cutoff radii.
+  Returns:
+    Repulsive interaction energy for one pair of neighbors.
+  """
+
+  fC = _ters_cutoff(dr, R, D)
+  fR = A * jnp.exp(-lam1 * dr)
+  return 0.5 * fC * fR
+
+def tersoff(displacement: DisplacementFn,
+            params: Array,
+            species: Optional[Array]=None,
+            ) -> Callable[[Array], Array]:
+  """Computes the Tersoff potential.
+
+  The Tersoff potential [1] which is commonly used to model
+  semiconducting materials. The Tersoff potential was originally proposed to
+  model various types of lattice with a simple functional form.
+  For this reason, Tersoff model was introduced bond-order function
+  to determine the strength of repulsive and attractive forces between atoms.
+
+  Args:
+    displacement: The displacement function for the space.
+    params: A dictionary of parameters for the tersoff potential. Usually this
+      should be loaded from lammps using the
+      :ref:`load_lammps_tersoff_parameters <ts-lammps>` function.
+    species: An array of species. Currently only `None` is supported.
+
+  Returns:
+    A function that computes the total energy.
+
+  [1] J. Tersoff "New empirical approach for the structure and energy of
+  covalent systems" Physical review B 37.12 (1988): 6991.
+  """
+  # check number of parameters set.
+  if species is None:
+    params = params[0]
+  else:
+    raise NotImplementedError('Multiple species is not implemented yet.'
+                              ' Please raise an issue if this is important for'
+                              ' you.')
+
+  # define a repulsive and an attractive function with given parameters.
+  repulsive_fn = partial(_ters_repulsive,
+                         params['A'], params['lam1'],
+                         params['R'], params['D'])
+  attractive_fn = partial(_ters_attractive,
+                          params['B'], params['lam2'],
+                          params['R'], params['D'],
+                          params['cTf'], params['dTf'], params['hTf'],
+                          params['lam3'], params['beta'],
+                          params['nTf'], params['mTf'])
+
+  # define compute functions.
+  def compute_fn(R, **kwargs):
+    d = partial(displacement, **kwargs)
+    dR = space.map_neighbor(d)(R, R)
+    dr = space.distance(dR)
+    N = R.shape[0]
+    neighbor = jnp.broadcast_to(jnp.arange(N)[None, :], (N, N))
+    mask = partition.neighbor_list_mask(neighbor, mask_self=True)
+    mask_ijk = mask[:, None, :] * mask[:, :, None]
+    first_term = util.high_precision_sum(repulsive_fn(dr) * mask)
+    second_term = util.high_precision_sum(attractive_fn(dR, dR, mask_ijk)
+                                          * mask)
+    return first_term + second_term
+  return compute_fn
+
+  return compute_fn
+
+def tersoff_neighbor_list(displacement: DisplacementFn,
+                          box_size: float,
+                          params: Array,
+                          species: Optional[Array]=None,
+                          dr_threshold: float=0.5,
+                          fractional_coordinates: bool=True,
+                          format: NeighborListFormat=partition.Dense,
+                          **neighbor_kwargs
+                          ) -> Tuple[NeighborFn,
+                               Callable[[Array, NeighborList], Array]]:
+  """Computes the Tersoff potential.
+
+  The Tersoff potential [1] which is commonly used to model
+  semiconducting materials. The Tersoff potential was originally proposed to
+  model various types of lattice with a simple functional form.
+  For this reason, Tersoff model was introduced bond-order function
+  to determine the strength of repulsive and attractive forces between atoms.
+
+  Args:
+    displacement: The displacement function for the space.
+    box_size: A float or vector specifying the size of the simulation box.
+    params: A dictionary of parameters for the tersoff potential. Usually this
+      should be loaded from lammps using the
+      :ref:`load_lammps_tersoff_parameters <ts-lammps>` function.
+    species: An array of species. Currently only `None` is supported.
+    dr_threshold: A distance threshold that controls how often the neighor list
+      is recomputed.
+    fractional_coordinates: A boolean specifying whether coordinates are stored
+      in the unit cube.
+    format: Format of the neighbor list.
+
+  Returns:
+    A pair of functions. One that builds the neighbor list and one that
+    computes the total energy.
+
+  [1] J. Tersoff "New empirical approach for the structure and energy of
+  covalent systems" Physical review B 37.12 (1988): 6991.
+  """
+  # check number of parameters set
+  if species is None:
+    params = params[0]
+    nparams = 1
+  else:
+    raise NotImplementedError('Multiple species were not implemented yet.')
+
+  # define a repulsive and an attractive function with given parameters
+  repulsive_fn = partial(_ters_repulsive,
+                         params['A'], params['lam1'],
+                         params['R'], params['D'])
+  attractive_fn = partial(_ters_attractive,
+                          params['B'], params['lam2'],
+                          params['R'], params['D'],
+                          params['cTf'], params['dTf'], params['hTf'],
+                          params['lam3'], params['beta'],
+                          params['nTf'], params['mTf'])
+
+  # define a neighbor function.
+  # TODO: other neighbor list construction method will be implemented.
+  if format is partition.Dense:
+    neighbor_fn = partition.neighbor_list(
+      displacement,
+      box_size,
+      params['R'] + params['D'],
+      dr_threshold,
+      disable_cell_list=True,
+      fractional_coordinates=fractional_coordinates,
+      format=format,
+      **neighbor_kwargs)
+  else:
+    raise NotImplementedError('Tersoff potential only implemented '
+                                'with Dense neighbor lists.')
+
+  # define compute functions
+  def compute_fn(R, neighbor, **kwargs):
+    d = partial(displacement, **kwargs)
+    mask = partition.neighbor_list_mask(neighbor, mask_self=True)
+    mask_ijk = mask[:, None, :] * mask[:, :, None]
+
+    dR = space.map_neighbor(d)(R, R[neighbor.idx])
+    dr = space.distance(dR)
+    first_term = util.high_precision_sum(repulsive_fn(dr) * mask)
+    second_term = util.high_precision_sum(attractive_fn(dR, dR, mask_ijk)
+                                          * mask)
+    return first_term + second_term
+  return neighbor_fn, compute_fn
+
+
+def tersoff_from_lammps_parameters_neighbor_list(
+    displacement: DisplacementFn,
+    box_size: float,
+    f: TextIO,
+    dr_threshold: float=0.5,
+    fractional_coordinates=True,
+    **neighbor_kwargs
+    ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
+  """Convenience wrapper to compute Tersoff energy with LAMMPS parameters."""
+  return tersoff_neighbor_list(displacement,
+                               box_size,
+                               load_lammps_tersoff_parameters(f),
+                               dr_threshold=dr_threshold,
+                               fractional_coordinates=fractional_coordinates,
+                               **neighbor_kwargs)
+
 
 # Embedded Atom Method
 
@@ -897,28 +1274,28 @@ def load_lammps_eam_parameters(file: TextIO) -> Tuple[Callable[[Array], Array],
   The lines that come after are the embedding function evaluated on `num_drho`
   charge values, charge function evaluated at `num_dr` distance values, and
   pairwise energy evaluated at `num_dr` distance values. Note that the pairwise
-  energy is multiplied by distance (in units of eV x Angstroms). 
-  
+  energy is multiplied by distance (in units of eV x Angstroms).
+
   For more details of the DYNAMO file format, see:
   https://sites.google.com/a/ncsu.edu/cjobrien/tutorials-and-guides/eam
-  
+
   Args:
     f: File handle for the EAM parameters text file.
 
   Returns:
     A tuple containing three functions and a cutoff distance.
-    
-    charge_fn: 
+
+    charge_fn:
       A function that takes an ndarray of shape `[n, m]` of distances
       between particles and returns a matrix of charge contributions.
-    embedding_fn: 
+    embedding_fn:
       Function that takes an ndarray of shape `[n]` of charges and
       returns an ndarray of shape `[n]` of the energy cost of embedding an atom
       into the charge.
-    pairwise_fn: 
+    pairwise_fn:
       A function that takes an ndarray of shape `[n, m]` of distances
       and returns an ndarray of shape `[n, m]` of pairwise energies.
-    cutoff: 
+    cutoff:
       Cutoff distance for the `embedding_fn` and `pairwise_fn`.
   """
   raw_text = file.read().split('\n')
@@ -949,7 +1326,7 @@ def eam(displacement: DisplacementFn,
         pairwise_fn: Callable[[Array], Array],
         axis: Optional[Tuple[int, ...]]=None) -> Callable[[Array], Array]:
   """.. _eam-pot:
-  
+
   Interatomic potential as approximated by embedded atom model (EAM).
 
   This code implements the EAM approximation to interactions between metallic
@@ -964,8 +1341,8 @@ def eam(displacement: DisplacementFn,
 
   These three functions are usually provided as spline fits, and we follow the
   implementation and spline fits given by Mishin et al. [#mishin]_
-  Note that in current implementation, the three functions listed above 
-  can also be expressed by a any function with the correct signature, 
+  Note that in current implementation, the three functions listed above
+  can also be expressed by a any function with the correct signature,
   including neural networks.
 
   Args:
@@ -992,7 +1369,7 @@ def eam(displacement: DisplacementFn,
     A tuple containing a function to build the neighbor list and function that
     computes the EAM energy of a set of atoms with positions given by an
     `[n, spatial_dimension]` ndarray.
-  
+
   .. rubric:: References
   .. [#mishin] Y. Mishin, D. Farkas, M.J. Mehl, DA Papaconstantopoulos, "Interatomic
     potentials for monoatomic metals from experimental data and ab initio
@@ -1079,7 +1456,7 @@ def eam_from_lammps_parameters_neighbor_list(
     fractional_coordinates=True,
     **neighbor_kwargs
     ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
-  """Convenience wrapper to compute :ref:`EAM energy <eam-pot>` 
+  """Convenience wrapper to compute :ref:`EAM energy <eam-pot>`
   with parameters from LAMMPS using a neighbor list.."""
   return eam_neighbor_list(displacement,
                            box_size,

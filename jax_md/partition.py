@@ -379,7 +379,7 @@ def cell_list(box_size: Box,
 
     occupancy = ops.segment_sum(jnp.ones_like(hashes), hashes, cell_count)
     max_occupancy = jnp.max(occupancy)
-    overflow = overflow | (max_occupancy >= cell_capacity)
+    overflow = overflow | (max_occupancy > cell_capacity)
 
     return CellList(cell_position, cell_id, cell_kwargs,
                     overflow, cell_capacity, update_fn)  # pytype: disable=wrong-arg-count
@@ -573,16 +573,16 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
 
      init_fn, apply_fn = simulate.nve(energy_fn, shift, 1e-3)
      exact_init_fn, exact_apply_fn = simulate.nve(exact_energy_fn, shift, 1e-3)
-  
+
      nbrs = neighbor_fn.allocate(R)
      state = init_fn(random.PRNGKey(0), R, neighbor_idx=nbrs.idx)
-  
+
      def body_fn(i, state):
        state, nbrs = state
        nbrs = nbrs.update(state.position)
        state = apply_fn(state, neighbor_idx=nbrs.idx)
        return state, nbrs
-  
+
      step = 0
      for _ in range(20):
        new_state, nbrs = lax.fori_loop(0, 100, body_fn, (state, nbrs))
@@ -640,7 +640,8 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
   cell_size = cutoff
   if fractional_coordinates:
     cell_size = cutoff / box_size
-    box_size = f32(1)
+    box_size = (f32(box_size) if onp.isscalar(box_size)
+                else onp.ones_like(box_size, f32))
 
   use_cell_list = jnp.all(cell_size < box_size / 3.) and not disable_cell_list
   if use_cell_list:
@@ -701,7 +702,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
     out_idx = out_idx.at[p_index, index].set(idx)
     max_occupancy = jnp.max(cumsum[:, -1])
 
-    return out_idx[:, :-1], max_occupancy
+    return out_idx, max_occupancy
 
   @jit
   def prune_neighbor_list_sparse(position: Array, idx: Array, **kwargs
@@ -728,7 +729,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
     sender_idx = out_idx.at[index].set(sender_idx)
     max_occupancy = cumsum[-1]
 
-    return jnp.stack((receiver_idx[:-1], sender_idx[:-1])), max_occupancy
+    return jnp.stack((receiver_idx, sender_idx)), max_occupancy
 
   def neighbor_list_fn(position: Array,
                        neighbors: Optional[NeighborList] = None,
@@ -765,19 +766,23 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
         _extra_capacity = (extra_capacity if not is_sparse(format)
                            else N * extra_capacity)
         max_occupancy = int(occupancy * capacity_multiplier + _extra_capacity)
-        if max_occupancy > position.shape[0] and not is_sparse(format):
-          max_occupancy = position.shape[0]
-        if max_occupancy > occupancy:
-          padding = max_occupancy - occupancy
-          pad = N * jnp.ones((idx.shape[0], padding), dtype=idx.dtype)
-          idx = jnp.concatenate([idx, pad], axis=1)
+        if max_occupancy > idx.shape[-1]:
+          max_occupancy = idx.shape[-1]
+        if not is_sparse(format):
+          capacity_limit = N - 1 if mask_self else N
+        elif format is NeighborListFormat.Sparse:
+          capacity_limit = N * (N - 1) if mask_self else N**2
+        else:
+          capacity_limit = N * (N - 1) // 2
+        if max_occupancy > capacity_limit:
+          max_occupancy = capacity_limit
       idx = idx[:, :max_occupancy]
       update_fn = (neighbor_list_fn if neighbors is None else
                    neighbors.update_fn)
       return NeighborList(
           idx,
           position,
-          overflow | (occupancy >= max_occupancy),
+          overflow | (occupancy > max_occupancy),
           cl_capacity,
           max_occupancy,
           format,

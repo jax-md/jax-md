@@ -20,7 +20,6 @@ from absl.testing import parameterized
 from jax.config import config
 from jax import random
 from jax import jit, vmap, grad
-import optax
 import jax.numpy as np
 
 import numpy as onp
@@ -727,6 +726,42 @@ class EnergyTest(test_util.JAXMDTestCase):
 
   @parameterized.named_parameters(test_util.cases_from_list(
       {
+          'testcase_name': '_dtype={}'.format(dtype.__name__),
+          'dtype': dtype
+      } for dtype in POSITION_DTYPE))
+  def test_tersoff_neighbor_list(self, dtype):
+    lattice_vectors = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=dtype) * 5.431
+    atoms = np.array(
+      [[0.00, 0.00, 0.00],
+       [0.25, 0.25, 0.25],
+       [0.00, 0.50, 0.50],
+       [0.25, 0.75, 0.75],
+       [0.50, 0.00, 0.50],
+       [0.75, 0.25, 0.75],
+       [0.50, 0.50, 0.00],
+       [0.75, 0.75, 0.25]], dtype=dtype)
+    atoms = lattice(atoms, 2, lattice_vectors)
+    if dtype == f32:
+      atoms = f32(atoms)
+    lattice_vectors *= 2
+    displacement, _ = space.periodic_general(lattice_vectors,
+                                             fractional_coordinates=True)
+    box_size = np.linalg.det(lattice_vectors) ** (1 / 3)
+    with open('tests/data/Si.tersoff', 'r') as fh:
+      tersoff_parameters = energy.load_lammps_tersoff_parameters(fh)
+    neighbor_fn, energy_fn = energy.tersoff_neighbor_list(displacement,
+                                                          box_size,
+                                                          tersoff_parameters)
+    nbrs = neighbor_fn.allocate(atoms)
+    E = energy_fn(atoms, nbrs)
+    if dtype is f64:
+      self.assertAllClose(E, dtype(-296.3463784635968), atol=1e-5, rtol=2e-8)
+    else:
+      self.assertAllClose(E, dtype(-296.3463784635968))
+
+
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
           'dtype': dtype,
@@ -857,8 +892,10 @@ class EnergyTest(test_util.JAXMDTestCase):
     def loss(params, R):
       return np.mean((vmap(energy_fn, (None, 0))(params, R) - E_gt(R, dr0)) ** 2)
 
+    # For some reason, importing optax at the top level causes flags to clash with
+    # `jax_md.test_util`.
+    import optax
     opt = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(1e-4))
-
 
     @jit
     def update(params, opt_state, R):

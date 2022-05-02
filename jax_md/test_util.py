@@ -34,6 +34,14 @@ from jax import vmap
 
 from jax_md import dataclasses
 
+flags.DEFINE_string(
+    'jax_test_dut',
+    '',
+    help=
+    'Describes the device under test in case special consideration is required.'
+)
+
+
 FLAGS = flags.FLAGS
 
 
@@ -202,7 +210,7 @@ class JAXMDTestCase(parameterized.TestCase):
 
     if dataclasses.is_dataclass(x):
       self.assertIs(type(y), type(x))
-      for field in dataclasses.fields(x):
+      for field in dataclasses.fields(x):  # pytype: disable=module-attr
         key = field.name
         x_value, y_value = getattr(x, key), getattr(y, key)
         is_pytree_node = field.metadata.get('pytree_node', True)
