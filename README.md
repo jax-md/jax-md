@@ -3,8 +3,7 @@
 ### Accelerated, Differentiable, Molecular Dynamics
 [**Quickstart**](#getting-started) | [**Reference docs**](https://jax-md.readthedocs.io/en/main/) | [**Paper**](https://arxiv.org/pdf/1912.04232.pdf) | [**NeurIPS 2020**](https://neurips.cc/virtual/2020/public/poster_83d3d4b6c9579515e1679aca8cbc8033.html)
 
-![Build Status](https://github.com/google/jax-md/workflows/Build/badge.svg?branch=main) [![Coverage](https://codecov.io/gh/google/jax-md/branch/main/graph/badge.svg?token=JYQpbNyICv)](https://codecov.io/gh/google/jax-md)
- [![PyPI](https://img.shields.io/pypi/v/jax-md)](https://pypi.org/project/jax-md/) [![PyPI - License](https://img.shields.io/pypi/l/jax_md)](https://github.com/google/jax-md/blob/main/LICENSE)
+![Build Status](https://github.com/google/jax-md/workflows/Build/badge.svg?branch=main) [![Coverage](https://codecov.io/gh/google/jax-md/branch/main/graph/badge.svg?token=JYQpbNyICv)](https://codecov.io/gh/google/jax-md) [![PyPI](https://img.shields.io/pypi/v/jax-md)](https://pypi.org/project/jax-md/) [![PyPI - License](https://img.shields.io/pypi/l/jax_md)](https://github.com/google/jax-md/blob/main/LICENSE)
 
 Molecular dynamics is a workhorse of modern computational condensed matter
 physics. It is frequently used to simulate materials to observe how small scale
@@ -97,17 +96,18 @@ that we get forces for free! The second part of the code is devoted to computing
 energies.
 
 We provide the following classical potentials:
-- `energy.soft_sphere` a soft sphere whose energy increases as the overlap of the spheres to some power, `alpha`.
-- `energy.lennard_jones` a standard 12-6 Lennard-Jones potential.
-- `energy.morse` a morse potential.
-- `energy.eam` embedded atom model potential with ability to load parameters from LAMMPS files.
-- `energy.stillinger_weber` used to model Silicon-like systems.
-- `energy.bks` Beest-Kramer-van Santen potential used to model silica.
-- `energy.gupta` used to model gold nanoclusters.
+- [`energy.soft_sphere`](https://jax-md.readthedocs.io/en/main/jax_md.energy.html?highlight=soft_sphere#jax_md.energy.soft_sphere) a soft sphere whose energy increases as the overlap of the spheres to some power, `alpha`.
+- [`energy.lennard_jones`](https://jax-md.readthedocs.io/en/main/jax_md.energy.html?highlight=lennard_jones#jax_md.energy.lennard_jones) a standard 12-6 Lennard-Jones potential.
+- [`energy.morse`](https://jax-md.readthedocs.io/en/main/jax_md.energy.html?highlight=morse#jax_md.energy.morse) a morse potential.
+- [`energy.tersoff`](https://jax-md.readthedocs.io/en/main/jax_md.energy.html?highlight=tersoff#jax_md.energy.tersoff) the Tersoff potential for simulating semiconducting materials. Can load parameters from LAMMPS files.
+- [`energy.eam`](https://jax-md.readthedocs.io/en/main/jax_md.energy.html?highlight=eam#jax_md.energy.eam) embedded atom model potential with ability to load parameters from LAMMPS files.
+- [`energy.stillinger_weber`](https://jax-md.readthedocs.io/en/main/jax_md.energy.html?highlight=stillinger_weber#jax_md.energy.stillinger_weber) used to model Silicon-like systems.
+- [`energy.bks`](https://jax-md.readthedocs.io/en/main/jax_md.energy.html?highlight=bks#jax_md.energy.bks) Beest-Kramer-van Santen potential used to model silica.
+- [`energy.gupta`](https://jax-md.readthedocs.io/en/main/jax_md.energy.html?highlight=gupta#jax_md.energy.gupta) used to model gold nanoclusters.
 
 We also provide the following neural network potentials:
-- `energy.behler_parrinello` a widely used fixed-feature neural network architecture for molecular systems.
-- `energy.graph_network` a deep graph neural network designed for energy fitting.
+- [`energy.behler_parrinello`](https://jax-md.readthedocs.io/en/main/jax_md.energy.html?highlight=behler_parrinello#jax_md.energy.behler_parrinello) a widely used fixed-feature neural network architecture for molecular systems.
+- [`energy.graph_network`](https://jax-md.readthedocs.io/en/main/jax_md.energy.html?highlight=graph_network#jax_md.energy.graph_network) a deep graph neural network designed for energy fitting.
 
 For finite-ranged potentials it is often useful to consider only interactions within a certain neighborhood. We include the `_neighbor_list` modifier to the above potentials that uses a list of neighbors (see below) for optimization.
 
@@ -146,14 +146,14 @@ mostly for pedagogical purposes, since it often performs poorly. We additionally
 include the FIRE algorithm which often sees significantly faster convergence. Moreover a common experiment to run in the context of molecular dynamics is to simulate a system with a fixed volume and temperature.
 
 We provide the following dynamics:
-- `simulate.nve` Constant energy simulation; numerically integrates Newton's laws directly.
-- `simulate.nvt_nose_hoover` Uses Nose-Hoover chain to simulate a constant temperature system.
-- `simulate.npt_nose_hoover` Uses Nose-Hoover chain to simulate a system at constant pressure and temperature.
-- `simulate.nvt_langevin` Simulates a system by numerically integrating the Langevin stochastic differential equation.
-- `simulate.hybrid_swap_mc` Alternates NVT dynamics with Monte-Carlo swapping moves to generate low energy glasses.
-- `simulate.brownian` Simulates brownian motion.
-- `minimize.gradient_descent` Minimizes a system using gradient descent.
-- `minimize.fire_descent` Minimizes a system using the fast inertial relaxation engine.
+- [`simulate.nve`](https://jax-md.readthedocs.io/en/main/jax_md.simulate.html?highlight=nve#jax_md.simulate.nve) Constant energy simulation; numerically integrates Newton's laws directly.
+- [`simulate.nvt_nose_hoover`](https://jax-md.readthedocs.io/en/main/jax_md.simulate.html?highlight=nvt_nose_hoover#jax_md.simulate.nvt_nose_hoover) Uses Nose-Hoover chain to simulate a constant temperature system.
+- [`simulate.npt_nose_hoover`](https://jax-md.readthedocs.io/en/main/jax_md.simulate.html?highlight=nvp_nose_hoover#jax_md.simulate.nvp_nose_hoover) Uses Nose-Hoover chain to simulate a system at constant pressure and temperature.
+- [`simulate.nvt_langevin`](https://jax-md.readthedocs.io/en/main/jax_md.simulate.html?highlight=nvt_langevin#jax_md.simulate.nvt_langevin) Simulates a system by numerically integrating the Langevin stochastic differential equation.
+- [`simulate.hybrid_swap_mc`](https://jax-md.readthedocs.io/en/main/jax_md.simulate.html?highlight=hybrid_swap_mc#jax_md.simulate.hybrid_swap_mc) Alternates NVT dynamics with Monte-Carlo swapping moves to generate low energy glasses.
+- [`simulate.brownian`](https://jax-md.readthedocs.io/en/main/jax_md.simulate.html?highlight=brownian#jax_md.simulate.brownian) Simulates brownian motion.
+- [`minimize.gradient_descent`](https://jax-md.readthedocs.io/en/main/jax_md.minimize.html?highlight=gradient_descent#jax_md.minimize.gradient_descent) Minimizes a system using gradient descent.
+- [`minimize.fire_descent`](https://jax-md.readthedocs.io/en/main/jax_md.minimize.html?highlight=fire_descent#jax_md.minimize.fire_descent) Minimizes a system using the fast inertial relaxation engine.
 
 Example:
 
