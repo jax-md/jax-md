@@ -5,30 +5,11 @@
 
 ![Build Status](https://github.com/google/jax-md/workflows/Build/badge.svg?branch=main) [![Coverage](https://codecov.io/gh/google/jax-md/branch/main/graph/badge.svg?token=JYQpbNyICv)](https://codecov.io/gh/google/jax-md) [![PyPI](https://img.shields.io/pypi/v/jax-md)](https://pypi.org/project/jax-md/) [![PyPI - License](https://img.shields.io/pypi/l/jax_md)](https://github.com/google/jax-md/blob/main/LICENSE)
 
-Molecular dynamics is a workhorse of modern computational condensed matter
-physics. It is frequently used to simulate materials to observe how small scale
-interactions can give rise to complex large-scale phenomenology. Most molecular
-dynamics packages (e.g. HOOMD Blue or LAMMPS) are complicated, specialized
-pieces of code that are many thousands of lines long. They typically involve
-significant code duplication to allow for running simulations on CPU and GPU.
-Additionally, large amounts of code is often devoted to taking derivatives
-of quantities to compute functions of interest (e.g. gradients of energies
-to compute forces).
+Molecular dynamics is a workhorse of modern computational condensed matter physics. It is frequently used to simulate materials to observe how small scale interactions can give rise to complex large-scale phenomenology. Most molecular dynamics packages (e.g. HOOMD Blue or LAMMPS) are complicated, specialized pieces of code that are many thousands of lines long. They typically involve significant code duplication to allow for running simulations on CPU and GPU. Additionally, large amounts of code is often devoted to taking derivatives of quantities to compute functions of interest (e.g. gradients of energies to compute forces).
 
-However, recent work in machine learning has led to significant software
-developments that might make it possible to write more concise
-molecular dynamics simulations that offer a range of benefits. Here we target
-JAX, which allows us to write python code that gets compiled to XLA and allows
-us to run on CPU, GPU, or TPU. Moreover, JAX allows us to take derivatives of
-python code. Thus, not only is this molecular dynamics simulation automatically
-hardware accelerated, it is also __end-to-end__ differentiable. This should
-allow for some interesting experiments that we're excited to explore.
+However, recent work in machine learning has led to significant software developments that might make it possible to write more concise molecular dynamics simulations that offer a range of benefits. Here we target JAX, which allows us to write python code that gets compiled to XLA and allows us to run on CPU, GPU, or TPU. Moreover, JAX allows us to take derivatives of python code. Thus, not only is this molecular dynamics simulation automatically hardware accelerated, it is also __end-to-end__ differentiable. This should allow for some interesting experiments that we're excited to explore.
 
-JAX, MD is a research project that is currently under development. Expect
-sharp edges and possibly some API breaking changes as we continue to support
-a broader set of simulations. JAX MD is a functional and data driven library.
-Data is stored in arrays or tuples of arrays and functions transform data from
-one state to another.
+JAX, MD is a research project that is currently under development. Expect sharp edges and possibly some API breaking changes as we continue to support a broader set of simulations. JAX MD is a functional and data driven library. Data is stored in arrays or tuples of arrays and functions transform data from one state to another.
 
 ### Getting Started
 
@@ -67,17 +48,14 @@ pip install -e jax-md
 
 We now summarize the main components of the library.
 
-## Spaces ([`space.py`](https://jax-md.readthedocs.io/en/latest/jax_md.space.html))
+## Spaces ([`space.py`](https://jax-md.readthedocs.io/en/main/jax_md.space.html))
 
-In general we must have a way of computing the pairwise distance between atoms.
-We must also have efficient strategies for moving atoms in some space that may
-or may not be globally isomorphic to R^N. For example, periodic boundary
-conditions are commonplace in simulations and must be respected. Spaces are defined as a pair of functions, `(displacement_fn, shift_fn)`. Given two points `displacement_fn(R_1, R_2)` computes the displacement vector between the two points. If you would like to compute displacement vectors between all pairs of points in a given `(N, dim)` matrix the function `space.map_product` appropriately vectorizes `displacement_fn`. It is often useful to define a metric instead of a displacement function in which case you can use the helper function `space.metric` to convert a displacement function to a metric function. Given a point and a shift `shift_fn(R, dR)` displaces the point `R` by an amount `dR`.
+In general we must have a way of computing the pairwise distance between atoms. We must also have efficient strategies for moving atoms in some space that may or may not be globally isomorphic to R^N. For example, periodic boundary conditions are commonplace in simulations and must be respected. Spaces are defined as a pair of functions, `(displacement_fn, shift_fn)`. Given two points `displacement_fn(R_1, R_2)` computes the displacement vector between the two points. If you would like to compute displacement vectors between all pairs of points in a given `(N, dim)` matrix the function `space.map_product` appropriately vectorizes `displacement_fn`. It is often useful to define a metric instead of a displacement function in which case you can use the helper function `space.metric` to convert a displacement function to a metric function. Given a point and a shift `shift_fn(R, dR)` displaces the point `R` by an amount `dR`.
 
 The following spaces are currently supported:
-- `space.free()` specifies a space with free boundary conditions.
-- `space.periodic(box_size)` specifies a space with periodic boundary conditions of side length `box_size`.
-- `space.periodic_general(box)` specifies a space as a periodic parellelopiped formed by transforming the unit cube by an affine transformation `box`.
+- [`space.free()`](https://jax-md.readthedocs.io/en/main/jax_md.space.html?highlight=free#jax_md.space.free) specifies a space with free boundary conditions.
+- [`space.periodic(box_size)`](https://jax-md.readthedocs.io/en/main/jax_md.space.html?highlight=periodic#jax_md.space.periodic) specifies a space with periodic boundary conditions of side length `box_size`.
+- [`space.periodic_general(box)`](https://jax-md.readthedocs.io/en/main/jax_md.space.html?highlight=periodic_general#jax_md.space.periodic_general) specifies a space as a periodic parellelopiped formed by transforming the unit cube by an affine transformation `box`.
 
 Example:
 
@@ -87,13 +65,9 @@ box_size = 25.0
 displacement_fn, shift_fn = space.periodic(box_size)
 ```
 
-## Potential Energy ([`energy.py`](https://jax-md.readthedocs.io/en/latest/jax_md.energy.html))
+## Potential Energy ([`energy.py`](https://jax-md.readthedocs.io/en/main/jax_md.energy.html))
 
-In the simplest case, molecular dynamics calculations are often based on a pair
-potential that is defined by a user. This then is used to compute a total energy
-whose negative gradient gives forces. One of the very nice things about JAX is
-that we get forces for free! The second part of the code is devoted to computing
-energies.
+In the simplest case, molecular dynamics calculations are often based on a pair potential that is defined by a user. This then is used to compute a total energy whose negative gradient gives forces. One of the very nice things about JAX is that we get forces for free! The second part of the code is devoted to computing energies.
 
 We provide the following classical potentials:
 - [`energy.soft_sphere`](https://jax-md.readthedocs.io/en/main/jax_md.energy.html?highlight=soft_sphere#jax_md.energy.soft_sphere) a soft sphere whose energy increases as the overlap of the spheres to some power, `alpha`.
@@ -127,23 +101,13 @@ force_fn = quantity.force(energy_fn)
 print('Total Squared Force = {}'.format(np.sum(force_fn(R) ** 2)))
 ```
 
-## Dynamics ([`simulate.py`](https://jax-md.readthedocs.io/en/latest/jax_md.simulate.html), [`minimize.py`](https://jax-md.readthedocs.io/en/latest/jax_md.minimize.html))
+## Dynamics ([`simulate.py`](https://jax-md.readthedocs.io/en/main/jax_md.simulate.html), [`minimize.py`](https://jax-md.readthedocs.io/en/main/jax_md.minimize.html))
 
-Given an energy function and a system, there are a number of dynamics are useful
-to simulate. The simulation code is based on the structure of the optimizers
-found in JAX. In particular, each simulation function returns an initialization
-function and an update function. The initialization function takes a set of
-positions and creates the necessary dynamical state variables. The update
-function does a single step of dynamics to the dynamical state variables and
-returns an updated state.
+Given an energy function and a system, there are a number of dynamics are useful to simulate. The simulation code is based on the structure of the optimizers found in JAX. In particular, each simulation function returns an initialization function and an update function. The initialization function takes a set of positions and creates the necessary dynamical state variables. The update function does a single step of dynamics to the dynamical state variables and returns an updated state.
 
-We include a several different kinds of dynamics. However, there is certainly room
-to add more for e.g. constant strain simulations.
+We include a several different kinds of dynamics. However, there is certainly room to add more for e.g. constant strain simulations.
 
-It is often desirable to find an energy minimum of the system. We provide
-two methods to do this. We provide simple gradient descent minimization. This is
-mostly for pedagogical purposes, since it often performs poorly. We additionally
-include the FIRE algorithm which often sees significantly faster convergence. Moreover a common experiment to run in the context of molecular dynamics is to simulate a system with a fixed volume and temperature.
+It is often desirable to find an energy minimum of the system. We provide two methods to do this. We provide simple gradient descent minimization. This is mostly for pedagogical purposes, since it often performs poorly. We additionally include the FIRE algorithm which often sees significantly faster convergence. Moreover a common experiment to run in the context of molecular dynamics is to simulate a system with a fixed volume and temperature.
 
 We provide the following dynamics:
 - [`simulate.nve`](https://jax-md.readthedocs.io/en/main/jax_md.simulate.html?highlight=nve#jax_md.simulate.nve) Constant energy simulation; numerically integrates Newton's laws directly.
@@ -168,13 +132,13 @@ for _ in range(100):
 R = state.position
 ```
 
-## Spatial Partitioning ([`partition.py`](https://jax-md.readthedocs.io/en/latest/jax_md.partition.html))
+## Spatial Partitioning ([`partition.py`](https://jax-md.readthedocs.io/en/main/jax_md.partition.html))
 
 In many applications, it is useful to construct spatial partitions of particles / objects in a simulation.
 
 We provide the following methods:
-- `partition.cell_list` Partitions objects (and metadata) into a grid of cells.
-- `partition.neighbor_list` Constructs a set of neighbors within some cutoff distance for each object in a simulation.
+- [`partition.cell_list`](https://jax-md.readthedocs.io/en/main/jax_md.partition.html?highlight=cell_list#jax_md.partition.cell_list) Partitions objects (and metadata) into a grid of cells.
+- [`partition.neighbor_list`](https://jax-md.readthedocs.io/en/main/jax_md.partition.html?highlight=neighbor_list#jax_md.partition.neighbor_list) Constructs a set of neighbors within some cutoff distance for each object in a simulation.
 
 Cell List Example:
 ```python
