@@ -569,10 +569,10 @@ class NPTNoseHooverState:
 
   @property
   def box(self):
-    dim = state.position.shape[1]
-    ref = state.reference_box
+    dim = self.position.shape[1]
+    ref = self.reference_box
     V_0 = quantity.volume(dim, ref)
-    V = V_0 * jnp.exp(dim * state.box_position)
+    V = V_0 * jnp.exp(dim * self.box_position)
     return (V / V_0) ** (1 / dim) * ref
 
 
