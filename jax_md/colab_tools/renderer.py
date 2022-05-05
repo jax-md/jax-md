@@ -133,6 +133,10 @@ class Bond:
     if diameter is None:
       diameter = jnp.array(0.2)
 
+    if isinstance(idx, partition.NeighborList):
+      idx = (idx.idx if idx.format is partition.Dense
+             else partition.to_dense(idx))
+
     object.__setattr__(self, 'reference_geometry', reference_geometry)
     object.__setattr__(self, 'neighbor_idx', idx)
     object.__setattr__(self, 'diameter', diameter)
@@ -208,13 +212,6 @@ def render(box_size,
       if geom.position.ndim == 3:
         assert frame_count is None or frame_count == geom.position.shape[0]
         frame_count = geom.position.shape[0]
-
-    if hasattr(geom, 'neighbor_idx'):
-      if isinstance(geom.neighbor_idx, partition.NeighborList):
-        nbrs = geom.neighbor_idx
-        idx = (nbrs.idx if nbrs.format is partition.Dense
-               else partition.to_dense(nbrs))
-        geom = dataclasses.replace(geom, neighbor_idx=idx)
 
   assert dimension is not None
 
