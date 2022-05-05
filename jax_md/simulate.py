@@ -20,11 +20,11 @@
   In general, simulation code follows the same overall structure as optimizers
   in JAX. Simulations are tuples of two functions:
 
-    init_fn: 
+    init_fn:
       Function that initializes the  state of a system. Should take
       positions as an ndarray of shape `[n, output_dimension]`. Returns a state
       which will be a namedtuple.
-    apply_fn: 
+    apply_fn:
       Function that takes a state and produces a new state after one
       step of optimization.
 
@@ -543,9 +543,9 @@ class NPTNoseHooverState:
     reference_box: A box used to measure relative changes to the simulation
       environment.
     box_position: A positional degree of freedom used to describe the current
-      box. The box_position is parameterized as `box_position = (1/d)log(V/V_0)`
-      where `V` is the current volume, `V_0` is the reference volume and `d` is
-      the spatial dimension.
+      box. box_position is parameterized as `box_position = (1/d)log(V/V_0)`
+      where `V` is the current volume, `V_0` is the reference volume, and `d`
+      is the spatial dimension.
     box_velocity: A velocity degree of freedom for the box.
     box_mass: The mass assigned to the box.
     barostat: The variables describing the Nose-Hoover chain coupled to the
@@ -567,9 +567,17 @@ class NPTNoseHooverState:
   barostat: NoseHooverChain
   thermostat: NoseHooverChain
 
+  @property
+  def box(self):
+    dim = state.position.shape[1]
+    ref = state.reference_box
+    V_0 = quantity.volume(dim, ref)
+    V = V_0 * jnp.exp(dim * state.box_position)
+    return (V / V_0) ** (1 / dim) * ref
 
-def _npt_box_info(state: NPTNoseHooverState) -> Tuple[float,
-                                                      Callable[[float], float]]:
+
+def _npt_box_info(state: NPTNoseHooverState
+                  ) -> Tuple[float, Callable[[float], float]]:
   """Gets the current volume and a function to compute the box from volume."""
   dim = state.position.shape[1]
   ref = state.reference_box
@@ -597,18 +605,18 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
   """Simulation in the NPT ensemble using a pair of Nose Hoover Chains.
 
   Samples from the canonical ensemble in which the number of particles (N),
-  the system pressure (P), and the temperature (T) are held constant. 
-  We use a pair of Nose Hoover Chains (NHC) described in 
+  the system pressure (P), and the temperature (T) are held constant.
+  We use a pair of Nose Hoover Chains (NHC) described in
   [#martyna92]_ [#martyna98]_ [#tuckerman]_ coupled to the
   barostat and the thermostat respectively. We follow the direct translation
-  method outlined in Tuckerman et al. [#tuckerman]_ and the interested reader 
+  method outlined in Tuckerman et al. [#tuckerman]_ and the interested reader
   might want to look at that paper as a reference.
 
   Args:
     energy_fn: A function that produces either an energy from a set of particle
       positions specified as an ndarray of shape `[n, spatial_dimension]`.
-    shift_fn: A function that displaces positions, `R`, by an amount `dR`. Both `R`
-      and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`.
+      Both `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
     dt: Floating point number specifying the timescale (step size) of the
       simulation.
     pressure: Floating point number specifying the target pressure. To update
