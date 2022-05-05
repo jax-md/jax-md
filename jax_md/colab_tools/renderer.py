@@ -22,6 +22,7 @@ import IPython
 
 import jax.numpy as jnp
 from jax_md import dataclasses
+from jax_md import partition
 
 import json
 
@@ -198,7 +199,7 @@ def render(box_size,
 
   if not isinstance(geometry, dict):
     geometry = { 'all': geometry }
- 
+
   for geom in geometry.values():
     if hasattr(geom, 'position'):
       assert dimension is None or geom.position.shape[-1] == dimension
@@ -207,6 +208,13 @@ def render(box_size,
       if geom.position.ndim == 3:
         assert frame_count is None or frame_count == geom.position.shape[0]
         frame_count = geom.position.shape[0]
+
+    if hasattr(geom, 'neighbor_idx'):
+      if isinstance(geom.neighbor_idx, partition.NeighborList):
+        nbrs = geom.neighbor_idx
+        idx = (nbrs.idx if nbrs.format is partition.Dense
+               else partition.to_dense(nbrs))
+        geom = dataclasses.replace(geom, neighbor_idx=idx)
 
   assert dimension is not None
 
@@ -257,6 +265,8 @@ def render(box_size,
     }
 
     for field in geom_dict:
+      if isinstance(geom_dict[field], list):
+        geom_dict[field] = onp.array(geom_dict[field])
       if not isinstance(geom_dict[field], onp.ndarray):
         geom_metadata[field] = geom_dict[field]
         continue
@@ -268,7 +278,7 @@ def render(box_size,
         geom_metadata['fields'][field] = 'global'
     return _to_json(geom_metadata)
   output.register_callback(f'GetGeometryMetadata{SIMULATION_IDX}',
-                          get_dynamic_geometry_metadata)
+                           get_dynamic_geometry_metadata)
 
   def get_array_chunk(name, field, offset, size):
     assert name in geometry
@@ -276,6 +286,8 @@ def render(box_size,
     geom = dataclasses.asdict(geometry[name])
     assert field in geom
     array = geom[field]
+    if isinstance(array, list):
+      array = onp.array(array)
 
     return _to_json({
         'array_chunk': _encode(array[offset:(offset + size)])
@@ -288,6 +300,8 @@ def render(box_size,
     geom = dataclasses.asdict(geometry[name])
     assert field in geom
     array = geom[field]
+    if isinstance(array, list):
+      array = onp.array(array)
 
     return _to_json({ 'array': _encode(array) })
   output.register_callback(f'GetArray{SIMULATION_IDX}', get_array)
