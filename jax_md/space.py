@@ -437,7 +437,7 @@ def map_neighbor(metric_or_displacement: DisplacementOrMetricFn
                  ) -> DisplacementOrMetricFn:
   """Vectorizes a metric or displacement function over neighborhoods."""
   def wrapped_fn(Ra, Rb, **kwargs):
-    return vmap(vmap(metric_or_displacement, (None, 0)))(-Ra, -Rb, **kwargs)
+    return vmap(vmap(metric_or_displacement, (0, None)))(Rb, Ra, **kwargs)
   return wrapped_fn
 
 
