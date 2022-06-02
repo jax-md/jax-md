@@ -38,6 +38,7 @@ from jax_md import test_util
 from jax_md import partition
 from jax_md import util
 from jax_md import rigid_body
+from jax_md import minimize
 
 from functools import partial
 
@@ -72,7 +73,7 @@ def rand_quat(key, dtype):
 
 
 # pylint: disable=invalid-name
-class SimulateTest(test_util.JAXMDTestCase):
+class RigidBodyTest(test_util.JAXMDTestCase):
   @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dtype={}'.format(dtype.__name__),
@@ -555,7 +556,6 @@ class SimulateTest(test_util.JAXMDTestCase):
     E_final = total_energy(state)
 
     tol = 5e-8 if dtype == f64 else 5e-5
-
     self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
     assert E_final.dtype == dtype
 
@@ -636,7 +636,42 @@ class SimulateTest(test_util.JAXMDTestCase):
     shape = rigid_body.trimer
     jtu.check_grads(shape_energy_fn, (shape.points,), 1, atol=5e-4, rtol=5e-4)
 
-  def disabled_test_shape_derivative_3d(self):
+  def test_shape_derivative_3d(self):
+    def _diagonal_mask(X):
+      """Sets the diagonal of a matrix to zero."""
+      if X.shape[0] != X.shape[1]:
+        raise ValueError(
+          'Diagonal mask can only mask square matrices. Found {}x{}.'.format(
+            X.shape[0], X.shape[1]))
+      if len(X.shape) > 3:
+        raise ValueError(
+          ('Diagonal mask can only mask rank-2 or rank-3 tensors. '
+           'Found {}.'.format(len(X.shape))))
+      N = X.shape[0]
+      # NOTE(schsam): It seems potentially dangerous to set nans to 0 here. However,
+      # masking nans also doesn't seem to work. So it also seems necessary. At the
+      # very least we should do some @ErrorChecking.
+      X = jnp.nan_to_num(X)
+      mask = 1.0 - jnp.eye(N, dtype=X.dtype)
+      if len(X.shape) == 3:
+        mask = jnp.reshape(mask, (N, N, 1))
+      return mask * X
+    def moment_of_inertia(points):
+      ndim = points.shape[-1]
+      I_sphere = 2 / 5
+      @vmap
+      def per_particle(point):
+        diagonal = jnp.linalg.norm(point) ** 2 * jnp.eye(point.shape[-1])
+        off_diagonal = point[:, None] * point[None, :]
+        return ((diagonal - off_diagonal) + jnp.eye(3) * I_sphere)
+      return jnp.sum(per_particle(points), axis=0)
+
+    def transform_to_diagonal_frame(shape_points):
+      I = moment_of_inertia(shape_points)
+      I_diag, U = jnp.linalg.eigh(I)
+      shape_points = jnp.einsum('ni,ij->nj', shape_points, U)
+      return shape_points
+
     def shape_energy_fn(points):
       body = rigid_body.RigidBody(
         jnp.array([[0.0, 0.0, 0.0],
@@ -652,19 +687,37 @@ class SimulateTest(test_util.JAXMDTestCase):
       # Possibly this is because the matrix has degenerate eigenvalues.
       # If we allow the eigenvalues to not be degenerate then we don't
       # get NaNs anymore, but we do get the wrong answer.
-      shape = rigid_body.rigid_body_shape(points,
-                                          jnp.array([1.0, 2.0, 3.0, 4.0]))
+      #shape = rigid_body.rigid_body_shape(points,
+      #                                    jnp.array([1.0, 2.0, 3.0, 4.0]))
+      # shape = rigid_body.rigid_body_shape(points, jnp.ones((len(points),)))
+      shape = rigid_body.RigidBodyShape(
+        transform_to_diagonal_frame(points),
+        jnp.ones((points.shape[0],)),
+        jnp.array([len(points)]),
+        jnp.array([0])
+      )
       # shape = rigid_body_shape(points, 1.0)
 
-
-      # shape = dataclasses.replace(tetrahedron, points=points)
-      displacement, shift = space.free()
-      energy_fn = energy.soft_sphere_pair(displacement)
+      #shape = rigid_body.tetrahedron.set(points=points)
+      #displacement, shift = space.free()
+      #energy_fn = energy.soft_sphere_pair(displacement)
+      def energy_fn(R, **kwargs):
+        dr_2 = jnp.sum((R[:, None, :] - R[None, :, :]) ** 2, axis=-1)
+        dr = util.safe_mask(dr_2 > 0, jnp.sqrt, dr_2)
+        e = 0.5 * jnp.where(dr < 1.0, (dr - 1.0) ** 2, 0.0)
+        return 0.5 * jnp.sum(_diagonal_mask(e))
       energy_fn = rigid_body.energy(energy_fn, shape)
 
       return energy_fn(body)
-    shape = rigid_body.tetrahedron
-    jtu.check_grads(shape_energy_fn, (shape.points,), 1, modes='rev')
+    points = jnp.array([[-0.5, -0.5, -0.5],
+                        [-0.5, -0.5,  0.5],
+                        [ 0.5, -0.5, -0.5],
+                        [ 0.5, -0.5,  0.5],
+                        [-0.5,  0.5, -0.5],
+                        [-0.5,  0.5,  0.5],
+                        [ 0.5,  0.5, -0.5],
+                        [ 0.5,  0.5,  0.5]]) * jnp.array([[1.0, 1.1, 1.2]])
+    jtu.check_grads(shape_energy_fn, (points,), 1, modes='rev')
 
   @parameterized.named_parameters(test_util.cases_from_list(
       {
@@ -701,6 +754,268 @@ class SimulateTest(test_util.JAXMDTestCase):
     for i in range(DYNAMICS_STEPS):
       state = step_fn(state)
     E_final = simulate.nvt_nose_hoover_invariant(energy_fn, state, kT)
+
+    tol = 5e-8 if dtype == f64 else 5e-5
+
+    self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
+    assert E_final.dtype == dtype
+
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': '_dtype={}'.format(dtype.__name__),
+          'dtype': dtype
+      } for dtype in DTYPE))
+  def test_nvt_2d_multi_shape_species(self, dtype):
+    N = PARTICLE_COUNT
+    box_size = quantity.box_size_at_number_density(N, 0.1, 2)
+
+    displacement, shift = space.periodic(box_size)
+
+    key = random.PRNGKey(0)
+
+    key, pos_key, angle_key = random.split(key, 3)
+
+    R = box_size * random.uniform(pos_key, (N, 2), dtype=dtype)
+    angle = random.uniform(angle_key, (N,), dtype=dtype) * jnp.pi * 2
+
+    body = rigid_body.RigidBody(R, angle)
+    shape = rigid_body.concatenate_shapes(rigid_body.square, rigid_body.trimer)
+    species = onp.where(onp.arange(N) < N // 2, 0, 1)
+
+    energy_fn = rigid_body.energy(energy.soft_sphere_pair(displacement),
+                                  shape,
+                                  species)
+
+    kT = 1e-3
+    dt = 5e-4
+
+    init_fn, step_fn = simulate.nvt_nose_hoover(energy_fn, shift, dt, kT)
+
+    step_fn = jit(step_fn)
+
+    state = init_fn(key, body, mass=shape.mass(species))
+    E_initial = simulate.nvt_nose_hoover_invariant(energy_fn, state, kT)
+    for i in range(DYNAMICS_STEPS):
+      state = step_fn(state)
+    E_final = simulate.nvt_nose_hoover_invariant(energy_fn, state, kT)
+
+    tol = 5e-8 if dtype == f64 else 5e-5
+
+    self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
+    assert E_final.dtype == dtype
+
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': '_dtype={}'.format(dtype.__name__),
+          'dtype': dtype
+      } for dtype in DTYPE))
+  def test_nvt_2d_multi_atom_species(self, dtype):
+    N = PARTICLE_COUNT
+    box_size = quantity.box_size_at_number_density(N, 0.1, 2)
+
+    displacement, shift = space.periodic(box_size)
+
+    key = random.PRNGKey(0)
+
+    key, pos_key, angle_key = random.split(key, 3)
+
+    R = box_size * random.uniform(pos_key, (N, 2), dtype=dtype)
+    angle = random.uniform(angle_key, (N,), dtype=dtype) * jnp.pi * 2
+
+    body = rigid_body.RigidBody(R, angle)
+    shape = rigid_body.square.set(point_species=jnp.array([0, 1, 0, 1]))
+
+    energy_fn = energy.soft_sphere_pair(displacement,
+                                        sigma=jnp.array([[0.5, 1.0],
+                                                         [1.0, 1.5]], f32),
+                                        species=2)
+
+    energy_fn = rigid_body.energy(energy_fn, shape)
+
+    kT = 1e-3
+    dt = 5e-4
+
+    init_fn, step_fn = simulate.nvt_nose_hoover(energy_fn, shift, dt, kT)
+
+    step_fn = jit(step_fn)
+
+    state = init_fn(key, body, mass=shape.mass())
+    E_initial = simulate.nvt_nose_hoover_invariant(energy_fn, state, kT)
+    for i in range(DYNAMICS_STEPS):
+      state = step_fn(state)
+    E_final = simulate.nvt_nose_hoover_invariant(energy_fn, state, kT)
+
+    tol = 5e-8 if dtype == f64 else 5e-5
+
+    self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
+    assert E_final.dtype == dtype
+
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': '_dtype={}'.format(dtype.__name__),
+          'dtype': dtype
+      } for dtype in DTYPE))
+  def test_nvt_2d_neighbor_list(self, dtype):
+    N = PARTICLE_COUNT
+    box_size = quantity.box_size_at_number_density(N, 0.1, 2)
+
+    displacement, shift = space.periodic(box_size)
+
+    key = random.PRNGKey(0)
+
+    key, pos_key, angle_key = random.split(key, 3)
+
+    R = box_size * random.uniform(pos_key, (N, 2), dtype=dtype)
+    angle = random.uniform(angle_key, (N,), dtype=dtype) * jnp.pi * 2
+
+    body = rigid_body.RigidBody(R, angle)
+    shape = rigid_body.square
+
+    neighbor_fn, energy_fn = energy.soft_sphere_neighbor_list(
+      displacement,
+      box_size)
+    neighbor_fn, energy_fn = rigid_body.energy_neighbor_list(energy_fn,
+                                                             neighbor_fn,
+                                                             shape)
+
+    kT = 1e-3
+    dt = 5e-4
+
+    init_fn, step_fn = simulate.nvt_nose_hoover(energy_fn, shift, dt, kT)
+
+    step_fn = jit(step_fn)
+
+    nbrs = neighbor_fn.allocate(body)
+    state = init_fn(key, body, mass=shape.mass(), neighbor=nbrs)
+    E_initial = simulate.nvt_nose_hoover_invariant(energy_fn, state, kT,
+                                                   neighbor=nbrs)
+    def sim_fn(i, state_nbrs):
+      state, nbrs = state_nbrs
+      state = step_fn(state, neighbor=nbrs)
+      nbrs = nbrs.update(state.position)
+      return state, nbrs
+    state, nbrs = lax.fori_loop(0, DYNAMICS_STEPS, sim_fn, (state, nbrs))
+    E_final = simulate.nvt_nose_hoover_invariant(energy_fn, state, kT,
+                                                 neighbor=nbrs)
+    self.assertFalse(nbrs.did_buffer_overflow)
+
+    tol = 5e-8 if dtype == f64 else 5e-5
+
+    self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
+    assert E_final.dtype == dtype
+
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': '_dtype={}'.format(dtype.__name__),
+          'dtype': dtype
+      } for dtype in DTYPE))
+  def test_nvt_2d_multi_atom_species_neighbor_list(self, dtype):
+    N = PARTICLE_COUNT
+    box_size = quantity.box_size_at_number_density(N, 0.1, 2)
+
+    displacement, shift = space.periodic(box_size)
+
+    key = random.PRNGKey(0)
+
+    key, pos_key, angle_key = random.split(key, 3)
+
+    R = box_size * random.uniform(pos_key, (N, 2), dtype=dtype)
+    angle = random.uniform(angle_key, (N,), dtype=dtype) * jnp.pi * 2
+
+    body = rigid_body.RigidBody(R, angle)
+    shape = rigid_body.square.set(point_species=jnp.array([0, 1, 0, 1]))
+
+    neighbor_fn, energy_fn = energy.soft_sphere_neighbor_list(
+      displacement,
+      box_size,
+      sigma=jnp.array([[0.5, 1.0],
+                       [1.0, 1.5]], f32),
+      species=2)
+    neighbor_fn, energy_fn = rigid_body.energy_neighbor_list(energy_fn,
+                                                             neighbor_fn,
+                                                             shape)
+
+    kT = 1e-3
+    dt = 5e-4
+
+    init_fn, step_fn = simulate.nvt_nose_hoover(energy_fn, shift, dt, kT)
+
+    step_fn = jit(step_fn)
+
+    nbrs = neighbor_fn.allocate(body)
+    state = init_fn(key, body, mass=shape.mass(), neighbor=nbrs)
+    E_initial = simulate.nvt_nose_hoover_invariant(energy_fn, state, kT,
+                                                   neighbor=nbrs)
+    def sim_fn(i, state_nbrs):
+      state, nbrs = state_nbrs
+      state = step_fn(state, neighbor=nbrs)
+      nbrs = nbrs.update(state.position)
+      return state, nbrs
+    state, nbrs = lax.fori_loop(0, DYNAMICS_STEPS, sim_fn, (state, nbrs))
+    E_final = simulate.nvt_nose_hoover_invariant(energy_fn, state, kT,
+                                                 neighbor=nbrs)
+    self.assertFalse(nbrs.did_buffer_overflow)
+
+    tol = 5e-8 if dtype == f64 else 5e-5
+
+    self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
+    assert E_final.dtype == dtype
+
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': '_dtype={}'.format(dtype.__name__),
+          'dtype': dtype
+      } for dtype in DTYPE))
+  def test_nvt_2d_multi_shape_species_neighbor_list(self, dtype):
+    N = PARTICLE_COUNT
+    box_size = quantity.box_size_at_number_density(N, 0.1, 2)
+
+    displacement, shift = space.periodic(box_size)
+
+    key = random.PRNGKey(0)
+
+    key, pos_key, angle_key = random.split(key, 3)
+
+    R = box_size * random.uniform(pos_key, (N, 2), dtype=dtype)
+    angle = random.uniform(angle_key, (N,), dtype=dtype) * jnp.pi * 2
+
+    body = rigid_body.RigidBody(R, angle)
+    shape = rigid_body.concatenate_shapes(
+      rigid_body.square.set(point_species=jnp.array([0, 1, 0, 1])),
+      rigid_body.trimer.set(point_species=jnp.array([0, 0, 1])))
+
+    shape_species = onp.where(onp.arange(N) < N // 2, 0, 1)
+
+    neighbor_fn, energy_fn = energy.soft_sphere_neighbor_list(
+      displacement,
+      box_size,
+      sigma=jnp.array([[0.5, 1.0],
+                       [1.0, 1.5]], f32),
+      species=2)
+    neighbor_fn, energy_fn = rigid_body.energy_neighbor_list(energy_fn,
+                                                             neighbor_fn,
+                                                             shape)
+
+    kT = 1e-3
+    dt = 5e-4
+
+    init_fn, step_fn = simulate.nvt_nose_hoover(energy_fn, shift, dt, kT)
+
+    step_fn = jit(step_fn)
+
+    nbrs = neighbor_fn.allocate(body)
+    state = init_fn(key, body, mass=shape.mass(shape_species), neighbor=nbrs)
+    E_initial = simulate.nvt_nose_hoover_invariant(energy_fn, state, kT,
+                                                   neighbor=nbrs)
+    def sim_fn(i, state_nbrs):
+      state, nbrs = state_nbrs
+      state = step_fn(state, neighbor=nbrs)
+      nbrs = nbrs.update(state.position)
+      return state, nbrs
+    state, nbrs = lax.fori_loop(0, DYNAMICS_STEPS, sim_fn, (state, nbrs))
+    E_final = simulate.nvt_nose_hoover_invariant(energy_fn, state, kT,
+                                                 neighbor=nbrs)
+    self.assertFalse(nbrs.did_buffer_overflow)
 
     tol = 5e-8 if dtype == f64 else 5e-5
 
@@ -752,6 +1067,102 @@ class SimulateTest(test_util.JAXMDTestCase):
 
     self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
     assert E_final.dtype == dtype
+
+
+  def test_jit_shape(self):
+    N = PARTICLE_COUNT
+    box_size = quantity.box_size_at_number_density(N, 0.1, 3)
+
+    displacement, shift = space.periodic(box_size)
+
+    key = random.PRNGKey(0)
+
+    key, pos_key, quat_key = random.split(key, 3)
+
+    R = box_size * random.uniform(pos_key, (N, 3))
+    quat_key = random.split(quat_key, N)
+    quaternion = rand_quat(quat_key, jnp.float32)
+
+    body = rigid_body.RigidBody(R, quaternion)
+
+    @jit
+    def compute_energy(body, points, masses):
+      shape = rigid_body.rigid_body_shape(points, masses)
+      energy_fn = rigid_body.energy(energy.soft_sphere_pair(displacement),
+                                    shape)
+      return energy_fn(body)
+
+    s = rigid_body.tetrahedron
+    compute_energy(body, s.points, s.masses)
+
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': '_dtype={}'.format(dtype.__name__),
+          'dtype': dtype
+      } for dtype in DTYPE))
+  def test_fire_2d(self, dtype):
+    N = PARTICLE_COUNT
+    box_size = quantity.box_size_at_number_density(N, 0.1, 3)
+
+    displacement, shift = space.periodic(box_size)
+
+    key = random.PRNGKey(0)
+
+    key, pos_key, angle_key = random.split(key, 3)
+
+    R = box_size * random.uniform(pos_key, (N, 2), dtype=dtype)
+    angle = random.uniform(angle_key, (N,), dtype=dtype) * jnp.pi * 2
+
+    body = rigid_body.RigidBody(R, angle)
+    shape = rigid_body.square
+
+    energy_fn = rigid_body.energy(energy.soft_sphere_pair(displacement), shape)
+    init_fn, step_fn = minimize.fire_descent(energy_fn, shift)
+
+    state = init_fn(body, mass=shape.mass())
+    state = lax.fori_loop(0, 60, lambda i, s: step_fn(s), state)
+
+    self.assertTrue(energy_fn(state.position) < 35.0)
+    self.assertTrue(state.position.center.dtype==dtype)
+
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': '_dtype={}'.format(dtype.__name__),
+          'dtype': dtype
+      } for dtype in DTYPE))
+  def test_fire_3d_multispecies(self, dtype):
+    N = PARTICLE_COUNT
+    box_size = quantity.box_size_at_number_density(N, 0.1, 3)
+
+    displacement, shift = space.periodic(box_size)
+
+    key = random.PRNGKey(0)
+
+    key, pos_key, angle_key = random.split(key, 3)
+
+    R = box_size * random.uniform(pos_key, (N, 3), dtype=dtype)
+
+    angle_key = random.split(angle_key, N)
+    quat = rand_quat(angle_key, dtype)
+
+    body = rigid_body.RigidBody(R, quat)
+
+    shape = rigid_body.concatenate_shapes(rigid_body.tetrahedron,
+                                          rigid_body.octohedron)
+    shape_species = onp.where(onp.arange(N) < N / 2, 0, 1)
+
+    energy_fn = rigid_body.energy(energy.soft_sphere_pair(displacement),
+                                  shape,
+                                  shape_species)
+
+    init_fn, step_fn = minimize.fire_descent(energy_fn, shift,
+                                             dt_start=1e-2, dt_max=4e-2)
+    state = init_fn(body, mass=shape.mass(shape_species))
+    state = lax.fori_loop(0, 60, lambda i, s: step_fn(s), state)
+
+    self.assertTrue(energy_fn(state.position) < 12.0)
+    self.assertTrue(state.position.center.dtype==dtype)
+
 
 if __name__ == '__main__':
   absltest.main()

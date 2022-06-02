@@ -162,8 +162,9 @@ class RigidBodyShape:
 
   def sum_over_shapes(self, x):
     shape_count = len(self.point_count)
-    shape_idx = jnp.repeat(jnp.arange(shape_count), self.point_count)
-    return ops.segment_sum(x, shape_idx, shape_count)
+    shape_idx = jnp.repeat(jnp.arange(shape_count), self.point_count,
+                           total_repeat_length=len(self.points))
+    return ops.segment_sum(x, shape_idx, shape_count,)
 
   def moment_of_inertia(self):
     ndim = self.dimension()
@@ -171,7 +172,7 @@ class RigidBodyShape:
       I_disk = 1 / 2 * self.point_radius ** 2
       @vmap
       def per_particle(point, mass):
-        return mass * (point[0] ** 2 + point[1] ** 2) + I_disk
+        return mass * ((point[0] ** 2 + point[1] ** 2) + I_disk)
       return self.sum_over_shapes(per_particle(self.points, self.masses))
     elif ndim == 3:
       I_sphere = 2 / 5 * self.point_radius ** 2
@@ -282,6 +283,7 @@ def concatenate_shapes(*shapes):
                                     jnp.cumsum(point_count)[:-1]])
   )
 
+
 # TODO: Maybe move the shapes somewhere else (end of the file?)
 # 2D Shapes
 monomer = rigid_body_shape(onp.array([[0.0, 0.0]], f32), f32(1.0))
@@ -328,7 +330,6 @@ def _transform3d(body: Tuple[Array, Quaternion],
   center, orientation = body
   return center[None, :] + quaternion_apply(orientation, shape.points)
 
-
 def _transform3d_fwd(body: Tuple[Array, Quaternion], shape: RigidBodyShape
                      ) -> Tuple[Array, Tuple[Quaternion, RigidBodyShape]]:
   center, orientation = body
@@ -361,7 +362,6 @@ def _transform3d_bwd(res: Tuple[Array, RigidBodyShape], F_particle: Array
                                          shape.point_species,
                                          shape.point_radius)
 _transform3d.defvjp(_transform3d_fwd, _transform3d_bwd)
-
 
 def transform3d(body: RigidBody, shape: RigidBodyShape) -> Array:
   return _transform3d((body.center, body.orientation), shape)
