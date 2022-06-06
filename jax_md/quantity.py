@@ -217,7 +217,7 @@ def angle_between_two_half_planes(dR_12: Array,
   normal_2 = jnp.cross(dR_32)
   normal_plane_cross = jnp.cross(normal_1, normal_2)
   dr_32 = space.square_distance(dR_32)
-  safe_dr_32 = safe_mask(dr_32 > 0, jnp.sqrt, dr_32, epsilon)
+  safe_dr_32 = util.safe_mask(dr_32 > 0, jnp.sqrt, dr_32, epsilon)
   x1 = jnp.sum(jnp.multiply(normal_plane_cross, dR_32 / safe_dr_32), axis=-1)
   x2 = jnp.sum(jnp.multiply(normal_1, normal_2), axis=-1)
   angle = jnp.arctan2(x1, x2)
@@ -256,14 +256,14 @@ def pair_correlation(displacement_or_metric: Union[DisplacementFn, MetricFn],
 
   .. math::
     g(r) = <\sum_{i \\neq j}\delta(r - |r_i - r_j|)>
-  
+
   We make the approximation,
 
   .. math::
     \delta(r) \\approx {1 \over \sqrt{2\pi\sigma^2}e^{-r / (2\sigma^2)}}
 
   Args:
-    displacement_or_metric: 
+    displacement_or_metric:
       A function that computes the displacement or distance between two points.
     radii: An array of radii at which we would like to compute :math:`g(r)`.
     sigima: A float specifying the width of the approximating Gaussian.
@@ -321,11 +321,11 @@ def pair_correlation_neighbor_list(
   """Computes the pair correlation function at a mesh of distances.
 
   The pair correlation function measures the number of particles at a given
-  distance from a central particle. The pair correlation function is defined by 
-  
+  distance from a central particle. The pair correlation function is defined by
+
   .. math::
     g(r) = <\sum_{i \\neq j}\delta(r - |r_i - r_j|)>
-  
+
   We make the approximation,
 
   .. math::
