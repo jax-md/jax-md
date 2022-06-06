@@ -61,6 +61,14 @@ def simple_spring(dr: Array,
   """
   return epsilon / alpha * jnp.abs(dr - length) ** alpha
 
+def periodic_torsion(torsion_angle: Array,
+                     amplitude : Array,
+                     periodicity : Array,
+                     phase : Array) -> Array:
+  """cosine potential with a given amplitude, periodicity, and phase offset"""
+  # NOTE(dominicrufa): rename this with omm convention?
+  return amplitude * (1. + jnp.cos(periodicity * torsion_angle - phase))
+
 
 def simple_spring_bond(displacement_or_metric: DisplacementOrMetricFn,
                        bond: Array,

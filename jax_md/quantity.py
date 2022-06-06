@@ -207,6 +207,21 @@ def cosine_angle_between_two_vectors(dR_12: Array, dR_13: Array) -> Array:
   cos_angle = jnp.dot(dR_12, dR_13) / dr_12 / dr_13
   return jnp.clip(cos_angle, -1.0, 1.0)
 
+def angle_between_two_half_planes(dR_12: Array,
+                                  dR_32: Array,
+                                  dR_34: Array,
+                                  epsilon : Optional[Array]=1e-7) -> Array:
+  """Returns clockwise angle between two half-planes defined by (R_1, R_2, R_3) and (R_2, R_3, R_4)"""
+  # NOTE(dominicrufa): is there a more "canonical" way of nan-safing than adding 1e-7?
+  normal_1 = jnp.cross(dR_12)
+  normal_2 = jnp.cross(dR_32)
+  normal_plane_cross = jnp.cross(normal_1, normal_2)
+  dr_32 = space.square_distance(dR_32)
+  safe_dr_32 = safe_mask(dr_32 > 0, jnp.sqrt, dr_32, epsilon)
+  x1 = jnp.sum(jnp.multiply(normal_plane_cross, dR_32 / safe_dr_32), axis=-1)
+  x2 = jnp.sum(jnp.multiply(normal_1, normal_2), axis=-1)
+  angle = jnp.arctan2(x1, x2)
+  return angle
 
 def cosine_angles(dR: Array) -> Array:
   """Returns cosine of angles for all atom triplets.
