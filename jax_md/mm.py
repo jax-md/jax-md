@@ -47,6 +47,7 @@ NeighborListFormat = partition.NeighborListFormat
 
 
 # MM Parameter Trees
+# NOTE(dominicrufa): standardize naming convention
 
 
 class HarmonicBondParameters(NamedTuple):
@@ -90,14 +91,24 @@ class PeriodicTorsionParameters(NamedTuple):
   periodicity: Array
   phase: Array
 
-class NonbondedParameters(NamedTuple):
-  """A tuple containing parameter information for `NonbondedEnergyFn`.
+class StandardNonbondedParameters(NamedTuple):
+  """A tuple containing parameter information for `StandardNonbondedEnergyFn`.
 
   Attributes:
     charge : charge in e on each particle. An ndarray of floats with shape `[n_particles,]`
     sigma : lennard_jones sigma term in nm. An ndarray of floats with shape `[n_particles,]`
     epsilon : lennard_jones epsilon in kJ/mol. An ndarray of floats with shape `[n_particles,]`
-    nonbonded_exception_pairs : pairs of particle exception indices. An ndarray
+  """
+  charge: Array
+  sigma: Array
+  epsilon: Array
+
+
+class ExceptionNonbondedParameters(NamedTuple):
+  """A tuple containing parameter information for `ExceptionNonbondedEnergyFn`.
+
+  Attributes:
+    nonbonded_exception_pair : pairs of particle exception indices. An ndarray
       of floats with shape `[n_exceptions,]`
     nonbonded_exception_chargeProd : chargeprod in e**2 on each exception.
       An ndarray of floats with shape `[n_exceptions,]`
@@ -106,23 +117,48 @@ class NonbondedParameters(NamedTuple):
     nonbonded_exception_epsilon : exception epsilon in kJ/mol on each exception.
       An ndarray of floats with shape `[n_exceptions,]`
   """
+  nonbonded_exception_chargeProd: Array
+  nonbonded_exception_sigma: Array
+  nonbonded_exception_epsilon: Array
 
+class NonbondedParameters(NamedTuple):
+    """A tuple containing parameter information for each `_NonbondedParameters` NamedTuple which the `NonbondedEnergyFn` can query
+    """
+    standard_nonbonded_parameters : NamedTuple
+    exception_nonbonded_parameters: NamedTuple
+
+
+
+class MMEnergyFnParameters(NamedTuple):
+  """A tuple containing parameter information for each `Parameters` NamedTuple which each `EnergyFn` can query
+
+  Attributes:
+    harmonic_bond_parameters : HarmonicBondParameters
+    harmonic_angle_parameters : HarmonicAngleParameters
+    periodic_torsion_parameters : PeriodicTorsionParameters
+    nonbonded_parameters : NonbondedParameters
+  """
+  harmonic_bond_parameters: NamedTuple
+  harmonic_angle_parameters: NamedTuple
+  periodic_torsion_parameters: NamedTuple
+  nonbonded_parameters: NamedTuple
 
 
 # Valence Energy Functions
 
 
 def HarmonicBondEnergyFn(R: Array,
-                         parameter_tree: PyTree,
+                         parameter_tree: HarmonicBondParameters,
                          perturbation: Array,
                          metric_fn: MetricFn) -> Array:
+
     r1, r2 = R[parameter_tree.particles]
     dr = metric_fn(r1, r2, perturbation = perturbation)
     return energy.simple_spring(dr = dr, length = parameter_tree.r0,
                                 epsilon = parameter_tree.k, alpha = 2)
 
 def HarmonicAngleEnergyFn(R: Array,
-                          parameter_tree: PyTree,
+                          parameter_tree: HarmonicAngleParameters,
                           perturbation: Array,
                           displacement_fn: DisplacementFn) -> Array:
   # NOTE(dominicrufa): check that this computing the right angle within omm tolerance
@@ -134,7 +170,7 @@ def HarmonicAngleEnergyFn(R: Array,
                          epsilon = parameter_tree.k, alpha=2)
 
 def PeriodicTorsionEnergyFn(R: Array,
-                            parameter_tree: PyTree,
+                            parameter_tree: PeriodicTorsionParameters,
                             perturbation: Array,
                             displacement_fn: DisplacementFn) -> Array:
   r1, r2, r3, r4 = R[parameter_tree.particles]
@@ -149,17 +185,52 @@ def PeriodicTorsionEnergyFn(R: Array,
 
 
 # Nonbonded Energy Functions
-def NonbondedForce(R : Array,
+
+
+def NonbondedStandardEnergyFn(R : Array,
                    neighbor_list_idx : Array,
-                   parameter_tree: PyTree,
-                   metric_fn : MetricFn,
+                   parameter_tree: StandardNonbondedParameters,
+                   perturbation: Array,
                    charge_mixing_fn : Optional[Callable[[Array, Array], Array]]=lambda q1, q2: q1*q2,
                    sigma_mixiing_fn : Optional[Callable[[Array, Array], Array]]=lambda sig1, sig2: (sig1+sig2)/2,
                    epsilon_mixing_fn: Optional[Callable[[Array, Array], Array]]=lambda eps1, eps2: jnp.sqrt(eps1*eps2),
-                   **nonbonded_kwargs,
+                   **unused_kwargs,
                    ) -> Array:
-  """ 'standard' nonbondedForce that takes a masked neighbor list idx, computes the neighbor distance_sq matrix,
-      and computes lennard-jones and electrostatic interactions
+  """'standard' nonbonded function that takes a masked neighbor list idx to compute non-exception pairwise interactions;
+     this is the only `EnergyFn` that is implicitly vmapped.
   """
+  # NOTE(dominicrufa): we need to partial out more vectorizable functions based on which kind of nonbonded implementation we are using;
+  # e.g. rxn field, pme, lj w/ dispersion, etc
 
- def NonbondedExceptionForce(R: )
+def NonbondedExceptionEnergyFn(R: Array,
+                               parameter_tree: ExceptionNonbondedParameters,
+                               perturbation: Array,
+                               metric_fn: MetricFn,
+                              **unused_kwargs,
+                               ):
+  """ vmappable 'exception' nonbonded function that takes a precomputed dr_array of shape `[n_exceptions, 2]` and computes a total energy of
+  pairwise coulombic and lennard_jones interactions"""
+  # NOTE(dominicrufa): the "canonical" way of handling these is with vacuum electrostatics and lj terms sans cutoff or any other modifications
+  # NOTE(dominicrufa): have to modify energy.dsf_coulomb for proper units.
+  r1, r2 = R[parameter_tree.nonbonded_exception_pair]
+  dr = metric_fn(r1, r2, perturbation)
+  lj_term = energy.lennard_jones(dr = dr, sigma = parameter_tree.nonbonded_exception_sigma, epsilon = parameter_tree.nonbonded_exception_epsilon)
+
+
+def NonbondedEnergyFn(R: Array,
+                      neighbor_list_idx : Array,
+                      parameter_tree: NonbondedParameters,
+                      perturbation: Array,
+                      metric_fn: MetricFn,
+                      **kwargs):
+  """ 'complete' canonical nonbonded mixing function
+  """
+  exception_energies = util.high_precision_sum(
+                                               vmap(NonbondedExceptionEnergyFn, in_axes=(None,0,None))(R,
+                                                                                                       parameter_tree.exception_nonbonded_parameters,
+                                                                                                       vmap(metric_fn, in_axes=(0,0,None)))
+                                              )
+  standard_energies = util.high_precision_sum() # standard nonbonded here
+  return exception_energies + standard_energies
+
+  # Aggregate All Energy Functions for full MM-type energy fn.
