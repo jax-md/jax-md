@@ -44,6 +44,7 @@ DisplacementOrMetricFn = space.DisplacementOrMetricFn
 NeighborFn = partition.NeighborFn
 NeighborList = partition.NeighborList
 NeighborListFormat = partition.NeighborListFormat
+MaskFn = Callable[[Array], Array]
 
 
 # MM Parameter Trees
@@ -117,6 +118,7 @@ class ExceptionNonbondedParameters(NamedTuple):
     nonbonded_exception_epsilon : exception epsilon in kJ/mol on each exception.
       An ndarray of floats with shape `[n_exceptions,]`
   """
+  nonbonded_exception_pair: Array
   nonbonded_exception_chargeProd: Array
   nonbonded_exception_sigma: Array
   nonbonded_exception_epsilon: Array
@@ -144,39 +146,91 @@ class MMEnergyFnParameters(NamedTuple):
   nonbonded_parameters: NamedTuple
 
 
+
+# EnergyFn utilities
+
+def box_handler_displacement_or_metric(r1: Array,
+                                       r2: Array,
+                                       displacement_or_metric_fn : DisplacementOrMetricFn,
+                                       **kwargs) -> Array:
+  """handler for generalized displacement_or_metric_fn"""
+  # NOTE(dominicrufa): there should be a smarter way to handle `free`, `periodic`, and `periodic_general` `DisplacementOrMetricFn`s;
+  # now need to convert the canonical energy fns.
+  return jax.lax.cond('box' in kwargs, lambda _r1, _r2: displacement_or_metric_fn(_r1, _r2, **kwargs), lambda _r1, _r2: displacement_or_metric_fn(_r1, _r2), r1, r2)
+
+def get_exception_match(idx : Array, pair_exception : Array):
+  """simple utility to return the exception match of a target `idx` from an exception pair;
+     if the `pair_exception` doesn't contain the idx, return -1"""
+  are_matches_bool = jnp.where(pair_exception == idx, True, False)
+  non_matches = jnp.argwhere(idx != pair_exception, size=1)
+  exception_idx = jax.lax.cond(jnp.any(are_matches_bool), lambda _x: pair_exception[_x[0]], lambda _x: _x[0]-1, non_matches)
+  return exception_idx
+
+def query_idx_in_pair_exceptions(indices, pair_exceptions):
+    """query the pair exceptions via vmapping and generate a padded [n_particles, max_exceptions] of exceptions corresponding to the leading axis idx;
+       the output is used as the querying array for the `custom_mask_function` of the `neighbor_list`"""
+  all_exceptions = vmap(vmap(get_exception_match, in_axes=(None, 0)), in_axes=(0,None))(indices, pair_exceptions).squeeze()
+  all_exceptions_list = onp.array(all_exceptions).tolist()
+  unique_exceptions = [set(_entry).difference({-1}) for _entry in all_exceptions_list]
+  max_unique_exceptions = max([len(_entry) for _entry in unique_exceptions])
+  safe_padded_exceptions = [list(_entry) + [-1]*(max_unique_exceptions - len(_entry)) for _entry in unique_exceptions]
+  return jnp.array(safe_padded_exceptions)
+
+def acceptable_id_pair(id1, id2, exception_array):
+    """the index pair is acceptable if the id1-th entry of the `pair_lookup_array` does not contain any matches with the query idx id2"""
+  return jnp.all(pair_lookup_array[id1] != id2)
+
+def nonbonded_exception_mask_fn(n_particles, padded_exception_array) -> MaskFn:
+  """generate a `MaskFn` custom mask function for the `neighbor_list` that omits entries in the `neighbor_list` which appear in the `padded_exception_array`.
+     This makes the masking complexity O(max_exceptions_per_particle).
+  """
+  # NOTE(dominicrufa): need to benchmark this against a more naive strategy? use `Sparse` neighborlist and remove matches to exception array?
+  def mask_id_based(idx, ids, mask_val, _acceptable_id_pair):
+    # NOTE(dominicrufa): this is taken from the test for `custom_mapping_function`. since we are using it again, maybe we can abstract it a bit to avoid duplication
+    @partial(vmap, in_axes=(0,0,None))
+    def acceptable_id_pair(idx, id1, ids):
+      id2 = ids.at[idx].get()
+      return vmap(_acceptable_id_pair, in_axes=(None,0))(id1, id2)
+    mask=acceptable_id_pair(idx, ids, ids)
+    return jnp.where(mask, idx, mask_val)
+  ids = jnp.arange(n_particles)
+  mask_val = n_particles
+  custom_mask_function = partial(mask_id_based, ids=ids, mask_val=mask_val, _acceptable_id_pair=partial(acceptable_id_pair, exception_array=padded_exception_array))
+
+
 # Valence Energy Functions
 
 
 def HarmonicBondEnergyFn(R: Array,
                          parameter_tree: HarmonicBondParameters,
-                         perturbation: Array,
+                         box: Array,
                          metric_fn: MetricFn) -> Array:
 
     r1, r2 = R[parameter_tree.particles]
-    dr = metric_fn(r1, r2, perturbation = perturbation)
+    dr = metric_fn(r1, r2, box = box)
     return energy.simple_spring(dr = dr, length = parameter_tree.r0,
                                 epsilon = parameter_tree.k, alpha = 2)
 
 def HarmonicAngleEnergyFn(R: Array,
                           parameter_tree: HarmonicAngleParameters,
-                          perturbation: Array,
+                          box: Array,
                           displacement_fn: DisplacementFn) -> Array:
   # NOTE(dominicrufa): check that this computing the right angle within omm tolerance
   r1, r2, r3 = R[parameter_tree.particles]
-  dR_12 = displacement_fn(r1, r2, perturbation)
-  dR_32 = displacement_fn(r3, r2, perturbation)
+  dR_12 = displacement_fn(r1, r2, box)
+  dR_32 = displacement_fn(r3, r2, box)
   return simple_spring(dr = jnp.arccos(cosine_angle_between_two_vectors(dR_12, dR_32)),
                          length = parameter_tree.theta0,
                          epsilon = parameter_tree.k, alpha=2)
 
 def PeriodicTorsionEnergyFn(R: Array,
                             parameter_tree: PeriodicTorsionParameters,
-                            perturbation: Array,
+                            box: Array,
                             displacement_fn: DisplacementFn) -> Array:
   r1, r2, r3, r4 = R[parameter_tree.particles]
-  dR_12 = displacement_fn(r2, r1, perturbation=perturbation)
-  dR_32 = displacement_fn(r2, r3, perturbation=perturbation)
-  dR_34 = displacement_fn(r4, r3, perturbation=perturbation)
+  dR_12 = displacement_fn(r2, r1, box=box)
+  dR_32 = displacement_fn(r2, r3, box=box)
+  dR_34 = displacement_fn(r4, r3, box=box)
   torsion_angle = angle_between_two_half_planes(dR_12, dR_32, dR_34)
   return energy.periodic_torsion(torsion_angle = torsion_angle,
                                  amplitude = parameter_tree.k,
@@ -190,7 +244,7 @@ def PeriodicTorsionEnergyFn(R: Array,
 def NonbondedStandardEnergyFn(R : Array,
                    neighbor_list_idx : Array,
                    parameter_tree: StandardNonbondedParameters,
-                   perturbation: Array,
+                   box: Array,
                    charge_mixing_fn : Optional[Callable[[Array, Array], Array]]=lambda q1, q2: q1*q2,
                    sigma_mixiing_fn : Optional[Callable[[Array, Array], Array]]=lambda sig1, sig2: (sig1+sig2)/2,
                    epsilon_mixing_fn: Optional[Callable[[Array, Array], Array]]=lambda eps1, eps2: jnp.sqrt(eps1*eps2),
@@ -204,25 +258,27 @@ def NonbondedStandardEnergyFn(R : Array,
 
 def NonbondedExceptionEnergyFn(R: Array,
                                parameter_tree: ExceptionNonbondedParameters,
-                               perturbation: Array,
+                               box: Array,
                                metric_fn: MetricFn,
                               **unused_kwargs,
-                               ):
+                               ) -> Array:
   """ vmappable 'exception' nonbonded function that takes a precomputed dr_array of shape `[n_exceptions, 2]` and computes a total energy of
   pairwise coulombic and lennard_jones interactions"""
   # NOTE(dominicrufa): the "canonical" way of handling these is with vacuum electrostatics and lj terms sans cutoff or any other modifications
   # NOTE(dominicrufa): have to modify energy.dsf_coulomb for proper units.
+  # NOTE(dominicrufa): have to
   r1, r2 = R[parameter_tree.nonbonded_exception_pair]
-  dr = metric_fn(r1, r2, perturbation)
+  dr = metric_fn(r1, r2, box)
   lj_term = energy.lennard_jones(dr = dr, sigma = parameter_tree.nonbonded_exception_sigma, epsilon = parameter_tree.nonbonded_exception_epsilon)
+  return
 
 
 def NonbondedEnergyFn(R: Array,
                       neighbor_list_idx : Array,
                       parameter_tree: NonbondedParameters,
-                      perturbation: Array,
+                      box: Array,
                       metric_fn: MetricFn,
-                      **kwargs):
+                      **kwargs) -> Array:
   """ 'complete' canonical nonbonded mixing function
   """
   exception_energies = util.high_precision_sum(
@@ -234,3 +290,13 @@ def NonbondedEnergyFn(R: Array,
   return exception_energies + standard_energies
 
   # Aggregate All Energy Functions for full MM-type energy fn.
+
+
+def exception_mask_fn(nonbonded_exception_pairs: Array) -> MaskFn:
+  """create a `MaskFn` for the `NonbondedStandardEnergyFn` that will remove particle pair exceptions with a mask
+  """
+
+
+
+
+  def mm_energy_fn()
