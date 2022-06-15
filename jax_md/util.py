@@ -86,3 +86,6 @@ def maybe_downcast(x):
 
 def is_array(x: Any) -> bool:
   return isinstance(x, (jnp.ndarray, onp.ndarray))
+
+def is_dict(x: Any) -> bool:
+  return isinstance(x, type({'a': 1}))

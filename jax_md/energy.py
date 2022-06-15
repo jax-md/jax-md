@@ -453,21 +453,25 @@ def gupta_gold55(displacement,
 
 def multiplicative_isotropic_cutoff(fn: Callable[..., Array],
                                     r_onset: float,
-                                    r_cutoff: float) -> Callable[..., Array]:
+                                    r_cutoff: float,
+                                    implementation: Optional[str] = 'HOOMD') -> Callable[..., Array]:
   """Takes an isotropic function and constructs a truncated function.
 
   Given a function `f:R -> R`, we construct a new function `f':R -> R` such that
   `f'(r) = f(r)` for `r < r_onset`, `f'(r) = 0` for `r > r_cutoff`, and `f(r)` is :math:`C^1`
-  everywhere. To do this, we follow the approach outlined in HOOMD Blue  [#hoomd]_
+  for `implementation=HOOMD` and :math:`C^2` for `implementation=OpenMM`.
+  By default, we follow the approach outlined in HOOMD Blue  [#hoomd]_
   (thanks to Carl Goodrich for the pointer). We construct a function `S(r)` such
   that `S(r) = 1` for `r < r_onset`, `S(r) = 0` for `r > r_cutoff`, and `S(r)` is :math:`C^1`.
-  Then `f'(r) = S(r)f(r)`.
+  Then `f'(r) = S(r)f(r)`. The non-default implemementation is outlined in OpenMM
+  [#openmm]_
 
   Args:
     fn: A function that takes an ndarray of distances of shape `[n, m]` as well
       as varargs.
     r_onset: A float specifying the distance marking the onset of deformation.
     r_cutoff: A float specifying the cutoff distance.
+    implementation: A string denoting whether to use 'HOOMD' or `OpenMM`
 
   Returns:
     A new function with the same signature as fn, with the properties outlined
@@ -476,18 +480,33 @@ def multiplicative_isotropic_cutoff(fn: Callable[..., Array],
   .. rubric:: References
   .. [#hoomd] HOOMD Blue documentation. Accessed on 05/31/2019.
       https://hoomd-blue.readthedocs.io/en/stable/module-md-pair.html#hoomd.md.pair.pair
+  .. [#openmm] OpenMM documentation. Accessed on 06/15/2021.
+      http://docs.openmm.org/latest/userguide/theory/02_standard_forces.html#lennard-jones-interaction
   """
+  assert implementation in ['HOOMD', 'OpenMM']
 
   r_c = r_cutoff ** f32(2)
   r_o = r_onset ** f32(2)
 
+  if implementation == 'HOOMD':
+      def inner_fn(dr):
+        r = dr ** f32(2)
+        inner = jnp.where(dr < r_cutoff,
+                         (r_c - r)**2 * (r_c + 2 * r - 3 * r_o) / (r_c - r_o)**3,
+                         0)
+        return inner
+  elif implementation == 'OpenMM':
+      def inner_fn(dr):
+        x = (dr - r_o) / (r_c - r_o)
+        inner = jnp.where(dr < r_cutoff,
+                       f32(1) - f32(6) * x**5 + f32(15) * x**4 - f32(10) * x**3,
+                       0)
+        return inner
+  else
+    raise NotImplementedError
+
   def smooth_fn(dr):
-    r = dr ** f32(2)
-
-    inner = jnp.where(dr < r_cutoff,
-                     (r_c - r)**2 * (r_c + 2 * r - 3 * r_o) / (r_c - r_o)**3,
-                     0)
-
+    inner = inner_fn(dr)
     return jnp.where(dr < r_onset, 1, inner)
 
   @wraps(fn)

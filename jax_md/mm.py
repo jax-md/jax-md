@@ -48,7 +48,12 @@ MaskFn = Callable[[Array], Array]
 
 
 # MM Parameter Trees
-# NOTE(dominicrufa): standardize naming convention
+
+
+# NOTE(dominicrufa): standardize naming convention; we typically use `OpenMM` force definitions, but this need not be the case
+CANONICAL_MM_FORCENAMES = ['HarmonicBondForce', 'HarmonicAngleForce', 'PeriodicTorsionForce', 'NonbondedForce']
+CANONICAL_MM_BONDFORCENAMES = ['HarmonicBondForce', 'HarmonicAngleForce', 'PeriodicTorsionForce']
+
 
 
 class HarmonicBondParameters(NamedTuple):
@@ -149,14 +154,26 @@ class MMEnergyFnParameters(NamedTuple):
 
 # EnergyFn utilities
 
-def box_handler_displacement_or_metric(r1: Array,
-                                       r2: Array,
-                                       displacement_or_metric_fn : DisplacementOrMetricFn,
-                                       **kwargs) -> Array:
-  """handler for generalized displacement_or_metric_fn"""
-  # NOTE(dominicrufa): there should be a smarter way to handle `free`, `periodic`, and `periodic_general` `DisplacementOrMetricFn`s;
-  # now need to convert the canonical energy fns.
-  return jax.lax.cond('box' in kwargs, lambda _r1, _r2: displacement_or_metric_fn(_r1, _r2, **kwargs), lambda _r1, _r2: displacement_or_metric_fn(_r1, _r2), r1, r2)
+
+def get_bond_geometry_handler_fns(displacement_fn: DisplacementFn,**kwargs) -> Dict[str, Callable]:
+  """each of the CANONICAL_MM_BONDFORCENAMES has a different `geometry_handler_fn` for `smap.bond`;
+  return a dict that
+     "HarmonicBondForce" is defaulted, so we can omit this
+  """
+  def angle_handler_fn(R: Array, bonds: Array, **_dynamic_kwargs):
+    r1s, r2s, r3s = [R[bonds[:,i]] for i in range(3)]
+    d = vmap(partial(displacement_fn, **_dynamic_kwargs), 0, 0)
+    r21s, r23s = d(r1s, r2s), d(r3s, r2s)
+    return = (vmap(lambda _r1, _r2: jnp.arccos(cosine_angle_between_two_vectors(_r1, _r2)), 0, 0)(r21s, r23s),)
+
+  def torsion_handler_fn(R: Array, bonds: Array, **_dynamic_kwargs):
+    r1s, r2s, r3s, r4s = [R[bonds[:,i] for i in range(4)]
+    d = vmap(partial(displacement_fn, **_dynamic_kwargs), 0, 0)
+    dR_12s, dR_32s, dR_34s = d(r2s, r1s), d(r2s, r3s), d(r4s, r3s)
+    return  = (vmap(angle_between_two_half_planes, 0, 0, 0)(dR_12, dR_32, dR_34),)
+
+  return {'HarmonicBondForce': None, 'HarmonicAngleForce': angle_handler_fn, 'PeriodicTorsionForce': torsion_handler_fn}
+
 
 def get_exception_match(idx : Array, pair_exception : Array):
   """simple utility to return the exception match of a target `idx` from an exception pair;
@@ -167,8 +184,8 @@ def get_exception_match(idx : Array, pair_exception : Array):
   return exception_idx
 
 def query_idx_in_pair_exceptions(indices, pair_exceptions):
-    """query the pair exceptions via vmapping and generate a padded [n_particles, max_exceptions] of exceptions corresponding to the leading axis idx;
-       the output is used as the querying array for the `custom_mask_function` of the `neighbor_list`"""
+  """query the pair exceptions via vmapping and generate a padded [n_particles, max_exceptions] of exceptions corresponding to the leading axis idx;
+     the output is used as the querying array for the `custom_mask_function` of the `neighbor_list`"""
   all_exceptions = vmap(vmap(get_exception_match, in_axes=(None, 0)), in_axes=(0,None))(indices, pair_exceptions).squeeze()
   all_exceptions_list = onp.array(all_exceptions).tolist()
   unique_exceptions = [set(_entry).difference({-1}) for _entry in all_exceptions_list]
@@ -177,7 +194,7 @@ def query_idx_in_pair_exceptions(indices, pair_exceptions):
   return jnp.array(safe_padded_exceptions)
 
 def acceptable_id_pair(id1, id2, exception_array):
-    """the index pair is acceptable if the id1-th entry of the `pair_lookup_array` does not contain any matches with the query idx id2"""
+  """the index pair is acceptable if the id1-th entry of the `pair_lookup_array` does not contain any matches with the query idx id2"""
   return jnp.all(pair_lookup_array[id1] != id2)
 
 def nonbonded_exception_mask_fn(n_particles, padded_exception_array) -> MaskFn:
@@ -200,14 +217,13 @@ def nonbonded_exception_mask_fn(n_particles, padded_exception_array) -> MaskFn:
 
 # Valence Energy Functions
 
-
 def HarmonicBondEnergyFn(R: Array,
-                         parameter_tree: HarmonicBondParameters,
-                         box: Array,
-                         metric_fn: MetricFn) -> Array:
+                         parameters : HarmonicBondParameters,
+                         metric_fn: MetricFn,
+                         **kwargs) -> Array:
 
     r1, r2 = R[parameter_tree.particles]
-    dr = metric_fn(r1, r2, box = box)
+    dr = metric_fn(r1, r2, **kwargs)
     return energy.simple_spring(dr = dr, length = parameter_tree.r0,
                                 epsilon = parameter_tree.k, alpha = 2)
 
@@ -295,8 +311,18 @@ def NonbondedEnergyFn(R: Array,
 def exception_mask_fn(nonbonded_exception_pairs: Array) -> MaskFn:
   """create a `MaskFn` for the `NonbondedStandardEnergyFn` that will remove particle pair exceptions with a mask
   """
+  pass
 
 
 
 
-  def mm_energy_fn()
+def get_final_energy_fn(displacement, **builder_kwargs):
+    # make with/without neighbor list # smap.pair_neighbor_list
+    # merge the dynamic kwargs
+    # https://github.com/google/jax-md/blob/8633cd5ce50ac13f3ebbcc99f4670cfcbed4841e/jax_md/energy.py#L228
+
+    def final_energy_fn(R, neighbor_list, displacement, **dynamic_kwargs):
+        ...
+        return energy
+
+    return partial(final_energy_fn, displacement = displacement)

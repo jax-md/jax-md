@@ -84,7 +84,7 @@ class ParameterTree:
       mapped functions, these parameters are processed according to the
       mapping.
     mapping: A ParameterTreeMapping object that specifies how the parameters
-      are processed. 
+      are processed.
   """
   tree: PyTree
   mapping: ParameterTreeMapping = dataclasses.static_field()
@@ -96,11 +96,12 @@ Parameter = Union[ParameterTree, Array, float]
 # Mapping potential functional forms to bonds.
 
 
-def _get_bond_type_parameters(params: Array, bond_type: Array) -> Array:
+def _get_bond_type_parameters(params: Array, bond_type: Union[Array, Dict[str,Array]]], key: Any) -> Array:
   """Get parameters for interactions for bonds indexed by a bond-type."""
   # TODO(schsam): We should do better error checking here.
-  assert util.is_array(bond_type)
-  assert len(bond_type.shape) == 1
+  assert util.is_array(bond_type) or util.is_dict(bond_type)
+  if util.is_array(bond_type):
+      assert len(bond_type.shape) == 1
 
   if util.is_array(params):
     if len(params.shape) == 1:
@@ -113,7 +114,7 @@ def _get_bond_type_parameters(params: Array, bond_type: Array) -> Array:
   elif isinstance(params, ParameterTree):
     if params.mapping is ParameterTreeMapping.Global:
       return params.tree
-    elif params.mapping is ParameterTreMapping.PerBond:
+    elif params.mapping is ParameterTreeMapping.PerBond:
       return tree_map(lambda p: p[bond_type], params.tree)
     else:
       raise ValueError('ParameterTreeMapping must be either Global or PerBond'
@@ -123,26 +124,33 @@ def _get_bond_type_parameters(params: Array, bond_type: Array) -> Array:
        jnp.issubdtype(params, jnp.integer) or
        jnp.issubdtype(params, jnp.floating)):
     return params
+  elif params is None: # if the params is None, then the structure must be given by the bond_type
+    assert util.is_dict(bond_type)
+    out = bond_type[key]
+    assert util.is_array(out) and len(out.shape) == 1
+    return out
   raise NotImplementedError
 
 
-def _kwargs_to_bond_parameters(bond_type: Array,
+def _kwargs_to_bond_parameters(bond_type: Union[Array, Dict[str,Array]],
                                kwargs: Dict[str, Array]) -> Dict[str, Array]:
   """Extract parameters from keyword arguments."""
   # NOTE(schsam): We could pull out the species case from the generic case.
   for k, v in kwargs.items():
     if bond_type is not None:
-      kwargs[k] = _get_bond_type_parameters(v, bond_type)
+      kwargs[k] = _get_bond_type_parameters(v, bond_type, k)
   return kwargs
 
 
 def bond(fn: Callable[..., Array],
          displacement_or_metric: DisplacementOrMetricFn,
+         geometry_handler_fn: Optional[Callable[..., Tuple(Array)]]=None,
          static_bonds: Optional[Array]=None,
-         static_bond_types: Optional[Array]=None,
+         static_bond_types: Optional[Union[Array, Dict[str,Array]]]=None,
          ignore_unused_parameters: bool=False,
          **kwargs) -> Callable[..., Array]:
-  """Promotes a function that acts on a single pair to one on a set of bonds.
+  """Promotes a function that acts on a single tuple to one on a set of bonds.
+  This is a generalization to the previous `bond` fn since it
 
   TODO(schsam): It seems like bonds might potentially have poor memory access.
   Should think about this a bit and potentially optimize.
@@ -157,11 +165,16 @@ def bond(fn: Callable[..., Array],
       an ndarray of distances or displacements of shape `[]` or `[d_in]`
       respectively. The metric can optionally take a floating point time as a
       third argument.
+    geometry_handler_fn: A function that takes an ndarray of positions of shape `[n,d_in]`
+      and returns the first *args that are input to the `fn`. This fn should also handle
+      **dynamic_kwargs passed to the `metric` fn. If None, proceed with default behavior
+      of the `dr` array being passed to `fn`.
     static_bonds: An ndarray of integer pairs wth shape `[b, 2]` where each
       pair specifies a bond. `static_bonds` are baked into the returned compute
       function statically and cannot be changed after the fact.
-    static_bond_types: An ndarray of integers of shape `[b]` specifying the
-      type of each bond. Only specify bond types if you want to specify bond
+    static_bond_types: Either an ndarray of integers of shape `[b]` specifying the
+      type of each bond or a Dict of [str, Array], where the str denotes the kwarg name of each `fn` parameter
+      and Array is it's value at that bond. Only specify bond types if you want to specify bond
       parameters by type. One can also specify constant or per-bond parameters
       (see below).
     ignore_unused_parameters: A boolean that denotes whether dynamically
@@ -197,19 +210,24 @@ def bond(fn: Callable[..., Array],
   merge_dicts = partial(util.merge_dicts,
                         ignore_unused_parameters=ignore_unused_parameters)
 
+  if geometry_handler_fn is None:
+      def _geometry_handler_fn(R: Array, bonds: Array, **_dynamic_kwargs):
+          Ra, Rb = R[bonds[:, 0]], R[bonds[:, 1]]
+          # NOTE(schsam): This pattern is needed due to JAX issue #912.
+          d = vmap(partial(displacement_or_metric, **_dynamic_kwargs), 0, 0)
+          dr = d(Ra, Rb)
+          return (dr,)
+      geometry_handler_fn = _geometry_handler_fn
+
   def compute_fn(R, bonds, bond_types, static_kwargs, dynamic_kwargs):
-    Ra = R[bonds[:, 0]]
-    Rb = R[bonds[:, 1]]
     _kwargs = merge_dicts(static_kwargs, dynamic_kwargs)
     _kwargs = _kwargs_to_bond_parameters(bond_types, _kwargs)
-    # NOTE(schsam): This pattern is needed due to JAX issue #912.
-    d = vmap(partial(displacement_or_metric, **dynamic_kwargs), 0, 0)
-    dr = d(Ra, Rb)
-    return high_precision_sum(fn(dr, **_kwargs))
+    _args = geometry_handler_fn(R, bonds, **dynamic_kwargs)
+    return high_precision_sum(fn(*_args, **_kwargs))
 
   def mapped_fn(R: Array,
                 bonds: Optional[Array]=None,
-                bond_types: Optional[Array]=None,
+                bond_types: Optional[Union[Array, Dict[str,Array]]]=None,
                 **dynamic_kwargs) -> Array:
     accum = f32(0)
 
