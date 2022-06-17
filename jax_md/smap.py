@@ -105,7 +105,10 @@ def _get_bond_type_parameters(params: Array, bond_type: Union[Array, Dict[str,Ar
 
   if util.is_array(params):
     if len(params.shape) == 1:
-      return params[bond_type]
+      if util.is_array(bond_type):
+        return params[bond_type]
+      elif util.is_dict(bond_type):
+        raise NotImplementedError('Params as Array and bond_type as Dict is not supported.')
     elif len(params.shape) == 0:
       return params
     else:
@@ -144,7 +147,7 @@ def _kwargs_to_bond_parameters(bond_type: Union[Array, Dict[str,Array]],
 
 def bond(fn: Callable[..., Array],
          displacement_or_metric: DisplacementOrMetricFn,
-         geometry_handler_fn: Optional[Callable[..., Tuple(Array)]]=None,
+         geometry_handler_fn: Optional[Callable[..., Tuple[Array]]]=None,
          static_bonds: Optional[Array]=None,
          static_bond_types: Optional[Union[Array, Dict[str,Array]]]=None,
          ignore_unused_parameters: bool=False,
