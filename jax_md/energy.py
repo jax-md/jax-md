@@ -64,7 +64,8 @@ def simple_spring(dr: Array,
 def periodic_torsion(torsion_angle: Array,
                      amplitude : Array,
                      periodicity : Array,
-                     phase : Array) -> Array:
+                     phase : Array,
+                     **unused_kwargs) -> Array:
   """cosine potential with a given amplitude, periodicity, and phase offset"""
   # NOTE(dominicrufa): rename this with omm convention?
   return amplitude * (1. + jnp.cos(periodicity * torsion_angle - phase))
@@ -515,6 +516,15 @@ def multiplicative_isotropic_cutoff(fn: Callable[..., Array],
 
   return cutoff_fn
 
+def coulomb(r: Array,
+            Q_sq: Array,
+            qqr2e : Optional[Array]=138.93545764438198,
+            **unused_kwargs) -> Array:
+  """vacuum coulombic interaction;
+  qqr2e is OpenMM constant for Coulomb interactions in OpenMM units;
+  (see openmm/platforms/reference/include/SimTKOpenMMRealType.h)
+  """
+  return jnp.nan_to_num(qqr2e * Q_sq / r)
 
 def dsf_coulomb(r: Array,
                 Q_sq: Array,
