@@ -57,12 +57,12 @@ class HarmonicBondParameters(NamedTuple):
   Attributes:
     particles: The particle index tuples. An ndarray of floats with
       shape `[n_bonds, 2]`.
-    k: spring constant in kJ/(mol * nm**2). An ndarray of floats with shape `[n_bonds,]`
-    r0 : spring equilibrium lengths in nm. an ndarray of floats with shape `[nbonds,]`
+    epsilon: spring constant in kJ/(mol * nm**2). An ndarray of floats with shape `[n_bonds,]`
+    length : spring equilibrium lengths in nm. an ndarray of floats with shape `[nbonds,]`
   """
   particles: Optional[Array] = None
-  k: Optional[Array] = None
-  r0: Optional[Array] = None
+  epsilon: Optional[Array] = None
+  length: Optional[Array] = None
 
 class HarmonicAngleParameters(NamedTuple):
   """A tuple containing parameter information for `HarmonicAngleEnergyFn`.
@@ -70,12 +70,12 @@ class HarmonicAngleParameters(NamedTuple):
   Attributes:
     particles: The particle index tuples. An ndarray of floats with
       shape `[n_angles, 3]`.
-    k: spring constant in kJ/(mol * deg**2). An ndarray of floats with shape `[n_angles,]`
-    theta0 : spring equilibrium lengths in deg. an ndarray of floats with shape `[n_angles,]`
+    epsilon: spring constant in kJ/(mol * deg**2). An ndarray of floats with shape `[n_angles,]`
+    length: spring equilibrium lengths in deg. an ndarray of floats with shape `[n_angles,]`
   """
   particles: Optional[Array] = None
-  k: Optional[Array] = None
-  theta0: Optional[Array] = None
+  epsilon: Optional[Array] = None
+  length: Optional[Array] = None
 
 class PeriodicTorsionParameters(NamedTuple):
   """A tuple containing parameter information for `PeriodicTorsionEnergyFn`.
@@ -83,12 +83,12 @@ class PeriodicTorsionParameters(NamedTuple):
   Attributes:
     particles: The particle index tuples. An ndarray of floats with
       shape `[n_torsions, 4]`.
-    k: amplitude in kJ/(mol). An ndarray of floats with shape `[n_torsions,]`
+    amplitude: amplitude in kJ/(mol). An ndarray of floats with shape `[n_torsions,]`
     periodicity: periodicity of angle (unitless). An ndarray of floats with shape `[n_torsions,]`
     phase : angle phase shift in deg. an ndarray of floats with shape `[n_torsions,]`
   """
   particles: Optional[Array] = None
-  k: Optional[Array] = None
+  amplitude: Optional[Array] = None
   periodicity: Optional[Array] = None
   phase: Optional[Array] = None
 
@@ -96,19 +96,19 @@ class NonbondedExceptionParameters(NamedTuple):
   """A tuple containing parameter information for `NonbondedExceptionEnergyFn`.
 
   Attributes:
-    nonbonded_exception_pair : pairs of particle exception indices. An ndarray
+    particles : pairs of particle exception indices. An ndarray
       of floats with shape `[n_exceptions,]`
-    nonbonded_exception_chargeProd : chargeprod in e**2 on each exception.
+    Q_sq : chargeprod in e**2 on each exception.
       An ndarray of floats with shape `[n_exceptions,]`
-    nonbonded_exception_sigma : exception sigma in nm on each exception.
+    sigma : exception sigma in nm on each exception.
       An ndarray of floats with shape `[n_exceptions,]`
-    nonbonded_exception_epsilon : exception epsilon in kJ/mol on each exception.
+    epsilon : exception epsilon in kJ/mol on each exception.
       An ndarray of floats with shape `[n_exceptions,]`
     """
-    nonbonded_exception_pair: Optional[Array] = None
-    nonbonded_exception_chargeProd: Optional[Array] = None
-    nonbonded_exception_sigma: Optional[Array] = None
-    nonbonded_exception_epsilon: Optional[Array] = None
+    particles: Optional[Array] = None
+    Q_sq: Optional[Array] = None
+    sigma: Optional[Array] = None
+    epsilon: Optional[Array] = None
 
 class NonbondedParameters(NamedTuple):
   """A tuple containing parameter information for `NonbondedForce`.
@@ -267,157 +267,62 @@ def check_parameters(parameter_tree : MMEnergyFnParameters) -> bool:
           parameter_lengths.append(entry.shape[0])
         assert all(x == parameter_lengths[0] for x in parameter_lengths), f"all entries of nonbonded force must be consistent shapes"
 
-def mm_energy_fn(displacement_fn : DisplacementFn,
-                 parameter_tree : MMEnergyFnParameters,
-                 **kwargs) -> Tuple[EnergyFn]:
-  """
-  """
-  geometry_handler_fns = get_bond_geometry_handler_fns(displacement_fn, **kwargs) # get geometry handlers dict
-  check_parameters(parameter_tree) # just make sure that parameters
 
-
-
-
-
-
-
-
-# Valence Energy Functions
+# Energy Functions
 
 
 def mm_energy_fn(displacement_fn : DisplacementFn,
-                 parameter_tree : ParameterTree,
+                 parameters : MMEnergyFnParameters,
                  space : Union[space.free, space.periodic, space.periodic_general] = space.periodic,
                  use_neighbor_list : Optional[bool] = True,
                  box_size: Optional[Box] = 1.,
-                 **kwargs,
+                 **neighbor_kwargs,
+                 **unused_kwargs,
                  ) -> EnergyFn:
   """
-  generator of a canonical molecular mechanics-like `EnergyFn` if
+  generator of a canonical molecular mechanics-like `EnergyFn`;
+
+  Args:
+    displacement_fn: A `DisplacementFn`.
+    parameters: An `MMEnergyFnParameters` containing all of the parameters of the model;
+      While these are dynamic, `mm_energy_fn` does effectively make some of these static, namely the `particles` parameter
+    space : A generalized `jax_md.space`
+    use_neighbor_list : whether to use a neighbor list for `NonbondedParameters`
+    box_size : size of box for `space.periodic` or `space.periodic_general`; omitted for `space.free`
+  Returns:
+    An `EnergyFn` taking positions R (an ndarray of shape [n_particles, 3]), parameters,
+      (optionally) a `NeighborList`, and optional kwargs
   """
-  check_support(space, use_neighbor_list, box_size, **kwargs)
+  check_support(space, use_neighbor_list, box_size)
 
   # bonded energy fns
-  bond_fns = get_bond_geometry_handler_fns(displacement_fn, **kwargs) # get geometry handlers dict
-  check_parameters(parameter_tree) # just make sure that parameters
-  for parameter_field in parameter_tree._fields:
-    
+  bond_fns = get_bond_geometry_handler_fns(displacement_fn) # get geometry handlers dict
+  check_parameters(parameters) # just make sure that parameters
+  bonded_energy_fns = {}
+  for parameter_field in parameters._fields:
+    if parameter_field in list(bond_fns.keys()): # then it is bonded
+      bond_kwargs = {_field: None  for _field in [q for q in getattr(parameters, parameter_field)._fields if q != 'particles']}
+      mapped_bonded_energy_fn = smap.bond(displacement_or_metric = displacement_fn,
+                                     **bond_fns[parameter_field], # `geometry_handler_fn` and `fn`
+                                     **bond_kwargs)
+      bonded_energy_fns[parameter_field] = mapped_bonded_energy_fn
+    elif parameter_field in [camel_to_snake(_entry) for _entry in CANONICAL_MM_NONBONDED_PARAMETER_NAMES]: # nonbonded
+      # implement
+      if use_neighbor_list:
+        pass
+      pass
 
+  def energy_fn(R: Array, parameters : Optional[ParameterTree] = parameters, **dynamic_kwargs) -> Array:
+    accum = f32(0)
 
-    bond(fn:,
-             displacement_or_metric: DisplacementOrMetricFn,
-             geometry_handler_fn: Optional[Callable[..., Tuple[Array]]]=None,
-             static_bonds: Optional[Array]=None,
-             static_bond_types: Optional[Union[Array, Dict[str,Array]]]=None,
-             ignore_unused_parameters: bool=False,
-             **kwargs)
+    # bonded
+    bonds = {_key: getattr(parameters, _key).particles for _key in parameters._fields if _key in [bond_fns.keys()]}
+    bond_types = {_key: {__key: getattr(getattr(parameters, _key), __key) for __key in [_field for _field in _key._fields if _field != 'particles']}
+                        for _key in parameters._fields if _key in [bond_fns.keys()]}
+    bonded_energies = jax.tree_util.tree_map(lambda _f, _bonds, _bond_types : _f(R, _bonds, _bond_types, **dynamic_kwargs),
+                                             bonded_energy_fns, (bonds, bond_types))
+    accum = accum + util.high_precision_sum(bonded_energies)
 
-
-
-
-
-
-    r1, r2 = R[parameter_tree.particles]
-    dr = metric_fn(r1, r2, **kwargs)
-    return energy.simple_spring(dr = dr, length = parameter_tree.r0,
-                                epsilon = parameter_tree.k, alpha = 2)
-
-def HarmonicAngleEnergyFn(R: Array,
-                          parameter_tree: HarmonicAngleParameters,
-                          box: Array,
-                          displacement_fn: DisplacementFn) -> Array:
-  # NOTE(dominicrufa): check that this computing the right angle within omm tolerance
-  r1, r2, r3 = R[parameter_tree.particles]
-  dR_12 = displacement_fn(r1, r2, box)
-  dR_32 = displacement_fn(r3, r2, box)
-  return simple_spring(dr = jnp.arccos(cosine_angle_between_two_vectors(dR_12, dR_32)),
-                         length = parameter_tree.theta0,
-                         epsilon = parameter_tree.k, alpha=2)
-
-def PeriodicTorsionEnergyFn(R: Array,
-                            parameter_tree: PeriodicTorsionParameters,
-                            box: Array,
-                            displacement_fn: DisplacementFn) -> Array:
-  r1, r2, r3, r4 = R[parameter_tree.particles]
-  dR_12 = displacement_fn(r2, r1, box=box)
-  dR_32 = displacement_fn(r2, r3, box=box)
-  dR_34 = displacement_fn(r4, r3, box=box)
-  torsion_angle = angle_between_two_half_planes(dR_12, dR_32, dR_34)
-  return energy.periodic_torsion(torsion_angle = torsion_angle,
-                                 amplitude = parameter_tree.k,
-                                 periodicity = parameter_tree.periodicity,
-                                 phase = parameter_tree.phase)
-
-
-# Nonbonded Energy Functions
-
-
-def NonbondedStandardEnergyFn(R : Array,
-                   neighbor_list_idx : Array,
-                   parameter_tree: StandardNonbondedParameters,
-                   box: Array,
-                   charge_mixing_fn : Optional[Callable[[Array, Array], Array]]=lambda q1, q2: q1*q2,
-                   sigma_mixiing_fn : Optional[Callable[[Array, Array], Array]]=lambda sig1, sig2: (sig1+sig2)/2,
-                   epsilon_mixing_fn: Optional[Callable[[Array, Array], Array]]=lambda eps1, eps2: jnp.sqrt(eps1*eps2),
-                   **unused_kwargs,
-                   ) -> Array:
-  """'standard' nonbonded function that takes a masked neighbor list idx to compute non-exception pairwise interactions;
-     this is the only `EnergyFn` that is implicitly vmapped.
-  """
-  # NOTE(dominicrufa): we need to partial out more vectorizable functions based on which kind of nonbonded implementation we are using;
-  # e.g. rxn field, pme, lj w/ dispersion, etc
-
-def NonbondedExceptionEnergyFn(R: Array,
-                               parameter_tree: ExceptionNonbondedParameters,
-                               box: Array,
-                               metric_fn: MetricFn,
-                              **unused_kwargs,
-                               ) -> Array:
-  """ vmappable 'exception' nonbonded function that takes a precomputed dr_array of shape `[n_exceptions, 2]` and computes a total energy of
-  pairwise coulombic and lennard_jones interactions"""
-  # NOTE(dominicrufa): the "canonical" way of handling these is with vacuum electrostatics and lj terms sans cutoff or any other modifications
-  # NOTE(dominicrufa): have to modify energy.dsf_coulomb for proper units.
-  # NOTE(dominicrufa): have to
-  r1, r2 = R[parameter_tree.nonbonded_exception_pair]
-  dr = metric_fn(r1, r2, box)
-  lj_term = energy.lennard_jones(dr = dr, sigma = parameter_tree.nonbonded_exception_sigma, epsilon = parameter_tree.nonbonded_exception_epsilon)
-  return
-
-
-def NonbondedEnergyFn(R: Array,
-                      neighbor_list_idx : Array,
-                      parameter_tree: NonbondedParameters,
-                      box: Array,
-                      metric_fn: MetricFn,
-                      **kwargs) -> Array:
-  """ 'complete' canonical nonbonded mixing function
-  """
-  exception_energies = util.high_precision_sum(
-                                               vmap(NonbondedExceptionEnergyFn, in_axes=(None,0,None))(R,
-                                                                                                       parameter_tree.exception_nonbonded_parameters,
-                                                                                                       vmap(metric_fn, in_axes=(0,0,None)))
-                                              )
-  standard_energies = util.high_precision_sum() # standard nonbonded here
-  return exception_energies + standard_energies
-
-  # Aggregate All Energy Functions for full MM-type energy fn.
-
-
-def exception_mask_fn(nonbonded_exception_pairs: Array) -> MaskFn:
-  """create a `MaskFn` for the `NonbondedStandardEnergyFn` that will remove particle pair exceptions with a mask
-  """
-  pass
-
-
-
-
-def get_final_energy_fn(displacement, **builder_kwargs):
-    # make with/without neighbor list # smap.pair_neighbor_list
-    # merge the dynamic kwargs
-    # https://github.com/google/jax-md/blob/8633cd5ce50ac13f3ebbcc99f4670cfcbed4841e/jax_md/energy.py#L228
-
-    def final_energy_fn(R, neighbor_list, displacement, **dynamic_kwargs):
-        ...
-        return energy
-
-    return partial(final_energy_fn, displacement = displacement)
+    # nonbonded
+    # nonbonded_energies = jax.tree_util.tree_map(lambda _f: _f(R, **dynamic_kwargs))
+    return accum
