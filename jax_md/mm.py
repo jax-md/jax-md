@@ -301,7 +301,7 @@ def mm_energy_fn(displacement_fn : DisplacementFn,
   bonded_energy_fns = {}
   for parameter_field in parameters._fields:
     if parameter_field in list(bond_fns.keys()): # then it is bonded
-      bond_kwargs = {_field: None  for _field in [q for q in getattr(parameters, parameter_field)._fields if q != 'particles']}
+      bond_kwargs = getattr(parameters, parameter_field)._asdict()
       mapped_bonded_energy_fn = smap.bond(displacement_or_metric = displacement_fn,
                                      **bond_fns[parameter_field], # `geometry_handler_fn` and `fn`
                                      **bond_kwargs)
@@ -317,8 +317,9 @@ def mm_energy_fn(displacement_fn : DisplacementFn,
 
     # bonded
     bonds = {_key: getattr(parameters, _key).particles for _key in parameters._fields if _key in [bond_fns.keys()]}
-    bond_types = {_key: {__key: getattr(getattr(parameters, _key), __key) for __key in [_field for _field in _key._fields if _field != 'particles']}
-                        for _key in parameters._fields if _key in [bond_fns.keys()]}
+    bond_types = {_key: parameters[_key]._asdict() for _key in bonds.keys()}
+    # bond_types = {_key: {__key: getattr(getattr(parameters, _key), __key) for __key in [_field for _field in _key._fields if _field != 'particles']}
+    #                     for _key in parameters._fields if _key in [bond_fns.keys()]}
     bonded_energies = jax.tree_util.tree_map(lambda _f, _bonds, _bond_types : _f(R, _bonds, _bond_types, **dynamic_kwargs),
                                              bonded_energy_fns, (bonds, bond_types))
     accum = accum + util.high_precision_sum(bonded_energies)
