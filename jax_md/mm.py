@@ -183,9 +183,55 @@ def get_bond_fns(displacement_fn: DisplacementFn, **unused_kwargs) -> Dict[str, 
                                                      'fn': lambda *args, **kwargs: energy.lennard_jones(*args, **kwargs) + energy.coulomb(*args, **kwargs)
                                                      }
                  }
-
   return bond_fn_dict
 
+def nonbonded_neighbor_list(displacement_or_metric : DisplacementOrMetricFn,
+                     nonbonded_parameters : NonbondedParameters,
+                     use_neighbor_list : bool,
+                     use_multiplicative_isotropic_cutoff : bool,
+                     use_dsf_coulomb : bool,
+                     multiplicative_isotropic_cutoff_kwargs,
+                     neighbor_kwargs,
+                     **unused_kwargs) -> Tuple[EnergyFn, NeighborFn]:
+  """each of the nonbonded forces are handled here;
+     space assertions are made with `check_support`, so we can omit them here.
+     If `use_neighbor_list`, then `use_dsf_coulomb`, `use_multiplicative_isotropic_cutoff` assert True;
+
+     TODO:
+       - check `r_cutoff` is less than half box size if `use_neighbor_list`?
+       - support `per_particle` computation? (how do we handle this with bonded interactions?)
+       - support generalization for more nonbonded forces
+       - throw warnings instead of errors if `assert`s fail?
+       - do we want to call `maybe_downcast`for default parameters?
+  """
+  # NOTE(dominicrufa): we may want to make assertions about nonbonded cutoff if periodic and the value of alpha
+  neighbor_kwargs = util.merge_dicts(multiplicative_isotropic_cutoff_kwargs, neighbor_kwargs)
+  coulomb_energy_fn = energy.coulomb if not use_dsf_coulomb else energy.dsf_coulomb
+  if use_neighbor_list:
+    assert use_multiplicative_isotropic_cutoff # we require this for neighbor lists
+    assert use_dsf_coulomb # we require this for neighbor lists
+    coulomb_energy_fn = energy.dsf_coulomb # do we want to use the `multiplicative_isotropic_cutoff` for this, as well? need to check
+    def pair_nonbonded_fn(*args, **kwargs):
+      lj_e = energy.multiplicative_isotropic_cutoff(energy.lennard_jones, **neighbor_kwargs)(*args, **kwargs)
+      coulomb_e = coulomb_energy_fn(*args, **kwargs)
+      return lj_e + coulomb_e
+    neighbor_fn = partition.neighbor_list(displacement_or_metric, **neighbor_kwargs)
+    energy_fn = smap.pair_neighbor_list(
+      pair_nonbonded_fn,
+      space.canonicalize_displacement_or_metric(displacement_or_metric),
+      **neighbor_kwargs,
+      **nonbonded_parameters._asdict()
+      )
+  else:
+    lj_energy_fn = energy.multiplicative_isotropic_cutoff(energy.lennard_jones, **neighbor_kwargs) if use_multiplicative_isotropic_cutoff else energy.lennard_jones
+    pair_nonbonded_fn = lambda *args, **kwargs: lj_e(*args, **kwargs) + coulomb_energy_fn(*args, **kwargs)
+    energy_fn = smap.pair(
+      pair_nonbonded_fn,
+      space.canonicalize_displacement_or_metric(displacement_or_metric),
+      **nonbonded_parameters._asdict()
+      )
+    neighbor_fn = None
+  return energy_fn, neighbor_fn
 
 def get_exception_match(idx : Array, pair_exception : Array, **unused_kwargs):
   """simple utility to return the exception match of a target `idx` from an exception pair;
@@ -225,14 +271,19 @@ def nonbonded_exception_mask_fn(n_particles, padded_exception_array, **unused_kw
   ids = jnp.arange(n_particles)
   mask_val = n_particles
   custom_mask_function = partial(mask_id_based, ids=ids, mask_val=mask_val, _acceptable_id_pair=partial(acceptable_id_pair, exception_array=padded_exception_array))
+  return custom_mask_function
 
 
-def check_support(space, use_neighbor_list, box_size, **kwargs):
+def check_support(space_shape, use_neighbor_list, box_size, **kwargs):
   """`mm_energy_fn` supports all spaces with neighbor_lists;
     `space.periodic` requires an initial box_size
   """
-  if space == space.free: # NOTE(dominicrufa): we don't want to support
+  if space_shape == space.free:
     assert box_size is None
+  else:
+    assert box_size is not None
+    assert use_neighbor_list
+
 
 def check_parameters(parameter_tree : MMEnergyFnParameters) -> bool:
     bond_parameter_particle_allowables = {camel_to_snake(_key): val for _key, val in CANONICAL_MM_BOND_PARAMETER_PARTICLE_ALLOWABLES.items()}
@@ -273,44 +324,66 @@ def check_parameters(parameter_tree : MMEnergyFnParameters) -> bool:
 
 def mm_energy_fn(displacement_fn : DisplacementFn,
                  parameters : MMEnergyFnParameters,
-                 space : Union[space.free, space.periodic, space.periodic_general] = space.periodic,
+                 space_shape : Union[space.free, space.periodic, space.periodic_general] = space.periodic,
                  use_neighbor_list : Optional[bool] = True,
                  box_size: Optional[Box] = 1.,
-                 **neighbor_kwargs,
+                 use_multiplicative_isotropic_cutoff: Optional[bool]=True,
+                 use_dsf_coulomb: Optional[bool]=True,
+                 neighbor_kwargs: Optional[Dict[str, Any]]=None,
+                 multiplicative_isotropic_cutoff_kwargs: Optional[Dict[str, Any]]=None,
                  **unused_kwargs,
                  ) -> EnergyFn:
   """
   generator of a canonical molecular mechanics-like `EnergyFn`;
 
+  TODO :
+    - partial vacuum neighbor list
+    - make `nonbonded_exception_parameters.particles` dynamic (requires changing `custom_mask_fn` handler)
+    -
+
   Args:
     displacement_fn: A `DisplacementFn`.
     parameters: An `MMEnergyFnParameters` containing all of the parameters of the model;
       While these are dynamic, `mm_energy_fn` does effectively make some of these static, namely the `particles` parameter
-    space : A generalized `jax_md.space`
+    space_shape : A generalized `jax_md.space`
     use_neighbor_list : whether to use a neighbor list for `NonbondedParameters`
     box_size : size of box for `space.periodic` or `space.periodic_general`; omitted for `space.free`
   Returns:
     An `EnergyFn` taking positions R (an ndarray of shape [n_particles, 3]), parameters,
       (optionally) a `NeighborList`, and optional kwargs
   """
-  check_support(space, use_neighbor_list, box_size)
+  check_support(space_shape, use_neighbor_list, box_size)
 
   # bonded energy fns
-  bond_fns = get_bond_geometry_handler_fns(displacement_fn) # get geometry handlers dict
+  bond_fns = get_bond_fns(displacement_fn) # get geometry handlers dict
   check_parameters(parameters) # just make sure that parameters
   bonded_energy_fns = {}
   for parameter_field in parameters._fields:
     if parameter_field in list(bond_fns.keys()): # then it is bonded
       bond_kwargs = getattr(parameters, parameter_field)._asdict()
-      mapped_bonded_energy_fn = smap.bond(displacement_or_metric = displacement_fn,
+      mapped_bonded_energy_fn = smap.bond(displacement_or_metric=displacement_fn,
                                      **bond_fns[parameter_field], # `geometry_handler_fn` and `fn`
                                      **bond_kwargs)
       bonded_energy_fns[parameter_field] = mapped_bonded_energy_fn
     elif parameter_field in [camel_to_snake(_entry) for _entry in CANONICAL_MM_NONBONDED_PARAMETER_NAMES]: # nonbonded
-      # implement
-      if use_neighbor_list:
-        pass
-      pass
+      nonbonded_parameters = getattr(parameters, parameter_field)
+      if 'nonbonded_exception_parameters' in parameters._fields: # handle custom nonbonded mask
+        n_particles=nonbonded_parameters.charges.shape[0]
+        padded_exception_array = query_idx_in_pair_exceptions(indices=jnp.arange(n_particles), pair_exceptions=getattr(getattr(parameters, 'nonbonded_exception_parameters'), 'particles'))
+        custom_mask_fn = nonbonded_exception_mask_fn(n_particles=n_particles, padded_exception_array=padded_exception_array)
+        neighbor_kwargs = util.merge_dicts({'custom_mask_fn': custom_mask_fn}, neighbor_kwargs)
+        nonbonded_energy_fn, neighbor_list = nonbonded_neighbor_list(displacement_or_metric=displacement_fn,
+                               nonbonded_parameters=getattr(parameters, parameter_field),
+                               use_neighbor_list=use_neighbor_list,
+                               use_multiplicative_isotropic_cutoff=use_multiplicative_isotropic_cutoff,
+                               use_dsf_coulomb=use_dsf_coulomb,
+                               multiplicative_isotropic_cutoff_kwargs=multiplicative_isotropic_cutoff_kwargs,
+                               neighbor_kwargs=neighbor_kwargs)
+      else:
+        raise NotImplementedError(f"nonbonded exceptions should exist")
+    else:
+      raise NotImplementedError(f"""parameter name {parameter_field} is not currently supported by 
+      `CANONICAL_MM_BOND_PARAMETER_NAMES` or `CANONICAL_MM_NONBONDED_PARAMETER_NAMES`""")
 
   def energy_fn(R: Array, parameters : Optional[ParameterTree] = parameters, **dynamic_kwargs) -> Array:
     accum = f32(0)
@@ -325,5 +398,5 @@ def mm_energy_fn(displacement_fn : DisplacementFn,
     accum = accum + util.high_precision_sum(bonded_energies)
 
     # nonbonded
-    # nonbonded_energies = jax.tree_util.tree_map(lambda _f: _f(R, **dynamic_kwargs))
+    accum = accum + nonbonded_energy_fn(R, **dynamic_kwargs) # handle if/not in
     return accum

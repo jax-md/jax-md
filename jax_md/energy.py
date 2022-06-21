@@ -455,7 +455,8 @@ def gupta_gold55(displacement,
 def multiplicative_isotropic_cutoff(fn: Callable[..., Array],
                                     r_onset: float,
                                     r_cutoff: float,
-                                    implementation: Optional[str] = 'HOOMD') -> Callable[..., Array]:
+                                    implementation: Optional[str] = 'HOOMD',
+                                    **unused_kwargs) -> Callable[..., Array]:
   """Takes an isotropic function and constructs a truncated function.
 
   Given a function `f:R -> R`, we construct a new function `f':R -> R` such that
@@ -529,15 +530,16 @@ def coulomb(r: Array,
 def dsf_coulomb(r: Array,
                 Q_sq: Array,
                 alpha: Array=0.25,
-                cutoff: float=8.0) -> Array:
+                r_cutoff: float=8.0,
+                qqr2e: float=332.06371,
+                **unused_kwargs) -> Array:
   """Damped-shifted-force approximation of the coulombic interaction."""
-  qqr2e = 332.06371  # Coulombic conversion factor: 1/(4*pi*epo).
 
-  cutoffsq = cutoff * cutoff
-  erfcc = erfc(alpha * cutoff)
+  cutoffsq = r_cutoff * r_cutoff
+  erfcc = erfc(alpha * r_cutoff)
   erfcd = jnp.exp(-alpha * alpha * cutoffsq)
-  f_shift = -(erfcc / cutoffsq + 2 / jnp.sqrt(jnp.pi) * alpha * erfcd / cutoff)
-  e_shift = erfcc / cutoff - f_shift * cutoff
+  f_shift = -(erfcc / cutoffsq + 2 / jnp.sqrt(jnp.pi) * alpha * erfcd / r_cutoff)
+  e_shift = erfcc / r_cutoff - f_shift * r_cutoff
 
   e = qqr2e * Q_sq / r * (erfc(alpha * r) - r * e_shift - r**2 * f_shift)
   return jnp.where(r < cutoff, e, 0.0)
