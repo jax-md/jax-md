@@ -203,23 +203,6 @@ def stress(energy_fn: EnergyFn, position: Array, box: Box,
   return 1 / vol_0 * (VxV - dUdV(zero))
 
 
-@functools.singledispatch
-def canonicalize_mass(mass: Union[Array, float]) -> Union[Array, float]:
-  if isinstance(mass, float):
-    return mass
-  if len(mass.shape) == 2 and mass.shape[1] == 1:
-    return mass
-  elif len(mass.shape) == 1:
-    return jnp.reshape(mass, (mass.shape[0], 1))
-  elif len(mass.shape) == 0:
-    return mass
-  msg = (
-      'Expected mass to be either a floating point number or a one-dimensional'
-      'ndarray. Found {}.'.format(mass)
-      )
-  raise ValueError(msg)
-
-
 def cosine_angle_between_two_vectors(dR_12: Array, dR_13: Array) -> Array:
   dr_12 = space.distance(dR_12) + 1e-7
   dr_13 = space.distance(dR_13) + 1e-7
@@ -260,14 +243,14 @@ def pair_correlation(displacement_or_metric: Union[DisplacementFn, MetricFn],
 
   .. math::
     g(r) = <\sum_{i \\neq j}\delta(r - |r_i - r_j|)>
-  
+
   We make the approximation,
 
   .. math::
     \delta(r) \\approx {1 \over \sqrt{2\pi\sigma^2}e^{-r / (2\sigma^2)}}
 
   Args:
-    displacement_or_metric: 
+    displacement_or_metric:
       A function that computes the displacement or distance between two points.
     radii: An array of radii at which we would like to compute :math:`g(r)`.
     sigima: A float specifying the width of the approximating Gaussian.

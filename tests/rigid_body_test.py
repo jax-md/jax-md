@@ -95,7 +95,8 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     body = rigid_body.RigidBody(R, angle)
     shape = rigid_body.square
 
-    energy_fn = rigid_body.energy(energy.soft_sphere_pair(displacement), shape)
+    energy_fn = rigid_body.point_energy(energy.soft_sphere_pair(displacement),
+                                        shape)
 
     init_fn, step_fn = simulate.nve(energy_fn, shift)
 
@@ -145,7 +146,8 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     )
     species = onp.where(onp.arange(N) < PARTICLE_COUNT // 2, 0, 1)
 
-    energy_fn = rigid_body.energy(energy.soft_sphere_pair(displacement), shape)
+    energy_fn = rigid_body.point_energy(energy.soft_sphere_pair(displacement),
+                                        shape)
 
     init_fn, step_fn = simulate.nve(energy_fn, shift)
 
@@ -191,7 +193,8 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     body = rigid_body.RigidBody(R, angle)
     shape = rigid_body.square.set(point_species=jnp.array([0, 1, 0, 1]))
 
-    energy_fn = rigid_body.energy(energy.soft_sphere_pair(displacement), shape)
+    energy_fn = rigid_body.point_energy(energy.soft_sphere_pair(displacement),
+                                        shape)
 
     init_fn, step_fn = simulate.nve(energy_fn, shift)
 
@@ -239,9 +242,9 @@ class RigidBodyTest(test_util.JAXMDTestCase):
 
     neighbor_fn, energy_fn = energy.soft_sphere_neighbor_list(displacement,
                                                               box_size)
-    neighbor_fn, energy_fn = rigid_body.energy_neighbor_list(energy_fn,
-                                                             neighbor_fn,
-                                                             shape)
+    neighbor_fn, energy_fn = rigid_body.point_energy_neighbor_list(energy_fn,
+                                                                   neighbor_fn,
+                                                                   shape)
     init_fn, step_fn = simulate.nve(energy_fn, shift)
 
     step_fn = jit(step_fn)
@@ -294,9 +297,9 @@ class RigidBodyTest(test_util.JAXMDTestCase):
 
     neighbor_fn, energy_fn = energy.soft_sphere_neighbor_list(displacement,
                                                               box_size)
-    neighbor_fn, energy_fn = rigid_body.energy_neighbor_list(energy_fn,
-                                                             neighbor_fn,
-                                                             shape)
+    neighbor_fn, energy_fn = rigid_body.point_energy_neighbor_list(energy_fn,
+                                                                   neighbor_fn,
+                                                                   shape)
     init_fn, step_fn = simulate.nve(energy_fn, shift)
 
     step_fn = jit(step_fn)
@@ -357,10 +360,8 @@ class RigidBodyTest(test_util.JAXMDTestCase):
       sigma=jnp.array([[0.5, 1.0],
                        [1.0, 1.5]], dtype=dtype),
       species=2)
-    neighbor_fn, energy_fn = rigid_body.energy_neighbor_list(energy_fn,
-                                                             neighbor_fn,
-                                                             shape,
-                                                             shape_species)
+    neighbor_fn, energy_fn = rigid_body.point_energy_neighbor_list(
+      energy_fn, neighbor_fn, shape, shape_species)
     init_fn, step_fn = simulate.nve(energy_fn, shift)
 
     step_fn = jit(step_fn)
@@ -399,6 +400,36 @@ class RigidBodyTest(test_util.JAXMDTestCase):
           'testcase_name': '_dtype={}'.format(dtype.__name__),
           'dtype': dtype
       } for dtype in DTYPE))
+  def test_3d_quaternion_derivative(self, dtype):
+    N = PARTICLE_COUNT
+    box_size = quantity.box_size_at_number_density(N, 0.1, 3)
+
+    displacement, shift = space.periodic(box_size)
+
+    key = random.PRNGKey(0)
+
+    key, pos_key, quat_key = random.split(key, 3)
+
+    R = box_size * random.uniform(pos_key, (N, 3), dtype=dtype)
+    quat_key = random.split(quat_key, N)
+    quaternion = rand_quat(quat_key, dtype)
+
+    body = rigid_body.RigidBody(R, quaternion)
+    shape = rigid_body.tetrahedron
+
+    energy_fn = rigid_body.point_energy(energy.soft_sphere_pair(displacement),
+                                        shape)
+
+    F = quantity.force(energy_fn)(body)
+    S = rigid_body.S(body.orientation)
+    F_body = jnp.einsum('nij,ni->nj', S, F.orientation.vec)
+    self.assertAllClose(F_body[:, 0], jnp.zeros_like(F_body[:, 0]))
+
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': '_dtype={}'.format(dtype.__name__),
+          'dtype': dtype
+      } for dtype in DTYPE))
   def test_nve_3d_simple(self, dtype):
     N = PARTICLE_COUNT
     box_size = quantity.box_size_at_number_density(N, 0.1, 3)
@@ -414,12 +445,13 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     quaternion = rand_quat(quat_key, dtype)
 
     body = rigid_body.RigidBody(R, quaternion)
-    shape = rigid_body.rigid_body_shape(
+    shape = rigid_body.point_union_shape(
       rigid_body.tetrahedron.points * jnp.array([[1.0, 2.0, 3.0]], dtype),
       rigid_body.tetrahedron.masses
     )
 
-    energy_fn = rigid_body.energy(energy.soft_sphere_pair(displacement), shape)
+    energy_fn = rigid_body.point_energy(energy.soft_sphere_pair(displacement),
+                                        shape)
 
     init_fn, step_fn = simulate.nve(energy_fn, shift)
 
@@ -467,14 +499,14 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     species = onp.where(onp.arange(N) < N // 2, 0, 1)
 
     body = rigid_body.RigidBody(R, quaternion)
-    shape = rigid_body.rigid_body_shape(
+    shape = rigid_body.point_union_shape(
       rigid_body.tetrahedron.points * jnp.array([[1.0, 2.0, 3.0]], f32),
       rigid_body.tetrahedron.masses)
     shape = rigid_body.concatenate_shapes(rigid_body.tetrahedron, shape)
 
-    energy_fn = rigid_body.energy(energy.soft_sphere_pair(displacement),
-                                  shape,
-                                  species)
+    energy_fn = rigid_body.point_energy(energy.soft_sphere_pair(displacement),
+                                        shape,
+                                        species)
 
     init_fn, step_fn = simulate.nve(energy_fn, shift)
 
@@ -523,7 +555,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
 
     body = rigid_body.RigidBody(R, quaternion)
 
-    shape = rigid_body.rigid_body_shape(
+    shape = rigid_body.point_union_shape(
       rigid_body.tetrahedron.points * jnp.array([[1.0, 2.0, 3.0]], f32),
       jnp.array([1.0, 2.0, 3.0, 4.0], f32))
     shape = rigid_body.concatenate_shapes(rigid_body.tetrahedron, shape)
@@ -534,7 +566,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
                                                               [1.0, 1.5]],
                                                               f32),
                                              species=2)
-    energy_fn = rigid_body.energy(pair_energy_fn, shape, species)
+    energy_fn = rigid_body.point_energy(pair_energy_fn, shape, species)
 
     init_fn, step_fn = simulate.nve(energy_fn, shift)
 
@@ -555,7 +587,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
       state = step_fn(state)
     E_final = total_energy(state)
 
-    tol = 5e-8 if dtype == f64 else 5e-5
+    tol = 5e-5
     self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
     assert E_final.dtype == dtype
 
@@ -579,16 +611,16 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     quaternion = rand_quat(quat_key, dtype)
 
     body = rigid_body.RigidBody(R, quaternion)
-    shape = rigid_body.rigid_body_shape(
+    shape = rigid_body.point_union_shape(
       rigid_body.tetrahedron.points * jnp.array([[1.0, 2.0, 3.0]], dtype),
       rigid_body.tetrahedron.masses
     )
 
     neighbor_fn, energy_fn = energy.soft_sphere_neighbor_list(displacement,
                                                               box_size)
-    neighbor_fn, energy_fn = rigid_body.energy_neighbor_list(energy_fn,
-                                                         neighbor_fn,
-                                                         shape)
+    neighbor_fn, energy_fn = rigid_body.point_energy_neighbor_list(energy_fn,
+                                                                   neighbor_fn,
+                                                                   shape)
 
     init_fn, step_fn = simulate.nve(energy_fn, shift)
 
@@ -625,11 +657,11 @@ class RigidBodyTest(test_util.JAXMDTestCase):
         jnp.array([0.0, 0.0])
       )
 
-      shape = rigid_body.rigid_body_shape(points, 1.0)
+      shape = rigid_body.point_union_shape(points, 1.0)
 
       displacement, shift = space.free()
       energy_fn = energy.soft_sphere_pair(displacement)
-      energy_fn = rigid_body.energy(energy_fn, shape)
+      energy_fn = rigid_body.point_energy(energy_fn, shape)
 
       return energy_fn(body)
 
@@ -648,9 +680,9 @@ class RigidBodyTest(test_util.JAXMDTestCase):
           ('Diagonal mask can only mask rank-2 or rank-3 tensors. '
            'Found {}.'.format(len(X.shape))))
       N = X.shape[0]
-      # NOTE(schsam): It seems potentially dangerous to set nans to 0 here. However,
-      # masking nans also doesn't seem to work. So it also seems necessary. At the
-      # very least we should do some @ErrorChecking.
+      # NOTE(schsam): It seems potentially dangerous to set nans to 0 here.
+      # However,  masking nans also doesn't seem to work. So it also seems
+      # necessary. At the very least we should do some @ErrorChecking.
       X = jnp.nan_to_num(X)
       mask = 1.0 - jnp.eye(N, dtype=X.dtype)
       if len(X.shape) == 3:
@@ -687,16 +719,16 @@ class RigidBodyTest(test_util.JAXMDTestCase):
       # Possibly this is because the matrix has degenerate eigenvalues.
       # If we allow the eigenvalues to not be degenerate then we don't
       # get NaNs anymore, but we do get the wrong answer.
-      #shape = rigid_body.rigid_body_shape(points,
+      #shape = rigid_body.point_union_shape(points,
       #                                    jnp.array([1.0, 2.0, 3.0, 4.0]))
-      # shape = rigid_body.rigid_body_shape(points, jnp.ones((len(points),)))
-      shape = rigid_body.RigidBodyShape(
+      # shape = rigid_body.point_union_shape(points, jnp.ones((len(points),)))
+      shape = rigid_body.RigidPointUnion(
         transform_to_diagonal_frame(points),
         jnp.ones((points.shape[0],)),
         jnp.array([len(points)]),
         jnp.array([0])
       )
-      # shape = rigid_body_shape(points, 1.0)
+      # shape = point_union_shape(points, 1.0)
 
       #shape = rigid_body.tetrahedron.set(points=points)
       #displacement, shift = space.free()
@@ -706,7 +738,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
         dr = util.safe_mask(dr_2 > 0, jnp.sqrt, dr_2)
         e = 0.5 * jnp.where(dr < 1.0, (dr - 1.0) ** 2, 0.0)
         return 0.5 * jnp.sum(_diagonal_mask(e))
-      energy_fn = rigid_body.energy(energy_fn, shape)
+      energy_fn = rigid_body.point_energy(energy_fn, shape)
 
       return energy_fn(body)
     points = jnp.array([[-0.5, -0.5, -0.5],
@@ -740,7 +772,8 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     body = rigid_body.RigidBody(R, angle)
     shape = rigid_body.square
 
-    energy_fn = rigid_body.energy(energy.soft_sphere_pair(displacement), shape)
+    energy_fn = rigid_body.point_energy(energy.soft_sphere_pair(displacement),
+                                        shape)
 
     kT = 1e-3
     dt = 5e-4
@@ -782,9 +815,9 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     shape = rigid_body.concatenate_shapes(rigid_body.square, rigid_body.trimer)
     species = onp.where(onp.arange(N) < N // 2, 0, 1)
 
-    energy_fn = rigid_body.energy(energy.soft_sphere_pair(displacement),
-                                  shape,
-                                  species)
+    energy_fn = rigid_body.point_energy(energy.soft_sphere_pair(displacement),
+                                        shape,
+                                        species)
 
     kT = 1e-3
     dt = 5e-4
@@ -830,7 +863,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
                                                          [1.0, 1.5]], f32),
                                         species=2)
 
-    energy_fn = rigid_body.energy(energy_fn, shape)
+    energy_fn = rigid_body.point_energy(energy_fn, shape)
 
     kT = 1e-3
     dt = 5e-4
@@ -874,9 +907,9 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     neighbor_fn, energy_fn = energy.soft_sphere_neighbor_list(
       displacement,
       box_size)
-    neighbor_fn, energy_fn = rigid_body.energy_neighbor_list(energy_fn,
-                                                             neighbor_fn,
-                                                             shape)
+    neighbor_fn, energy_fn = rigid_body.point_energy_neighbor_list(energy_fn,
+                                                                   neighbor_fn,
+                                                                   shape)
 
     kT = 1e-3
     dt = 5e-4
@@ -931,9 +964,9 @@ class RigidBodyTest(test_util.JAXMDTestCase):
       sigma=jnp.array([[0.5, 1.0],
                        [1.0, 1.5]], f32),
       species=2)
-    neighbor_fn, energy_fn = rigid_body.energy_neighbor_list(energy_fn,
-                                                             neighbor_fn,
-                                                             shape)
+    neighbor_fn, energy_fn = rigid_body.point_energy_neighbor_list(energy_fn,
+                                                                   neighbor_fn,
+                                                                   shape)
 
     kT = 1e-3
     dt = 5e-4
@@ -992,9 +1025,9 @@ class RigidBodyTest(test_util.JAXMDTestCase):
       sigma=jnp.array([[0.5, 1.0],
                        [1.0, 1.5]], f32),
       species=2)
-    neighbor_fn, energy_fn = rigid_body.energy_neighbor_list(energy_fn,
-                                                             neighbor_fn,
-                                                             shape)
+    neighbor_fn, energy_fn = rigid_body.point_energy_neighbor_list(energy_fn,
+                                                                   neighbor_fn,
+                                                                   shape)
 
     kT = 1e-3
     dt = 5e-4
@@ -1042,12 +1075,13 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     quaternion = rand_quat(quat_key, dtype)
 
     body = rigid_body.RigidBody(R, quaternion)
-    shape = rigid_body.rigid_body_shape(
+    shape = rigid_body.point_union_shape(
       rigid_body.tetrahedron.points * jnp.array([[1.0, 2.0, 3.0]], dtype),
       rigid_body.tetrahedron.masses
     )
 
-    energy_fn = rigid_body.energy(energy.soft_sphere_pair(displacement), shape)
+    energy_fn = rigid_body.point_energy(energy.soft_sphere_pair(displacement),
+                                        shape)
 
     kT = 1e-3
     dt = 5e-4
@@ -1087,9 +1121,9 @@ class RigidBodyTest(test_util.JAXMDTestCase):
 
     @jit
     def compute_energy(body, points, masses):
-      shape = rigid_body.rigid_body_shape(points, masses)
-      energy_fn = rigid_body.energy(energy.soft_sphere_pair(displacement),
-                                    shape)
+      shape = rigid_body.point_union_shape(points, masses)
+      energy_fn = rigid_body.point_energy(
+        energy.soft_sphere_pair(displacement), shape)
       return energy_fn(body)
 
     s = rigid_body.tetrahedron
@@ -1116,7 +1150,8 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     body = rigid_body.RigidBody(R, angle)
     shape = rigid_body.square
 
-    energy_fn = rigid_body.energy(energy.soft_sphere_pair(displacement), shape)
+    energy_fn = rigid_body.point_energy(energy.soft_sphere_pair(displacement),
+                                        shape)
     init_fn, step_fn = minimize.fire_descent(energy_fn, shift)
 
     state = init_fn(body, mass=shape.mass())
@@ -1151,7 +1186,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
                                           rigid_body.octohedron)
     shape_species = onp.where(onp.arange(N) < N / 2, 0, 1)
 
-    energy_fn = rigid_body.energy(energy.soft_sphere_pair(displacement),
+    energy_fn = rigid_body.point_energy(energy.soft_sphere_pair(displacement),
                                   shape,
                                   shape_species)
 

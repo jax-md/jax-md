@@ -48,11 +48,6 @@ COORDS = ['fractional', 'real']
 
 class QuantityTest(test_util.JAXMDTestCase):
 
-  def test_canonicalize_mass(self):
-    assert quantity.canonicalize_mass(3.0) == 3.0
-    assert quantity.canonicalize_mass(f32(3.0)) == f32(3.0)
-    assert quantity.canonicalize_mass(f64(3.0)) == f64(3.0)
-
   @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}'.format(dim),

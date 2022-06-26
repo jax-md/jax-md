@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for google3.third_party.py.jax_md.ensemble."""
+"""Tests for google3.third_party.py.jax_md.simulate."""
 
 import functools
 
@@ -63,6 +63,11 @@ if FLAGS.jax_enable_x64:
 
 # pylint: disable=invalid-name
 class SimulateTest(test_util.JAXMDTestCase):
+
+  def test_canonicalize_mass(self):
+    assert simulate.canonicalize_mass(3.0) == 3.0
+    assert simulate.canonicalize_mass(f32(3.0)) == f32(3.0)
+    assert simulate.canonicalize_mass(f64(3.0)) == f64(3.0)
 
   # pylint: disable=g-complex-comprehension
   @parameterized.named_parameters(test_util.cases_from_list(
@@ -392,7 +397,7 @@ class SimulateTest(test_util.JAXMDTestCase):
     Ps = np.zeros((DYNAMICS_STEPS,))
     state, Es, Ps = lax.fori_loop(0, DYNAMICS_STEPS, step_fn, (state, Es, Ps))
 
-    tol = 1e-3 if dtype is f32 else 1e-4
+    tol = 1e-3 if dtype is f32 else 1.2e-4
     self.assertEqual(state.position.dtype, dtype)
     self.assertAllClose(Es, E_initial, rtol=tol, atol=tol)
     self.assertAllClose(Ps, P_target, rtol=0.05, atol=0.05)
@@ -446,12 +451,12 @@ class SimulateTest(test_util.JAXMDTestCase):
     E = lambda x: jnp.sum(0.5 * alpha * x ** 2)
     displacement, shift = space.free()
 
-    N = 10000
+    N = 1000000
     steps = 1000
     kT = 0.25
     dt = 1e-4
     gamma = 3
-    mass = 2.0
+    mass = 3.0
     tol = 1e-3
 
     X = jnp.ones((N, 1, 1))
@@ -480,7 +485,7 @@ class SimulateTest(test_util.JAXMDTestCase):
     Z = kT / (2 * d * mass)
 
     pos_fn = lambda t: A * exp1(t) + B * exp2(t)
-    mom_fn = lambda t: Z * (-beta_2 * exp2(t) + beta_1 * exp1(t)) * mass
+    mom_fn = lambda t: Z * (-beta_2 * exp2(t) + beta_1 * exp1(t)) * mass**2
 
     t = steps * dt
     self.assertAllClose(jnp.mean(state.position),
