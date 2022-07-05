@@ -147,10 +147,10 @@ def _kwargs_to_bond_parameters(bond_type: Union[Array, Dict[str,Array]],
 
 def bond(fn: Callable[..., Array],
          displacement_or_metric: DisplacementOrMetricFn,
-         geometry_handler_fn: Optional[Callable[..., Tuple[Array]]]=None,
          static_bonds: Optional[Array]=None,
          static_bond_types: Optional[Union[Array, Dict[str,Array]]]=None,
          ignore_unused_parameters: bool=False,
+         geometry_handler_fn: Optional[Callable[..., Tuple[Array]]]=None,
          **kwargs) -> Callable[..., Array]:
   """Promotes a function that acts on a single tuple to one on a set of bonds.
   This is a generalization to the previous `bond` fn since it
@@ -168,10 +168,6 @@ def bond(fn: Callable[..., Array],
       an ndarray of distances or displacements of shape `[]` or `[d_in]`
       respectively. The metric can optionally take a floating point time as a
       third argument.
-    geometry_handler_fn: A function that takes an ndarray of positions of shape `[n,d_in]`
-      and returns the first *args that are input to the `fn`. This fn should also handle
-      **dynamic_kwargs passed to the `metric` fn. If None, proceed with default behavior
-      of the `dr` array being passed to `fn`.
     static_bonds: An ndarray of integer pairs wth shape `[b, 2]` where each
       pair specifies a bond. `static_bonds` are baked into the returned compute
       function statically and cannot be changed after the fact.
@@ -184,6 +180,10 @@ def bond(fn: Callable[..., Array],
       specified keyword arguments passed to the mapped function get ignored
       if they were not first specified as keyword arguments when calling
       `smap.bond(...)`.
+    geometry_handler_fn: A function that takes an ndarray of positions of shape `[n,d_in]`
+      and returns the first *args that are input to the `fn`. This fn should also handle
+      **dynamic_kwargs passed to the `metric` fn. If None, proceed with default behavior
+      of the `dr` array being passed to `fn`.
     kwargs: Arguments providing parameters to the mapped function. In cases
       where no bond type information is provided these should be either
 
