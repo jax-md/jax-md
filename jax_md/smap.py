@@ -16,7 +16,7 @@
 
 from functools import reduce, partial
 
-from typing import Dict, Callable, List, Tuple, Union, Optional
+from typing import Dict, Callable, List, Tuple, Union, Optional, Any
 
 import math
 import enum
@@ -96,12 +96,12 @@ Parameter = Union[ParameterTree, Array, float]
 # Mapping potential functional forms to bonds.
 
 
-def _get_bond_type_parameters(params: Array, bond_type: Union[Array, Dict[str,Array]]], key: Any) -> Array:
+def _get_bond_type_parameters(params: Array, bond_type: Union[Array, Dict[str,Array]], key: Any) -> Array:
   """Get parameters for interactions for bonds indexed by a bond-type."""
   # TODO(schsam): We should do better error checking here.
   assert util.is_array(bond_type) or util.is_dict(bond_type)
   if util.is_array(bond_type):
-      assert len(bond_type.shape) == 1
+    assert len(bond_type.shape) == 1
 
   if util.is_array(params):
     if len(params.shape) == 1:
@@ -122,16 +122,16 @@ def _get_bond_type_parameters(params: Array, bond_type: Union[Array, Dict[str,Ar
     else:
       raise ValueError('ParameterTreeMapping must be either Global or PerBond'
                        'if used with `smap.bond`.')
+  elif params is None: # if the params is None, then the structure must be given by the bond_type
+      assert util.is_dict(bond_type)
+      out = bond_type[key]
+      assert util.is_array(out) and len(out.shape) == 1
+      return out
   elif(isinstance(params, int) or
        isinstance(params, float) or
        jnp.issubdtype(params, jnp.integer) or
        jnp.issubdtype(params, jnp.floating)):
     return params
-  elif params is None: # if the params is None, then the structure must be given by the bond_type
-    assert util.is_dict(bond_type)
-    out = bond_type[key]
-    assert util.is_array(out) and len(out.shape) == 1
-    return out
   raise NotImplementedError
 
 
