@@ -201,9 +201,13 @@ def canonicalize_mass(mass: Union[float, Array]) -> Union[float, Array]:
   raise ValueError(msg)
 
 
-def cosine_angle_between_two_vectors(dR_12: Array, dR_13: Array) -> Array:
-  dr_12 = space.distance(dR_12) + 1e-7
-  dr_13 = space.distance(dR_13) + 1e-7
+def cosine_angle_between_two_vectors(dR_12: Array, dR_13: Array, epsilon: Optional[Array]=1e-7) -> Array:
+  dr_12 = space.square_distance(dR_12)
+  dr_13 = space.square_distance(dR_13)
+
+  dr_12 = util.safe_mask(dr_12 > 0, jnp.sqrt, dr_12, epsilon)
+  dr_13 = util.safe_mask(dr_13 > 0, jnp.sqrt, dr_13, epsilon)
+
   cos_angle = jnp.dot(dR_12, dR_13) / dr_12 / dr_13
   return jnp.clip(cos_angle, -1.0, 1.0)
 
