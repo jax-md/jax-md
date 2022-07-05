@@ -332,7 +332,7 @@ def mm_energy_fn(displacement_fn : DisplacementFn,
                  neighbor_kwargs: Optional[Dict[str, Any]]=None,
                  multiplicative_isotropic_cutoff_kwargs: Optional[Dict[str, Any]]=None,
                  **unused_kwargs,
-                 ) -> EnergyFn:
+                 ) -> Union[EnergyFn, NeighborListFns]:
   """
   generator of a canonical molecular mechanics-like `EnergyFn`;
 
@@ -351,6 +351,7 @@ def mm_energy_fn(displacement_fn : DisplacementFn,
   Returns:
     An `EnergyFn` taking positions R (an ndarray of shape [n_particles, 3]), parameters,
       (optionally) a `NeighborList`, and optional kwargs
+    A `neighbor_fn` for allocating and updating a neighbor_list
   """
   check_support(space_shape, use_neighbor_list, box_size)
 
@@ -372,27 +373,30 @@ def mm_energy_fn(displacement_fn : DisplacementFn,
         padded_exception_array = query_idx_in_pair_exceptions(indices=jnp.arange(n_particles), pair_exceptions=getattr(getattr(parameters, 'nonbonded_exception_parameters'), 'particles'))
         custom_mask_fn = nonbonded_exception_mask_fn(n_particles=n_particles, padded_exception_array=padded_exception_array)
         neighbor_kwargs = util.merge_dicts({'custom_mask_fn': custom_mask_fn}, neighbor_kwargs)
-        nonbonded_energy_fn, neighbor_list = nonbonded_neighbor_list(displacement_or_metric=displacement_fn,
-                               nonbonded_parameters=getattr(parameters, parameter_field),
-                               use_neighbor_list=use_neighbor_list,
-                               use_multiplicative_isotropic_cutoff=use_multiplicative_isotropic_cutoff,
-                               use_dsf_coulomb=use_dsf_coulomb,
-                               multiplicative_isotropic_cutoff_kwargs=multiplicative_isotropic_cutoff_kwargs,
-                               neighbor_kwargs=neighbor_kwargs)
       else:
-        raise NotImplementedError(f"nonbonded exceptions should exist")
+        nonbonded_energy_fn, neighbor_fn = nonbonded_neighbor_list(displacement_or_metric=displacement_fn,
+                                 nonbonded_parameters=getattr(parameters, parameter_field),
+                                 use_neighbor_list=use_neighbor_list,
+                                 use_multiplicative_isotropic_cutoff=use_multiplicative_isotropic_cutoff,
+                                 use_dsf_coulomb=use_dsf_coulomb,
+                                 multiplicative_isotropic_cutoff_kwargs=multiplicative_isotropic_cutoff_kwargs,
+                                 neighbor_kwargs=neighbor_kwargs)
     else:
-      raise NotImplementedError(f"""parameter name {parameter_field} is not currently supported by 
+      raise NotImplementedError(f"""parameter name {parameter_field} is not currently supported by
       `CANONICAL_MM_BOND_PARAMETER_NAMES` or `CANONICAL_MM_NONBONDED_PARAMETER_NAMES`""")
 
-  def energy_fn(R: Array, parameters : Optional[ParameterTree] = parameters, **dynamic_kwargs) -> Array:
-    accum = f32(0)
+  def bond_handler(parameters, **unused_kwargs):
+    """a simple function to easily `tree_map` bond functions"""
+      bonds = {_key: getattr(parameters, _key).particles for _key in parameters._fields if _key in [bond_fns.keys()]}
+      bond_types = {_key: parameters[_key]._asdict() for _key in bonds.keys()}
+      # this is a deprecated version of the above code. (remove this before merge)
+      # bond_types = {_key: {__key: getattr(getattr(parameters, _key), __key) for __key in [_field for _field in _key._fields if _field != 'particles']}
+      #                     for _key in parameters._fields if _key in [bond_fns.keys()]}
+      return bonds, bond_types
 
-    # bonded
-    bonds = {_key: getattr(parameters, _key).particles for _key in parameters._fields if _key in [bond_fns.keys()]}
-    bond_types = {_key: parameters[_key]._asdict() for _key in bonds.keys()}
-    # bond_types = {_key: {__key: getattr(getattr(parameters, _key), __key) for __key in [_field for _field in _key._fields if _field != 'particles']}
-    #                     for _key in parameters._fields if _key in [bond_fns.keys()]}
+  def energy_fn(R: Array, **dynamic_kwargs) -> Array:
+    accum = f32(0)
+    bonds, bond_types = bond_handler(**dynamic_kwargs)
     bonded_energies = jax.tree_util.tree_map(lambda _f, _bonds, _bond_types : _f(R, _bonds, _bond_types, **dynamic_kwargs),
                                              bonded_energy_fns, (bonds, bond_types))
     accum = accum + util.high_precision_sum(bonded_energies)
@@ -400,3 +404,5 @@ def mm_energy_fn(displacement_fn : DisplacementFn,
     # nonbonded
     accum = accum + nonbonded_energy_fn(R, **dynamic_kwargs) # handle if/not in
     return accum
+
+  return energy_fn, neighbor_fn
