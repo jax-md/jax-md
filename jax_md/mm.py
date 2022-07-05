@@ -165,13 +165,13 @@ def get_bond_fns(displacement_fn: DisplacementFn, **unused_kwargs) -> Dict[str, 
     r1s, r2s, r3s = [R[bonds[:,i]] for i in range(3)]
     d = vmap(partial(displacement_fn, **_dynamic_kwargs), 0, 0)
     r21s, r23s = d(r1s, r2s), d(r3s, r2s)
-    return = (vmap(lambda _r1, _r2: jnp.arccos(cosine_angle_between_two_vectors(_r1, _r2)), 0, 0)(r21s, r23s),)
+    return = (vmap(lambda _r1, _r2: jnp.arccos(quantity.cosine_angle_between_two_vectors(_r1, _r2)))(r21s, r23s),)
 
   def torsion_handler_fn(R: Array, bonds: Array, **_dynamic_kwargs):
     r1s, r2s, r3s, r4s = [R[bonds[:,i] for i in range(4)]
     d = vmap(partial(displacement_fn, **_dynamic_kwargs), 0, 0)
     dR_12s, dR_32s, dR_34s = d(r2s, r1s), d(r2s, r3s), d(r4s, r3s)
-    return  = (vmap(angle_between_two_half_planes, 0, 0, 0)(dR_12, dR_32, dR_34),)
+    return  = (vmap(quantity.angle_between_two_half_planes)(dR_12, dR_32, dR_34),)
 
   bond_fn_dict = {'harmonic_bond_parameters': {'geometry_handler_fn': None,
                                                'fn': energy.simple_spring, alpha=2},
