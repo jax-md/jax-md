@@ -504,7 +504,7 @@ def multiplicative_isotropic_cutoff(fn: Callable[..., Array],
                        f32(1) - f32(6) * x**5 + f32(15) * x**4 - f32(10) * x**3,
                        0)
         return inner
-  else
+  else:
     raise NotImplementedError
 
   def smooth_fn(dr):
