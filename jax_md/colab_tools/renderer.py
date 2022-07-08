@@ -42,6 +42,10 @@ renderer_code = IPython.display.HTML(
 SIMULATION_IDX = 0
 
 
+def to_np(*xs):
+  return [onp.array(x) if isinstance(x, jnp.ndarray) else x for x in xs]
+
+
 @dataclasses.dataclass
 class Disk:
   """Disk geometry elements.
@@ -64,6 +68,8 @@ class Disk:
   def __init__(self, position, diameter=1.0, color=None):
     if color is None:
       color = jnp.array([0.8, 0.8, 1.0])
+
+    position, diameter, color = to_np(position, diameter, color)
 
     object.__setattr__(self, 'position', position)
     object.__setattr__(self, 'size', diameter)
@@ -96,6 +102,8 @@ class Sphere:
   def __init__(self, position, diameter=1.0, color=None):
     if color is None:
       color = jnp.array([0.8, 0.8, 1.0])
+
+    position, diameter, color = to_np(position, diameter, color)
 
     object.__setattr__(self, 'position', position)
     object.__setattr__(self, 'size', diameter)
@@ -131,13 +139,15 @@ class Bond:
 
   def __init__(self, reference_geometry, idx, diameter=None, color=None):
     if color is None:
-      color = jnp.array([0.8, 0.8, 1.0])
+      color = onp.array([0.8, 0.8, 1.0])
     if diameter is None:
-      diameter = jnp.array(0.2)
+      diameter = onp.array(0.2)
 
     if isinstance(idx, partition.NeighborList):
       idx = (idx.idx if idx.format is partition.Dense
              else partition.to_dense(idx))
+
+    idx, diameter, color = to_np(idx, diameter, color)
 
     object.__setattr__(self, 'reference_geometry', reference_geometry)
     object.__setattr__(self, 'neighbor_idx', idx)
@@ -208,9 +218,6 @@ def render(box_size,
 
   if not isinstance(geometry, dict):
     geometry = { 'all': geometry }
-
-  cast_to_np = lambda x: np.array(x) if isinstance(x, jnp.ndarray) else x
-  geometry = tree_map(cast_to_np, geometry)
 
   for geom in geometry.values():
     if hasattr(geom, 'position'):
