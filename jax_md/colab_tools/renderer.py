@@ -28,7 +28,7 @@ from jax_md import partition
 
 import json
 
-import numpy as onp
+import numpy as np
 
 
 # INTERNAL_FILE_IMPORT
@@ -43,7 +43,7 @@ SIMULATION_IDX = 0
 
 
 def to_np(*xs):
-  return [onp.array(x) if isinstance(x, jnp.ndarray) else x for x in xs]
+  return [np.array(x) if isinstance(x, jnp.ndarray) else x for x in xs]
 
 
 @dataclasses.dataclass
@@ -139,9 +139,9 @@ class Bond:
 
   def __init__(self, reference_geometry, idx, diameter=None, color=None):
     if color is None:
-      color = onp.array([0.8, 0.8, 1.0])
+      color = np.array([0.8, 0.8, 1.0])
     if diameter is None:
-      diameter = onp.array(0.2)
+      diameter = np.array(0.2)
 
     if isinstance(idx, partition.NeighborList):
       idx = (idx.idx if idx.format is partition.Dense
@@ -176,7 +176,7 @@ def _encode(R):
   if dtype == jnp.int64:
     dtype = jnp.int32
   dtype = jnp.float32
-  return base64.b64encode(onp.array(R, dtype).tobytes()).decode('utf-8')
+  return base64.b64encode(np.array(R, dtype).tobytes()).decode('utf-8')
 
 def _to_json(data):
   try:
@@ -281,8 +281,8 @@ def render(box_size,
 
     for field in geom_dict:
       if isinstance(geom_dict[field], list):
-        geom_dict[field] = onp.array(geom_dict[field])
-      if not isinstance(geom_dict[field], onp.ndarray):
+        geom_dict[field] = np.array(geom_dict[field])
+      if not isinstance(geom_dict[field], np.ndarray):
         geom_metadata[field] = geom_dict[field]
         continue
       if len(geom_dict[field].shape) == TYPE_DIMENSIONS[field] + 1:
@@ -302,7 +302,7 @@ def render(box_size,
     assert field in geom
     array = geom[field]
     if isinstance(array, list):
-      array = onp.array(array)
+      array = np.array(array)
 
     return _to_json({
         'array_chunk': _encode(array[offset:(offset + size)])
@@ -316,7 +316,7 @@ def render(box_size,
     assert field in geom
     array = geom[field]
     if isinstance(array, list):
-      array = onp.array(array)
+      array = np.array(array)
 
     return _to_json({ 'array': _encode(array) })
   output.register_callback(f'GetArray{SIMULATION_IDX}', get_array)
