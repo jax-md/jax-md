@@ -58,8 +58,8 @@
 
   // Info
 
-  var INFO = document.getElementById('info');
-  var ERROR = document.getElementById('error');
+  var INFO = ''
+  var ERROR = ''
 
   // Graphics
 
@@ -114,8 +114,8 @@
   var invokeFunction = google.colab.kernel.invokeFunction;
 
   var CANVAS = document.getElementById("canvas");
-  CANVAS.width = 1024;
-  CANVAS.height = 1024;
+  CANVAS.width = 512;
+  CANVAS.height = 512;
 
   // Simulation Loading.
 
@@ -138,11 +138,16 @@
 
   async function load_simulation() {
     console.log("Loading simulation.");
-    INFO.innerHTML = 'Loading simulation...<br>';
 
     var result = await invokeFunction('GetSimulationMetadata', [], {});
     var metadata = from_json(result);
 
+    if(metadata.verbose) {
+      INFO = document.getElementById('info');
+      ERROR = document.getElementById('error');
+    }
+
+    INFO.innerHTML = 'Loading simulation...<br>';
     if(!metadata.box_size) {
       ERROR.innerHTML += 'ERROR: No box size specified.<br>';
     }

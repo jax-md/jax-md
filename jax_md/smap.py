@@ -113,7 +113,7 @@ def _get_bond_type_parameters(params: Array, bond_type: Array) -> Array:
   elif isinstance(params, ParameterTree):
     if params.mapping is ParameterTreeMapping.Global:
       return params.tree
-    elif params.mapping is ParameterTreMapping.PerBond:
+    elif params.mapping is ParameterTreeMapping.PerBond:
       return tree_map(lambda p: p[bond_type], params.tree)
     else:
       raise ValueError('ParameterTreeMapping must be either Global or PerBond'

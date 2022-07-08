@@ -21,6 +21,8 @@ from google.colab import output
 import IPython
 
 import jax.numpy as jnp
+from jax import tree_map
+
 from jax_md import dataclasses
 from jax_md import partition
 
@@ -177,7 +179,8 @@ def render(box_size,
            buffer_size=None,
            background_color=None,
            resolution=None,
-           frame_rate=None):
+           frame_rate=None,
+           verbose=False):
   """Creates a rendering front-end along with callbacks in the host program.
 
   Args:
@@ -192,6 +195,8 @@ def render(box_size,
     resolution: The resolution of the renderer.
     frame_rate: An optional integer specifying the target frames-per-second
       for the renderer.
+    verbose: Specifies whether or not the client should emit information and
+      error messages. Useful for debugging visualizations, but adds clutter.
   """
   global SIMULATION_IDX
   # INTERNAL_RENDERER_CODE_LOADING
@@ -204,6 +209,9 @@ def render(box_size,
   if not isinstance(geometry, dict):
     geometry = { 'all': geometry }
 
+  cast_to_np = lambda x: np.array(x) if isinstance(x, jnp.ndarray) else x
+  geometry = tree_map(cast_to_np, geometry)
+
   for geom in geometry.values():
     if hasattr(geom, 'position'):
       assert dimension is None or geom.position.shape[-1] == dimension
@@ -215,7 +223,7 @@ def render(box_size,
 
   assert dimension is not None
 
-  if isinstance(box_size, jnp.ndarray):
+  if isinstance(box_size, (jnp.ndarray, np.ndarray)):
     if box_size.shape:
       assert box_size.shape == (dimension,)
       box_size = list(box_size)
@@ -246,6 +254,9 @@ def render(box_size,
 
     if frame_rate is not None:
       metadata['frame_rate'] = frame_rate
+
+    if verbose:
+      metadata['verbose'] = True
 
     return _to_json(metadata)
   output.register_callback('GetSimulationMetadata', get_metadata)
