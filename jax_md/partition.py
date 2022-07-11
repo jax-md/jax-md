@@ -143,7 +143,8 @@ def _cell_dimensions(spatial_dimension: int,
     elif box_size.ndim == 0:
       cell_count = cells_per_side ** spatial_dimension
     else:
-      raise ValueError('Box must either be a scalar or a vector.')
+      raise ValueError(('Box must be either: a scalar, a vector, or a matrix. '
+                        f'Found {box_size}.'))
   else:
     cell_count = cells_per_side ** spatial_dimension
 
