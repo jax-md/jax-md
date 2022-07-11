@@ -152,10 +152,13 @@
       ERROR.innerHTML += 'ERROR: No box size specified.<br>';
     }
 
-    FRAME_COUNT = metadata.frame_count;
+    FRAME_COUNT = 1;
     BOX_SIZE = metadata.box_size;
     DIMENSION = metadata.dimension;
     SIMULATION_IDX = metadata.simulation_idx;
+
+    if (metadata.frame_count)
+      FRAME_COUNT = metadata.frame_count;
 
     if (metadata.background_color)
       BACKGROUND_COLOR = metadata.background_color;
@@ -662,8 +665,7 @@
       if (shape == 'Bond')
       {
         GL.drawArrays(GL.TRIANGLES, 0, vertex_count);
-      }
-      else {
+      } else {
         GL.drawArraysInstanced(GL.TRIANGLES, 0, vertex_count, geom.count);
       }
     }
