@@ -21,7 +21,7 @@ from collections import namedtuple
 
 from enum import Enum
 
-from typing import Any, Callable, Optional, Dict, Tuple, Generator, Union
+from typing import Any, Callable, Optional, Dict, Tuple, Generator, Union, Optional
 
 import math
 from operator import mul
@@ -33,6 +33,7 @@ from jax import ops
 from jax import jit, vmap, eval_shape
 from jax.abstract_arrays import ShapedArray
 from jax.interpreters import partial_eval as pe
+from jax import tree_map
 import jax.numpy as jnp
 
 from jax_md import space
@@ -46,6 +47,7 @@ import jraph
 
 
 Array = util.Array
+PyTree = Any
 f32 = util.f32
 f64 = util.f64
 
@@ -828,7 +830,12 @@ def neighbor_list_mask(neighbor: NeighborList, mask_self: bool = False
   return mask
 
 
-def to_jraph(neighbor: NeighborList, mask: Array = None) -> jraph.GraphsTuple:
+def to_jraph(neighbor: NeighborList,
+             mask: Optional[Array] = None,
+             nodes: Optional[PyTree] = None,
+             edges: Optional[PyTree] = None,
+             globals: Optional[PyTree] = None
+             ) -> jraph.GraphsTuple:
   """Convert a sparse neighbor list to a `jraph.GraphsTuple`.
 
   As in jraph, padding here is accomplished by adding a ficticious graph with a
@@ -852,6 +859,16 @@ def to_jraph(neighbor: NeighborList, mask: Array = None) -> jraph.GraphsTuple:
 
   _mask = neighbor_list_mask(neighbor)
 
+  # Pad the nodes to add one fictitious node.
+  def pad(x):
+    padding = jnp.zeros((1,) + x.shape[1:])
+    return jnp.concatenate((x, padding), axis=0)
+  nodes = tree_map(pad, nodes)
+
+  # Pad the globals to add one fictitious global.
+  globals = tree_map(pad, globals)
+
+  # If there is an additional mask, reorder the edges.
   if mask is not None:
     _mask = _mask & mask
     cumsum = jnp.cumsum(_mask)
@@ -859,14 +876,17 @@ def to_jraph(neighbor: NeighborList, mask: Array = None) -> jraph.GraphsTuple:
     ordered = N * jnp.ones((len(receivers) + 1,), i32)
     receivers = ordered.at[index].set(receivers)[:-1]
     senders = ordered.at[index].set(senders)[:-1]
+    def reorder_edges(x):
+      return jnp.zeros_like(x).at[index].set(x)
+    edges = tree_map(reorder_edges, edges)
     mask = receivers < N
 
   return jraph.GraphsTuple(
-      nodes=None,
-      edges=None,
+      nodes=nodes,
+      edges=edges,
       receivers=receivers,
       senders=senders,
-      globals=None,
+      globals=globals,
       n_node=jnp.array([N, 1]),
       n_edge=jnp.array([jnp.sum(_mask), jnp.sum(~_mask)]),
   )
