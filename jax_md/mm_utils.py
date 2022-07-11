@@ -145,7 +145,7 @@ def get_full_retrieval_fn_dict(**unused_kwargs) -> Dict[str, Callable[[openmm.Fo
       """)
   return retrieval_dict
 
-def get_parameters_from_omm_system(system : openmm.System,
+def parameters_from_openmm_system(system : openmm.System,
                                    **unused_kwargs) -> mm.MMEnergyFnParameters:
   """retrieve all parameters from an `openmm.System`
 
@@ -154,7 +154,7 @@ def get_parameters_from_omm_system(system : openmm.System,
   >>> pdb = app.PDBFile('alanine-dipeptide-explicit.pdb')
   >>> ff = app.ForceField('amber14-all.xml', 'amber14/tip3pfb.xml')
   >>> mmSystem = ff.createSystem(pdb.topology, nonbondedMethod=app.PME, constraints=None, rigidWater=False, removeCMMotion=False)
-  >>> parameters = get_parameters_from_omm_system(mmSystem)
+  >>> parameters = parameters_from_openmm_system(mmSystem)
   """
   forces = system.getForces()
   parameter_dict = {}
