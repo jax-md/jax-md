@@ -16,7 +16,7 @@
 
 from functools import wraps, partial
 
-from typing import Callable, Tuple, TextIO, Dict, Any, Optional, Iterable, NamedTuple
+from typing import Callable, Tuple, TextIO, Dict, Any, Optional, Iterable, NamedTuple, Union
 
 import jax
 import jax.numpy as jnp
@@ -104,11 +104,11 @@ class NonbondedExceptionParameters(NamedTuple):
       An ndarray of floats with shape `[n_exceptions,]`
     epsilon : exception epsilon in kJ/mol on each exception.
       An ndarray of floats with shape `[n_exceptions,]`
-    """
-    particles: Optional[Array] = None
-    Q_sq: Optional[Array] = None
-    sigma: Optional[Array] = None
-    epsilon: Optional[Array] = None
+  """
+  particles: Optional[Array] = None
+  Q_sq: Optional[Array] = None
+  sigma: Optional[Array] = None
+  epsilon: Optional[Array] = None
 
 class NonbondedParameters(NamedTuple):
   """A tuple containing parameter information for `NonbondedForce`.
@@ -133,11 +133,11 @@ class MMEnergyFnParameters(NamedTuple):
     periodic_torsion_parameters : PeriodicTorsionParameters
     nonbonded_parameters : NonbondedParameters
   """
-  harmonic_bond_parameters: NamedTuple
-  harmonic_angle_parameters: NamedTuple
-  periodic_torsion_parameters: NamedTuple
-  nonbonded_exception_parameters: NamedTuple
-  nonbonded_parameters: NamedTuple
+  harmonic_bond_parameters: Optional[HarmonicBondParameters] = None
+  harmonic_angle_parameters: Optional[HarmonicAngleParameters] = None
+  periodic_torsion_parameters: Optional[PeriodicTorsionParameters] = None
+  nonbonded_exception_parameters: Optional[NonbondedExceptionParameters] = None
+  nonbonded_parameters: Optional[NonbondedParameters] = None
 
 # NOTE(dominicrufa): standardize naming convention; we typically use `OpenMM` force definitions, but this need not be the case
 CANONICAL_MM_FORCENAMES = ['HarmonicBondForce', 'HarmonicAngleForce', 'PeriodicTorsionForce', 'NonbondedForce']
@@ -153,7 +153,7 @@ CANONICAL_MM_NONBONDED_PARAMETER_NAMES = [_tup.__class__.__name__ for _tup in [N
 
 # EnergyFn utilities
 
-def camel_to_snake(_str, **unused_kwargs): -> str
+def camel_to_snake(_str, **unused_kwargs) -> str:
    return ''.join(['_'+i.lower() if i.isupper() else i for i in _str]).lstrip('_')
 
 def get_bond_fns(displacement_fn: DisplacementFn, **unused_kwargs) -> Dict[str, Callable]:
@@ -165,16 +165,16 @@ def get_bond_fns(displacement_fn: DisplacementFn, **unused_kwargs) -> Dict[str, 
     r1s, r2s, r3s = [R[bonds[:,i]] for i in range(3)]
     d = vmap(partial(displacement_fn, **_dynamic_kwargs), 0, 0)
     r21s, r23s = d(r1s, r2s), d(r3s, r2s)
-    return = (vmap(lambda _r1, _r2: jnp.arccos(quantity.cosine_angle_between_two_vectors(_r1, _r2)))(r21s, r23s),)
+    return (vmap(lambda _r1, _r2: jnp.arccos(quantity.cosine_angle_between_two_vectors(_r1, _r2)))(r21s, r23s),)
 
   def torsion_handler_fn(R: Array, bonds: Array, **_dynamic_kwargs):
-    r1s, r2s, r3s, r4s = [R[bonds[:,i] for i in range(4)]
+    r1s, r2s, r3s, r4s = [R[bonds[:,i]] for i in range(4)]
     d = vmap(partial(displacement_fn, **_dynamic_kwargs), 0, 0)
     dR_12s, dR_32s, dR_34s = d(r2s, r1s), d(r2s, r3s), d(r4s, r3s)
-    return  = (vmap(quantity.angle_between_two_half_planes)(dR_12, dR_32, dR_34),)
+    return (vmap(quantity.angle_between_two_half_planes)(dR_12, dR_32, dR_34),)
 
   bond_fn_dict = {'harmonic_bond_parameters': {'geometry_handler_fn': None,
-                                               'fn': energy.simple_spring, alpha=2},
+                                               'fn': energy.simple_spring},
                   'harmonic_angle_parameters': {'geometry_handler_fn': angle_handler_fn,
                                                 'fn': energy.simple_spring},
                   'periodic_torsion_parameters': {'geometry_handler_fn': torsion_handler_fn,
@@ -288,13 +288,13 @@ def check_support(space_shape, use_neighbor_list, box_size, **kwargs):
 def check_parameters(parameter_tree : MMEnergyFnParameters) -> bool:
     bond_parameter_particle_allowables = {camel_to_snake(_key): val for _key, val in CANONICAL_MM_BOND_PARAMETER_PARTICLE_ALLOWABLES.items()}
     for _parameter_tuple_name in parameter_tree._fields: # iterate over each parameter object
-      is_bonded = _parameter_tuple_name in [camel_to_snake(_item for _item in CANONICAL_MM_BOND_PARAMETER_NAMES]
+      is_bonded = _parameter_tuple_name in [camel_to_snake(_item) for _item in CANONICAL_MM_BOND_PARAMETER_NAMES]
       if is_bonded: # `particles` must be an entry`
         nested_tuple = getattr(parameter_tree, _parameter_tuple_name)
         nested_tuple_fields = nested_tuple._fields
         if 'particles' not in nested_tuple_fields:
           raise ValueError(f"""retrieved bonded parameters {_parameter_tuple_name} from parameter_tree,
-                            but 'particles' was not in 'fields' ({nested_tuple_fields})}""")
+                            but 'particles' was not in 'fields' ({nested_tuple_fields})""")
         assert util.is_array(nested_tuple.particles)
         particles_shape = nested_tuple.particles
         assert len(particles_shape) == 2
@@ -332,7 +332,7 @@ def mm_energy_fn(displacement_fn : DisplacementFn,
                  neighbor_kwargs: Optional[Dict[str, Any]]=None,
                  multiplicative_isotropic_cutoff_kwargs: Optional[Dict[str, Any]]=None,
                  **unused_kwargs,
-                 ) -> Union[EnergyFn, NeighborListFns]:
+                 ) -> Union[EnergyFn, partition.NeighborListFns]:
   """
   generator of a canonical molecular mechanics-like `EnergyFn`;
 
@@ -387,12 +387,12 @@ def mm_energy_fn(displacement_fn : DisplacementFn,
 
   def bond_handler(parameters, **unused_kwargs):
     """a simple function to easily `tree_map` bond functions"""
-      bonds = {_key: getattr(parameters, _key).particles for _key in parameters._fields if _key in [bond_fns.keys()]}
-      bond_types = {_key: parameters[_key]._asdict() for _key in bonds.keys()}
-      # this is a deprecated version of the above code. (remove this before merge)
-      # bond_types = {_key: {__key: getattr(getattr(parameters, _key), __key) for __key in [_field for _field in _key._fields if _field != 'particles']}
-      #                     for _key in parameters._fields if _key in [bond_fns.keys()]}
-      return bonds, bond_types
+    bonds = {_key: getattr(parameters, _key).particles for _key in parameters._fields if _key in [bond_fns.keys()]}
+    bond_types = {_key: parameters[_key]._asdict() for _key in bonds.keys()}
+    # this is a deprecated version of the above code. (remove this before merge)
+    # bond_types = {_key: {__key: getattr(getattr(parameters, _key), __key) for __key in [_field for _field in _key._fields if _field != 'particles']}
+    #                     for _key in parameters._fields if _key in [bond_fns.keys()]}
+    return bonds, bond_types
 
   def energy_fn(R: Array, **dynamic_kwargs) -> Array:
     accum = f32(0)
