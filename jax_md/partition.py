@@ -544,7 +544,7 @@ NeighborFn = Callable[[Array, Optional[NeighborList], Optional[int]],
 def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                   box_size: Box,
                   r_cutoff: float,
-                  dr_threshold: float,
+                  dr_threshold: float = 0.0,
                   capacity_multiplier: float = 1.25,
                   disable_cell_list: bool = False,
                   mask_self: bool = True,
@@ -683,7 +683,8 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
 
   @jit
   def mask_self_fn(idx: Array) -> Array:
-    self_mask = idx == jnp.reshape(jnp.arange(idx.shape[0], dtype=i32), (idx.shape[0], 1))
+    self_mask = idx == jnp.reshape(jnp.arange(idx.shape[0], dtype=i32),
+                                   (idx.shape[0], 1))
     return jnp.where(self_mask, idx.shape[0], idx)
 
   @jit
