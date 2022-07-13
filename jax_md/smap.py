@@ -217,7 +217,7 @@ def bond(fn: Callable[..., Array],
       def _geometry_handler_fn(R: Array, bonds: Array, **_dynamic_kwargs):
           Ra, Rb = R[bonds[:, 0]], R[bonds[:, 1]]
           # NOTE(schsam): This pattern is needed due to JAX issue #912.
-          d = vmap(partial(displacement_or_metric, **_dynamic_kwargs), 0, 0)
+          d = vmap(partial(space.canonicalize_displacement_or_metric(displacement_or_metric), **_dynamic_kwargs), 0, 0)
           dr = d(Ra, Rb)
           return (dr,)
       geometry_handler_fn = _geometry_handler_fn
