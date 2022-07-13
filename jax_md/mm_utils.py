@@ -27,6 +27,17 @@ import haiku as hk
 from jax_md import space, smap, partition, mm, quantity, interpolate, util, dataclasses, energy
 
 
+try:
+  import openmm
+except ImportError as error:
+    print(error.__class__.__name__ + ": " + error.message)
+except Exception as exception:
+    print(exception, False)
+    print(exception.__class__.__name__ + ": " + exception.message)
+
+from openmm import unit
+
+
 maybe_downcast = util.maybe_downcast
 
 # Types
@@ -61,8 +72,8 @@ def bond_and_angle_parameter_retrieval_fn(force, **unused_kwargs):
   for idx in range(num_params):
     _params = param_query_fn(idx)
     particles.append(particle_query_fn(_params))
-    lengths.append(_params[-1].value_in_unit_system(unit.md_unit_system))
-    ks.append(_params[-2].value_in_unit_system(unit.md_unit_system))
+    lengths.append(_params[-2].value_in_unit_system(unit.md_unit_system))
+    ks.append(_params[-1].value_in_unit_system(unit.md_unit_system))
   out_parameters = param_tuple(
     particles = Array(particles, dtype=i32),
     epsilon = Array(ks),
