@@ -217,8 +217,8 @@ def angle_between_two_half_planes(dR_12: Array,
                                   epsilon : Optional[Array]=1e-7) -> Array:
   """Returns clockwise angle between two half-planes defined by (R_1, R_2, R_3) and (R_2, R_3, R_4)"""
   # NOTE(dominicrufa): is there a more "canonical" way of nan-safing than adding 1e-7?
-  normal_1 = jnp.cross(dR_12)
-  normal_2 = jnp.cross(dR_32)
+  normal_1 = jnp.cross(dR_12, dR_32)
+  normal_2 = jnp.cross(dR_32, dR_34)
   normal_plane_cross = jnp.cross(normal_1, normal_2)
   dr_32 = space.square_distance(dR_32)
   safe_dr_32 = util.safe_mask(dr_32 > 0, jnp.sqrt, dr_32, epsilon)
