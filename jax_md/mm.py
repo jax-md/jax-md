@@ -20,6 +20,7 @@ from typing import Callable, Tuple, TextIO, Dict, Any, Optional, Iterable, Named
 
 import jax
 import jax.numpy as jnp
+import numpy as onp
 from jax import ops
 from jax.tree_util import tree_map
 from jax import vmap
@@ -171,7 +172,7 @@ def get_bond_fns(displacement_fn: DisplacementFn, **unused_kwargs) -> Dict[str, 
     r1s, r2s, r3s, r4s = [R[bonds[:,i]] for i in range(4)]
     d = vmap(partial(displacement_fn, **_dynamic_kwargs), 0, 0)
     dR_12s, dR_32s, dR_34s = d(r2s, r1s), d(r2s, r3s), d(r4s, r3s)
-    return (vmap(quantity.angle_between_two_half_planes)(dR_12, dR_32, dR_34),)
+    return (vmap(quantity.angle_between_two_half_planes)(dR_12s, dR_32s, dR_34s),)
 
   bond_fn_dict = {'harmonic_bond_parameters': {'geometry_handler_fn': None,
                                                'fn': energy.simple_spring},
@@ -285,8 +286,15 @@ def check_support(space_shape, use_neighbor_list, box_size, **kwargs):
     assert use_neighbor_list
 
 
-def check_parameters(parameter_tree : MMEnergyFnParameters) -> bool:
+def check_parameters(parameter_tree : MMEnergyFnParameters,
+                    **unused_kwargs) -> Dict[str, Dict[str, None]]:
+    """
+    iterate over each parameter object in MMEnergyFnParameters and make appropriate assertions
+    for bonded and nonbonded parameters;
+    return a parameter_template to initialize bond calculations fns.
+    """
     bond_parameter_particle_allowables = {camel_to_snake(_key): val for _key, val in CANONICAL_MM_BOND_PARAMETER_PARTICLE_ALLOWABLES.items()}
+    parameter_template = {}
     for _parameter_tuple_name in parameter_tree._fields: # iterate over each parameter object
       is_bonded = _parameter_tuple_name in [camel_to_snake(_item) for _item in CANONICAL_MM_BOND_PARAMETER_NAMES]
       if is_bonded: # `particles` must be an entry`
@@ -296,30 +304,151 @@ def check_parameters(parameter_tree : MMEnergyFnParameters) -> bool:
           raise ValueError(f"""retrieved bonded parameters {_parameter_tuple_name} from parameter_tree,
                             but 'particles' was not in 'fields' ({nested_tuple_fields})""")
         assert util.is_array(nested_tuple.particles)
-        particles_shape = nested_tuple.particles
-        assert len(particles_shape) == 2
+        particles_shape = nested_tuple.particles.shape
+        assert len(particles_shape) == 2, f""
         num_bonds, bonds_shape = particles_shape
         if not bonds_shape == bond_parameter_particle_allowables[_parameter_tuple_name]:
           raise ValueError(f"""bonds shape of {bonds_shape} of parameter name {_parameter_tuple_name}
                             does not match the allowed dictionary entry of {bond_parameter_particle_allowables[_parameter_tuple_name]}""")
         for _field_name in nested_tuple_fields:
+          # bonded parameters need to contain particles w/ appropriate shape,
           if _field_name == 'particles':
-            pass # handled
+            continue # handled
           _param = getattr(nested_tuple, _field_name)
           assert util.is_array(_param), f"bond parameter {_field_name} is not an array."
           assert len(_param.shape) == 1
           assert _param.shape[0] == num_bonds
+        parameter_template[_parameter_tuple_name] = {_key: None for _key in nested_tuple_fields if _key != 'particles'}
       else:
+        # nonbonded parameters
         assert _parameter_tuple_name in [camel_to_snake(_entry) for _entry in CANONICAL_MM_NONBONDED_PARAMETER_NAMES]
-        parameter_shapes = []
+        parameter_lengths = []
         for entry in getattr(parameter_tree, _parameter_tuple_name):
           assert util.is_array(entry)
           assert len(entry.shape) == 1
           parameter_lengths.append(entry.shape[0])
         assert all(x == parameter_lengths[0] for x in parameter_lengths), f"all entries of nonbonded force must be consistent shapes"
+    return parameter_template
+
+def mm_energy_fn(displacement_fn : DisplacementFn,
+                 parameters : MMEnergyFnParameters,
+                 space_shape : Union[space.free, space.periodic, space.periodic_general] = space.periodic,
+                 use_neighbor_list : Optional[bool] = True,
+                 box_size: Optional[Box] = 1.,
+                 use_multiplicative_isotropic_cutoff: Optional[bool]=True,
+                 use_dsf_coulomb: Optional[bool]=True,
+                 neighbor_kwargs: Optional[Dict[str, Any]]=None,
+                 multiplicative_isotropic_cutoff_kwargs: Optional[Dict[str, Any]]=None,
+                 **unused_kwargs,
+                 ) -> Union[EnergyFn, partition.NeighborListFns]:
+  """
+  generator of a canonical molecular mechanics-like `EnergyFn`;
+
+  TODO :
+    - render `nonbonded_exception_parameters.particles` static (requires changing `custom_mask_fn` handler)
+    - retrieve standard nonbonded energy (already coded)
+    - retrieve nonbonded energy per particle
+    - render `.particles` parameters static (may affect jit compilation speeds)
+
+  Args:
+    displacement_fn: A `DisplacementFn`.
+    parameters: An `MMEnergyFnParameters` containing all of the parameters of the model;
+      While these are dynamic, `mm_energy_fn` does effectively make some of these static, namely the `particles` parameter
+    space_shape : A generalized `jax_md.space`
+    use_neighbor_list : whether to use a neighbor list for `NonbondedParameters`
+    box_size : size of box for `space.periodic` or `space.periodic_general`; omitted for `space.free`
+  Returns:
+    An `EnergyFn` taking positions R (an ndarray of shape [n_particles, 3]), parameters,
+      (optionally) a `NeighborList`, and optional kwargs
+    A `neighbor_fn` for allocating and updating a neighbor_list
+
+  Example (vacuum from `openmm`):
+  >>> pdb = app.PDBFile('alanine-dipeptide-explicit.pdb')
+  >>> ff = app.ForceField('amber14-all.xml', 'amber14/tip3pfb.xml')
+  >>> mmSystem = ff.createSystem(pdb.topology, nonbondedMethod=app.PME, constraints=None, rigidWater=False, removeCMMotion=False)
+  >>> model = Modeller(pdb.topology, pdb.positions)
+  >>> model.deleteWater()
+  >>> mmSystem = ff.createSystem(model.topology, nonbondedMethod=app.NoCutoff, constraints=None, rigidWater=False, removeCMMotion=False)
+  >>> context = openmm.Context(mmSystem, openmm.VerletIntegrator(1.*unit.femtoseconds))
+  >>> context.setPositions(model.getPositions())
+  >>> omm_state = context.getState(getEnergy=True, getPositions=True)
+  >>> positions = jnp.array(omm_state.getPositions(asNumpy=True).value_in_unit_system(unit.md_unit_system))
+  >>> energy = omm_state.getPotentialEnergy().value_in_unit_system(unit.md_unit_system)
+  >>> from jax_md import mm_utils
+  >>> params = mm_utils.parameters_from_openmm_system(mmSystem)
+  >>> displacement_fn, shift_fn = space.free()
+  >>> energy_fn, neighbor_list = mm_energy_fn(displacement_fn=displacement_fn,
+                                           parameters = params,
+                                           space_shape=space.free,
+                                           use_neighbor_list=False,
+                                           box_size=None,
+                                           use_multiplicative_isotropic_cutoff=False,
+                                           use_dsf_coulomb=False,
+                                           neighbor_kwargs={},
+                                           )
+  >>> out_energy = energy_fn(positions, parameters = params) # retrieve potential energy in units of `openmm.unit.md_unit_system` (kJ/mol)
+  """
+  check_support(space_shape, use_neighbor_list, box_size)
+
+  # bonded energy fns
+  bond_fns = get_bond_fns(displacement_fn) # get geometry handlers dict
+  parameter_template = check_parameters(parameters) # just make sure that parameters
+  for _key in bond_fns:
+    bond_fns[_key] = util.merge_dicts(bond_fns[_key], parameter_template[_key])
+  bonded_energy_fns = {}
+  for parameter_field in parameters._fields:
+    if parameter_field in list(bond_fns.keys()): # then it is bonded
+      mapped_bonded_energy_fn = smap.bond(
+                                     displacement_or_metric=displacement_fn,
+                                     **bond_fns[parameter_field], # `geometry_handler_fn` and `fn`
+                                     )
+      bonded_energy_fns[parameter_field] = mapped_bonded_energy_fn
+    elif parameter_field in [camel_to_snake(_entry) for _entry in CANONICAL_MM_NONBONDED_PARAMETER_NAMES]: # nonbonded
+      nonbonded_parameters = getattr(parameters, parameter_field)
+      if 'nonbonded_exception_parameters' in parameters._fields: # handle custom nonbonded mask
+        n_particles=nonbonded_parameters.charge.shape[0] # query the number of particles
+        padded_exception_array = query_idx_in_pair_exceptions(indices=jnp.arange(n_particles), pair_exceptions=getattr(getattr(parameters, 'nonbonded_exception_parameters'), 'particles'))
+        custom_mask_fn = nonbonded_exception_mask_fn(n_particles=n_particles, padded_exception_array=padded_exception_array)
+        neighbor_kwargs = util.merge_dicts({'custom_mask_fn': custom_mask_fn}, neighbor_kwargs)
+        neighbor_fn = None
+      else:
+        nonbonded_energy_fn, neighbor_fn = nonbonded_neighbor_list(displacement_or_metric=displacement_fn,
+                                 nonbonded_parameters=getattr(parameters, parameter_field),
+                                 use_neighbor_list=use_neighbor_list,
+                                 use_multiplicative_isotropic_cutoff=use_multiplicative_isotropic_cutoff,
+                                 use_dsf_coulomb=use_dsf_coulomb,
+                                 multiplicative_isotropic_cutoff_kwargs=multiplicative_isotropic_cutoff_kwargs,
+                                 neighbor_kwargs=neighbor_kwargs)
+    else:
+      raise NotImplementedError(f"""parameter name {parameter_field} is not currently supported by
+      `CANONICAL_MM_BOND_PARAMETER_NAMES` or `CANONICAL_MM_NONBONDED_PARAMETER_NAMES`""")
+
+  def bond_handler(parameters, **unused_kwargs):
+    """a simple function to easily `tree_map` bond functions"""
+    bonds = {_key: getattr(parameters, _key).particles for _key in parameters._fields if _key in bond_fns.keys()}
+    # bonds = {_key: None for _key in parameters._fields if _key in bond_fns.keys()}
+    bond_types = {_key: getattr(parameters, _key)._replace(particles=None)._asdict() for _key in bonds.keys()}
+    # print(bond_types)
+    # this is a deprecated version of the above code. (remove this before merge)
+    # bond_types = {_key: {__key: getattr(getattr(parameters, _key), __key) for __key in [_field for _field in _key._fields if _field != 'particles']}
+    #                     for _key in parameters._fields if _key in [bond_fns.keys()]}
+    return bonds, bond_types
+
+  def energy_fn(R: Array, **dynamic_kwargs) -> Array:
+    accum = f32(0)
+    bonds, bond_types = bond_handler(**dynamic_kwargs)
+    bonded_energies = jax.tree_util.tree_map(lambda _f, _bonds, _bond_types : _f(R, _bonds, _bond_types),
+                                             bonded_energy_fns, bonds, bond_types)
+    accum = accum + util.high_precision_sum(jnp.array(list(bonded_energies.values())))
+
+    # nonbonded
+    accum = accum + nonbonded_energy_fn(R, **dynamic_kwargs) # handle if/not in
+    return accum
+
+  return energy_fn, neighbor_fn
 
 
-# Energy Functions
+  # Energy Functions
 
 
 def mm_energy_fn(displacement_fn : DisplacementFn,
