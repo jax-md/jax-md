@@ -323,17 +323,25 @@ def _kwargs_to_parameters(species: Array,
       s_kwargs[k] = _get_species_parameters(v, species)
   return s_kwargs
 
-
-def _diagonal_mask(X: Array) -> Array:
-  """Sets the diagonal of a matrix to zero."""
+def check_square_matrix(X: Array) -> None:
+  """ensure matrix is square"""
   if X.shape[0] != X.shape[1]:
     raise ValueError(
         'Diagonal mask can only mask square matrices. Found {}x{}.'.format(
             X.shape[0], X.shape[1]))
-  if len(X.shape) > 3:
+
+def check_tensor_dim(X: Array,
+                     dim_max_size: int) -> None:
+  """ensure that a tensor's dim is less than `dim_max_size`"""
+  if len(X.shape) > dim_max_size:
     raise ValueError(
-        ('Diagonal mask can only mask rank-2 or rank-3 tensors. '
-         'Found {}.'.format(len(X.shape))))
+        ('tensor last dimension rank must be less than {}. '
+         'Found {}.'.format(len(X.shape), dim_max_size+1)))
+
+def _diagonal_mask(X: Array) -> Array:
+  """Sets the diagonal of a matrix to zero."""
+  check_square_matrix(X)
+  check_tensor_dim(X, 3)
   N = X.shape[0]
   # NOTE(schsam): It seems potentially dangerous to set nans to 0 here.
   # However, masking nans also doesn't seem to work. So it also seems
@@ -344,6 +352,13 @@ def _diagonal_mask(X: Array) -> Array:
     mask = jnp.reshape(mask, (N, N, 1))
   return mask * X
 
+def custom_mask(X: Array,
+                mask_indices: Array, **unused_kwargs) -> Array:
+  """Sets the entries of the [N,N] X array to 0. at values specified by [N,2] mask_indices with symmetrization"""
+  check_square_matrix(X)
+  check_tensor_dim(X, 3)
+  out = X.at[tuple(jnp.hstack((jnp.transpose(mask_indices), jnp.vstack((mask_indices[:,1], mask_indices[:,0])))))].set(0.)
+  return out
 
 def _check_species_dtype(species):
   if species.dtype == i32 or species.dtype == i64:
@@ -375,6 +390,7 @@ def pair(fn: Callable[..., Array],
          reduce_axis: Optional[Tuple[int, ...]]=None,
          keepdims: bool=False,
          ignore_unused_parameters: bool=False,
+         use_custom_mask: bool=False,
          **kwargs) -> Callable[..., Array]:
   """Promotes a function that acts on a pair of particles to one on a system.
 
@@ -404,6 +420,8 @@ def pair(fn: Callable[..., Array],
       specified keyword arguments passed to the mapped function get ignored
       if they were not first specified as keyword arguments when calling
       `smap.pair(...)`.
+    use_custom_mask: A boolean that denotes whether to use the `smap.custom_mask`
+      fn. This is only supported for `species`=None at the moment.
     kwargs: Arguments providing parameters to the mapped function. In cases
       where no species information is provided these should be either
 
@@ -439,6 +457,14 @@ def pair(fn: Callable[..., Array],
     The mapped function can also optionally take keyword arguments that get
     threaded through the metric.
   """
+  if species is not None and not use_custom_mask:
+    raise NotImplementedError(f"`use_custom_mask` is not currently supported if `species` is not `None`")
+  if use_custom_mask:
+    def mask_fn(x, **dynamic_kwargs):
+      return custom_mask(_diagonal_mask(x), **dynamic_kwargs)
+  else:
+    def mask_fn(x, **unused_kwargs):
+      return _diagonal_mask(x)
 
   kwargs, param_combinators = _split_params_and_combinators(kwargs)
 
@@ -453,7 +479,7 @@ def pair(fn: Callable[..., Array],
       dr = d(R, R)
       # NOTE(schsam): Currently we place a diagonal mask no matter what function
       # we are mapping. Should this be an option?
-      return high_precision_sum(_diagonal_mask(fn(dr, **_kwargs)),
+      return high_precision_sum(mask_fn(fn(dr, **_kwargs), **_kwargs),
                                 axis=reduce_axis, keepdims=keepdims) * f32(0.5)
   elif util.is_array(species):
     species = onp.array(species)
