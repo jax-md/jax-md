@@ -49,6 +49,25 @@ i32 = util.i32
 Array = jnp.array
 
 
+# `openmm` general conversion utilities
+
+def get_box_vectors_from_vec3s(vec3s : Tuple[Quantity, Quantity, Quantity]) -> Array:
+    """
+    query a tuple object of vec3s to get a box array (for pbc-enabled nonbonded functions)
+    Example:
+    >>> a,b,c = system.getDefaultPeriodicBoxVectors()
+    >>> bvs = get_box_vectors_from_vec3s((a,b,c))
+    """
+    rank = []
+    enumers = [0,1,2]
+    for idx, i in enumerate(vec3s):
+        rank.append(i[idx].value_in_unit_system(unit.md_unit_system))
+        lessers = [q for q in enumers if q != idx]
+        for j in lessers:
+            assert jnp.isclose(i[j].value_in_unit_system(unit.md_unit_system), 0.), f"vec3({i,j} is nonzero. vec3 is not a cube)"
+    return Array(rank)
+
+
 # `openmm.System` to `mm.MMEnergyFnParameters` converter utilities
 
 
