@@ -21,23 +21,29 @@ from google.colab import output
 import IPython
 
 import jax.numpy as jnp
+from jax import tree_map
+
 from jax_md import dataclasses
 from jax_md import partition
 
 import json
 
-import numpy as onp
+import numpy as np
 
 
 # INTERNAL_FILE_IMPORT
 
 
 renderer_code = IPython.display.HTML(
-  url=('https://raw.githubusercontent.com/google/jax-md/master/'
+  url=('https://raw.githubusercontent.com/google/jax-md/main/'
        'jax_md/colab_tools/visualization.html')
 )
 
 SIMULATION_IDX = 0
+
+
+def to_np(*xs):
+  return [np.array(x) if isinstance(x, jnp.ndarray) else x for x in xs]
 
 
 @dataclasses.dataclass
@@ -62,6 +68,8 @@ class Disk:
   def __init__(self, position, diameter=1.0, color=None):
     if color is None:
       color = jnp.array([0.8, 0.8, 1.0])
+
+    position, diameter, color = to_np(position, diameter, color)
 
     object.__setattr__(self, 'position', position)
     object.__setattr__(self, 'size', diameter)
@@ -94,6 +102,8 @@ class Sphere:
   def __init__(self, position, diameter=1.0, color=None):
     if color is None:
       color = jnp.array([0.8, 0.8, 1.0])
+
+    position, diameter, color = to_np(position, diameter, color)
 
     object.__setattr__(self, 'position', position)
     object.__setattr__(self, 'size', diameter)
@@ -129,13 +139,15 @@ class Bond:
 
   def __init__(self, reference_geometry, idx, diameter=None, color=None):
     if color is None:
-      color = jnp.array([0.8, 0.8, 1.0])
+      color = np.array([0.8, 0.8, 1.0])
     if diameter is None:
-      diameter = jnp.array(0.2)
+      diameter = np.array(0.2)
 
     if isinstance(idx, partition.NeighborList):
       idx = (idx.idx if idx.format is partition.Dense
              else partition.to_dense(idx))
+
+    idx, diameter, color = to_np(idx, diameter, color)
 
     object.__setattr__(self, 'reference_geometry', reference_geometry)
     object.__setattr__(self, 'neighbor_idx', idx)
@@ -164,7 +176,7 @@ def _encode(R):
   if dtype == jnp.int64:
     dtype = jnp.int32
   dtype = jnp.float32
-  return base64.b64encode(onp.array(R, dtype).tobytes()).decode('utf-8')
+  return base64.b64encode(np.array(R, dtype).tobytes()).decode('utf-8')
 
 def _to_json(data):
   try:
@@ -177,7 +189,8 @@ def render(box_size,
            buffer_size=None,
            background_color=None,
            resolution=None,
-           frame_rate=None):
+           frame_rate=None,
+           verbose=False):
   """Creates a rendering front-end along with callbacks in the host program.
 
   Args:
@@ -192,6 +205,8 @@ def render(box_size,
     resolution: The resolution of the renderer.
     frame_rate: An optional integer specifying the target frames-per-second
       for the renderer.
+    verbose: Specifies whether or not the client should emit information and
+      error messages. Useful for debugging visualizations, but adds clutter.
   """
   global SIMULATION_IDX
   # INTERNAL_RENDERER_CODE_LOADING
@@ -215,7 +230,7 @@ def render(box_size,
 
   assert dimension is not None
 
-  if isinstance(box_size, jnp.ndarray):
+  if isinstance(box_size, (jnp.ndarray, np.ndarray)):
     if box_size.shape:
       assert box_size.shape == (dimension,)
       box_size = list(box_size)
@@ -247,6 +262,9 @@ def render(box_size,
     if frame_rate is not None:
       metadata['frame_rate'] = frame_rate
 
+    if verbose:
+      metadata['verbose'] = True
+
     return _to_json(metadata)
   output.register_callback('GetSimulationMetadata', get_metadata)
 
@@ -263,8 +281,8 @@ def render(box_size,
 
     for field in geom_dict:
       if isinstance(geom_dict[field], list):
-        geom_dict[field] = onp.array(geom_dict[field])
-      if not isinstance(geom_dict[field], onp.ndarray):
+        geom_dict[field] = np.array(geom_dict[field])
+      if not isinstance(geom_dict[field], np.ndarray):
         geom_metadata[field] = geom_dict[field]
         continue
       if len(geom_dict[field].shape) == TYPE_DIMENSIONS[field] + 1:
@@ -284,7 +302,7 @@ def render(box_size,
     assert field in geom
     array = geom[field]
     if isinstance(array, list):
-      array = onp.array(array)
+      array = np.array(array)
 
     return _to_json({
         'array_chunk': _encode(array[offset:(offset + size)])
@@ -298,7 +316,7 @@ def render(box_size,
     assert field in geom
     array = geom[field]
     if isinstance(array, list):
-      array = onp.array(array)
+      array = np.array(array)
 
     return _to_json({ 'array': _encode(array) })
   output.register_callback(f'GetArray{SIMULATION_IDX}', get_array)
