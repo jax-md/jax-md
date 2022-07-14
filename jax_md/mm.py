@@ -12,7 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Handler of molecular mechanics energy handling and aggregation"""
+"""
+Handler of molecular mechanics energy handling and aggregation;
+NOTE : all I/O units are in units of `openmm.unit.md_unit_system` (see http://docs.openmm.org/latest/userguide/theory/01_introduction.html#units)
+"""
 
 from functools import wraps, partial
 
