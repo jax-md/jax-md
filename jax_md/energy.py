@@ -518,7 +518,7 @@ def multiplicative_isotropic_cutoff(fn: Callable[..., Array],
   return cutoff_fn
 
 def coulomb(r: Array,
-            Q_sq: Optional[Array] = 1,
+            Q_sq: Array,
             qqr2e : Optional[Array]=138.93545764438198,
             **unused_kwargs) -> Array:
   """vacuum coulombic interaction;
