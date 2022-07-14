@@ -51,7 +51,7 @@ Array = jnp.array
 
 # `openmm` general conversion utilities
 
-def get_box_vectors_from_vec3s(vec3s : Tuple[Quantity, Quantity, Quantity]) -> Array:
+def get_box_vectors_from_vec3s(vec3s : Tuple[unit.Quantity, unit.Quantity, unit.Quantity]) -> Array:
     """
     query a tuple object of vec3s to get a box array (for pbc-enabled nonbonded functions)
     Example:
