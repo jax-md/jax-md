@@ -67,7 +67,7 @@ Box = space.Box
 
 ShiftFn = space.ShiftFn
 # TODO: Get a proper type for UpdateFn.
-UpdateFn = Any
+UpdateFn = Callable
 
 T = TypeVar('T')
 InitFn = Callable[..., T]
@@ -237,7 +237,7 @@ class NVEState:
 
   @property
   def velocity(self) -> Array:
-    return momentum / mass
+    return self.momentum / self.mass
 
 
 # pylint: disable=invalid-name
@@ -506,7 +506,7 @@ class NVTNoseHooverState:
 
   @property
   def velocity(self):
-    return self.momentum / mass
+    return self.momentum / self.mass
 
 
 def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
@@ -681,7 +681,7 @@ class NPTNoseHooverState:
 
   @property
   def velocity(self) -> Array:
-    return self.momentum / mass
+    return self.momentum / self.mass
 
   @property
   def box(self) -> Array:
@@ -962,7 +962,7 @@ class NVTLangevinState:
 
   @property
   def velocity(self) -> Array:
-    return momentum / mass
+    return self.momentum / self.mass
 
 
 def nvt_langevin(energy_or_force: Callable[..., Array],

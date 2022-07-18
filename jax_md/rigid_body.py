@@ -51,6 +51,8 @@ a system of rigid bodies.
 
 from typing import Optional, Tuple, Any, Union, Callable
 
+from absl import logging
+
 import numpy as onp
 
 import jax
@@ -73,7 +75,8 @@ f64 = util.f64
 f32 = util.f32
 KeyArray = random.KeyArray
 NeighborListFns = partition.NeighborListFns
-ShiftFn = Any
+ShiftFn = space.ShiftFn
+UpdateFn = simulate.UpdateFn
 
 
 """Quaternion Utilities.
@@ -83,6 +86,15 @@ functions. The public versions of the function take `Quaternion` objects which
 help enforce type safety. The private version of the functions take raw arrays,
 but use JAX's vectorize utilities to automatically vectorize over any number
 of additional dimensions.
+
+To compute derivatives of quaternions as the tangent space of S^3 we follow the
+perspective outlined in
+New Langevin and Gradient Thermostats for Rigid Body Dynamics
+R. L. Davidchack, T. E. Ouldridge, and M. V. Tretyakov
+J. Chem. Phys. 142, 144114 (2015)
+
+TODO: We should make sure that all publicly exposed quaternion operations have
+correct derivatives, at some point.
 """
 
 
@@ -136,7 +148,7 @@ def _quaternion_rotate_bwd(res, g: Array) -> Tuple[Array, Array]:
   q, v = res
   _, vjp_fn = jax.vjp(_quaternion_rotate_raw, q, v)
   dq, dv = vjp_fn(g)
-  return dq - jnp.einsum('i,i,j->j', q, dq, q), dv
+  return dq - (q @ dq) * q, dv
 
 _quaternion_rotate.defvjp(_quaternion_rotate_fwd, _quaternion_rotate_bwd)
 
@@ -174,7 +186,7 @@ class Quaternion:
 
   @property
   def size(self) -> int:
-    return 3 * reduce(operator.mul, data.shape[:-1], 1)
+    return 3 * reduce(operator.mul, self.vec.shape[:-1], 1)
 
   @property
   def ndim(self) -> Tuple[int, ...]:
@@ -359,6 +371,7 @@ These functions are analogues of functions in `quantity.py` except that they
 work with RigidBody objects rather than linear positions / velocities.
 """
 
+
 def canonicalize_momentum(position: RigidBody, momentum: RigidBody
                           ) -> RigidBody:
   """Convert quaternion conjugate momentum to angular momentum."""
@@ -386,6 +399,26 @@ def temperature(position: RigidBody, momentum: RigidBody, mass: RigidBody
   ke = tree_map(lambda m, p: util.high_precision_sum(p**2 / m) / dof,
                 mass, momentum)
   return tree_reduce(operator.add, ke, 0.0)
+
+
+def get_moment_of_inertia_diagonal(I: Array, eps=1e-5):
+  """Raises a ValueError if the moment of inertia tensor is not diagonal."""
+  I_diag = vmap(jnp.diag)(I)
+  # NOTE: Here epsilon has to take into account numerical error from
+  # diagonalization. Maybe there's a more systematic way to figure this
+  # out. It might also be worth always trying to diagonalize at float64.
+  # NOTE: This will not work if the moment of inertia tensor is not known
+  # ahead of a JIT. Maybe worth removing this check and relying on the fact
+  # that helper functions always diagonalize the moment of inertia.
+  try:
+    if jnp.any(jnp.abs(I - vmap(jnp.diag)(I_diag)) > eps):
+      max_dev = jnp.max(jnp.abs(I - vmap(jnp.diag)(I_diag)))
+      raise ValueError('Expected diagonal moment of inertia.'
+                       f'Maximum deviation: {max_dev}. Tolerance: {eps}.')
+  except jax.errors.ConcretizationTypeError:
+    logging.info('Skipping moment of inertia diagonalization check inside of'
+                 'JIT. Make sure your moment of inertia is diagonal.')
+  return I_diag
 
 
 """Simulation Single Dispatch Extension Functions.
@@ -428,8 +461,7 @@ def _(R: RigidBody, mass: RigidBody, key: Array, kT: float):
   return RigidBody(P_center, P_orientation)
 
 
-def _rigid_body_3d_update(shift_fn: ShiftFn, m_rot: int
-                          ) -> Tuple[Callable, Callable]:
+def _rigid_body_3d_update(shift_fn: ShiftFn, m_rot: int) -> UpdateFn:
   """A symplectic update function for 3d rigid bodies."""
   def com_update_fn(R, P, F, M, dt, **kwargs):
     return shift_fn(R, P * dt / M, **kwargs)
@@ -489,7 +521,7 @@ def _rigid_body_3d_update(shift_fn: ShiftFn, m_rot: int
   return update_fn
 
 
-def _rigid_body_2d_update(shift_fn: ShiftFn) -> Tuple[Callable, Callable]:
+def _rigid_body_2d_update(shift_fn: ShiftFn) -> UpdateFn:
   """A symplectic update function for 2d rigid bodies."""
   def com_update_fn(R, P, F, M, dt, **kwargs):
     return shift_fn(R, P * dt / M, **kwargs)
@@ -624,7 +656,7 @@ class RigidPointUnion:
       @vmap
       def per_particle(point, mass):
         Id = jnp.eye(3, dtype=dtype)
-        diagonal = jnp.linalg.norm(point) ** 2 * Id
+        diagonal = jnp.sum(point**2) * Id
         off_diagonal = point[:, None] * point[None, :]
         return mass * ((diagonal - off_diagonal) + Id * I_sphere)
       return self._sum_over_shapes(per_particle(self.points, self.masses))
@@ -651,19 +683,7 @@ class RigidPointUnion:
     elif ndim == 3:
       # In three-dimensions, we grab the diagonal of the moment of inertia
       # assuming (and checking) that it is properly diagonalized.
-      I = self.moment_of_inertia()
-      I_diag = vmap(jnp.diag)(I)
-      # NOTE: Here epsilon has to take into account numerical error from
-      # diagonalization. Maybe there's a more systematic way to figure this
-      # out. It might also be worth always trying to diagonalize at float64.
-      # NOTE: This will not work if the moment of inertia tensor is not known
-      # ahead of a JIT. Maybe worth removing this check and relying on the fact
-      # that helper functions always diagonalize the moment of inertia.
-      eps = 1e-5
-      if jnp.any(jnp.abs(I - vmap(jnp.diag)(I_diag)) > eps):
-        max_dev = jnp.max(jnp.abs(I - vmap(jnp.diag)(I_diag)))
-        raise ValueError('Expected diagonal moment of inertia.'
-                         f'Maximum deviation: {max_dev}. Tolerance: {eps}.')
+      I_diag = get_moment_of_inertia_diagonal(self.moment_of_inertia())
       if shape_species is not None:
         return RigidBody(self._sum_over_shapes(self.masses)[shape_species],
                          I_diag[shape_species])
@@ -824,7 +844,7 @@ def union_to_points(body: RigidBody,
 
 def point_energy(energy_fn: Callable[..., Array],
                  shape: RigidPointUnion,
-                 shape_species: onp.ndarray=None
+                 shape_species: Optional[onp.ndarray]=None
                  ) -> Callable[..., Array]:
   """Produces a RigidBody energy given a pointwise energy and a point union.
 
@@ -856,7 +876,7 @@ def point_energy(energy_fn: Callable[..., Array],
 def point_energy_neighbor_list(energy_fn: Callable[..., Array],
                                neighbor_fn: NeighborListFns,
                                shape: RigidPointUnion,
-                               shape_species: onp.ndarray=None
+                               shape_species: Optional[onp.ndarray]=None
                                ) -> Tuple[NeighborListFns,
                                           Callable[..., Array]]:
   """Produces a RigidBody energy given a pointwise energy and a point union.
