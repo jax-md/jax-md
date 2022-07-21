@@ -542,7 +542,7 @@ def dsf_coulomb(r: Array,
   e_shift = erfcc / r_cutoff - f_shift * r_cutoff
 
   e = qqr2e * Q_sq / r * (erfc(alpha * r) - r * e_shift - r**2 * f_shift)
-  return jnp.where(r < cutoff, e, 0.0)
+  return jnp.where(r < r_cutoff, e, 0.0)
 
 
 def bks(dr: Array,
