@@ -457,7 +457,7 @@ def pair(fn: Callable[..., Array],
     The mapped function can also optionally take keyword arguments that get
     threaded through the metric.
   """
-  if species is not None and not use_custom_mask:
+  if species is not None and use_custom_mask:
     raise NotImplementedError(f"`use_custom_mask` is not currently supported if `species` is not `None`")
   if use_custom_mask:
     def mask_fn(x, **dynamic_kwargs):
