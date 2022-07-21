@@ -655,9 +655,9 @@ class NPTNoseHooverState:
     reference_box: A box used to measure relative changes to the simulation
       environment.
     box_position: A positional degree of freedom used to describe the current
-      box. The box_position is parameterized as `box_position = (1/d)log(V/V_0)`
-      where `V` is the current volume, `V_0` is the reference volume and `d` is
-      the spatial dimension.
+      box. box_position is parameterized as `box_position = (1/d)log(V/V_0)`
+      where `V` is the current volume, `V_0` is the reference volume, and `d`
+      is the spatial dimension.
     box_velocity: A velocity degree of freedom for the box.
     box_mass: The mass assigned to the box.
     barostat: The variables describing the Nose-Hoover chain coupled to the
@@ -802,7 +802,8 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     N, dim = position.shape
 
     def U(eps):
-      return energy_fn(position, box=box_fn(vol), perturbation=(1 + eps), **kwargs)
+      return energy_fn(position, box=box_fn(vol), perturbation=(1 + eps),
+                       **kwargs)
 
     dUdV = grad(U)
     KE2 = util.high_precision_sum(momentum ** 2 / mass)
@@ -975,10 +976,11 @@ def nvt_langevin(energy_or_force: Callable[..., Array],
 
   Samples from the canonical ensemble in which the number of particles (N),
   the system volume (V), and the temperature (T) are held constant. Langevin
-  dynamics are stochastic and it is supposed that the system is interacting with
-  fictitious microscopic degrees of freedom. An example of this would be large
-  particles in a solvent such as water. Thus, Langevin dynamics are a stochastic
-  ODE described by a friction coefficient and noise of a given covariance.
+  dynamics are stochastic and it is supposed that the system is interacting
+  with fictitious microscopic degrees of freedom. An example of this would be
+  large particles in a solvent such as water. Thus, Langevin dynamics are a
+  stochastic ODE described by a friction coefficient and noise of a given
+  covariance.
 
   Our implementation follows the excellent set of lecture notes by Carlon,
   Laleman, and Nomidis [#carlon]_ .
@@ -987,8 +989,8 @@ def nvt_langevin(energy_or_force: Callable[..., Array],
     energy_or_force: A function that produces either an energy or a force from
       a set of particle positions specified as an ndarray of shape
       `[n, spatial_dimension]`.
-    shift_fn: A function that displaces positions, `R`, by an amount `dR`. Both `R`
-      and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`. Both
+      `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
     dt: Floating point number specifying the timescale (step size) of the
       simulation.
     kT: Floating point number specifying the temperature in units of Boltzmann

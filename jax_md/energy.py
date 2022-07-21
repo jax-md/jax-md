@@ -18,6 +18,8 @@ from functools import wraps, partial
 
 from typing import Callable, Tuple, TextIO, Dict, Any, Optional
 
+import re
+
 import jax
 import jax.numpy as jnp
 from jax import ops
@@ -364,9 +366,10 @@ def gupta_potential(displacement, p, q, r_0n, U_n, A, cutoff):
   """.. _gupta-pot:
 
   Gupta potential with default parameters for Au_55 cluster. Gupta
-  potential was introduced by R. P. Gupta [#gupta]_. This potential uses parameters
-  that were fit for bulk gold by Jellinek [#jellinek]_. This particular implementation
-  of the Gupta potential was introduced by Garzon and Posada-Amarillas [#garzon]_.
+  potential was introduced by R. P. Gupta [#gupta]_. This potential uses
+  parameters that were fit for bulk gold by Jellinek [#jellinek]_. This
+  particular implementation of the Gupta potential was introduced by Garzon and
+  Posada-Amarillas [#garzon]_.
 
   Args:
     displacement: Function to compute displacement between two positions.
@@ -387,14 +390,14 @@ def gupta_potential(displacement, p, q, r_0n, U_n, A, cutoff):
       ignored.
 
   Returns:
-    A function that takes in positions of gold atoms (shape `[n, 3]` where `n` is
-    the number of atoms) and returns the total energy of the system in units
+    A function that takes in positions of gold atoms (shape `[n, 3]` where `n`
+    is the number of atoms) and returns the total energy of the system in units
     of eV.
 
   .. rubric:: References
   .. [#gupta] R.P. Gupta, Phys. Rev. B 23, 6265 (1981)
-  .. [#jellinek] J. Jellinek, in Metal-Ligand Interactions, edited by N. Russo and
-    D. R. Salahub (Kluwer Academic, Dordrecht, 1996), p. 325.
+  .. [#jellinek] J. Jellinek, in Metal-Ligand Interactions, edited by N. Russo
+     and D. R. Salahub (Kluwer Academic, Dordrecht, 1996), p. 325.
   .. [#garzon] I.L. Garzon, A. Posada-Amarillas, Phys. Rev. B 54, 16 (1996)
   """
   def _gupta_term1(r, p, r_0n, cutoff):
@@ -448,12 +451,13 @@ def multiplicative_isotropic_cutoff(fn: Callable[..., Array],
                                     r_cutoff: float) -> Callable[..., Array]:
   """Takes an isotropic function and constructs a truncated function.
 
-  Given a function `f:R -> R`, we construct a new function `f':R -> R` such that
-  `f'(r) = f(r)` for `r < r_onset`, `f'(r) = 0` for `r > r_cutoff`, and `f(r)` is :math:`C^1`
-  everywhere. To do this, we follow the approach outlined in HOOMD Blue  [#hoomd]_
-  (thanks to Carl Goodrich for the pointer). We construct a function `S(r)` such
-  that `S(r) = 1` for `r < r_onset`, `S(r) = 0` for `r > r_cutoff`, and `S(r)` is :math:`C^1`.
-  Then `f'(r) = S(r)f(r)`.
+  Given a function `f:R -> R`, we construct a new function `f':R -> R` such
+  that `f'(r) = f(r)` for `r < r_onset`, `f'(r) = 0` for `r > r_cutoff`, and
+  `f(r)` is :math:`C^1` everywhere. To do this, we follow the approach outlined
+  in HOOMD Blue  [#hoomd]_ (thanks to Carl Goodrich for the pointer). We
+  construct a function `S(r)` such that `S(r) = 1` for `r < r_onset`,
+  `S(r) = 0` for `r > r_cutoff`, and `S(r)` is :math:`C^1`. Then
+  `f'(r) = S(r)f(r)`.
 
   Args:
     fn: A function that takes an ndarray of distances of shape `[n, m]` as well
@@ -519,8 +523,8 @@ def bks(dr: Array,
 
   Beest-Kramer-van Santen (BKS) potential [#bks]_ which is commonly used to
   model silicas. This function computes the interaction between two
-  given atoms within the Buckingham form [#carre]_ , following the implementation
-  from Liu et al. [#liu]_ .
+  given atoms within the Buckingham form [#carre]_ , following the
+  implementation from Liu et al. [#liu]_ .
 
   Args:
     dr: An ndarray of shape `[n, m]` of pairwise distances between particles.
@@ -1268,8 +1272,9 @@ def load_lammps_eam_parameters(file: TextIO) -> Tuple[Callable[[Array], Array],
   * Line 4: Number of elements and the element type
   * Line 5: The number of charge values that the embedding energy is evaluated
     on (`num_drho`), interval between the charge values (`drho`), the number of
-    distances the pairwise energy and the charge density is evaluated on (`num_dr`),
-    the interval between these distances (`dr`), and the cutoff distance (`cutoff`).
+    distances the pairwise energy and the charge density is evaluated on
+    (`num_dr`), the interval between these distances (`dr`), and the cutoff
+    distance (`cutoff`).
 
   The lines that come after are the embedding function evaluated on `num_drho`
   charge values, charge function evaluated at `num_dr` distance values, and
@@ -1305,7 +1310,12 @@ def load_lammps_eam_parameters(file: TextIO) -> Tuple[Callable[[Array], Array],
   num_drho, num_dr = int(temp_params[0]), int(temp_params[2])
   drho, dr, cutoff = float(temp_params[1]), float(temp_params[3]), float(
       temp_params[4])
-  data = maybe_downcast([float(i) for i in raw_text[6:-1]])
+  if len(re.split(' +',raw_text[6].strip()))>1:
+    data = [maybe_downcast([float(i) for i in re.split(' +',rt.strip())])
+            for rt in raw_text[6:]]
+    data = jnp.concatenate(data)
+  else:
+    data = maybe_downcast([float(i)  for i in raw_text[6:-1]])
   embedding_fn = interpolate.spline(data[:num_drho], drho)
   charge_fn = interpolate.spline(data[num_drho:num_drho + num_dr], dr)
   # LAMMPS EAM parameters file lists pairwise energies after multiplying by
@@ -1320,7 +1330,7 @@ def load_lammps_eam_parameters(file: TextIO) -> Tuple[Callable[[Array], Array],
   return charge_fn, embedding_fn, pairwise_fn, cutoff
 
 
-def eam(displacement: DisplacementFn,
+def eam(displacement_or_metric: DisplacementOrMetricFn,
         charge_fn: Callable[[Array], Array],
         embedding_fn: Callable[[Array], Array],
         pairwise_fn: Callable[[Array], Array],
@@ -1375,10 +1385,10 @@ def eam(displacement: DisplacementFn,
     potentials for monoatomic metals from experimental data and ab initio
     calculations." Physical Review B, 59 (1999)
   """
-  metric = space.map_product(space.metric(displacement))
-
+  metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
   def energy(R, **kwargs):
-    dr = metric(R, R, **kwargs)
+    d = partial(metric, **kwargs)
+    dr = space.map_product(d)(R, R)
     total_charge = util.high_precision_sum(charge_fn(dr), axis=1)
     embedding_energy = embedding_fn(total_charge)
     pairwise_energy = util.high_precision_sum(smap._diagonal_mask(
@@ -1422,17 +1432,17 @@ def eam_neighbor_list(
   def energy_fn(R, neighbor, **kwargs):
     mask = partition.neighbor_list_mask(neighbor)
     self_mask = partition.neighbor_list_mask(neighbor, mask_self=True)
+    d = partial(metric, **kwargs)
 
     if neighbor.format is partition.Dense:
-      dr = space.map_neighbor(metric)(R, R[neighbor.idx], **kwargs)
+      dr = space.map_neighbor(d)(R, R[neighbor.idx])
       total_charge = util.high_precision_sum(charge_fn(dr) * mask, axis=1)
       embedding_energy = embedding_fn(total_charge)
       pairwise_energy = util.high_precision_sum(pairwise_fn(dr) * self_mask,
                                                 axis=1)
     elif neighbor.format is partition.Sparse:
       N = len(R)
-      dr = space.map_bond(metric)(R[neighbor.idx[0]], R[neighbor.idx[1]],
-                                  **kwargs)
+      dr = space.map_bond(d)(R[neighbor.idx[0]], R[neighbor.idx[1]])
       total_charge = ops.segment_sum(charge_fn(dr) * mask, neighbor.idx[0], N)
       embedding_energy = embedding_fn(total_charge)
       pairwise_energy = ops.segment_sum(pairwise_fn(dr) * self_mask,
@@ -1449,7 +1459,7 @@ def eam_neighbor_list(
 
 def eam_from_lammps_parameters_neighbor_list(
     displacement: DisplacementFn,
-    box_size, float,
+    box_size: float,
     f: TextIO,
     axis=None,
     dr_threshold: float=0.5,

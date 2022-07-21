@@ -21,6 +21,7 @@ from absl.testing import parameterized
 
 import numpy as onp
 
+import jax
 from jax import jit
 from jax import vmap
 from jax import random
@@ -669,41 +670,10 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     jtu.check_grads(shape_energy_fn, (shape.points,), 1, atol=5e-4, rtol=5e-4)
 
   def test_shape_derivative_3d(self):
-    def _diagonal_mask(X):
-      """Sets the diagonal of a matrix to zero."""
-      if X.shape[0] != X.shape[1]:
-        raise ValueError(
-          'Diagonal mask can only mask square matrices. Found {}x{}.'.format(
-            X.shape[0], X.shape[1]))
-      if len(X.shape) > 3:
-        raise ValueError(
-          ('Diagonal mask can only mask rank-2 or rank-3 tensors. '
-           'Found {}.'.format(len(X.shape))))
-      N = X.shape[0]
-      # NOTE(schsam): It seems potentially dangerous to set nans to 0 here.
-      # However,  masking nans also doesn't seem to work. So it also seems
-      # necessary. At the very least we should do some @ErrorChecking.
-      X = jnp.nan_to_num(X)
-      mask = 1.0 - jnp.eye(N, dtype=X.dtype)
-      if len(X.shape) == 3:
-        mask = jnp.reshape(mask, (N, N, 1))
-      return mask * X
-    def moment_of_inertia(points):
-      ndim = points.shape[-1]
-      I_sphere = 2 / 5
-      @vmap
-      def per_particle(point):
-        diagonal = jnp.linalg.norm(point) ** 2 * jnp.eye(point.shape[-1])
-        off_diagonal = point[:, None] * point[None, :]
-        return ((diagonal - off_diagonal) + jnp.eye(3) * I_sphere)
-      return jnp.sum(per_particle(points), axis=0)
-
-    def transform_to_diagonal_frame(shape_points):
-      I = moment_of_inertia(shape_points)
-      I_diag, U = jnp.linalg.eigh(I)
-      shape_points = jnp.einsum('ni,ij->nj', shape_points, U)
-      return shape_points
-
+    # This test currently fails on CPU due to Issue #10877
+    # https://github.com/google/jax/issues/10877
+    if jax.default_backend() == 'cpu':
+      self.skipTest('Shape derivatives are broken on CPU in three-dimensions.')
     def shape_energy_fn(points):
       body = rigid_body.RigidBody(
         jnp.array([[0.0, 0.0, 0.0],
@@ -718,26 +688,11 @@ class RigidBodyTest(test_util.JAXMDTestCase):
       # from the eigh command. If possible, we should make this safer.
       # Possibly this is because the matrix has degenerate eigenvalues.
       # If we allow the eigenvalues to not be degenerate then we don't
-      # get NaNs anymore, but we do get the wrong answer.
-      #shape = rigid_body.point_union_shape(points,
-      #                                    jnp.array([1.0, 2.0, 3.0, 4.0]))
-      # shape = rigid_body.point_union_shape(points, jnp.ones((len(points),)))
-      shape = rigid_body.RigidPointUnion(
-        transform_to_diagonal_frame(points),
-        jnp.ones((points.shape[0],)),
-        jnp.array([len(points)]),
-        jnp.array([0])
-      )
-      # shape = point_union_shape(points, 1.0)
+      # get NaNs anymore.
+      shape = rigid_body.point_union_shape(points, jnp.ones((len(points),)))
 
-      #shape = rigid_body.tetrahedron.set(points=points)
-      #displacement, shift = space.free()
-      #energy_fn = energy.soft_sphere_pair(displacement)
-      def energy_fn(R, **kwargs):
-        dr_2 = jnp.sum((R[:, None, :] - R[None, :, :]) ** 2, axis=-1)
-        dr = util.safe_mask(dr_2 > 0, jnp.sqrt, dr_2)
-        e = 0.5 * jnp.where(dr < 1.0, (dr - 1.0) ** 2, 0.0)
-        return 0.5 * jnp.sum(_diagonal_mask(e))
+      displacement, shift = space.free()
+      energy_fn = energy.soft_sphere_pair(displacement)
       energy_fn = rigid_body.point_energy(energy_fn, shape)
 
       return energy_fn(body)

@@ -26,6 +26,7 @@ from functools import partial
 import numpy as onp
 
 Array = jnp.ndarray
+PyTree = Any
 
 i16 = jnp.int16
 i32 = jnp.int32
