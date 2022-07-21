@@ -117,6 +117,9 @@ def volume(dimension: int, box: Box) -> float:
 
 def kinetic_energy(momentum: Array, mass: Array=f32(1.0)) -> float:
   """Computes the kinetic energy of a system with some momenta."""
+  logging.info('In version 0.2.0, the function signature of '
+               '`quantity.kinetic_energy` changed from taking velocity to '
+               'taking momentum.')
   ke = tree_map(lambda m, p: 0.5 * util.high_precision_sum(p**2 / m),
                 mass, momentum)
   return tree_reduce(operator.add, ke, 0.0)
@@ -124,10 +127,13 @@ def kinetic_energy(momentum: Array, mass: Array=f32(1.0)) -> float:
 
 def temperature(momentum: Array, mass: Array=f32(1.0)) -> float:
   """Computes the temperature of a system with some momenta."""
+  logging.info('In version 0.2.0, the function signature of '
+               '`quantity.temperature` changed from taking velocity to '
+               'taking momentum.')
   dof = count_dof(momentum)
-  ke = tree_map(lambda m, p: util.high_precision_sum(p**2 / m) / dof,
-                mass, momentum)
-  return tree_reduce(operator.add, ke, 0.0)
+  T = tree_map(lambda m, p: util.high_precision_sum(p**2 / m) / dof,
+               mass, momentum)
+  return tree_reduce(operator.add, T, 0.0)
 
 
 def pressure(energy_fn: EnergyFn, position: Array, box: Box,
