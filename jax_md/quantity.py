@@ -17,6 +17,8 @@
 
 from typing import TypeVar, Callable, Union, Tuple, Optional, Any
 
+from absl import logging
+
 from jax import grad, vmap, eval_shape
 from jax.tree_util import tree_map, tree_reduce
 import jax.numpy as jnp
