@@ -35,12 +35,16 @@
 
 from collections import namedtuple
 
-from typing import Callable, TypeVar, Union, Tuple, Dict, Optional
+from typing import Any, Callable, TypeVar, Union, Tuple, Dict, Optional
+
+import functools
 
 from jax import grad
+from jax import jit
 from jax import random
 import jax.numpy as jnp
 from jax import lax
+from jax.tree_util import tree_map, tree_reduce, tree_flatten, tree_unflatten
 
 from jax_md import quantity
 from jax_md import util
@@ -62,12 +66,95 @@ f64 = util.f64
 Box = space.Box
 
 ShiftFn = space.ShiftFn
+# TODO: Get a proper type for UpdateFn.
+UpdateFn = Callable
 
 T = TypeVar('T')
 InitFn = Callable[..., T]
 ApplyFn = Callable[[T], T]
 Simulator = Tuple[InitFn, ApplyFn]
 
+
+"""Single Dispatch Code.
+
+JAX MD allows for simulations to be extensible using single
+dispatch. For those familiar with C / C++, single dispatch is essentially
+function overloading based on the type of the first argument. For those
+unfamiliar, single dispatch chooses which version of a function to call by
+looking up the type of the first argument. If you are interested in setting up
+a simulation using a different type of system you can do so in a relatively
+light weight manner by introducing a new type for storing the state that is
+compatible with the JAX PyTree system (we usually choose a dataclass) and then
+overriding the four functions below.
+
+These extensions allow a range of simulations to be run by just changing the
+type of the position argument. In general, the most complicated function will
+be the `inner_update_fn` which should be induced by the Suzuki-Trotter
+decomposition for a given simulation environment. At the moment this set of
+extensible functions works with deterministic NVE and NVT simulation
+environments but not NPT or stochatic ones (like Langevin or Brownian). If that
+use-case is important to you, please raise an issue. It is likely there will be
+an additional function lookup needed in those cases.
+"""
+
+
+@functools.singledispatch
+def canonicalize_mass(mass: Union[Array, float]) -> Union[Array, float]:
+  """Reshape mass vector for broadcasting with positions."""
+  if isinstance(mass, float):
+    return mass
+  if mass.ndim == 2 and mass.shape[1] == 1:
+    return mass
+  elif mass.ndim == 1:
+    return jnp.reshape(mass, (mass.shape[0], 1))
+  elif mass.ndim == 0:
+    return mass
+  msg = (
+      'Expected mass to be either a floating point number or a one-dimensional'
+      'ndarray. Found {}.'.format(mass)
+      )
+  raise ValueError(msg)
+
+
+@functools.singledispatch
+def initialize_momenta(R: Array, mass: Array, key: Array, kT: float):
+  """Initialize momenta with the Maxwell-Boltzmann distribution."""
+  P = jnp.sqrt(mass * kT) * random.normal(key, R.shape, dtype=R.dtype)
+  # If simulating more than one particle, center the momentum.
+  if R.shape[0] > 1:
+    P = P - jnp.mean(P, axis=0, keepdims=True)
+  return P
+
+
+@functools.singledispatch
+def inner_update_fn(R: Array, shift_fn: Callable[..., Array],
+                       **unused_kwargs
+                       ) -> UpdateFn:
+  """Perform the inner update in the Suzuki-Trotter decomposition.
+
+  This function assumes that the simulation employs a factorization that looks
+  like :math:`e^{iL_{other}dt}e^{iL_vdt/2}e^{iL_{inner}dt}e^{iL_vdt/2}e^{iL_{other}dt}`
+  where it is assumed that :math:`e^{iL_{other}}` does not update the velocity
+  or the position, :math:`e^{iL_vdt/2}` only updates the velocity, and
+  :math:`e^{iL_{inner}dt}` is arbitrary. This setting covers the NVE and NVT
+  ensemble, but not the NPT.
+
+  Since the inner update function is arbitrary, it takes positions, momenta,
+  forces, and masses as input and returns a new set of positions, momenta,
+  forces, and masses. In general, this function should be chosen to implement
+  a factorization of the total Liouville operator for a given simulation
+  environment given the total form above.
+  """
+  def update_fn(R: Array, P: Array, F: Array, M: Array, dt: float, **kwargs
+               ) -> Tuple[Array, ...]:
+    return (shift_fn(R, dt * P / M, **kwargs), P, F, M)
+  return update_fn
+
+
+@functools.singledispatch
+def kinetic_energy(R: Array, P: Array, M: Array):
+  """Compute the kinetic energy, possibly as a function of position."""
+  return quantity.kinetic_energy(P, M)
 
 
 """Deterministic Simulations
@@ -95,7 +182,7 @@ interesting simulations that involve e.g. temperature gradients.
 
 
 def velocity_verlet(force_fn: Callable[..., Array],
-                    shift_fn: ShiftFn,
+                    update_fn: UpdateFn,
                     dt: float,
                     state: T,
                     **kwargs) -> T:
@@ -104,17 +191,22 @@ def velocity_verlet(force_fn: Callable[..., Array],
   dt_2 = f32(dt / 2)
   dt2_2 = f32(dt ** 2 / 2)
 
-  R, V, F, M = state.position, state.velocity, state.force, state.mass
+  R, P, F, M = state.position, state.momentum, state.force, state.mass
 
-  Minv = 1 / M
+  # First half step.
+  P = tree_map(lambda p, f: p + dt_2 * f, P, F)
 
-  R = shift_fn(R, V * dt + F * dt2_2 * Minv, **kwargs)
-  F_new = force_fn(R, **kwargs)
-  V += (F + F_new) * dt_2 * Minv
+  # Update positional degrees of freedom.
+  R, P, F, M = update_fn(R, P, F, M, dt, **kwargs)
+
+  # Second half step.
+  F = force_fn(R, **kwargs)
+  P = tree_map(lambda p, f: p + dt_2 * f, P, F)
+
   return dataclasses.replace(state,
                              position=R,
-                             velocity=V,
-                             force=F_new)
+                             momentum=P,
+                             force=F)
 
 
 # Constant Energy Simulations
@@ -131,23 +223,25 @@ class NVEState:
   Attributes:
     position: An ndarray of shape `[n, spatial_dimension]` storing the position
       of particles.
-    velocity: An ndarray of shape `[n, spatial_dimension]` storing the velocity
+    momentum: An ndarray of shape `[n, spatial_dimension]` storing the momentum
       of particles.
-    force: An ndarray of shape `[n, spatial_dimension]` storing the force acting
-      on particles from the previous step.
+    force: An ndarray of shape `[n, spatial_dimension]` storing the force
+      acting on particles from the previous step.
     mass: A float or an ndarray of shape `[n]` containing the masses of the
       particles.
   """
   position: Array
-  velocity: Array
+  momentum: Array
   force: Array
   mass: Array
 
+  @property
+  def velocity(self) -> Array:
+    return self.momentum / self.mass
+
 
 # pylint: disable=invalid-name
-def nve(energy_or_force_fn: Callable[..., Array],
-        shift_fn: ShiftFn,
-        dt: float) -> Simulator:
+def nve(energy_or_force_fn, shift_fn, dt=1e-3, **sim_kwargs):
   """Simulates a system in the NVE ensemble.
 
   Samples from the microcanonical ensemble in which the number of particles
@@ -158,25 +252,30 @@ def nve(energy_or_force_fn: Callable[..., Array],
     energy_or_force: A function that produces either an energy or a force from
       a set of particle positions specified as an ndarray of shape
       `[n, spatial_dimension]`.
-    shift_fn: A function that displaces positions, `R`, by an amount `dR`. Both `R`
-      and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`.
+      Both `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
     dt: Floating point number specifying the timescale (step size) of the
       simulation.
-    quant: Either a quantity. Energy or a quantity. Force specifying whether
-      `energy_or_force` is an energy or force respectively.
   Returns:
     See above.
   """
   force_fn = quantity.canonicalize_force(energy_or_force_fn)
 
+  @jit
   def init_fn(key, R, kT, mass=f32(1.0), **kwargs):
-    mass = quantity.canonicalize_mass(mass)
-    V = jnp.sqrt(kT / mass) * random.normal(key, R.shape, dtype=R.dtype)
-    V = V - jnp.mean(V * mass, axis=0, keepdims=True) / mass
-    return NVEState(R, V, force_fn(R, **kwargs), mass)  # pytype: disable=wrong-arg-count
+    mass = canonicalize_mass(mass)
+    P = initialize_momenta(R, mass, key, kT)
+    force = force_fn(R, **kwargs)
+    return NVEState(R, P, force, mass)
 
+  @jit
   def step_fn(state, **kwargs):
-    return velocity_verlet(force_fn, shift_fn, dt, state, **kwargs)
+    _dt = dt
+    if 'dt' in kwargs:
+      _dt = kwargs['dt']
+      del kwargs['dt']
+    update_fn = inner_update_fn(state.position, shift_fn, **sim_kwargs)
+    return velocity_verlet(force_fn, update_fn, _dt, state, **kwargs)
 
   return init_fn, step_fn
 
@@ -207,7 +306,7 @@ class NoseHooverChain:
   Attributes:
     position: An ndarray of shape `[chain_length]` that stores the position of
       the chain.
-    velocity: An ndarray of shape `[chain_length]` that stores the velocity of
+    momentum: An ndarray of shape `[chain_length]` that stores the momentum of
       the chain.
     mass: An ndarray of shape `[chain_length]` that stores the mass of the
       chain.
@@ -219,7 +318,7 @@ class NoseHooverChain:
       that the chain is coupled to.
   """
   position: Array
-  velocity: Array
+  momentum: Array
   mass: Array
   tau: Array
   kinetic_energy: Array
@@ -243,23 +342,24 @@ def nose_hoover_chain(dt: float,
 
   This function is used in simulations that sample from thermal ensembles by
   coupling the system to one, or more, Nose-Hoover chains. We use the direct
-  translation method outlined in Martyna et al. [#martyna92]_ and the Nose-Hoover chains are updated
-  using two half steps: one at the beginning of a simulation step and one at
-  the end. The masses of the Nose-Hoover chains are updated automatically to
-  enforce a specific period of oscillation, `tau`. Larger values of `tau` will
-  yield systems that reach the target temperature more slowly but are also more
-  stable.
+  translation method outlined in Martyna et al. [#martyna92]_ and the
+  Nose-Hoover chains are updated using two half steps: one at the beginning of
+  a simulation step and one at the end. The masses of the Nose-Hoover chains
+  are updated automatically to enforce a specific period of oscillation, `tau`.
+  Larger values of `tau` will yield systems that reach the target temperature
+  more slowly but are also more stable.
 
-  As described in Martyna et al. [#martyna92]_, the Nose-Hoover chain often evolves on a faster
-  timescale than the rest of the simulation. Therefore, it sometimes necessary
+  As described in Martyna et al. [#martyna92]_, the Nose-Hoover chain often
+  evolves on a faster timescale than the rest of the simulation. Therefore, it
+  sometimes necessary
   to integrate the chain over several substeps for each step of MD. To do this
   we follow the Suzuki-Yoshida scheme. Specifically, we subdivide our chain
-  simulation into :math:`n_c` substeps. These substeps are further subdivided into
-  :math:`n_sy` steps. Each :math:`n_sy` step has length :math:`\delta_i = \Delta t w_i / n_c`
-  where :math:`w_i` are constants such that :math:`\sum_i w_i = 1`. See the table of
-  Suzuki-Yoshida weights above for specific values. The number of substeps
-  and the number of Suzuki-Yoshida steps are set using the `chain_steps` and
-  `sy_steps` arguments.
+  simulation into :math:`n_c` substeps. These substeps are further subdivided
+  into :math:`n_sy` steps. Each :math:`n_sy` step has length
+  :math:`\delta_i = \Delta t w_i / n_c` where :math:`w_i` are constants such
+  that :math:`\sum_i w_i = 1`. See the table of Suzuki-Yoshida weights above
+  for specific values. The number of substeps and the number of Suzuki-Yoshida
+  steps are set using the `chain_steps` and `sy_steps` arguments.
 
   Consequently, the Nose-Hoover chains are described by three functions: an
   `init_fn` that initializes the state of the chain, a `half_step_fn` that
@@ -289,16 +389,15 @@ def nose_hoover_chain(dt: float,
 
   def init_fn(degrees_of_freedom, KE, kT):
     xi = jnp.zeros(chain_length, KE.dtype)
-    v_xi = jnp.zeros(chain_length, KE.dtype)
+    p_xi = jnp.zeros(chain_length, KE.dtype)
 
     Q = kT * tau ** f32(2) * jnp.ones(chain_length, dtype=f32)
     Q = Q.at[0].multiply(degrees_of_freedom)
-    return NoseHooverChain(xi, v_xi, Q, tau, KE, degrees_of_freedom)  # pytype: disable=wrong-arg-count
+    return NoseHooverChain(xi, p_xi, Q, tau, KE, degrees_of_freedom)
 
-  def substep_fn(delta, V, state, kT):
+  def substep_fn(delta, P, state, kT):
     """Apply a single update to the chain parameters and rescales velocity."""
-
-    xi, v_xi, Q, _tau, KE, DOF = dataclasses.astuple(state)
+    xi, p_xi, Q, _tau, KE, DOF = dataclasses.astuple(state)
 
     delta_2 = delta   / f32(2.0)
     delta_4 = delta_2 / f32(2.0)
@@ -306,65 +405,65 @@ def nose_hoover_chain(dt: float,
 
     M = chain_length - 1
 
-    G = (v_xi[M - 1] ** f32(2) * Q[M - 1] - kT) / Q[M]
-    v_xi = v_xi.at[M].add(delta_4 * G)
+    G = (p_xi[M - 1] ** f32(2) / Q[M - 1] - kT)
+    p_xi = p_xi.at[M].add(delta_4 * G)
 
-    def backward_loop_fn(v_xi_new, m):
-      G = (v_xi[m - 1] ** 2 * Q[m - 1] - kT) / Q[m]
-      scale = jnp.exp(-delta_8 * v_xi_new)
-      v_xi_new = scale * (scale * v_xi[m] + delta_4 * G)
-      return v_xi_new, v_xi_new
+    def backward_loop_fn(p_xi_new, m):
+      G = p_xi[m - 1] ** 2 / Q[m - 1] - kT
+      scale = jnp.exp(-delta_8 * p_xi_new / Q[m + 1])
+      p_xi_new = scale * (scale * p_xi[m] + delta_4 * G)
+      return p_xi_new, p_xi_new
     idx = jnp.arange(M - 1, 0, -1)
-    _, v_xi_update = lax.scan(backward_loop_fn, v_xi[M], idx, unroll=2)
-    v_xi = v_xi.at[idx].set(v_xi_update)
+    _, p_xi_update = lax.scan(backward_loop_fn, p_xi[M], idx, unroll=2)
+    p_xi = p_xi.at[idx].set(p_xi_update)
 
-    G = (f32(2.0) * KE - DOF * kT) / Q[0]
-    scale = jnp.exp(-delta_8 * v_xi[1])
-    v_xi = v_xi.at[0].set(scale * (scale * v_xi[0] + delta_4 * G))
+    G = f32(2.0) * KE - DOF * kT
+    scale = jnp.exp(-delta_8 * p_xi[1] / Q[1])
+    p_xi = p_xi.at[0].set(scale * (scale * p_xi[0] + delta_4 * G))
 
-    scale = jnp.exp(-delta_2 * v_xi[0])
+    scale = jnp.exp(-delta_2 * p_xi[0] / Q[0])
     KE = KE * scale ** f32(2)
-    V = V * scale
+    P = tree_map(lambda p: p * scale, P)
 
-    xi = xi + delta_2 * v_xi
+    xi = xi + delta_2 * p_xi / Q
 
-    G = (f32(2) * KE - DOF * kT) / Q[0]
+    G = f32(2) * KE - DOF * kT
     def forward_loop_fn(G, m):
-      scale = jnp.exp(-delta_8 * v_xi[m + 1])
-      v_xi_update = scale * (scale * v_xi[m] + delta_4 * G)
-      G = (v_xi_update ** 2 * Q[m] - kT) / Q[m + 1]
-      return G, v_xi_update
+      scale = jnp.exp(-delta_8 * p_xi[m + 1] / Q[m + 1])
+      p_xi_update = scale * (scale * p_xi[m] + delta_4 * G)
+      G = p_xi_update ** 2 / Q[m] - kT
+      return G, p_xi_update
     idx = jnp.arange(M)
-    G, v_xi_update = lax.scan(forward_loop_fn, G, idx, unroll=2)
-    v_xi = v_xi.at[idx].set(v_xi_update)
-    v_xi = v_xi.at[M].add(delta_4 * G)
+    G, p_xi_update = lax.scan(forward_loop_fn, G, idx, unroll=2)
+    p_xi = p_xi.at[idx].set(p_xi_update)
+    p_xi = p_xi.at[M].add(delta_4 * G)
 
-    return V, NoseHooverChain(xi, v_xi, Q, _tau, KE, DOF), kT  # pytype: disable=wrong-arg-count
+    return P, NoseHooverChain(xi, p_xi, Q, _tau, KE, DOF), kT
 
-  def half_step_chain_fn(V, state, kT):
+  def half_step_chain_fn(P, state, kT):
     if chain_steps == 1 and sy_steps == 1:
-      V, state, _ = substep_fn(dt, V, state, kT)
-      return V, state
+      P, state, _ = substep_fn(dt, P, state, kT)
+      return P, state
 
     delta = dt / chain_steps
-    ws = jnp.array(SUZUKI_YOSHIDA_WEIGHTS[sy_steps], dtype=V.dtype)
+    ws = jnp.array(SUZUKI_YOSHIDA_WEIGHTS[sy_steps])
     def body_fn(cs, i):
       d = f32(delta * ws[i % sy_steps])
       return substep_fn(d, *cs), 0
-    V, state, _ = lax.scan(body_fn,
-                           (V, state, kT),
+    P, state, _ = lax.scan(body_fn,
+                           (P, state, kT),
                            jnp.arange(chain_steps * sy_steps))[0]
-    return V, state
+    return P, state
 
   def update_chain_mass_fn(state, kT):
-    xi, v_xi, Q, _tau, KE, DOF = dataclasses.astuple(state)
+    xi, p_xi, Q, _tau, KE, DOF = dataclasses.astuple(state)
 
     Q = kT * _tau ** f32(2) * jnp.ones(chain_length, dtype=f32)
     Q = Q.at[0].multiply(DOF)
 
-    return NoseHooverChain(xi, v_xi, Q, _tau, KE, DOF)  # pytype: disable=wrong-arg-count
+    return NoseHooverChain(xi, p_xi, Q, _tau, KE, DOF)
 
-  return NoseHooverChainFns(init_fn, half_step_chain_fn, update_chain_mass_fn)  # pytype: disable=wrong-arg-count
+  return NoseHooverChainFns(init_fn, half_step_chain_fn, update_chain_mass_fn)
 
 
 def default_nhc_kwargs(tau: float, overrides: Dict) -> Dict:
@@ -391,7 +490,7 @@ class NVTNoseHooverState:
   Attributes:
     position: The current position of particles. An ndarray of floats
       with shape `[n, spatial_dimension]`.
-    velocity: The velocity of particles. An ndarray of floats
+    momentum: The momentum of particles. An ndarray of floats
       with shape `[n, spatial_dimension]`.
     force: The current force on the particles. An ndarray of floats with shape
       `[n, spatial_dimension]`.
@@ -400,10 +499,14 @@ class NVTNoseHooverState:
     chain: The variables describing the Nose-Hoover chain.
   """
   position: Array
-  velocity: Array
+  momentum: Array
   force: Array
   mass: Array
   chain: NoseHooverChain
+
+  @property
+  def velocity(self):
+    return self.momentum / self.mass
 
 
 def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
@@ -413,21 +516,23 @@ def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
                     chain_length: int=5,
                     chain_steps: int=2,
                     sy_steps: int=3,
-                    tau: Optional[float]=None) -> Simulator:
+                    tau: Optional[float]=None,
+                    **sim_kwargs) -> Simulator:
   """Simulation in the NVT ensemble using a Nose Hoover Chain thermostat.
 
   Samples from the canonical ensemble in which the number of particles (N),
   the system volume (V), and the temperature (T) are held constant. We use a
-  Nose Hoover Chain (NHC) thermostat described in [#martyna92]_ [#martyna98]_ [#tuckerman]_ . 
-  We follow the direct translation method outlined in Tuckerman et al. [#tuckerman]_ 
-  and the interested reader might want to look at that paper as a reference.
+  Nose Hoover Chain (NHC) thermostat described in [#martyna92]_ [#martyna98]_
+  [#tuckerman]_. We follow the direct translation method outlined in
+  Tuckerman et al. [#tuckerman]_ and the interested reader might want to look
+  at that paper as a reference.
 
   Args:
     energy_or_force: A function that produces either an energy or a force from
       a set of particle positions specified as an ndarray of shape
       `[n, spatial_dimension]`.
-    shift_fn: A function that displaces positions, `R`, by an amount `dR`. Both `R`
-      and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`.
+      Both `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
     dt: Floating point number specifying the timescale (step size) of the
       simulation.
     kT: Floating point number specifying the temperature in units of Boltzmann
@@ -435,12 +540,13 @@ def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
       should pass `kT` as a keyword argument to the step function.
     chain_length: An integer specifying the number of particles in
       the Nose-Hoover chain.
-    chain_steps: An integer specifying the number, :math:`n_c`, of outer substeps.
+    chain_steps: An integer specifying the number, :math:`n_c`, of outer
+      substeps.
     sy_steps: An integer specifying the number of Suzuki-Yoshida steps. This
       must be either `1`, `3`, `5`, or `7`.
-    tau: A floating point timescale over which temperature equilibration occurs.
-      Measured in units of `dt`. The performance of the Nose-Hoover chain
-      thermostat can be quite sensitive to this choice.
+    tau: A floating point timescale over which temperature equilibration
+      occurs. Measured in units of `dt`. The performance of the Nose-Hoover
+      chain thermostat can be quite sensitive to this choice.
   Returns:
     See above.
 
@@ -457,41 +563,47 @@ def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
     dynamics simulations in the isothermal-isobaric ensemble."
     Journal of Physics A: Mathematical and General 39, no. 19 (2006): 5629.
   """
+  force_fn = quantity.canonicalize_force(energy_or_force_fn)
   dt = f32(dt)
+  dt_2 = f32(dt / 2)
   if tau is None:
     tau = dt * 100
   tau = f32(tau)
 
-  force_fn = quantity.canonicalize_force(energy_or_force_fn)
   chain_fns = nose_hoover_chain(dt, chain_length, chain_steps, sy_steps, tau)
 
+  @jit
   def init_fn(key, R, mass=f32(1.0), **kwargs):
     _kT = kT if 'kT' not in kwargs else kwargs['kT']
 
-    mass = quantity.canonicalize_mass(mass)
-    V = jnp.sqrt(_kT / mass) * random.normal(key, R.shape, dtype=R.dtype)
-    V = V - jnp.mean(V * mass, axis=0, keepdims=True) / mass
-    KE = quantity.kinetic_energy(V, mass)
+    mass = canonicalize_mass(mass)
 
-    return NVTNoseHooverState(R, V, force_fn(R, **kwargs), mass,
-                              chain_fns.initialize(R.size, KE, _kT))  # pytype: disable=wrong-arg-count
+    P = initialize_momenta(R, mass, key, _kT)
+    KE = kinetic_energy(R, P, mass)
+    dof = quantity.count_dof(R)
+    return NVTNoseHooverState(R, P, force_fn(R, **kwargs), mass,
+                              chain_fns.initialize(dof, KE, _kT))
+
+  @jit
   def apply_fn(state, **kwargs):
+    update_fn = inner_update_fn(state.position, shift_fn, **sim_kwargs)
+
     _kT = kT if 'kT' not in kwargs else kwargs['kT']
 
     chain = state.chain
 
     chain = chain_fns.update_mass(chain, _kT)
 
-    v, chain = chain_fns.half_step(state.velocity, chain, _kT)
-    state = dataclasses.replace(state, velocity=v)
+    p, chain = chain_fns.half_step(state.momentum, chain, _kT)
+    state = dataclasses.replace(state, momentum=p)
 
-    state = velocity_verlet(force_fn, shift_fn, dt, state, **kwargs)
+    state = velocity_verlet(force_fn, update_fn, dt, state, **kwargs)
 
-    KE = quantity.kinetic_energy(state.velocity, state.mass)
+    KE = kinetic_energy(state.position, state.momentum, state.mass)
     chain = dataclasses.replace(chain, kinetic_energy=KE)
 
-    v, chain = chain_fns.half_step(state.velocity, chain, _kT)
-    state = dataclasses.replace(state, velocity=v, chain=chain)
+    p, chain = chain_fns.half_step(state.momentum, chain, _kT)
+    state = dataclasses.replace(state, momentum=p, chain=chain)
 
     return state
   return init_fn, apply_fn
@@ -514,16 +626,16 @@ def nvt_nose_hoover_invariant(energy_fn: Callable[..., Array],
     The Hamiltonian of the extended NVT dynamics.
   """
   PE = energy_fn(state.position, **kwargs)
-  KE = quantity.kinetic_energy(state.velocity, state.mass)
+  KE = kinetic_energy(state.position, state.momentum, state.mass)
 
-  DOF = state.position.size
+  DOF = quantity.count_dof(state.position)
   E = PE + KE
 
   c = state.chain
 
-  E += c.mass[0] * c.velocity[0] ** 2 / 2 + DOF * kT * c.position[0]
-  for r, v, m in zip(c.position[1:], c.velocity[1:], c.mass[1:]):
-    E += m * v ** 2 / 2 + kT * r
+  E += c.momentum[0] ** 2 / (2 * c.mass[0]) + DOF * kT * c.position[0]
+  for r, p, m in zip(c.position[1:], c.momentum[1:], c.mass[1:]):
+    E += p ** 2 / (2 * m) + kT * r
   return E
 
 
@@ -534,7 +646,7 @@ class NPTNoseHooverState:
   Attributes:
     position: The current position of particles. An ndarray of floats
       with shape `[n, spatial_dimension]`.
-    velocity: The velocity of particles. An ndarray of floats
+    momentum: The velocity of particles. An ndarray of floats
       with shape `[n, spatial_dimension]`.
     force: The current force on the particles. An ndarray of floats with shape
       `[n, spatial_dimension]`.
@@ -554,21 +666,26 @@ class NPTNoseHooverState:
       thermostat.
   """
   position: Array
-  velocity: Array
+  momentum: Array
   force: Array
   mass: Array
 
   reference_box: Box
 
   box_position: Array
-  box_velocity: Array
+  box_momentum: Array
   box_mass: Array
 
   barostat: NoseHooverChain
   thermostat: NoseHooverChain
 
   @property
-  def box(self):
+  def velocity(self) -> Array:
+    return self.momentum / self.mass
+
+  @property
+  def box(self) -> Array:
+    """Get the current box from an NPT simulation."""
     dim = self.position.shape[1]
     ref = self.reference_box
     V_0 = quantity.volume(dim, ref)
@@ -615,8 +732,8 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
   Args:
     energy_fn: A function that produces either an energy from a set of particle
       positions specified as an ndarray of shape `[n, spatial_dimension]`.
-    shift_fn: A function that displaces positions, `R`, by an amount `dR`.
-      Both `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`. Both
+      `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
     dt: Floating point number specifying the timescale (step size) of the
       simulation.
     pressure: Floating point number specifying the target pressure. To update
@@ -653,25 +770,24 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
 
     _kT = kT if 'kT' not in kwargs else kwargs['kT']
 
-    mass = quantity.canonicalize_mass(mass)
-    V = jnp.sqrt(_kT / mass) * random.normal(key, R.shape, dtype=R.dtype)
-    V = V - jnp.mean(V * mass, axis=0, keepdims=True) / mass
-    KE = quantity.kinetic_energy(V, mass)
+    mass = canonicalize_mass(mass)
+    P = initialize_momenta(R, mass, key, kT)
+    KE = quantity.kinetic_energy(P, mass)
 
     # The box position is defined via pos = (1 / d) log V / V_0.
     zero = jnp.zeros((), dtype=R.dtype)
     one = jnp.ones((), dtype=R.dtype)
     box_position = zero
-    box_velocity = zero
+    box_momentum = zero
     box_mass = dim * (N + 1) * kT * barostat_kwargs['tau'] ** 2 * one
-    KE_box = quantity.kinetic_energy(box_velocity, box_mass)
+    KE_box = quantity.kinetic_energy(box_momentum, box_mass)
 
     if jnp.isscalar(box) or box.ndim == 0:
       # TODO(schsam): This is necessary because of JAX issue #5849.
       box = jnp.eye(R.shape[-1]) * box
 
-    return NPTNoseHooverState(R, V, force_fn(R, box=box, **kwargs), mass, box,
-                              box_position, box_velocity, box_mass,
+    return NPTNoseHooverState(R, P, force_fn(R, box=box, **kwargs), mass, box,
+                              box_position, box_momentum, box_mass,
                               barostat.initialize(1, KE_box, _kT),
                               thermostat.initialize(R.size, KE, _kT))  # pytype: disable=wrong-arg-count
 
@@ -681,15 +797,16 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     box_mass = jnp.array(dim * (N + 1) * kT * state.barostat.tau ** 2, dtype)
     return dataclasses.replace(state, box_mass=box_mass)
 
-  def box_force(alpha, vol, box_fn, position, velocity, mass, force, pressure,
+  def box_force(alpha, vol, box_fn, position, momentum, mass, force, pressure,
                 **kwargs):
     N, dim = position.shape
 
     def U(eps):
-      return energy_fn(position, box=box_fn(vol), perturbation=(1+eps), **kwargs)
+      return energy_fn(position, box=box_fn(vol), perturbation=(1 + eps),
+                       **kwargs)
 
     dUdV = grad(U)
-    KE2 = util.high_precision_sum(velocity ** 2 * mass)
+    KE2 = util.high_precision_sum(momentum ** 2 / mass)
 
     return alpha * KE2 - dUdV(0.0) - pressure * vol * dim
 
@@ -705,43 +822,43 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     return shift_fn(R, R * (jnp.exp(x) - 1) + dt * V * jnp.exp(x_2) * sinhV,
                     box=box, **kwargs)  # pytype: disable=wrong-keyword-args
 
-  def exp_iL2(alpha, V, A, V_b):
-    x = alpha * V_b * dt_2
+  def exp_iL2(alpha, P, F, P_b):
+    x = alpha * P_b * dt_2
     x_2 = x / 2
-    sinhV = sinhx_x(x_2)  # jnp.sinh(x_2) / x_2
-    return V * jnp.exp(-x) + dt_2 * A * sinhV * jnp.exp(-x_2)
+    sinhP = sinhx_x(x_2)  # jnp.sinh(x_2) / x_2
+    return P * jnp.exp(-x) + dt_2 * F * sinhP * jnp.exp(-x_2)
 
   def inner_step(state, **kwargs):
     _pressure = kwargs.pop('pressure', pressure)
 
-    R, V, M, F = state.position, state.velocity, state.mass, state.force
-    R_b, V_b, M_b = state.box_position, state.box_velocity, state.box_mass
+    R, P, M, F = state.position, state.momentum, state.mass, state.force
+    R_b, P_b, M_b = state.box_position, state.box_momentum, state.box_mass
 
     N, dim = R.shape
 
     vol, box_fn = _npt_box_info(state)
 
     alpha = 1 + 1 / N
-    G_e = box_force(alpha, vol, box_fn, R, V, M, F, _pressure, **kwargs)
-    V_b = V_b + dt_2 * G_e / M_b
-    V = exp_iL2(alpha, V, F / M, V_b)
+    G_e = box_force(alpha, vol, box_fn, R, P, M, F, _pressure, **kwargs)
+    P_b = P_b + dt_2 * G_e
+    P = exp_iL2(alpha, P, F, P_b)
 
-    R_b = R_b + V_b * dt
+    R_b = R_b + P_b / M_b * dt
     state = dataclasses.replace(state, box_position=R_b)
 
     vol, box_fn = _npt_box_info(state)
 
     box = box_fn(vol)
-    R = exp_iL1(box, R, V, V_b)
+    R = exp_iL1(box, R, P / M, P_b / M_b)
     F = force_fn(R, box=box, **kwargs)
 
-    V = exp_iL2(alpha, V, F / M, V_b)
-    G_e = box_force(alpha, vol, box_fn, R, V, M, F, _pressure, **kwargs)
-    V_b = V_b + dt_2 * G_e / M_b
+    P = exp_iL2(alpha, P, F, P_b)
+    G_e = box_force(alpha, vol, box_fn, R, P, M, F, _pressure, **kwargs)
+    P_b = P_b + dt_2 * G_e
 
     return dataclasses.replace(state,
-                               position=R, velocity=V, mass=M, force=F,
-                               box_position=R_b, box_velocity=V_b, box_mass=M_b)
+                               position=R, momentum=P, mass=M, force=F,
+                               box_position=R_b, box_momentum=P_b, box_mass=M_b)
 
   def apply_fn(state, **kwargs):
     S = state
@@ -751,24 +868,24 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     tc = thermostat.update_mass(S.thermostat, _kT)
     S = update_box_mass(S, _kT)
 
-    V_b, bc = barostat.half_step(S.box_velocity, bc, _kT)
-    V, tc = thermostat.half_step(S.velocity, tc, _kT)
+    P_b, bc = barostat.half_step(S.box_momentum, bc, _kT)
+    P, tc = thermostat.half_step(S.momentum, tc, _kT)
 
-    S = dataclasses.replace(S, velocity=V, box_velocity=V_b)
+    S = dataclasses.replace(S, momentum=P, box_momentum=P_b)
     S = inner_step(S, **kwargs)
 
-    KE = quantity.kinetic_energy(S.velocity, S.mass)
+    KE = quantity.kinetic_energy(S.momentum, S.mass)
     tc = dataclasses.replace(tc, kinetic_energy=KE)
 
-    KE_box = quantity.kinetic_energy(S.box_velocity, S.box_mass)
+    KE_box = quantity.kinetic_energy(S.box_momentum, S.box_mass)
     bc = dataclasses.replace(bc, kinetic_energy=KE_box)
 
-    V, tc = thermostat.half_step(S.velocity, tc, _kT)
-    V_b, bc = barostat.half_step(S.box_velocity, bc, _kT)
+    P, tc = thermostat.half_step(S.momentum, tc, _kT)
+    P_b, bc = barostat.half_step(S.box_momentum, bc, _kT)
 
     S = dataclasses.replace(S,
                             thermostat=tc, barostat=bc,
-                            velocity=V, box_velocity=V_b)
+                            momentum=P, box_momentum=P_b)
 
     return S
   return init_fn, apply_fn
@@ -794,22 +911,22 @@ def npt_nose_hoover_invariant(energy_fn: Callable[..., Array],
   """
   volume, box_fn = _npt_box_info(state)
   PE = energy_fn(state.position, box=box_fn(volume), **kwargs)
-  KE = quantity.kinetic_energy(state.velocity, state.mass)
+  KE = quantity.kinetic_energy(state.momentum, state.mass)
 
   DOF = state.position.size
   E = PE + KE
 
   c = state.thermostat
-  E += c.mass[0] * c.velocity[0] ** 2 / 2 + DOF * kT * c.position[0]
-  for r, v, m in zip(c.position[1:], c.velocity[1:], c.mass[1:]):
-    E += m * v ** 2 / 2 + kT * r
+  E += c.momentum[0] ** 2 / (2 * c.mass[0]) + DOF * kT * c.position[0]
+  for r, p, m in zip(c.position[1:], c.momentum[1:], c.mass[1:]):
+    E += p ** 2 / (2 * m) + kT * r
 
   c = state.barostat
-  for r, v, m in zip(c.position, c.velocity, c.mass):
-    E += m * v ** 2 / 2 + kT * r
+  for r, p, m in zip(c.position, c.momentum, c.mass):
+    E += p ** 2 / (2 * m) + kT * r
 
   E += pressure * volume
-  E += state.box_mass * state.box_velocity ** 2 / 2
+  E += state.box_momentum ** 2 / (2 * state.box_mass)
 
   return E
 
@@ -818,6 +935,9 @@ def npt_nose_hoover_invariant(energy_fn: Callable[..., Array],
 
 JAX MD includes integrators for stochastic simulations of Langevin dynamics and
 Brownian motion for systems in the NVT ensemble with a solvent.
+
+TODO: Make Langevin and Brownian simulations work with new `tree_map`
+formalism.
 """
 
 @dataclasses.dataclass
@@ -827,7 +947,7 @@ class NVTLangevinState:
   Attributes:
     position: The current position of the particles. An ndarray of floats with
       shape `[n, spatial_dimension]`.
-    velocity: The velocity of particles. An ndarray of floats with shape
+    momentum: The momentum of particles. An ndarray of floats with shape
       `[n, spatial_dimension]`.
     force: The (non-stochastic) force on particles. An ndarray of floats with
       shape `[n, spatial_dimension]`.
@@ -836,10 +956,15 @@ class NVTLangevinState:
     rng: The current state of the random number generator.
   """
   position: Array
-  velocity: Array
+  momentum: Array
   force: Array
   mass: Array
   rng: Array
+
+  @property
+  def velocity(self) -> Array:
+    return self.momentum / self.mass
+
 
 def nvt_langevin(energy_or_force: Callable[..., Array],
                  shift: ShiftFn,
@@ -851,10 +976,11 @@ def nvt_langevin(energy_or_force: Callable[..., Array],
 
   Samples from the canonical ensemble in which the number of particles (N),
   the system volume (V), and the temperature (T) are held constant. Langevin
-  dynamics are stochastic and it is supposed that the system is interacting with
-  fictitious microscopic degrees of freedom. An example of this would be large
-  particles in a solvent such as water. Thus, Langevin dynamics are a stochastic
-  ODE described by a friction coefficient and noise of a given covariance.
+  dynamics are stochastic and it is supposed that the system is interacting
+  with fictitious microscopic degrees of freedom. An example of this would be
+  large particles in a solvent such as water. Thus, Langevin dynamics are a
+  stochastic ODE described by a friction coefficient and noise of a given
+  covariance.
 
   Our implementation follows the excellent set of lecture notes by Carlon,
   Laleman, and Nomidis [#carlon]_ .
@@ -863,8 +989,8 @@ def nvt_langevin(energy_or_force: Callable[..., Array],
     energy_or_force: A function that produces either an energy or a force from
       a set of particle positions specified as an ndarray of shape
       `[n, spatial_dimension]`.
-    shift_fn: A function that displaces positions, `R`, by an amount `dR`. Both `R`
-      and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`. Both
+      `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
     dt: Floating point number specifying the timescale (step size) of the
       simulation.
     kT: Floating point number specifying the temperature in units of Boltzmann
@@ -895,18 +1021,15 @@ def nvt_langevin(energy_or_force: Callable[..., Array],
 
   def init_fn(key, R, mass=f32(1), **kwargs):
     _kT = kT if 'kT' not in kwargs else kwargs['kT']
-    mass = quantity.canonicalize_mass(mass)
+    mass = canonicalize_mass(mass)
 
     key, split = random.split(key)
 
-    V = jnp.sqrt(_kT / mass) * random.normal(split, R.shape, dtype=R.dtype)
-    if center_velocity:
-      V = V - jnp.mean(V, axis=0, keepdims=True)
-
-    return NVTLangevinState(R, V, force_fn(R, **kwargs) / mass, mass, key)  # pytype: disable=wrong-arg-count
+    P = initialize_momenta(R, mass, key, kT)
+    return NVTLangevinState(R, P, force_fn(R, **kwargs), mass, key)  # pytype: disable=wrong-arg-count
 
   def apply_fn(state, **kwargs):
-    R, V, F, mass, key = dataclasses.astuple(state)
+    R, P, F, mass, key = dataclasses.astuple(state)
 
     _kT = kT if 'kT' not in kwargs else kwargs['kT']
     N, dim = R.shape
@@ -920,15 +1043,15 @@ def nvt_langevin(energy_or_force: Callable[..., Array],
     # is nonconstant. @Optimization
     # TODO(schsam): Check that this is really valid in the case that the masses
     # are non identical for all particles.
-    sigma = jnp.sqrt(f32(2) * _kT * gamma / mass)
-    C = dt2 * (F - gamma * V) + sigma * dt32 * (xi + theta)
+    sigma = jnp.sqrt(f32(2) * _kT * gamma * mass)
+    C = dt2 * (F - gamma * P) + sigma * dt32 * (xi + theta)
 
-    R = shift(R, dt * V + C, **kwargs)
-    F_new = force_fn(R, **kwargs) / mass
-    V = (f32(1) - dt * gamma) * V + dt_2 * (F_new + F)
-    V = V + sigma * jnp.sqrt(dt) * xi - gamma * C
+    R = shift(R, (dt * P + C) / mass, **kwargs)
+    F_new = force_fn(R, **kwargs)
+    P = (f32(1) - dt * gamma) * P + dt_2 * (F_new + F)
+    P = P + sigma * jnp.sqrt(dt) * xi - gamma * C
 
-    return NVTLangevinState(R, V, F_new, mass, key)  # pytype: disable=wrong-arg-count
+    return NVTLangevinState(R, P, F_new, mass, key)  # pytype: disable=wrong-arg-count
   return init_fn, apply_fn
 
 
@@ -965,8 +1088,8 @@ def brownian(energy_or_force: Callable[..., Array],
     energy_or_force: A function that produces either an energy or a force from
       a set of particle positions specified as an ndarray of shape
       `[n, spatial_dimension]`.
-    shift_fn: A function that displaces positions, `R`, by an amount `dR`. Both `R`
-      and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`.
+      Both `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
     dt: Floating point number specifying the timescale (step size) of the
       simulation.
     kT: Floating point number specifying the temperature in units of Boltzmann
@@ -984,7 +1107,7 @@ def brownian(energy_or_force: Callable[..., Array],
   dt, gamma = static_cast(dt, gamma)
 
   def init_fn(key, R, mass=f32(1)):
-    mass = quantity.canonicalize_mass(mass)
+    mass = canonicalize_mass(mass)
 
     return BrownianState(R, mass, key)  # pytype: disable=wrong-arg-count
 
@@ -1046,7 +1169,7 @@ def hybrid_swap_mc(space_fns: space.Space,
                    ) -> Simulator:
   """Simulation of Hybrid Swap Monte-Carlo.
 
-  This code simulates the hybrid Swap Monte Carlo algorithm introduced in 
+  This code simulates the hybrid Swap Monte Carlo algorithm introduced in
   Berthier et al. [#berthier]_
   Here an NVT simulation is performed for `t_md` time and then `N_swap` MC
   moves are performed that swap the radii of randomly chosen particles. The

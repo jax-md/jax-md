@@ -18,6 +18,7 @@ particular problem.
    jax_md.nn
    jax_md.quantity
    jax_md.elasticity
+   jax_md.rigid_body
    jax_md.smap
 
 Indices and tables

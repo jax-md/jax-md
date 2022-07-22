@@ -37,6 +37,7 @@ def dataclass(clz):
   Returns:
     The new class.
   """
+  clz.set = lambda self, **kwargs: dataclasses.replace(self, **kwargs)
   data_clz = dataclasses.dataclass(frozen=True)(clz)
   meta_fields = []
   data_fields = []

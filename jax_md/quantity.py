@@ -15,16 +15,23 @@
 """Describes different physical quantities."""
 
 
-from typing import TypeVar, Callable, Union, Tuple, Optional
+from typing import TypeVar, Callable, Union, Tuple, Optional, Any
+
+from absl import logging
 
 from jax import grad, vmap, eval_shape
+from jax.tree_util import tree_map, tree_reduce
 import jax.numpy as jnp
 from jax import ops
+from jax import ShapeDtypeStruct
+from jax.tree_util import tree_map, tree_reduce
 
 from jax_md import space, dataclasses, partition, util
 
-from functools import partial
+import functools
+import operator
 
+partial = functools.partial
 
 # Types
 
@@ -65,26 +72,35 @@ def clipped_force(energy_fn: EnergyFn, max_force: float) -> ForceFn:
 
   return wrapped_force_fn
 
-def canonicalize_force(energy_or_force_fn: Union[EnergyFn, ForceFn]
-                       ) -> ForceFn:
-  """Returns a force function given either an energy or force function."""
+
+def canonicalize_force(energy_or_force_fn: Union[EnergyFn, ForceFn]) -> ForceFn:
   _force_fn = None
-  def force_fn(position, *args, **kwargs):
+  def force_fn(R, **kwargs):
     nonlocal _force_fn
     if _force_fn is None:
-      out_shape = eval_shape(energy_or_force_fn,
-                             position, *args, **kwargs).shape
-      if out_shape == ():
+      out_shaped = eval_shape(energy_or_force_fn, R, **kwargs)
+      if isinstance(out_shaped, ShapeDtypeStruct) and out_shaped.shape == ():
         _force_fn = force(energy_or_force_fn)
-      elif out_shape == position.shape:
-        _force_fn = energy_or_force_fn
       else:
-        raise ValueError('Provided function should be compatible with either '
-                         'an energy or a force. Found a function whose output '
-                         f'has shape {out_shape}.')
-    return _force_fn(position, *args, **kwargs)
+        # Check that the output has the right shape to be a force.
+        is_valid_force = tree_reduce(
+          lambda x, y: x and y,
+          tree_map(lambda x, y: x.shape == y.shape, out_shaped, R),
+          True
+        )
+        if not is_valid_force:
+          raise ValueError('Provided function should be compatible with '
+                           'either an energy or a force. Found a function '
+                           f'whose output has shape {out_shape}.')
+
+        _force_fn = energy_or_force_fn
+    return _force_fn(R, **kwargs)
 
   return force_fn
+
+
+def count_dof(position: Array) -> int:
+  return tree_reduce(lambda accum, x: accum + x.size, position, 0)
 
 
 def volume(dimension: int, box: Box) -> float:
@@ -98,15 +114,28 @@ def volume(dimension: int, box: Box) -> float:
                     f'Found {box}.'))
 
 
-def kinetic_energy(velocity: Array, mass: Array=1.0) -> float:
-  """Computes the kinetic energy of a system with some velocities."""
-  return 0.5 * util.high_precision_sum(mass * velocity ** 2)
+# Right now, these functions will silently fail for systems where the
+# orientation is a quaternion.
+
+def kinetic_energy(momentum: Array, mass: Array=f32(1.0)) -> float:
+  """Computes the kinetic energy of a system with some momenta."""
+  logging.info('In version 0.2.0, the function signature of '
+               '`quantity.kinetic_energy` changed from taking velocity to '
+               'taking momentum.')
+  ke = tree_map(lambda m, p: 0.5 * util.high_precision_sum(p**2 / m),
+                mass, momentum)
+  return tree_reduce(operator.add, ke, 0.0)
 
 
-def temperature(velocity: Array, mass: Array=1.0) -> float:
-  """Computes the temperature of a system with some velocities."""
-  N, dim = velocity.shape
-  return util.high_precision_sum(mass * velocity ** 2) / (N * dim)
+def temperature(momentum: Array, mass: Array=f32(1.0)) -> float:
+  """Computes the temperature of a system with some momenta."""
+  logging.info('In version 0.2.0, the function signature of '
+               '`quantity.temperature` changed from taking velocity to '
+               'taking momentum.')
+  dof = count_dof(momentum)
+  T = tree_map(lambda m, p: util.high_precision_sum(p**2 / m) / dof,
+               mass, momentum)
+  return tree_reduce(operator.add, T, 0.0)
 
 
 def pressure(energy_fn: EnergyFn, position: Array, box: Box,
@@ -182,25 +211,6 @@ def stress(energy_fn: EnergyFn, position: Array, box: Box,
   return 1 / vol_0 * (VxV - dUdV(zero))
 
 
-def canonicalize_mass(mass: Union[float, Array]) -> Union[float, Array]:
-  if isinstance(mass, float):
-    return mass
-  elif isinstance(mass, jnp.ndarray):
-    if len(mass.shape) == 2 and mass.shape[1] == 1:
-      return mass
-    elif len(mass.shape) == 1:
-      return jnp.reshape(mass, (mass.shape[0], 1))
-    elif len(mass.shape) == 0:
-      return mass
-  elif isinstance(mass, f32) or isinstance(mass, f64):
-    return mass
-  msg = (
-      'Expected mass to be either a floating point number or a one-dimensional'
-      'ndarray. Found {}.'.format(mass)
-      )
-  raise ValueError(msg)
-
-
 def cosine_angle_between_two_vectors(dR_12: Array, dR_13: Array) -> Array:
   dr_12 = space.distance(dR_12) + 1e-7
   dr_13 = space.distance(dR_13) + 1e-7
@@ -241,14 +251,14 @@ def pair_correlation(displacement_or_metric: Union[DisplacementFn, MetricFn],
 
   .. math::
     g(r) = <\sum_{i \\neq j}\delta(r - |r_i - r_j|)>
-  
+
   We make the approximation,
 
   .. math::
     \delta(r) \\approx {1 \over \sqrt{2\pi\sigma^2}e^{-r / (2\sigma^2)}}
 
   Args:
-    displacement_or_metric: 
+    displacement_or_metric:
       A function that computes the displacement or distance between two points.
     radii: An array of radii at which we would like to compute :math:`g(r)`.
     sigima: A float specifying the width of the approximating Gaussian.
