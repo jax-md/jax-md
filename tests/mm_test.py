@@ -47,6 +47,15 @@ if FLAGS.jax_enable_x64:
 else:
   POSITION_DTYPE = [f32]
 
+try:
+  import openmm
+  from openmm import app, unit
+except ImportError as error:
+  print(error.__class__.__name__ + ": " + error.message)
+except Exception as exception:
+  print(exception, False)
+  print(exception.__class__.__name__ + ": " + exception.message)
+
 class MMTest(test_util.JAXMDTestCase):
     # TODO : make a class to handle omm loading utilities
     # TODO : place each omm.Force into a different ForceGroup to make energy assertions on a Force-specific basis (this functionality is in `perses`)
@@ -65,9 +74,9 @@ class MMTest(test_util.JAXMDTestCase):
       } for pdb_filename in PDB_FILENAMES for pbcs in PBCS_BOOLEAN for dtype in POSITION_DTYPE))
   def test_mm_vacuum(self, pdb_filename, pbcs, dtype):
     """assert that the vacuum energy of a solvent-stripped `openmm.System` object matches that in `jax_md`"""
-    pdb = app.PDBFile('alanine-dipeptide-explicit.pdb')
+    pdb = app.PDBFile('data/alanine-dipeptide-explicit.pdb')
     ff = app.ForceField('amber14-all.xml', 'amber14/tip3pfb.xml')
-    model = Modeller(pdb.topology, pdb.positions)
+    model = app.Modeller(pdb.topology, pdb.positions)
     model.deleteWater()
     mmSystem = ff.createSystem(model.topology, nonbondedMethod=app.NoCutoff, constraints=None, rigidWater=False, removeCMMotion=False)
     context = openmm.Context(mmSystem, openmm.VerletIntegrator(1.*unit.femtoseconds))
@@ -89,3 +98,6 @@ class MMTest(test_util.JAXMDTestCase):
                                            )
     jax_energy = energy_fn(positions, parameters = params)
     self.assertAllClose(jax_energy, omm_energy)
+
+if __name__ == '__main__':
+  absltest.main()
