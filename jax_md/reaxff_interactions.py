@@ -61,7 +61,10 @@ class Filtration:
   idx: Array
   did_buffer_overflow: Array
 
-  def allocate(self, candidate_args, capacity_multiplier=1.25, min_capacity=0) -> 'Filtration':
+  def allocate(self,
+               candidate_args,
+               capacity_multiplier=1.25,
+               min_capacity=0) -> 'Filtration':
     '''
     Initial allocation
     '''
@@ -105,18 +108,24 @@ class Filtration:
                                               size= self.idx.shape[1],
                                               fill_value=-1).flatten())
       idx = mapped_argwhere(mask)
-      did_buffer_overflow = self.did_buffer_overflow | (size > self.idx.shape[1])
+      did_buffer_overflow = (self.did_buffer_overflow
+                             | (size > self.idx.shape[1]))
     else:
-      selected_inds = jnp.argwhere(mask, size=len(self.idx),fill_value=-1).flatten()
+      selected_inds = jnp.argwhere(mask,
+                                   size=len(self.idx),
+                                   fill_value=-1).flatten()
       idx = candidate_inds[selected_inds] * (selected_inds != -1).reshape(-1,1)
-      did_buffer_overflow = self.did_buffer_overflow | (jnp.sum(mask) > len(self.idx))
+      did_buffer_overflow = (self.did_buffer_overflow
+                             | (jnp.sum(mask) > len(self.idx)))
     return Filtration(self.candidate_fn,
                       self.mask_fn,
                       self.is_dense,
                       idx,
                       did_buffer_overflow)
 
-def filtration(candidate_fn:CandidateFn, mask_fn:MaskFn, is_dense=False) -> Filtration:
+def filtration(candidate_fn:CandidateFn,
+               mask_fn:MaskFn,
+               is_dense=False) -> Filtration:
   '''
   Returns an empty Filtration object to be used
   '''
@@ -216,7 +225,9 @@ def calculate_all_4_body_angles(body_4_inds, nbr_inds, nbr_disps):
 
   return jnp.array([sinhd*sinhe,arg])
 
-def calculate_all_hbond_angles_and_dists(hbond_inds, close_nbr_disps, far_nbr_disps):
+def calculate_all_hbond_angles_and_dists(hbond_inds,
+                                         close_nbr_disps,
+                                         far_nbr_disps):
   '''
   Calculates the angles and distances for the provided hydrogen-bond list
   '''
@@ -241,7 +252,9 @@ def find_3_body_inter(ctr_ind, nbr_pot, nbr_inds, filtered_lcl_inds):
                                          * nbr_pot[n2]
                                          * (i2>i1)
                                          * (n1 != -1) * (n2 != -1)),
-                          jnp.array([ctr_ind,n1,n2])))(lcl_inds,nbrs))(lcl_inds,nbrs)
+                          jnp.array([ctr_ind,
+                                     n1,
+                                     n2])))(lcl_inds,nbrs))(lcl_inds,nbrs)
 
   return inds, (vals * (1.0 - jnp.eye(n)))
 
@@ -266,7 +279,10 @@ def find_body_4_inter(body_3_item, neigh_inds,neigh_bo,nbr_filtered_inds):
                    * (neigh_inds[ind3][n31] != ind2) # right != center1
                    * (ind3 > ind2)
                    * (neigh_inds[ind2][n21] != neigh_inds[ind3][n31])),
-                   jnp.array([ind2,n21,n22,n31])))(neigh_bo[ind3][sub_inds],sub_inds)
+                   jnp.array([ind2,
+                              n21,
+                              n22,
+                              n31])))(neigh_bo[ind3][sub_inds],sub_inds)
 
   ind3,ind1 = ind1,ind3
   n22,n21 = n21,n22
@@ -277,7 +293,10 @@ def find_body_4_inter(body_3_item, neigh_inds,neigh_bo,nbr_filtered_inds):
                    * (neigh_inds[ind3][n31] != ind2) # right != center1
                    * (ind3 > ind2)
                    * (neigh_inds[ind2][n21] != neigh_inds[ind3][n31])),
-                   jnp.array([ind2,n21,n22,n31])))(neigh_bo[ind3][sub_inds],sub_inds)
+                   jnp.array([ind2,
+                              n21,
+                              n22,
+                              n31])))(neigh_bo[ind3][sub_inds],sub_inds)
 
   # left : neigh_inds[ind2][n21]    or neigh_inds[center1][body_4_inds[:,1]]
   # center1: ind2                   or body_4_inds[:,0]
@@ -285,7 +304,11 @@ def find_body_4_inter(body_3_item, neigh_inds,neigh_bo,nbr_filtered_inds):
   # right: neigh_inds[center2][n31] or neigh_inds[center2][body_4_inds[:,3]]
   return jnp.vstack((inds1,inds2)), jnp.vstack((vals1,vals2))
 
-def body_3_candidate_fn(nbr_inds, neigh_bo, nbr_filtered_inds, species, param_mask):
+def body_3_candidate_fn(nbr_inds,
+                        neigh_bo,
+                        nbr_filtered_inds,
+                        species,
+                        param_mask):
   '''
   Creates full candidate index and value arrays for 3 body interactions,
   to be used by a filter.
@@ -293,7 +316,10 @@ def body_3_candidate_fn(nbr_inds, neigh_bo, nbr_filtered_inds, species, param_ma
 
   atom_inds = jnp.arange(len(nbr_inds))
   find_all_3_body_inter = jax.vmap(find_3_body_inter)
-  inds,body_3_vals = find_all_3_body_inter(atom_inds,neigh_bo, nbr_inds, nbr_filtered_inds)
+  inds,body_3_vals = find_all_3_body_inter(atom_inds,
+                                           neigh_bo,
+                                           nbr_inds,
+                                           nbr_filtered_inds)
   inds = inds.reshape(-1,3)
   center = inds[:, 0]
   neigh1_lcl = inds[:,1]
@@ -308,13 +334,21 @@ def body_3_candidate_fn(nbr_inds, neigh_bo, nbr_filtered_inds, species, param_ma
   #print(body_3_vals.flatten())
   return inds, body_3_vals.flatten() * my_param_mask
 
-def body_4_candidate_fn(body_3_inds,nbr_inds,neigh_bo, nbr_filtered_inds, species, param_mask):
+def body_4_candidate_fn(body_3_inds,
+                        nbr_inds,
+                        neigh_bo,
+                        nbr_filtered_inds,
+                        species,
+                        param_mask):
   '''
   Creates full candidate index and value arrays for 4 body interactions,
   to be used by a filter.
   '''
   find_all_4_body_inter = jax.vmap(find_body_4_inter,in_axes=(0,None,None,None))
-  inds, body_4_vals = find_all_4_body_inter(body_3_inds,nbr_inds,neigh_bo,nbr_filtered_inds)
+  inds, body_4_vals = find_all_4_body_inter(body_3_inds,
+                                            nbr_inds,
+                                            neigh_bo,
+                                            nbr_filtered_inds)
   inds = inds.reshape(-1,4)
   center1_glb = inds[:,0]
   left_lcl = inds[:,1] # local to center1
@@ -346,7 +380,9 @@ def hbond_candidate_fn(donor_inds,
   inds = jax.vmap(lambda i:
             jax.vmap(lambda s_i:
                jax.vmap(lambda l_i:
-                  jnp.array((donor_inds[i], s_i, l_i)))(hb_long_inds[i]))(hb_short_inds[i]))(lcl_inds)
+                  jnp.array((donor_inds[i],
+                             s_i,
+                             l_i)))(hb_long_inds[i]))(hb_short_inds[i]))(lcl_inds)
   inds = inds.reshape(-1,3)
 
   glb_center = inds[:,0]
@@ -473,18 +509,18 @@ def reaxff_inter_list(displacement,
       dnr_long_nbr_inds = far_nbrs.idx[hb_donor_inds]
       dnr_long_nbr_dists = far_nbr_dist[hb_donor_inds]
       filter_hb_close = filter_hb_close.update(candidate_args=(dnr_nbr_inds,
-                                                                    dnr_nbr_pots,
-                                                                    hb_acceptor_mask))
+                                                               dnr_nbr_pots,
+                                                               hb_acceptor_mask))
       filter_hb_far = filter_hb_far.update(candidate_args=(dnr_long_nbr_inds,
-                                                                  dnr_long_nbr_dists,
-                                                                  hb_acceptor_mask))
+                                                           dnr_long_nbr_dists,
+                                                           hb_acceptor_mask))
       filter_hb = filter_hb.update(candidate_args=(hb_donor_inds,
-                                               close_nbrs.idx,
-                                               filter_hb_close.idx,
-                                               far_nbrs.idx,
-                                               filter_hb_far.idx,
-                                               species,
-                                               force_field.hb_params_mask))
+                                                  close_nbrs.idx,
+                                                  filter_hb_close.idx,
+                                                  far_nbrs.idx,
+                                                  filter_hb_far.idx,
+                                                  species,
+                                                  force_field.hb_params_mask))
       filter_hb_did_buffer_overflow = filter_hb.did_buffer_overflow
     else:
       filter_hb_did_buffer_overflow = False
@@ -543,21 +579,24 @@ def reaxff_inter_list(displacement,
       dnr_nbr_pots = bo[hb_donor_inds]
       dnr_long_nbr_inds = far_nbrs.idx[hb_donor_inds]
       dnr_long_nbr_dists = far_nbr_dist[hb_donor_inds]
-      filter_hb_close = filter_hb_close_fn.allocate(candidate_args=(dnr_nbr_inds,
-                                                                    dnr_nbr_pots,
-                                                                    hb_acceptor_mask),
-                                    capacity_multiplier=1.2)
-      filter_hb_far = filter_hb_far_fn.allocate(candidate_args=(dnr_long_nbr_inds,
-                                                                  dnr_long_nbr_dists,
-                                                                  hb_acceptor_mask),
-                                    capacity_multiplier=1.2)
+      filter_hb_close = filter_hb_close_fn.allocate(
+                                            candidate_args=(dnr_nbr_inds,
+                                                            dnr_nbr_pots,
+                                                            hb_acceptor_mask),
+                                            capacity_multiplier=1.2)
+      filter_hb_far = filter_hb_far_fn.allocate(
+                                            candidate_args=(dnr_long_nbr_inds,
+                                                            dnr_long_nbr_dists,
+                                                            hb_acceptor_mask),
+                                            capacity_multiplier=1.2)
       filter_hb = filter_hb_fn.allocate(candidate_args=(hb_donor_inds,
                                                close_nbrs.idx,
                                                filter_hb_close.idx,
                                                far_nbrs.idx,
                                                filter_hb_far.idx,
                                                species,
-                                               force_field.hb_params_mask), capacity_multiplier=1.1)
+                                               force_field.hb_params_mask),
+                                        capacity_multiplier=1.1)
     else:
       filter_hb_close = None
       filter_hb_far = None
@@ -667,26 +706,30 @@ def reaxff_inter_list(displacement,
       filter_hb_close = nbr_lists.filter_hb_close
       if (close_nbrs.did_buffer_overflow
           or filter_hb_close.did_buffer_overflow):
-        filter_hb_close = filter_hb_close_fn.allocate(candidate_args=(dnr_nbr_inds,
-                                                                      dnr_nbr_pots,
-                                                                      hb_acceptor_mask),
-                                      capacity_multiplier=1.2)
+        filter_hb_close = filter_hb_close_fn.allocate(
+                                              candidate_args=(dnr_nbr_inds,
+                                                              dnr_nbr_pots,
+                                                              hb_acceptor_mask),
+                                              capacity_multiplier=1.2)
       else:
-        filter_hb_close = filter_hb_close.update(candidate_args=(dnr_nbr_inds,
-                                                                      dnr_nbr_pots,
-                                                                      hb_acceptor_mask))
+        filter_hb_close = filter_hb_close.update(
+                                            candidate_args=(dnr_nbr_inds,
+                                                           dnr_nbr_pots,
+                                                           hb_acceptor_mask))
 
       filter_hb_far = nbr_lists.filter_hb_far
       if (far_nbrs.did_buffer_overflow
           or filter_hb_far.did_buffer_overflow):
-        filter_hb_far = filter_hb_far_fn.allocate(candidate_args=(dnr_long_nbr_inds,
-                                                                    dnr_long_nbr_dists,
-                                                                    hb_acceptor_mask),
-                                      capacity_multiplier=1.2)
+        filter_hb_far = filter_hb_far_fn.allocate(
+                                           candidate_args=(dnr_long_nbr_inds,
+                                                           dnr_long_nbr_dists,
+                                                           hb_acceptor_mask),
+                                           capacity_multiplier=1.2)
       else:
-        filter_hb_far = filter_hb_far.update(candidate_args=(dnr_long_nbr_inds,
-                                                                    dnr_long_nbr_dists,
-                                                                    hb_acceptor_mask))
+        filter_hb_far = filter_hb_far.update(
+                                           candidate_args=(dnr_long_nbr_inds,
+                                                           dnr_long_nbr_dists,
+                                                           hb_acceptor_mask))
       filter_hb = nbr_lists.filter_hb
       if (close_nbrs.did_buffer_overflow
           or far_nbrs.did_buffer_overflow
@@ -699,7 +742,8 @@ def reaxff_inter_list(displacement,
                                                  far_nbrs.idx,
                                                  filter_hb_far.idx,
                                                  species,
-                                                 force_field.hb_params_mask), capacity_multiplier=1.1)
+                                                 force_field.hb_params_mask),
+                                          capacity_multiplier=1.1)
       else:
         filter_hb = filter_hb.update(candidate_args=(hb_donor_inds,
                                                  close_nbrs.idx,
@@ -735,9 +779,11 @@ def reaxff_inter_list(displacement,
     neigh1_lcl = nbr_lists.filter3.idx[:,1]
     neigh2_lcl = nbr_lists.filter3.idx[:,2]
 
-    body_3_angles = jax.vmap(calculate_angle)(close_nbr_disps[center,neigh1_lcl],
-                                              close_nbr_disps[center,neigh2_lcl])
-    #body_4_angles = jax.vmap(calculate_angle)(close_nbr_disps[center,neigh1_lcl],close_nbr_disps[center,neigh2_lcl])
+    body_3_angles = jax.vmap(calculate_angle)(close_nbr_disps[center,
+                                                              neigh1_lcl],
+                                              close_nbr_disps[center,
+                                                              neigh2_lcl])
+
     body_4_angles = calculate_all_4_body_angles(nbr_lists.filter4.idx,
                                                 nbr_lists.close_nbrs.idx,
                                                 close_nbr_disps)
@@ -755,7 +801,6 @@ def reaxff_inter_list(displacement,
 
     energy,charges = calculate_reaxff_energy(species,
                                             species_AN,
-                                            0.0,
                                             nbr_lists,
                                             close_nbr_dist,
                                             far_nbr_dist,
@@ -763,6 +808,7 @@ def reaxff_inter_list(displacement,
                                             body_4_angles,
                                             hb_ang_dist,
                                             force_field,
+                                            0.0,
                                             tol)
 
 
