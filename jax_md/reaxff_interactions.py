@@ -5,12 +5,13 @@ Author: Mehmet Cagri Kaymak
 """
 from jax_md import space, partition, util
 from jax_md.reaxff_energy import calculate_bo,calculate_reaxff_energy
-from typing import Callable, Any
+from typing import Callable, Any, Tuple
 import jax
 import jax.numpy as jnp
 from jax_md import dataclasses
 from jax_md.util import safe_mask
 from jax_md.reaxff_helper import vectorized_cond, safe_sqrt
+from jax_md.force_field import ForceField
 
 Array = util.Array
 MaskFn = Callable
@@ -403,11 +404,13 @@ def hbond_candidate_fn(donor_inds,
 
   return inds.reshape(-1,3), full_mask
 
-def reaxff_inter_list(displacement,
-                    box_size,
-                    species,species_AN,
-                    force_field,
-                    tol=1e-6):
+def reaxff_inter_list(displacement: DisplacementFn,
+                    box_size: Box,
+                    species: Array,
+                    species_AN: Array,
+                    force_field: ForceField,
+                    tol: float = 1e-6) -> Tuple[ReaxFFNeighborListFns,
+                                                Callable]:
   '''
   Contains all the neccesary logic to run a reaxff simulation and
   allocate, reallocate, update and energy_fn functions
