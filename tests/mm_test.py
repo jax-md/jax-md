@@ -76,7 +76,9 @@ class MMTest(test_util.JAXMDTestCase):
               pdb_filename,
               pbcs,
               dtype):
-    """assert that the vacuum energy of a solvent-stripped `openmm.System` object matches that in `jax_md`"""
+    """assert that the vacuum energy of a solvent-stripped `openmm.System` object matches that in `jax_md`;
+    WARNING: `pbcs=True` will fail with `openmm.app.PME`
+    """
     pdb = app.PDBFile('data/alanine-dipeptide-explicit.pdb')
     ff = app.ForceField('amber14-all.xml', 'amber14/tip3pfb.xml')
     model = app.Modeller(pdb.topology, pdb.positions)
