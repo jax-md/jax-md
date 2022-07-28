@@ -7,9 +7,7 @@ Author: Mehmet Cagri Kaymak
 import jax
 import jax.numpy as jnp
 import numpy as onp
-import copy
 from jax_md.reaxff_forcefield import ForceField
-from jax_md.reaxff_forcefield import preprocess_force_field
 from jax_md.reaxff_forcefield import CLOSE_NEIGH_CUTOFF
 from dataclasses import fields
 

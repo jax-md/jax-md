@@ -3,11 +3,8 @@ Contains force field related code
 
 Author: Mehmet Cagri Kaymak
 """
-import jax.numpy as np
-import jax
 from jax_md import dataclasses, util
 from dataclasses import fields
-from jax_md.reaxff_helper import vectorized_cond, safe_sqrt
 
 Array = util.Array
 

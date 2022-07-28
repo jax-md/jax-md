@@ -3,6 +3,7 @@ Contains energy related functions for ReaxFF
 
 Author: Mehmet Cagri Kaymak
 """
+from __future__ import annotations
 import numpy as onp
 import jax.numpy as jnp
 import jax
@@ -12,8 +13,10 @@ from jax_md.util import safe_mask
 from jax_md.util import high_precision_sum
 from jax_md.reaxff_helper import vectorized_cond, safe_sqrt
 from jax_md.reaxff_forcefield import ForceField
-from jax_md.reaxff_interactions import ReaxFFNeighborLists
-
+# to resolve circular dependency
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from jax_md.reaxff_interactions import ReaxFFNeighborLists
 # Types
 f32 = util.f32
 f64 = util.f64
@@ -25,7 +28,7 @@ dgrrdn = 1.0/rdndgr
 
 def calculate_reaxff_energy(species: Array,
                             atomic_numbers: Array,
-                            nbr_lists: ReaxFFNeighborLists,
+                            nbr_lists: 'ReaxFFNeighborLists',
                             close_nbr_dists: Array,
                             far_nbr_dists: Array,
                             body_3_angles: Array,

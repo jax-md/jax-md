@@ -11,7 +11,7 @@ import jax.numpy as jnp
 from jax_md import dataclasses
 from jax_md.util import safe_mask
 from jax_md.reaxff_helper import vectorized_cond, safe_sqrt
-from jax_md.force_field import ForceField
+from jax_md.reaxff_forcefield import ForceField
 
 Array = util.Array
 MaskFn = Callable
