@@ -160,7 +160,8 @@ CANONICAL_MM_NONBONDED_PARAMETER_NAMES = [_tup.__class__.__name__ for _tup in [N
 def camel_to_snake(_str, **unused_kwargs) -> str:
    return ''.join(['_'+i.lower() if i.isupper() else i for i in _str]).lstrip('_')
 
-def get_bond_fns(displacement_fn: DisplacementFn, **unused_kwargs) -> Dict[str, Callable]:
+def get_bond_fns(displacement_fn: DisplacementFn,
+                 **unused_kwargs) -> Dict[str, Callable]:
   """each of the CANONICAL_MM_BONDFORCENAMES has a different `geometry_handler_fn` for `smap.bond`;
   return a dict that
      "harmonic_bond_parameters" is defaulted, so we can omit this
@@ -265,6 +266,42 @@ def get_exception_match(idx : Array, pair_exception : Array, **unused_kwargs):
   exception_idx = jax.lax.cond(jnp.any(are_matches_bool), lambda _x: pair_exception[_x[0]], lambda _x: _x[0]-1, non_matches)
   return exception_idx
 
+def dense_to_sparse(idx):
+  N = idx.shape[0]
+  sender_idx = jnp.broadcast_to(jnp.arange(N)[:, None], idx.shape) # (N, N_neigh)
+  sender_idx = jnp.reshape(sender_idx, (-1,))
+  receiver_idx = jnp.reshape(idx, (-1,))
+  return jnp.stack((sender_idx, receiver_idx), axis=0)
+
+def sparse_to_dense(N, max_count, idx):
+  senders, receivers = idx
+
+  offset = jnp.tile(jnp.arange(max_count), N)[:len(senders)]
+  hashes = senders * max_count + offset
+  dense_idx = N * jnp.ones(((N + 1) * max_count,), i32)
+  dense_idx = dense_idx.at[hashes].set(receivers).reshape((N + 1, max_count))
+  return dense_idx[:-1]
+
+def sparse_mask_to_dense_mask(sparse_mask_fn):
+  def dense_mask_fn(idx, **kwargs): # idx shape (N, N_neigh)
+    N, max_count = idx.shape
+    sparse_idx = dense_to_sparse(idx)
+    sparse_masked_idx = sparse_mask_fn(sparse_idx, **kwargs)
+    return sparse_to_dense(sparse_masked_idx)
+  return dense_mask_fn
+
+# spse mask_pair shape (2, N_max) then let's say (2, N) were real and then (N_max - N, 2) were just
+# (-1, -1)
+
+def custom_mask_pairs(pairs):
+  def mask_fn(idx, **kwargs):
+    _mask_pairs = kwargs.get('mask_pairs', pairs)
+    @partial(vmap, axis_in=(None, 0))
+    def mask_single(idx, mask_pair):
+      return jnp.where(idx != mask_pair, idx, mask_val)
+    return mask_single(idx, _mask_pairs)
+
+
 def query_idx_in_pair_exceptions(indices, pair_exceptions, **unused_kwargs):
   """query the pair exceptions via vmapping and generate a padded [n_particles, max_exceptions] of exceptions corresponding to the leading axis idx;
      the output is used as the querying array for the `custom_mask_function` of the `neighbor_list`"""
@@ -308,43 +345,76 @@ def check_support(space_shape, use_neighbor_list, box_size, **kwargs):
     assert box_size is not None
     assert use_neighbor_list
 
+def register_bonded_parameter(parameter: NamedTuple, **unused_kwargs) -> bool:
+  """
+  check if a leaf of `MMEnergyFnParameters` is properly parameterized
+  and lives in `CANONICAL_MM_BOND_PARAMETER_NAMES`.
+  """
+  register_parameter = False
+  _parameter_tuple_name = parameter.__class__.__name__
+  is_bonded = _parameter_tuple_name in [camel_to_snake(_item) for _item in CANONICAL_MM_BOND_PARAMETER_NAMES]
+  if not is_bonded: # if it is not bonded, do not register
+    return register_parameter
+  # else query it to make sure it is valid
+  bond_parameter_fields = parameter._fields
+  if 'particles' not in bond_parameter_fields:
+    raise ValueError(f"""retrieved bonded parameters {_parameter_tuple_name}
+                      from parameter,
+                      but 'particles' was not in 'fields'
+                       ({bond_parameter_fields})""")
+  if bond_parameters.particles is None:
+    return register_parameter # this bond parameter is empty
 
-def check_parameters(parameter_tree : MMEnergyFnParameters,
-                    **unused_kwargs) -> Dict[str, Dict[str, None]]:
+  particles_shape = parameter.particles.shape
+  num_bonds, bonds_shape = particles_shape
+  allowable_bonds_shape = CANONICAL_MM_BOND_PARAMETER_PARTICLE_ALLOWABLES[_parameter_tuple_name]
+  if bonds_shape != allowable_bonds_shape:
+    raise ValueError(f"""parameter {_parameter_tuple_name} bonds shape of
+                       {bonds_shape} does not match the allowed shape of
+                       {allowable_bonds_shape}"""
+                       )
+  for nested_parameter_name, nested_parameter in parameters._asdict().items():
+    if not util.is_array(nested_parameter): # each entry must be a parameter
+      raise ValueError(f"""retrieved bonded parameters {_parameter_tuple_name}'s
+                       nested parameter {nested_parameter_name}
+                       but was not an array:
+                       ({nested_parameter})""")
+    nested_parameter_shape = nested_parameter.shape
+    if (len(nested_parameter_shape) != 1) or (nested_parameter_shape[0] != num_bonds):
+      raise ValueError(f"""retrieved bonded parameters {_parameter_tuple_name}'s
+                       nested parameter {nested_parameter_name}
+                       but entry was not an array of dim 1 and shape
+                       {num_bonds}: ({nested_parameter_shape})""")
+  # all passed, return True
+  register_parameter = True
+  return register_parameter
+
+def register_nonbonded_parameter(parameter,
+                                 allowed_nonbonded_
+                                 **unused_kwargs):
+  """
+  check if a leaf of `MMEnergyFnParameters` is properly parameterized
+  """
+
+def register_parameters(parameters: MMEnergyFnParameters,
+                        **unused_kwargs) -> Dict[str, Dict[str, None]]:
     """
-    iterate over each parameter object in MMEnergyFnParameters and make appropriate assertions
-    for bonded and nonbonded parameters;
+    iterate over each parameter object in MMEnergyFnParameters,
+    make appropriate assertions for bonded and nonbonded parameters;
     return a parameter_template to initialize bond calculations fns.
     """
-    bond_parameter_particle_allowables = {camel_to_snake(_key): val for _key, val in CANONICAL_MM_BOND_PARAMETER_PARTICLE_ALLOWABLES.items()}
-    parameter_template = {}
-    for _parameter_tuple_name in parameter_tree._fields: # iterate over each parameter object
-      is_bonded = _parameter_tuple_name in [camel_to_snake(_item) for _item in CANONICAL_MM_BOND_PARAMETER_NAMES]
-      if is_bonded: # `particles` must be an entry`
-        nested_tuple = getattr(parameter_tree, _parameter_tuple_name)
-        nested_tuple_fields = nested_tuple._fields
-        if 'particles' not in nested_tuple_fields:
-          raise ValueError(f"""retrieved bonded parameters {_parameter_tuple_name} from parameter_tree,
-                            but 'particles' was not in 'fields' ({nested_tuple_fields})""")
-        assert util.is_array(nested_tuple.particles)
-        particles_shape = nested_tuple.particles.shape
-        assert len(particles_shape) == 2, f""
-        num_bonds, bonds_shape = particles_shape
-        if not bonds_shape == bond_parameter_particle_allowables[_parameter_tuple_name]:
-          raise ValueError(f"""bonds shape of {bonds_shape} of parameter name {_parameter_tuple_name}
-                            does not match the allowed dictionary entry of {bond_parameter_particle_allowables[_parameter_tuple_name]}""")
-        for _field_name in nested_tuple_fields:
-          # bonded parameters need to contain particles w/ appropriate shape,
-          if _field_name == 'particles':
-            continue # handled
-          _param = getattr(nested_tuple, _field_name)
-          assert util.is_array(_param), f"bond parameter {_field_name} is not an array."
-          assert len(_param.shape) == 1
-          assert _param.shape[0] == num_bonds
-        parameter_template[_parameter_tuple_name] = {_key: None for _key in nested_tuple_fields if _key != 'particles'}
-      else:
-        # nonbonded parameters
-        assert _parameter_tuple_name in [camel_to_snake(_entry) for _entry in CANONICAL_MM_NONBONDED_PARAMETER_NAMES]
+    bonded_parameter_template, not_bonded_parameter_names = {}
+    # query each field of each entry in the parameter tree
+    for snake_parameter_name, parameter in parameters._asdict().items():
+      # check if is a valid bonded parameter
+      is_bonded = register_bonded_parameter(parameter)
+      if is_bonded: # register the template, omitting `particles`
+        bonded_parameter_template[snake_parameter_name] = {_key: None for _key in parameter._fields if _key != 'particles'}
+      else: # it _must_ be nonbonded
+        if not parameter.__class__.__name__ in CANONICAL_MM_NONBONDED_PARAMETER_NAMES:
+          raise ValueError(f"""
+          """)
+        assert parameter.__class__.__name__ in CANONICAL_MM_NONBONDED_PARAMETER_NAMES
         parameter_lengths = []
         for entry in getattr(parameter_tree, _parameter_tuple_name):
           assert util.is_array(entry)
@@ -416,7 +486,7 @@ def mm_energy_fn(displacement_fn : DisplacementFn,
   # bonded energy fns
   bond_fns = get_bond_fns(displacement_fn) # get geometry handlers dict
   parameter_template = check_parameters(parameters) # just make sure that parameters
-  for _key in bond_fns:
+  for _key in parameter_template['bonded']:
     bond_fns[_key] = util.merge_dicts(bond_fns[_key], parameter_template[_key])
   bonded_energy_fns = {}
   for parameter_field in parameters._fields:
