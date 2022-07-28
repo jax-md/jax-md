@@ -211,6 +211,23 @@ def lennard_jones(dr: Array,
   # here.
   return jnp.nan_to_num(f32(4) * epsilon * (idr12 - idr6))
 
+def softcore_lennard_jones(dr: Array,
+                           sigma: Array=1,
+                           epsilon: Array=1,
+                           alpha: Array=1,
+                           scale: Array=1,
+                           a: Array=1,
+                           b: Array=1,
+                           c: Array=1,
+                           **unused_kwargs) -> Array:
+  """
+  generalized softcore lennard jones to avoid singularities;
+  from J. Chem. Phys. 135, 034114 (2011); https://doi.org/10.1063/1.3607597 Eq. 13
+  """
+  r_eff = sigma * ( (alpha*(1. - scale))**b + (dr/sigma)**c )**(1/c)
+  x = (sigma/r_eff)**6
+  u_lj = (scale**a) * f32(4) * epsilon * x * (x - f32(1))
+  return u_lj
 
 def lennard_jones_pair(displacement_or_metric: DisplacementOrMetricFn,
                        species: Optional[Array]=None,
