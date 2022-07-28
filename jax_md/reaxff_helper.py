@@ -18,21 +18,6 @@ def vectorized_cond(pred, true_fun, false_fun, operand):
   false_op = jnp.where(pred, 0, operand)
   return jnp.where(pred, true_fun(true_op), false_fun(false_op))
 
-
-#https://jax.readthedocs.io/en/latest/notebooks/Custom_derivative_rules_for_Python_code.html
-@jax.custom_jvp
-def safe_sqrt(x):
-  return jnp.sqrt(x)
-
-@safe_sqrt.defjvp
-def safe_sqrt_jvp(primals, tangents):
-  x = primals[0]
-  x_dot = tangents[0]
-  #print(x[0])
-  primal_out = safe_sqrt(x)
-  tangent_out = 0.5 * x_dot / jnp.where(x > 0, primal_out, jnp.inf)
-  return primal_out, tangent_out
-
 def calculate_bo_single(distance,
                 rob1, rob2, rob3,
                 ptp, pdp, popi, pdo, bop1, bop2,
@@ -1011,6 +996,16 @@ def read_force_field(force_field_file, cutoff2, dtype=jnp.float32):
   #TODO: this function call is not needed after the energy function is refactored
   init_params_for_filler_atom_type(FF_field_dict)
 
+
+  # placeholders for params to be filled later
+  FF_field_dict['rob1'] = onp.zeros_like(FF_field_dict['rob1_off'])
+  FF_field_dict['rob2'] = onp.zeros_like(FF_field_dict['rob1_off'])
+  FF_field_dict['rob3'] = onp.zeros_like(FF_field_dict['rob1_off'])
+
+  FF_field_dict['p1co'] = onp.zeros_like(FF_field_dict['p1co_off'])
+  FF_field_dict['p2co'] = onp.zeros_like(FF_field_dict['p1co_off'])
+  FF_field_dict['p3co'] = onp.zeros_like(FF_field_dict['p1co_off'])
+
   FF_fields = ForceField.__dataclass_fields__
   for k in FF_field_dict:
     is_static = k in FF_fields and FF_fields[k].metadata.get('static', False)
@@ -1018,120 +1013,6 @@ def read_force_field(force_field_file, cutoff2, dtype=jnp.float32):
         or type(FF_field_dict[k]) == float):
       FF_field_dict[k] = jnp.array(FF_field_dict[k],dtype=dtype)
 
-
-  handle_offdiag(FF_field_dict)
-
-  symm_force_field(FF_field_dict)
-
   force_field = ForceField.init_from_arg_dict(FF_field_dict)
 
-  return force_field,FF_field_dict
-
-def symm_force_field(FF_field_dict):
-  # 2 body-params
-  # for now global
-  body_2_indices = jnp.tril_indices(FF_field_dict["num_atom_types"],k=-1)
-  body_3_indices_src = FF_field_dict["body3_indices_src"]
-  body_3_indices_dst = FF_field_dict["body3_indices_dst"]
-  body_4_indices_src = FF_field_dict["body4_indices_src"]
-  body_4_indices_dst = FF_field_dict["body4_indices_dst"]
-  body_2_attr = ["p1co", "p2co", "p3co",
-                 "p1co_off","p2co_off","p3co_off",
-                 "rob1", "rob2", "rob3",
-                 "rob1_off","rob2_off","rob3_off",
-                 "ptp", "pdp", "popi",
-                 "pdo", "bop1", "bop2",
-                 "de1", "de2", "de3",
-                 "psp", "psi", "vover"]
-  for attr in body_2_attr:
-    arr = FF_field_dict[attr]
-    arr = jax.ops.index_update(arr,
-            body_2_indices, arr.transpose()[body_2_indices])
-    FF_field_dict[attr] = arr
-
-  body_3_attr = ["vval2","vkac", "th0", "vka", "vkap", "vka3", "vka8"]
-  for attr in body_3_attr:
-    arr = FF_field_dict[attr]
-    arr = jax.ops.index_update(arr,
-            body_3_indices_dst, arr[body_3_indices_src])
-    FF_field_dict[attr] = arr
-
-  body_4_attr = ["v1","v2", "v3", "v4", "vconj"]
-  for attr in body_4_attr:
-    arr = FF_field_dict[attr]
-    arr = jax.ops.index_update(arr,
-            body_4_indices_dst, arr[body_4_indices_src])
-    FF_field_dict[attr] = arr
-
-
-def handle_offdiag(FF_field_dict):
-  '''
-                        self.p1co_off_mask, #12
-                            self.p2co_off_mask,
-                            self.p3co_off_mask,
-
-                            self.rob1_off_mask,#15
-                            self.rob2_off_mask,
-                            self.rob3_off_mask
-  '''
-  num_rows = FF_field_dict['num_atom_types']
-  rat = FF_field_dict['rat']
-  rapt = FF_field_dict['rapt']
-  vnq = FF_field_dict['vnq']
-  rvdw = FF_field_dict['rvdw']
-  eps = FF_field_dict['eps']
-  alf = FF_field_dict['alf']
-  rob1_off = FF_field_dict['rob1_off']
-  rob2_off = FF_field_dict['rob2_off']
-  rob3_off = FF_field_dict['rob3_off']
-  rob1_off_mask = FF_field_dict['rob1_off_mask']
-  rob2_off_mask = FF_field_dict['rob2_off_mask']
-  rob3_off_mask = FF_field_dict['rob3_off_mask']
-  p1co_off = FF_field_dict['p1co_off']
-  p2co_off = FF_field_dict['p2co_off']
-  p3co_off = FF_field_dict['p3co_off']
-  p1co_off_mask = FF_field_dict['p1co_off_mask']
-  p2co_off_mask = FF_field_dict['p2co_off_mask']
-  p3co_off_mask = FF_field_dict['p3co_off_mask']
-  mat1 = rat.reshape(1,-1)
-  mat1 = jnp.tile(mat1,(num_rows,1))
-  mat1_tr = mat1.transpose()
-  rob1_temp = (mat1 + mat1_tr) * 0.5
-  rob1_temp = jnp.where(mat1 > 0.0, rob1_temp, 0.0)
-  rob1_temp = jnp.where(mat1_tr > 0.0, rob1_temp, 0.0)
-
-  mat1 = rapt.reshape(1,-1)
-  mat1 = jnp.tile(mat1,(num_rows,1))
-  mat1_tr = mat1.transpose()
-  rob2_temp = (mat1 + mat1_tr) * 0.5
-  rob2_temp = jnp.where(mat1 > 0.0, rob2_temp, 0.0)
-  rob2_temp = jnp.where(mat1_tr > 0.0, rob2_temp, 0.0)
-
-  mat1 = vnq.reshape(1,-1)
-  mat1 = jnp.tile(mat1,(num_rows,1))
-  mat1_tr = mat1.transpose()
-  rob3_temp = (mat1 + mat1_tr) * 0.5
-  rob3_temp = jnp.where(mat1 > 0.0, rob3_temp, 0.0)
-  rob3_temp = jnp.where(mat1_tr > 0.0, rob3_temp, 0.0)
-  #TODO: gradient of sqrt. at 0 is nan, use safe sqrt
-  p1co_temp = safe_sqrt(4.0 * rvdw.reshape(-1,1).dot(rvdw.reshape(1,-1)))
-  p2co_temp = safe_sqrt(eps.reshape(-1,1).dot(eps.reshape(1,-1)))
-  p3co_temp = safe_sqrt(alf.reshape(-1,1).dot(alf.reshape(1,-1)))
-
-
-  rob1 = jnp.where(rob1_off_mask == 0, rob1_temp, rob1_off)
-  rob2 = jnp.where(rob2_off_mask == 0, rob2_temp, rob2_off)
-  rob3 = jnp.where(rob3_off_mask == 0, rob3_temp, rob3_off)
-
-  p1co = jnp.where(p1co_off_mask == 0, p1co_temp, p1co_off * 2.0)
-  p2co = jnp.where(p2co_off_mask == 0, p2co_temp, p2co_off)
-  p3co = jnp.where(p3co_off_mask == 0, p3co_temp, p3co_off)
-
-  FF_field_dict['rob1'] = rob1
-  FF_field_dict['rob2'] = rob2
-  FF_field_dict['rob3'] = rob3
-
-  FF_field_dict['p1co'] = p1co
-  FF_field_dict['p2co'] = p2co
-  FF_field_dict['p3co'] = p3co
-
+  return force_field

@@ -5,11 +5,17 @@ Author: Mehmet Cagri Kaymak
 """
 from jax_md import dataclasses, util
 from dataclasses import fields
+import jax
+import jax.numpy as jnp
 
 Array = util.Array
 
 #TODO: this part needs to be removed
 CLOSE_NEIGH_CUTOFF=5.0
+
+# copy of the safe_sqrt from reaxff_helper.py due to circular dependency
+# better place for this function would be jax_md.util
+
 
 @dataclasses.dataclass
 class ForceField(object):
@@ -165,5 +171,113 @@ class ForceField(object):
       return cls(**filtered_kwargs)
 
     return cls(**filtered_kwargs)
+
+  def fill_symm(force_field):
+    # 2 body-params
+    # for now global
+    num_atoms = force_field.num_atom_types
+    body_2_indices = jnp.tril_indices(num_atoms,k=-1)
+    body_3_indices_src = force_field.body3_indices_src
+    body_3_indices_dst = force_field.body3_indices_dst
+    body_4_indices_src = force_field.body4_indices_src
+    body_4_indices_dst = force_field.body4_indices_dst
+
+    replace_dict = {}
+
+    body_2_attr = ["p1co", "p2co", "p3co",
+                   "p1co_off","p2co_off","p3co_off",
+                   "rob1", "rob2", "rob3",
+                   "rob1_off","rob2_off","rob3_off",
+                   "ptp", "pdp", "popi",
+                   "pdo", "bop1", "bop2",
+                   "de1", "de2", "de3",
+                   "psp", "psi", "vover"]
+    for attr in body_2_attr:
+      arr = getattr(force_field, attr)
+      arr = jax.ops.index_update(arr,
+              body_2_indices, arr.transpose()[body_2_indices])
+      replace_dict[attr] = arr
+
+    body_3_attr = ["vval2","vkac", "th0", "vka", "vkap", "vka3", "vka8"]
+    for attr in body_3_attr:
+      arr = getattr(force_field, attr)
+      arr = jax.ops.index_update(arr,
+              body_3_indices_dst, arr[body_3_indices_src])
+      replace_dict[attr] = arr
+
+    body_4_attr = ["v1","v2", "v3", "v4", "vconj"]
+    for attr in body_4_attr:
+      arr = getattr(force_field, attr)
+      arr = jax.ops.index_update(arr,
+              body_4_indices_dst, arr[body_4_indices_src])
+      replace_dict[attr] = arr
+
+      force_field = force_field.replace(**replace_dict)
+
+      return force_field
+
+  def fill_off_diag(force_field):
+    num_rows = force_field.num_atom_types
+    rat = force_field.rat
+    rapt = force_field.rapt
+    vnq = force_field.vnq
+    rvdw = force_field.rvdw
+    eps = force_field.eps
+    alf = force_field.alf
+    rob1_off = force_field.rob1_off
+    rob2_off = force_field.rob2_off
+    rob3_off = force_field.rob3_off
+    rob1_off_mask = force_field.rob1_off_mask
+    rob2_off_mask = force_field.rob2_off_mask
+    rob3_off_mask = force_field.rob3_off_mask
+    p1co_off = force_field.p1co_off
+    p2co_off = force_field.p2co_off
+    p3co_off = force_field.p3co_off
+    p1co_off_mask = force_field.p1co_off_mask
+    p2co_off_mask = force_field.p2co_off_mask
+    p3co_off_mask = force_field.p3co_off_mask
+    mat1 = rat.reshape(1,-1)
+    mat1 = jnp.tile(mat1,(num_rows,1))
+    mat1_tr = mat1.transpose()
+    rob1_temp = (mat1 + mat1_tr) * 0.5
+    rob1_temp = jnp.where(mat1 > 0.0, rob1_temp, 0.0)
+    rob1_temp = jnp.where(mat1_tr > 0.0, rob1_temp, 0.0)
+
+    mat1 = rapt.reshape(1,-1)
+    mat1 = jnp.tile(mat1,(num_rows,1))
+    mat1_tr = mat1.transpose()
+    rob2_temp = (mat1 + mat1_tr) * 0.5
+    rob2_temp = jnp.where(mat1 > 0.0, rob2_temp, 0.0)
+    rob2_temp = jnp.where(mat1_tr > 0.0, rob2_temp, 0.0)
+
+    mat1 = vnq.reshape(1,-1)
+    mat1 = jnp.tile(mat1,(num_rows,1))
+    mat1_tr = mat1.transpose()
+    rob3_temp = (mat1 + mat1_tr) * 0.5
+    rob3_temp = jnp.where(mat1 > 0.0, rob3_temp, 0.0)
+    rob3_temp = jnp.where(mat1_tr > 0.0, rob3_temp, 0.0)
+    #TODO: gradient of sqrt. at 0 is nan, use safe sqrt
+    p1co_temp = util.safe_sqrt(4.0 * rvdw.reshape(-1,1).dot(rvdw.reshape(1,-1)))
+    p2co_temp = util.safe_sqrt(eps.reshape(-1,1).dot(eps.reshape(1,-1)))
+    p3co_temp = util.safe_sqrt(alf.reshape(-1,1).dot(alf.reshape(1,-1)))
+
+
+    rob1 = jnp.where(rob1_off_mask == 0, rob1_temp, rob1_off)
+    rob2 = jnp.where(rob2_off_mask == 0, rob2_temp, rob2_off)
+    rob3 = jnp.where(rob3_off_mask == 0, rob3_temp, rob3_off)
+
+    p1co = jnp.where(p1co_off_mask == 0, p1co_temp, p1co_off * 2.0)
+    p2co = jnp.where(p2co_off_mask == 0, p2co_temp, p2co_off)
+    p3co = jnp.where(p3co_off_mask == 0, p3co_temp, p3co_off)
+
+    force_field = force_field.replace(rob1=rob1,
+                                      rob2=rob2,
+                                      rob3=rob3,
+                                      p1co=p1co,
+                                      p2co=p2co,
+                                      p3co=p3co)
+    return force_field
+
+
 
 

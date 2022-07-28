@@ -4,13 +4,13 @@ Contains interaction list related functions for ReaxFF
 Author: Mehmet Cagri Kaymak
 """
 from jax_md import space, partition, util
-from jax_md.reaxff_energy import calculate_bo,calculate_reaxff_energy
+from jax_md.reaxff_energy import calculate_bo, calculate_reaxff_energy
 from typing import Callable, Any, Tuple
 import jax
 import jax.numpy as jnp
 from jax_md import dataclasses
-from jax_md.util import safe_mask
-from jax_md.reaxff_helper import vectorized_cond, safe_sqrt
+from jax_md.util import safe_mask, safe_sqrt
+from jax_md.reaxff_helper import vectorized_cond
 from jax_md.reaxff_forcefield import ForceField
 
 Array = util.Array
