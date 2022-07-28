@@ -20,6 +20,7 @@ from jax.tree_util import register_pytree_node
 from jax.lib import xla_bridge
 import jax.numpy as jnp
 from jax import jit
+from jax import custom_jvp
 
 from functools import partial
 
@@ -86,3 +87,17 @@ def maybe_downcast(x):
 
 def is_array(x: Any) -> bool:
   return isinstance(x, (jnp.ndarray, onp.ndarray))
+
+@custom_jvp
+def safe_sqrt(x):
+  """Safe sqrt function (no nan gradients)."""
+  return jnp.sqrt(x)
+
+@safe_sqrt.defjvp
+def safe_sqrt_jvp(primals, tangents):
+  x = primals[0]
+  x_dot = tangents[0]
+  #print(x[0])
+  primal_out = safe_sqrt(x)
+  tangent_out = 0.5 * x_dot / jnp.where(x > 0, primal_out, jnp.inf)
+  return primal_out, tangent_out
