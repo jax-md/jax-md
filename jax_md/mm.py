@@ -213,6 +213,75 @@ def pair_parameter_combinator_mod(
         key_mod_dict_converter[key]: val for key, val in out_dict.items()}
     return mod_out_dict
 
+def sparse_to_dense(N, max_count, idx):
+    """
+    N is number of total particles;
+    max_count is the max number of exceptions on a given particle
+    idx is symmetric and transposed exception indices [2,N_exceptions]
+    """
+    senders, receivers = idx
+    mod_receivers = receivers * max_count
+    mod_senders = jnp.tile(jnp.arange(max_count), senders.shape[0])[:len(senders)]
+    template = -1*jnp.ones((N,max_count))
+    out_template = template.flatten().at[mod_receivers + mod_senders].set(senders)
+    return out_template.reshape(N, max_count)
+
+def symmetrize_and_transpose(indices, **unused_kwargs):
+    """
+    convert an [N,2] array into [2,2*N] (symmetrized)
+    """
+    out = jnp.hstack((jnp.transpose(indices), \
+    jnp.vstack((indices[:,1], indices[:,0]))))
+    return out
+
+def query_idx_in_pair_exceptions(num_particles,
+                                 pair_exceptions):
+    # don't jit
+    unique, counts = onp.unique(pair_exceptions.flatten(), return_counts=True)
+    counts_dict = dict(zip(unique, counts))
+    max_counts = max(counts_dict.values())
+    symm_transp_pair_exceptions = symmetrize_and_transpose(pair_exceptions)
+    dense_mask = sparse_to_dense(num_particles, max_counts, symm_transp_pair_exceptions)
+    out_mask = jnp.where(dense_mask==num_particles, -1, dense_mask)
+    return out_mask
+
+def get_custom_mask_function(n_particles,
+                             default_mask_indices,
+                             **unused_kwargs):
+    """
+    create a custom mask function that is amenable to `jax_md.partition.neighbor_list`;
+    create a custom mask function and a function that will
+    """
+    default_padded_exception_array = query_idx_in_pair_exceptions(
+        num_particles=n_particles,
+        pair_exceptions=default_mask_indices)
+
+    def inner_acceptable_id_pair(id1, id2, padded_exception_array):
+        return jnp.all(padded_exception_array[id1] != id2)
+
+    mask_val=n_particles
+    ids=jnp.arange(n_particles)
+
+    # `custom_mask_fn`
+    def mask_id_based(idx, **dynamic_kwargs):
+        """
+        NOTE(dominicrufa): this is taken from the test for `custom_mapping_function`.
+        since we are using it again, maybe we can abstract it a bit to avoid duplication
+        """
+        _padded_exception_array = dynamic_kwargs.get('padded_exception_array',
+                                                    default_padded_exception_array)
+        @partial(vmap, in_axes=(0,0,None))
+        def acceptable_id_pair(idx, id1, ids):
+            id2 = ids.at[idx].get()
+            return vmap(inner_acceptable_id_pair, in_axes=(None,0,None))(id1,
+                                                                         id2,
+                                                                         _padded_exception_array)
+        mask=acceptable_id_pair(idx, ids, ids)
+        return jnp.where(mask, idx, mask_val)
+
+    return mask_id_based
+
+
 def get_bond_prereq_fns(
     displacement_fn: DisplacementFn,
     auxiliary_bond_fns_dict : Dict[str, Dict[str, Dict[str, Callable]]],
