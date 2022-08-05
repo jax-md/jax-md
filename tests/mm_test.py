@@ -86,7 +86,6 @@ class MMTest(test_util.JAXMDTestCase):
         constraints=None,
         rigidWater=False,
         removeCMMotion=False)
-    mmSystem.removeForce(0)
     context = openmm.Context(mmSystem,
         openmm.VerletIntegrator(1.*unit.femtoseconds))
     context.setPositions(model.getPositions())
