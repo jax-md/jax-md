@@ -40,7 +40,7 @@ NEIGHBOR_LIST_FORMAT = [partition.Dense,
                         partition.OrderedSparse]
 
 PDB_FILENAMES = ['alanine-dipeptide-explicit.pdb']
-PBCS_BOOLEAN = [False, True] # omit True until dsf/PME is sorted
+PBCS_BOOLEAN = [False] # omit True until dsf/PME is sorted
 
 if FLAGS.jax_enable_x64:
   POSITION_DTYPE = [f32, f64]
