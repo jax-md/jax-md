@@ -242,7 +242,7 @@ def cell_list(box_size: Box,
               ) -> CellListFns:
   r"""Returns a function that partitions point data spatially.
 
-  Given a set of points :math:`\{x_i \in R^d\}` with associated data :math:`\{k_i \in R^m\}` 
+  Given a set of points :math:`\{x_i \in R^d\}` with associated data :math:`\{k_i \in R^m\}`
   it is often useful to partition the points / data spatially. A simple partitioning
   that can be implemented efficiently within XLA is a dense partition into a
   uniform grid called a cell list.
@@ -758,7 +758,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
       if mask_self:
         idx = mask_self_fn(idx)
       if custom_mask_function is not None:
-        idx = custom_mask_function(idx)
+        idx = custom_mask_function(idx, **kwargs)
 
       if is_sparse(format):
         idx, occupancy = prune_neighbor_list_sparse(position, idx, **kwargs)
