@@ -71,32 +71,38 @@ class MMTest(test_util.JAXMDTestCase):
           'pdb_filename': pdb_filename,
           'pbcs': pbcs,
           'dtype': dtype
-      } for pdb_filename in PDB_FILENAMES for pbcs in PBCS_BOOLEAN for dtype in POSITION_DTYPE))
+      } for pdb_filename in PDB_FILENAMES for pbcs in PBCS_BOOLEAN \
+        for dtype in POSITION_DTYPE))
   def test_mm_vacuum(self, pdb_filename, pbcs, dtype):
-    """assert that the vacuum energy of a solvent-stripped `openmm.System` object matches that in `jax_md`"""
+    """assert that the vacuum energy of a solvent-stripped
+        `openmm.System` object matches that in `jax_md`
+    """
     pdb = app.PDBFile('data/alanine-dipeptide-explicit.pdb')
     ff = app.ForceField('amber14-all.xml', 'amber14/tip3pfb.xml')
     model = app.Modeller(pdb.topology, pdb.positions)
     model.deleteWater()
-    mmSystem = ff.createSystem(model.topology, nonbondedMethod=app.NoCutoff, constraints=None, rigidWater=False, removeCMMotion=False)
-    context = openmm.Context(mmSystem, openmm.VerletIntegrator(1.*unit.femtoseconds))
+    mmSystem = ff.createSystem(model.topology,
+        nonbondedMethod=app.NoCutoff,
+        constraints=None,
+        rigidWater=False,
+        removeCMMotion=False)
+    mmSystem.removeForce(0)
+    context = openmm.Context(mmSystem,
+        openmm.VerletIntegrator(1.*unit.femtoseconds))
     context.setPositions(model.getPositions())
     omm_state = context.getState(getEnergy=True, getPositions=True)
-    positions = jnp.array(omm_state.getPositions(asNumpy=True).value_in_unit_system(unit.md_unit_system))
-    omm_energy = omm_state.getPotentialEnergy().value_in_unit_system(unit.md_unit_system)
+    positions = jnp.array(omm_state.getPositions(asNumpy=True).\
+        value_in_unit_system(unit.md_unit_system))
+    omm_energy = omm_state.getPotentialEnergy().\
+        value_in_unit_system(unit.md_unit_system)
 
     params = mm_utils.parameters_from_openmm_system(mmSystem)
     displacement_fn, shift_fn = space.free()
-    energy_fn, neighbor_list = mm.mm_energy_fn(displacement_fn=displacement_fn,
-                                           parameters = params,
-                                           space_shape=space.free,
-                                           use_neighbor_list=False,
-                                           box_size=None,
-                                           use_multiplicative_isotropic_cutoff=False,
-                                           use_dsf_coulomb=False,
-                                           neighbor_kwargs={},
-                                           )
-    jax_energy = energy_fn(positions, parameters = params)
+    energy_fn, neighbor_list_fn = mm.mm_energy_fn(
+        displacement_fn=displacement_fn,
+        default_mm_parameters = params)
+
+    jax_energy = energy_fn(positions)
     self.assertAllClose(jax_energy, omm_energy)
 
 if __name__ == '__main__':
