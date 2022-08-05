@@ -151,6 +151,7 @@ def bond(fn: Callable[..., Array],
          static_bond_types: Optional[Union[Array, Dict[str,Array]]]=None,
          ignore_unused_parameters: bool=False,
          geometry_handler_fn: Optional[Callable[..., Tuple[Array]]]=None,
+         per_term: bool=False,
          **kwargs) -> Callable[..., Array]:
   """Promotes a function that acts on a single tuple to one on a set of bonds.
   This is a generalization to the previous `bond` fn since it
@@ -184,6 +185,8 @@ def bond(fn: Callable[..., Array],
       and returns the first *args that are input to the `fn`. This fn should also handle
       **dynamic_kwargs passed to the `metric` fn. If None, proceed with default behavior
       of the `dr` array being passed to `fn`.
+    per_term: a boolean that denotes whether to return a `high_precision_sum`
+      or to return the vmapped result on a per-term basis.
     kwargs: Arguments providing parameters to the mapped function. In cases
       where no bond type information is provided these should be either
 
@@ -226,7 +229,11 @@ def bond(fn: Callable[..., Array],
     _kwargs = merge_dicts(static_kwargs, dynamic_kwargs)
     _kwargs = _kwargs_to_bond_parameters(bond_types, _kwargs)
     _args = geometry_handler_fn(R, bonds, **dynamic_kwargs)
-    return high_precision_sum(fn(*_args, **_kwargs))
+    outs = fn(*_args, **_kwargs)
+    if not per_term:
+      return high_precision_sum(outs)
+    else:
+      return outs
 
   def mapped_fn(R: Array,
                 bonds: Optional[Array]=None,
@@ -352,13 +359,27 @@ def _diagonal_mask(X: Array) -> Array:
     mask = jnp.reshape(mask, (N, N, 1))
   return mask * X
 
-def custom_mask(X: Array,
-                mask_indices: Array, **unused_kwargs) -> Array:
-  """Sets the entries of the [N,N] X array to 0. at values specified by [N,2] mask_indices with symmetrization"""
-  check_square_matrix(X)
-  check_tensor_dim(X, 3)
-  out = X.at[tuple(jnp.hstack((jnp.transpose(mask_indices), jnp.vstack((mask_indices[:,1], mask_indices[:,0])))))].set(0.)
-  return out
+def get_default_custom_mask_function(default_mask_indices: Array,
+                                     **unused_kwargs) -> Callable:
+  """
+  default getter fn for a simple `custom_mask_function`
+  passable to `smap.pair`
+  """
+  def default_custom_mask_fn(X: Array,
+                             **dynamic_kwargs):
+    """Sets the entries of the [N,N] X array to 0 at
+    values specified by [N,2] mask_indices (with
+    symmetrization).
+    NOTE: this is just one example of a custom mask fn passable to
+    `smap.pair.`
+    """
+    _mask_indices = dynamic_kwargs.get('mask_indices', default_mask_indices)
+    check_square_matrix(X)
+    check_tensor_dim(X, 3)
+    out = X.at[tuple(jnp.hstack((jnp.transpose(_mask_indices), \
+    jnp.vstack((_mask_indices[:,1], _mask_indices[:,0])))))].set(0.)
+    return out
+  return default_custom_mask_fn
 
 def _check_species_dtype(species):
   if species.dtype == i32 or species.dtype == i64:
@@ -390,7 +411,8 @@ def pair(fn: Callable[..., Array],
          reduce_axis: Optional[Tuple[int, ...]]=None,
          keepdims: bool=False,
          ignore_unused_parameters: bool=False,
-         use_custom_mask: bool=False,
+         custom_mask_function: Optional[Callable]=None,
+         per_term: bool=False,
          **kwargs) -> Callable[..., Array]:
   """Promotes a function that acts on a pair of particles to one on a system.
 
@@ -420,8 +442,11 @@ def pair(fn: Callable[..., Array],
       specified keyword arguments passed to the mapped function get ignored
       if they were not first specified as keyword arguments when calling
       `smap.pair(...)`.
-    use_custom_mask: A boolean that denotes whether to use the `smap.custom_mask`
-      fn. This is only supported for `species`=None at the moment.
+    custom_mask_function: A function of identical or similar typing
+      scheme to `smap.custom_mask` that specified which indices to zero.
+      This is only supported for `species`=None at the moment.
+    per_term: A boolean that denotes whether to return the `high_precision_sum`
+      of the pairwise matrix or return the normalized matrix, itself
     kwargs: Arguments providing parameters to the mapped function. In cases
       where no species information is provided these should be either
 
@@ -457,11 +482,12 @@ def pair(fn: Callable[..., Array],
     The mapped function can also optionally take keyword arguments that get
     threaded through the metric.
   """
-  if species is not None and use_custom_mask:
+  has_custom_mask_fn = custom_mask_function is not None
+  if species is not None and has_custom_mask_fn:
     raise NotImplementedError(f"`use_custom_mask` is not currently supported if `species` is not `None`")
-  if use_custom_mask:
+  if has_custom_mask_fn:
     def mask_fn(x, **dynamic_kwargs):
-      return custom_mask(_diagonal_mask(x), **dynamic_kwargs)
+      return custom_mask_function(_diagonal_mask(x), **dynamic_kwargs)
   else:
     def mask_fn(x, **unused_kwargs):
       return _diagonal_mask(x)
@@ -479,8 +505,16 @@ def pair(fn: Callable[..., Array],
       dr = d(R, R)
       # NOTE(schsam): Currently we place a diagonal mask no matter what function
       # we are mapping. Should this be an option?
-      return high_precision_sum(mask_fn(fn(dr, **_kwargs), **_kwargs),
-                                axis=reduce_axis, keepdims=keepdims) * f32(0.5)
+      out_matrix = mask_fn(fn(dr, **_kwargs), **_kwargs)
+      if per_term:
+        out_final = out_matrix
+      else:
+        out_final = high_precision_sum(
+        out_matrix,
+        axis=reduce_axis,
+        keepdims=keepdims,
+        ) * f32(0.5)
+      return out_final
   elif util.is_array(species):
     species = onp.array(species)
     _check_species_dtype(species)
