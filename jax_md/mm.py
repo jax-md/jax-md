@@ -157,34 +157,77 @@ class MMEnergyFnParameters(NamedTuple):
   nonbonded_exception_parameters: Optional[NonbondedExceptionParameters] = None
   nonbonded_parameters: Optional[NonbondedParameters] = None
 
-# NOTE(dominicrufa): standardize naming convention; we typically use `OpenMM` force definitions, but this need not be the case
-CANONICAL_MM_FORCENAMES = ['HarmonicBondForce', 'HarmonicAngleForce', 'PeriodicTorsionForce', 'NonbondedForce']
+class Dummy(NamedTuple):
+    """dummy namedtuple"""
+    pass
+
+# NOTE(dominicrufa): standardize naming convention; we typically use `OpenMM`
+# force definitions, but this need not be the case
+CANONICAL_MM_FORCENAMES = ['HarmonicBondForce',
+                           'HarmonicAngleForce',
+                           'PeriodicTorsionForce',
+                           'NonbondedForce']
 CANONICAL_MM_BOND_PARAMETER_PARTICLE_ALLOWABLES = {
-                                     _tup.__class__.__name__: i for _tup, i in zip([HarmonicBondParameters(),
-                                     HarmonicAngleParameters(),
-                                     PeriodicTorsionParameters(),
-                                     NonbondedExceptionParameters()], [2, 3, 4, 2])
-                                     }
-CANONICAL_MM_BOND_PARAMETER_NAMES = [_key for _key in CANONICAL_MM_BOND_PARAMETER_PARTICLE_ALLOWABLES.keys()]
-CANONICAL_MM_NONBONDED_PARAMETER_NAMES = [_tup.__class__.__name__ for _tup in [NonbondedParameters()]]
+                                _tup.__class__.__name__: i for _tup, i \
+                                in zip([HarmonicBondParameters(),
+                                HarmonicAngleParameters(),
+                                PeriodicTorsionParameters(),
+                                NonbondedExceptionParameters()], [2, 3, 4, 2])
+                                }
+CANONICAL_MM_BOND_PARAMETER_NAMES = [_key for _key in \
+    CANONICAL_MM_BOND_PARAMETER_PARTICLE_ALLOWABLES.keys()]
+CANONICAL_MM_NONBONDED_PARAMETER_NAMES = [_tup.__class__.__name__ for \
+    _tup in [NonbondedParameters()]]
+
+NONBONDED_COMBINATOR_DICT = {
+                   'charge': lambda _q1, _q2: _q1*_q2,
+                   'sigma': lambda _s1, _s2: f32(0.5)*(_s1 + _s2),
+                   'epsilon': lambda _e1, _e2: jnp.sqrt(_e1*_e2)
+                  }
+
+NONBONDED_MOD_DICT_CONVERTER = {
+    'charge': 'Q_sq',
+    'sigma': 'sigma',
+    'epsilon': 'epsilon'
+}
 
 
 # EnergyFn utilities
 
 def camel_to_snake(_str, **unused_kwargs) -> str:
-   return ''.join(['_'+i.lower() if i.isupper() else i for i in _str]).lstrip('_')
+  return ''.join(['_'+i.lower() if i.isupper() else i for i in _str]).lstrip('_')
 
-def get_bond_fns(displacement_fn: DisplacementFn,
-                 **unused_kwargs) -> Dict[str, Callable]:
-  """each of the CANONICAL_MM_BONDFORCENAMES has a different `geometry_handler_fn` for `smap.bond`;
-  return a dict that
+def snake_to_camel(_str, **unused_kwargs) -> str:
+  return ''.join(word.title() for word in _str.split('_'))
+
+def pair_parameter_combinator_mod(
+    nonbonded_parameters_dict: Dict[str, Array],
+    combinator_dict: Dict[str, Callable]=NONBONDED_COMBINATOR_DICT,
+    key_mod_dict_converter: Dict[str, str]=NONBONDED_MOD_DICT_CONVERTER,
+):
+    out_dict = jax.tree_util.tree_map(
+        lambda _combinator, _params: (_combinator, _params),
+        combinator_dict,
+        nonbonded_parameters_dict)
+    mod_out_dict = {
+        key_mod_dict_converter[key]: val for key, val in out_dict.items()}
+    return mod_out_dict
+
+def get_bond_prereq_fns(
+    displacement_fn: DisplacementFn,
+    auxiliary_bond_fns_dict : Dict[str, Dict[str, Dict[str, Callable]]],
+    **unused_kwargs) -> Dict[str, Callable]:
+  """each of the CANONICAL_MM_BONDFORCENAMES has a different
+    `geometry_handler_fn` for `smap.bond`;
+  return a dict that each `bond` parameter can query.
      "harmonic_bond_parameters" is defaulted, so we can omit this
   """
   def angle_handler_fn(R: Array, bonds: Array, **_dynamic_kwargs):
     r1s, r2s, r3s = [R[bonds[:,i]] for i in range(3)]
     d = vmap(partial(displacement_fn, **_dynamic_kwargs), 0, 0)
     r21s, r23s = d(r1s, r2s), d(r3s, r2s)
-    return (vmap(lambda _r1, _r2: jnp.arccos(quantity.cosine_angle_between_two_vectors(_r1, _r2)))(r21s, r23s),)
+    return (vmap(lambda _r1, _r2: jnp.arccos(
+        quantity.cosine_angle_between_two_vectors(_r1, _r2)))(r21s, r23s),)
 
   def torsion_handler_fn(R: Array, bonds: Array, **_dynamic_kwargs):
     r1s, r2s, r3s, r4s = [R[bonds[:,i]] for i in range(4)]
