@@ -14,12 +14,14 @@
 
 """
 Handler of molecular mechanics energy handling and aggregation;
-NOTE : all I/O units are in units of `openmm.unit.md_unit_system` (see http://docs.openmm.org/latest/userguide/theory/01_introduction.html#units)
+NOTE : all I/O units are in units of `openmm.unit.md_unit_system`
+(see http://docs.openmm.org/latest/userguide/theory/01_introduction.html#units)
 """
 
 from functools import wraps, partial
 
-from typing import Callable, Tuple, TextIO, Dict, Any, Optional, Iterable, NamedTuple, Union
+from typing import (Callable, Tuple, TextIO, Dict,
+                    Any, Optional, Iterable, NamedTuple, Union)
 
 import jax
 import jax.numpy as jnp
@@ -28,13 +30,14 @@ from jax import ops
 from jax.tree_util import tree_map
 from jax import vmap
 import haiku as hk
-from jax_md import space, smap, partition, nn, quantity, interpolate, util, dataclasses, energy
-
+from jax_md import (space, smap, partition, nn,
+                    quantity, interpolate, util, dataclasses, energy)
 maybe_downcast = util.maybe_downcast
 
 # Types
 
 
+i32 = util.i32
 f32 = util.f32
 f64 = util.f64
 Array = util.Array
@@ -61,8 +64,10 @@ class HarmonicBondParameters(NamedTuple):
   Attributes:
     particles: The particle index tuples. An ndarray of floats with
       shape `[n_bonds, 2]`.
-    epsilon: spring constant in kJ/(mol * nm**2). An ndarray of floats with shape `[n_bonds,]`
-    length : spring equilibrium lengths in nm. an ndarray of floats with shape `[nbonds,]`
+    epsilon: spring constant in kJ/(mol * nm**2).
+        An ndarray of floats with shape `[n_bonds,]`
+    length : spring equilibrium lengths in nm.
+        An ndarray of floats with shape `[nbonds,]`
   """
   particles: Optional[Array] = None
   epsilon: Optional[Array] = None
@@ -74,8 +79,10 @@ class HarmonicAngleParameters(NamedTuple):
   Attributes:
     particles: The particle index tuples. An ndarray of floats with
       shape `[n_angles, 3]`.
-    epsilon: spring constant in kJ/(mol * deg**2). An ndarray of floats with shape `[n_angles,]`
-    length: spring equilibrium lengths in deg. an ndarray of floats with shape `[n_angles,]`
+    epsilon: spring constant in kJ/(mol * deg**2).
+        An ndarray of floats with shape `[n_angles,]`
+    length: spring equilibrium lengths in deg.
+        An ndarray of floats with shape `[n_angles,]`
   """
   particles: Optional[Array] = None
   epsilon: Optional[Array] = None
@@ -87,9 +94,12 @@ class PeriodicTorsionParameters(NamedTuple):
   Attributes:
     particles: The particle index tuples. An ndarray of floats with
       shape `[n_torsions, 4]`.
-    amplitude: amplitude in kJ/(mol). An ndarray of floats with shape `[n_torsions,]`
-    periodicity: periodicity of angle (unitless). An ndarray of floats with shape `[n_torsions,]`
-    phase : angle phase shift in deg. an ndarray of floats with shape `[n_torsions,]`
+    amplitude: amplitude in kJ/(mol).
+        An ndarray of floats with shape `[n_torsions,]`
+    periodicity: periodicity of angle (unitless).
+        An ndarray of floats with shape `[n_torsions,]`
+    phase : angle phase shift in deg.
+        An ndarray of floats with shape `[n_torsions,]`
   """
   particles: Optional[Array] = None
   amplitude: Optional[Array] = None
@@ -118,9 +128,12 @@ class NonbondedParameters(NamedTuple):
   """A tuple containing parameter information for `NonbondedForce`.
 
   Attributes:
-    charge : charge in e on each particle. An ndarray of floats with shape `[n_particles,]`
-    sigma : lennard_jones sigma term in nm. An ndarray of floats with shape `[n_particles,]`
-    epsilon : lennard_jones epsilon in kJ/mol. An ndarray of floats with shape `[n_particles,]`
+    charge : charge in e on each particle.
+        An ndarray of floats with shape `[n_particles,]`
+    sigma : lennard_jones sigma term in nm.
+        An ndarray of floats with shape `[n_particles,]`
+    epsilon : lennard_jones epsilon in kJ/mol.
+        An ndarray of floats with shape `[n_particles,]`
   """
   charge: Optional[Array] = None # this throws problems as the `energy.coulomb` requires `Q_sq`
   sigma: Optional[Array] = None
@@ -129,7 +142,8 @@ class NonbondedParameters(NamedTuple):
 
 
 class MMEnergyFnParameters(NamedTuple):
-  """A tuple containing parameter information for each `Parameters` NamedTuple which each `EnergyFn` can query
+  """A tuple containing parameter information for each
+  `Parameters` NamedTuple which each `EnergyFn` can query
 
   Attributes:
     harmonic_bond_parameters : HarmonicBondParameters
