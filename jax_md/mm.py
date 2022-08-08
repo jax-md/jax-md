@@ -245,7 +245,7 @@ def query_idx_in_pair_exceptions(num_particles,
     out_mask = jnp.where(dense_mask==num_particles, -1, dense_mask)
     return out_mask
 
-def get_custom_mask_function(n_particles,
+def get_neighbor_custom_mask_function(n_particles,
                              default_mask_indices,
                              **unused_kwargs):
     """
@@ -345,19 +345,19 @@ def bonded_energy_handler(
 
     def energy_fn(R: Array,
                   parameters,
-                  **dynamic_kwargs):
+                  **unused_kwargs):
         bonds = parameters.particles
         bond_types = parameters._asdict()
         _ = bond_types.pop('particles') # remove for redundancy
-        out = bond_fn(R, bonds, bond_types, **dynamic_kwargs)
+        out = bond_fn(R, bonds, bond_types)
         return out
 
     def wrapped_energy_fn(R: Array,
                           parent_parameters_dict,
-                          **dynamic_kwargs):
+                          **unused_kwargs):
         energy_specific_parameters = \
             parent_parameters_dict.get(snake_parameter_name, default_parameters)
-        return energy_fn(R, energy_specific_parameters, **dynamic_kwargs)
+        return energy_fn(R, energy_specific_parameters)
 
     return wrapped_energy_fn
 
@@ -408,11 +408,10 @@ def nonbonded_energy_handler(
             custom_mask_function = smap.get_default_custom_mask_function(
                 default_mask_indices = default_particle_exception_indices
                 )
-            pad_exception_mask_regenertor=None
         else:
             num_particles = default_parameters[0].shape[0] # lead_axis=n_paricle
-            (custom_mask_function,
-             pad_exception_mask_regenerator)=get_neighbor_custom_mask_function(
+            custom_mask_function\
+                =get_neighbor_custom_mask_function(
                 num_particles,
                 default_particle_exception_indices)
 
@@ -433,8 +432,8 @@ def nonbonded_energy_handler(
             **canonicalized_nb_parameters
         )
         neighbor_list_fns = partition.neighbor_list(
-            custom_mask_function = custom_mask_function
-            **neighbor_kwargs
+            custom_mask_function = custom_mask_function,
+            **neighbor_kwargs,
         )
 
 
@@ -499,7 +498,7 @@ def mm_energy_fn(
             energy_fn.
     Returns:
         energy_fn: a function to pass positions R and kwargs to return
-            a floating point energy.
+            a floating point energy. see annotations below.
         neighbor_list_fns: A NeighborListFns object that contains a
             method to allocate a new neighbor list and a method to update an
             existing neighbor list; default is `None` since no neighbor kwargs
@@ -563,12 +562,34 @@ def mm_energy_fn(
     # create callable
     def energy_fn(R: Array,
                   **dynamic_kwargs):
+        """
+        compute the molecular mechanics type energy.
+        Args:
+            R: input positions array of shape [N,3]
+            dynamic_kwargs: dynamic kwargs that are passed
+                explicitly to the tree_mapped bonded (multiple) and nonbonded
+                (singular) functions. If `parameters` is passed, it is expected
+                to be a `MMEnergyFnParameters` with the same nesting as the
+                `default_mm_parameters`; if it is not passed, will default
+                parameters to `default_mm_parameters`.
+                Other dynamic_kwargs may include `neighbor` in the case neighbor
+                lists are being used (specifically for the `NonbondedParameters`
+                fn passable). All extra `dynamic_kwargs` are passed explicitly
+                to the nonbonded `smap.pair` or `smap.pair_neighbor_list` fn
+                since the bond fns have explicitly defined templating that
+                should be unaffected by changes in the environment.
+                TODO: fix this functionality for `space.periodic_general` since
+                we need to pass `box` to the displacement fn
+        Returns:
+            energy: float of energy in kJ/mol
+
+        """
         mm_parameters = dynamic_kwargs.get('parameters',
                                              default_mm_parameters)
         energies = jax.tree_util.tree_map(lambda e_fn:
                                             e_fn(R,
-                                                 mm_parameters._asdict(),
-                                                 **dynamic_kwargs),
+                                            parent_parameters_dict=mm_parameters._asdict(),
+                                            **dynamic_kwargs),
                                 mm_energy_fns)
         # do we want to return a dict or a singular float?
         accum = f32(0)
