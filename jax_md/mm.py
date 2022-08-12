@@ -369,23 +369,24 @@ def bonded_energy_handler(
         geometry_handler_fn=geometry_handler_fn,
         displacement_or_metric=displacement_fn,
         per_term=per_term,
+        capture_kwargs=['box', 'neighbor'],
         **parameter_template_dict)
 
     def energy_fn(R: Array,
                   parameters,
-                  **unused_kwargs):
+                  **dynamic_kwargs):
         bonds = parameters.particles
         bond_types = parameters._asdict()
         _ = bond_types.pop('particles') # remove for redundancy
-        out = bond_fn(R, bonds, bond_types)
+        out = bond_fn(R, bonds, bond_types, **dynamic_kwargs)
         return out
 
     def wrapped_energy_fn(R: Array,
                           parent_parameters_dict,
-                          **unused_kwargs):
+                          **dynamic_kwargs):
         energy_specific_parameters = \
             parent_parameters_dict.get(snake_parameter_name, default_parameters)
-        return energy_fn(R, energy_specific_parameters)
+        return energy_fn(R, energy_specific_parameters, **dynamic_kwargs)
 
     return wrapped_energy_fn
 
@@ -494,7 +495,8 @@ def nonbonded_energy_handler(
             # otherwise, make a `padded_exception_array`
             # and add it to `energy_specific_parameters`
             pass
-        merged_kwargs = util.merge_dicts(energy_specific_parameters, dynamic_kwargs)
+        merged_kwargs = util.merge_dicts(energy_specific_parameters,
+          dynamic_kwargs)
         return energy_fn(R, **merged_kwargs)
 
     return wrapped_energy_fn, neighbor_list_fns
