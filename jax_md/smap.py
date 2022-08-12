@@ -237,7 +237,6 @@ def bond(fn: Callable[..., Array],
       geometry_handler_kwargs = {key: dynamic_kwargs.pop(key, None) \
             for key in capture_kwargs}
     _kwargs = merge_dicts(static_kwargs, dynamic_kwargs)
-    print(f"kwargs keys: {_kwargs}")
     _kwargs = _kwargs_to_bond_parameters(bond_types, _kwargs)
     _args = geometry_handler_fn(R, bonds, **geometry_handler_kwargs)
     outs = fn(*_args, **_kwargs)

@@ -357,6 +357,7 @@ def bonded_energy_handler(
                         geometry_handler_fn,
                         singular_fn,
                         per_term=False,
+                        bond_capture_kwargs=None,
                         **unused_kwargs):
     """
     create a smap.bond fn
@@ -369,7 +370,7 @@ def bonded_energy_handler(
         geometry_handler_fn=geometry_handler_fn,
         displacement_or_metric=displacement_fn,
         per_term=per_term,
-        capture_kwargs=['box', 'neighbor'],
+        capture_kwargs=bond_capture_kwargs,
         **parameter_template_dict)
 
     def energy_fn(R: Array,
@@ -507,6 +508,7 @@ def mm_energy_fn(
     neighbor_kwargs: Dict[str, Any]={},
     auxiliary_bond_prereq_fns: Dict[str, Any]={},
     nonbonded_energy_handler_kwargs: Dict[str, Any]={},
+    bond_capture_kwargs: Iterable[str]=None,
     ):
     """
     retrieve a energy function and a `NeighborListFns` if `neighbor_kwargs` is
@@ -526,6 +528,8 @@ def mm_energy_fn(
         nonbonded_energy_handler_kwargs: A Dict of kwargs to pass to the
             `nonbonded_energy_handler` fn when creating `nonbonded_parameters`
             energy_fn.
+        bond_capture_kwargs: an iterable of strings that are passed to
+          `smap.bond` as `capture_kwargs`
     Returns:
         energy_fn: a function to pass positions R and kwargs to return
             a floating point energy. see annotations below.
@@ -561,7 +565,8 @@ def mm_energy_fn(
                 per_term=False,
                 geometry_handler_fn=bond_prereq_fns[parameter_name]\
                     ['geometry_handler_fn'],
-                singular_fn=bond_prereq_fns[parameter_name]['singular_fn']
+                singular_fn=bond_prereq_fns[parameter_name]['singular_fn'],
+                bond_capture_kwargs=bond_capture_kwargs,
             )
         elif is_nonbonded:
             if parameter[0] is None: # this is an empty default
