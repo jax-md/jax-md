@@ -16,7 +16,7 @@
 
 from functools import reduce, partial
 
-from typing import Dict, Callable, List, Tuple, Union, Optional, Any
+from typing import Dict, Callable, List, Tuple, Union, Optional, Any, Iterable
 
 import math
 import enum
@@ -152,6 +152,7 @@ def bond(fn: Callable[..., Array],
          ignore_unused_parameters: bool=False,
          geometry_handler_fn: Optional[Callable[..., Tuple[Array]]]=None,
          per_term: bool=False,
+         capture_kwargs: Iterable=None,
          **kwargs) -> Callable[..., Array]:
   """Promotes a function that acts on a single tuple to one on a set of bonds.
   This is a generalization to the previous `bond` fn since it
@@ -200,6 +201,8 @@ def bond(fn: Callable[..., Array],
         2. an ndarray of shape `[max_bond_type]`.
         3. a ParameterTree containing a PyTree of parameters and a mapping. See
            ParameterTree for details.
+    capture_kwargs: An Iterable of kwargs that should be popped and passed to
+      `geometry_handler_fn` without registering as other parameters
   Returns:
     A function `fn_mapped`. Note that `fn_mapped` can take arguments bonds and
     `bond_types` which will be bonds that are specified dynamically. This will
@@ -216,19 +219,27 @@ def bond(fn: Callable[..., Array],
   merge_dicts = partial(util.merge_dicts,
                         ignore_unused_parameters=ignore_unused_parameters)
 
+  #
+
   if geometry_handler_fn is None:
       def _geometry_handler_fn(R: Array, bonds: Array, **_dynamic_kwargs):
           Ra, Rb = R[bonds[:, 0]], R[bonds[:, 1]]
           # NOTE(schsam): This pattern is needed due to JAX issue #912.
-          d = vmap(partial(space.canonicalize_displacement_or_metric(displacement_or_metric), **_dynamic_kwargs), 0, 0)
+          d = vmap(partial(
+          space.canonicalize_displacement_or_metric(displacement_or_metric),
+          **_dynamic_kwargs), 0, 0)
           dr = d(Ra, Rb)
           return (dr,)
       geometry_handler_fn = _geometry_handler_fn
 
   def compute_fn(R, bonds, bond_types, static_kwargs, dynamic_kwargs):
+    if capture_kwargs is not None:
+      geometry_handler_kwargs = {key: dynamic_kwargs.pop(key, None) \
+            for key in capture_kwargs}
     _kwargs = merge_dicts(static_kwargs, dynamic_kwargs)
+    print(f"kwargs keys: {_kwargs}")
     _kwargs = _kwargs_to_bond_parameters(bond_types, _kwargs)
-    _args = geometry_handler_fn(R, bonds, **dynamic_kwargs)
+    _args = geometry_handler_fn(R, bonds, **geometry_handler_kwargs)
     outs = fn(*_args, **_kwargs)
     if not per_term:
       return high_precision_sum(outs)
@@ -758,6 +769,7 @@ def pair_neighbor_list(fn: Callable[..., Array],
   def fn_mapped(R: Array, neighbor: partition.NeighborList, **dynamic_kwargs
                 ) -> Array:
     d = partial(displacement_or_metric, **dynamic_kwargs)
+    _ = dynamic_kwargs.pop('box', None) # necessary if using binary functions;
     _species = dynamic_kwargs.get('species', species)
 
     normalization = 2.0
