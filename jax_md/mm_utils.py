@@ -22,6 +22,7 @@ from typing import (Callable, Tuple, TextIO, Dict,
 from jax.config import config; config.update("jax_enable_x64", True)
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax import ops
 from jax.tree_util import tree_map
 from jax import vmap
@@ -208,3 +209,174 @@ def parameters_from_openmm_system(system : openmm.System,
       parameter_dict['nonbonded_parameters'] = retrieval_dict['nonbonded_parameters'](force, **unused_kwargs)
       parameter_dict['nonbonded_exception_parameters'] = retrieval_dict['nonbonded_exception_parameters'](force, **unused_kwargs)
   return mm.MMEnergyFnParameters(**parameter_dict)
+
+
+# `openmm.NonbondedForce` to reaction field converter
+
+
+class ReactionFieldConverter(object):
+    ONE_4PI_EPS0 = 138.93545764438198
+    """
+    convert a canonical `openmm.System` object's `openmm.NonbondedForce`
+    to a `openmm.CustomNonbondedForce` that treats electrostatics with reaction
+    field;
+    see: 10.1039/d0cp03835k;
+    adapted from
+    https://github.com/rinikerlab/reeds/blob/\
+    52882d7e009b5393df172dd4b703323f1d84dabb/reeds/openmm/reeds_openmm.py#L265
+    """
+    def __init__(self,
+                 system : openmm.System,
+                 cutoff: float=1.2,
+                 eps_rf: float=78.5,
+                 ):
+        """
+        It is assumed that the nonbonded force is "canonical"
+        in that it contains N particles and N_e exceptions
+        without further decorating attrs.
+
+        Args:
+            system : openmm.System
+            cutoff : float=1.2 (cutoff in nm)
+            eps_rf : float=78.5; dielectric constant of solvent
+        """
+        import copy
+
+        nbfs = [f for f in system.getForces() if f.__class__.__name__ \
+            == "NonbondedForce"]
+        assert len(nbfs) == 1, f"{len(nbfs)} nonbonded forces were found"
+
+        self._nbf = nbfs[0]
+        self._system = system
+        self._cutoff = cutoff
+        self._eps_rf = eps_rf
+
+        pair_nbf = self.handle_nonbonded_pairs()
+        exception_bf = self.handle_nb_exceptions()
+        self_bf = self.handle_self_term()
+
+    @property
+    def rf_system(self):
+        import copy
+        new_system = copy.deepcopy(self._system)
+
+        pair_nbf = self.handle_nonbonded_pairs()
+        exception_bf = self.handle_nb_exceptions()
+        self_bf = self.handle_self_term()
+
+        # remove the nbf altogether
+        for idx, force in enumerate(self._system.getForces()):
+            if force.__class__.__name__ == 'NonbondedForce':
+                break
+        new_system.removeForce(idx)
+
+        for force in [pair_nbf, exception_bf, self_bf]:
+            new_system.addForce(force)
+        return new_system
+
+    def handle_nonbonded_pairs(self):
+        energy_fn = self._get_energy_fn()
+        energy_fn += f"chargeprod_ = charge1 * charge2;"
+
+        custom_nb_force = openmm.CustomNonbondedForce(energy_fn)
+        custom_nb_force.addPerParticleParameter('charge') # always add
+
+        custom_nb_force.addPerParticleParameter('sigma')
+        custom_nb_force.addPerParticleParameter('epsilon')
+        custom_nb_force.setNonbondedMethod(openmm.CustomNonbondedForce.\
+            CutoffPeriodic) # always
+        custom_nb_force.setCutoffDistance(self._cutoff)
+        custom_nb_force.setUseLongRangeCorrection(False) # for lj, never
+
+        # add particles
+        for idx in range(self._nbf.getNumParticles()):
+            c, s, e = self._nbf.getParticleParameters(idx)
+            custom_nb_force.addParticle([c, s, e])
+
+        # add exclusions from nbf exceptions
+        for idx in range(self._nbf.getNumExceptions()):
+            j, k, _, _, _ = self._nbf.getExceptionParameters(idx)
+            custom_nb_force.addExclusion(j,k)
+        return custom_nb_force
+
+    def handle_nb_exceptions(self):
+        energy_fn = self._get_energy_fn(exception=True)
+        custom_b_force = openmm.CustomBondForce(energy_fn)
+        # add terms separately so we need not reimplement the energy fn
+        for _param in ['chargeprod', 'sigma', 'epsilon', 'chargeprod_']:
+            custom_b_force.addPerBondParameter(_param)
+
+        # copy exceptions
+        for idx in range(self._nbf.getNumExceptions()):
+            j, k , chargeprod, mix_sigma, mix_epsilon = self._nbf.\
+                getExceptionParameters(idx)
+
+            # now query charges, sigma, epsilon
+            c1, _, _ = self._nbf.getParticleParameters(j)
+            c2, _, _ = self._nbf.getParticleParameters(k)
+
+            custom_b_force.addBond(j, k,
+                                [chargeprod, mix_sigma, mix_epsilon, c1*c2])
+
+        return custom_b_force
+
+    def handle_self_term(self):
+        (cutoff, eps_rf, krf, mrf, nrf, arfm, arfn, crf) = self._get_rf_terms()
+
+        crf_self_term = f"0.5 * ONE_4PI_EPS0 * chargeprod_ * (-crf);"
+        crf_self_term += "ONE_4PI_EPS0 = {:f};".format(self.ONE_4PI_EPS0)
+        crf_self_term += "crf = {:f};".format(crf)
+
+        force_crf_self_term = openmm.CustomBondForce(crf_self_term)
+        force_crf_self_term.addPerBondParameter('chargeprod_')
+        force_crf_self_term.setUsesPeriodicBoundaryConditions(True)
+        
+        for i in range(self._nbf.getNumParticles()):
+            ch1, _, _ = self._nbf.getParticleParameters(i)
+            force_crf_self_term.addBond(i, i, [ch1*ch1])
+        return force_crf_self_term
+
+    def _get_rf_terms(self):
+        cutoff, eps_rf = self._cutoff, self._eps_rf
+        krf = ((eps_rf - 1) / (1 + 2 * eps_rf)) * (1 / cutoff**3)
+        mrf = 4
+        nrf = 6
+        arfm = (3 * cutoff**(-(mrf+1))/(mrf*(nrf - mrf)))* \
+            ((2*eps_rf+nrf-1)/(1+2*eps_rf))
+        arfn = (3 * cutoff**(-(nrf+1))/(nrf*(mrf - nrf)))* \
+            ((2*eps_rf+mrf-1)/(1+2*eps_rf))
+        crf = ((3 * eps_rf) / (1 + 2 * eps_rf)) * (1 / cutoff) + arfm * \
+            cutoff**mrf + arfn * cutoff ** nrf
+        return (cutoff, eps_rf, krf, mrf, nrf, arfm, arfn, crf)
+
+    def _get_energy_fn(self, exception=False):
+        """
+        see https://github.com/rinikerlab/reeds/blob/\
+        b8cf6895d08f3a85a68c892ad7d873ec129dd2c3/reeds/openmm/\
+        reeds_openmm.py#L265
+        """
+        (cutoff, eps_rf, krf, mrf, nrf, arfm, arfn, crf) = self._get_rf_terms()
+
+        # define additive energy terms
+        #total_e = f"elec_e + lj_e;"
+        total_e = "lj_e + elec_e;"
+        # total_e += "elec_e = ONE_4PI_EPS0*chargeprod*(1/r + krf*r2 + arfm*r4 + arfn*r6 - crf);"
+        total_e += f"elec_e = ONE_4PI_EPS0*( chargeprod*(1/r) + chargeprod_*(krf*r2 + arfm*r4 + arfn*r6 - crf));"
+        total_e += f"lj_e = 4*epsilon*(sigma_over_r12 - sigma_over_r6);"
+        total_e += "krf = {:f};".format(krf)
+        total_e += "crf = {:f};".format(crf)
+        total_e += "r6 = r2*r4;"
+        total_e += "r4 = r2*r2;"
+        total_e += "r2 = r*r;"
+        total_e += "arfm = {:f};".format(arfm)
+        total_e += "arfn = {:f};".format(arfn)
+        total_e += "sigma_over_r12 = sigma_over_r6 * sigma_over_r6;"
+        total_e += "sigma_over_r6 = sigma_over_r3 * sigma_over_r3;"
+        total_e += "sigma_over_r3 = sigma_over_r * sigma_over_r * sigma_over_r;"
+        total_e += "sigma_over_r = sigma/r;"
+        if not exception:
+            total_e += "epsilon = sqrt(epsilon1*epsilon2);"
+            total_e += "sigma = 0.5*(sigma1+sigma2);"
+            total_e += "chargeprod = charge1*charge2;"
+        total_e += "ONE_4PI_EPS0 = {:f};".format(self.ONE_4PI_EPS0)
+        return total_e
