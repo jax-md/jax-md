@@ -594,9 +594,9 @@ def self_rf_coulomb(Q_sq: Array,
     2584f7d049f622df6a3acd1cc4216b14e404f01e/reeds/openmm/\
     reeds_openmm.py#L375-L388
   """
-    krf, arfm, arfn, crf = compute_rf_constants(eps_rf, cutoff, mrf, nrf)
-    self_energy = -f32(0.5) * qqr2e * Q_sq * crf # no force contribution
-    return self_energy
+  krf, arfm, arfn, crf = compute_rf_constants(eps_rf, cutoff, mrf, nrf)
+  self_energy = -f32(0.5) * qqr2e * Q_sq * crf # no force contribution
+  return self_energy
 
 def dsf_coulomb(r: Array,
                 Q_sq: Array,
@@ -605,7 +605,6 @@ def dsf_coulomb(r: Array,
                 qqr2e: float=332.06371,
                 **unused_kwargs) -> Array:
   """Damped-shifted-force approximation of the coulombic interaction."""
-
   cutoffsq = r_cutoff * r_cutoff
   erfcc = erfc(alpha * r_cutoff)
   erfcd = jnp.exp(-alpha * alpha * cutoffsq)
@@ -614,7 +613,6 @@ def dsf_coulomb(r: Array,
 
   e = qqr2e * Q_sq / r * (erfc(alpha * r) - r * e_shift - r**2 * f_shift)
   return jnp.where(r < r_cutoff, e, 0.0)
-
 
 def bks(dr: Array,
         Q_sq: Array,
