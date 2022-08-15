@@ -544,6 +544,60 @@ def coulomb(r: Array,
   """
   return jnp.nan_to_num(qqr2e * Q_sq / r)
 
+def compute_rf_constants(eps_rf: Array,
+                         cutoff: Array,
+                         mrf: Array,
+                         nrf: Array,
+                         **unused_kwargs):
+  """compute constants/switches of the coulomb reaction field"""
+  krf = ((eps_rf - 1) / (1 + 2 * eps_rf)) * (1 / cutoff**3)
+  arfm = (3 * cutoff**(-(mrf+1))/(mrf*(nrf - mrf)))* \
+    ((2*eps_rf+nrf-1)/(1+2*eps_rf))
+  arfn = (3 * cutoff**(-(nrf+1))/(nrf*(mrf - nrf)))* \
+    ((2*eps_rf+mrf-1)/(1+2*eps_rf))
+  crf = ((3 * eps_rf) / (1 + 2 * eps_rf)) * (1 / cutoff) + \
+    arfm * cutoff**mrf + arfn * cutoff ** nrf
+  return krf, arfm, arfn, crf
+
+def rf_coulomb(r: Array,
+               Q_sq: Array,
+               aux_Q_sq: Array,
+               cutoff: Array=1.2,
+               eps_rf: Array=78.5,
+               mrf: Array=4,
+               nrf: Array=6,
+               qqr2e: Array=138.93545764438198,
+               compute_self_energy: bool=False,
+               **unused_kwargs):
+  """compute the coulomb reaction field implementation;
+  NOTE: this should implicitly decay to zero at cutoff with C^2 behaviour.
+  the implementation is given by https://doi.org/10.1039/D0CP03835K.
+  Code was adapted from
+  https://github.com/rinikerlab/reeds/blob/\
+  2584f7d049f622df6a3acd1cc4216b14e404f01e/reeds/openmm/reeds_openmm.py#L229
+  """
+  krf, arfm, arfn, crf = compute_rf_constants(eps_rf, cutoff, mrf, nrf)
+  interaction_energy = qqr2e * (Q_sq / r + aux_Q_sq * (krf * r**2 + \
+    arfm * r**4 + arfn * r**6 - crf))
+  return interaction_energy
+
+def self_rf_coulomb(Q_sq: Array,
+                    qqr2e: Array=138.93545764438198,
+                    eps_rf: Array=78.5,
+                    cutoff: Array=1.2,
+                    mrf: Array=4,
+                    nrf: Array=6,
+                    **unused_kwargs):
+  """compute the self-energy term of an array of chargeprods.
+    it is presumed that `Q_sq` is a 1D array.
+    adapted from https://github.com/rinikerlab/reeds/blob/\
+    2584f7d049f622df6a3acd1cc4216b14e404f01e/reeds/openmm/\
+    reeds_openmm.py#L375-L388
+  """
+    krf, arfm, arfn, crf = compute_rf_constants(eps_rf, cutoff, mrf, nrf)
+    self_energy = -f32(0.5) * qqr2e * Q_sq * crf # no force contribution
+    return self_energy
+
 def dsf_coulomb(r: Array,
                 Q_sq: Array,
                 alpha: Array=0.25,
