@@ -16,15 +16,18 @@
 
 from functools import wraps, partial
 
-from typing import Callable, Tuple, TextIO, Dict, Any, Optional, Iterable, NamedTuple
+from typing import (Callable, Tuple, TextIO, Dict,
+                    Any, Optional, Iterable, NamedTuple)
 
+from jax.config import config; config.update("jax_enable_x64", True)
 import jax
 import jax.numpy as jnp
 from jax import ops
 from jax.tree_util import tree_map
 from jax import vmap
 import haiku as hk
-from jax_md import space, smap, partition, mm, quantity, interpolate, util, dataclasses, energy
+from jax_md import (space, smap, partition, mm,
+                    quantity, interpolate, util, dataclasses, energy)
 
 
 try:
@@ -51,7 +54,8 @@ Array = jnp.array
 
 # `openmm` general conversion utilities
 
-def get_box_vectors_from_vec3s(vec3s : Tuple[unit.Quantity, unit.Quantity, unit.Quantity]) -> Array:
+def get_box_vectors_from_vec3s(
+    vec3s : Tuple[unit.Quantity, unit.Quantity, unit.Quantity]) -> Array:
     """
     query a tuple object of vec3s to get a box array (for pbc-enabled nonbonded functions)
     Example:
@@ -64,7 +68,8 @@ def get_box_vectors_from_vec3s(vec3s : Tuple[unit.Quantity, unit.Quantity, unit.
         rank.append(i[idx].value_in_unit_system(unit.md_unit_system))
         lessers = [q for q in enumers if q != idx]
         for j in lessers:
-            assert jnp.isclose(i[j].value_in_unit_system(unit.md_unit_system), 0.), f"vec3({i,j} is nonzero. vec3 is not a cube)"
+            assert jnp.isclose(i[j].value_in_unit_system(unit.md_unit_system), \
+                0.), f"vec3({i,j} is nonzero. vec3 is not a cube)"
     return Array(rank)
 
 
@@ -72,7 +77,8 @@ def get_box_vectors_from_vec3s(vec3s : Tuple[unit.Quantity, unit.Quantity, unit.
 
 
 def bond_and_angle_parameter_retrieval_fn(force, **unused_kwargs):
-  """retrieve bond and angle parameter namedtuple; put these together because their omm syntax is very similar"""
+  """retrieve bond and angle parameter namedtuple;
+  put these together because their omm syntax is very similar"""
   force_name = force.__class__.__name__
   is_bond = force_name == 'HarmonicBondForce'
   if not is_bond: # is Angle
