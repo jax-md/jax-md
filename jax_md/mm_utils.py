@@ -215,7 +215,6 @@ def parameters_from_openmm_system(system : openmm.System,
 
 
 class ReactionFieldConverter(object):
-    ONE_4PI_EPS0 = 138.93545764438198
     """
     convert a canonical `openmm.System` object's `openmm.NonbondedForce`
     to a `openmm.CustomNonbondedForce` that treats electrostatics with reaction
@@ -229,6 +228,8 @@ class ReactionFieldConverter(object):
                  system : openmm.System,
                  cutoff: float=1.2,
                  eps_rf: float=78.5,
+                 ONE_4PI_EPS0: float=138.93545764438198,
+                 **unused_kwargs,
                  ):
         """
         It is assumed that the nonbonded force is "canonical"
@@ -250,6 +251,7 @@ class ReactionFieldConverter(object):
         self._system = system
         self._cutoff = cutoff
         self._eps_rf = eps_rf
+        self.ONE_4PI_EPS0 = ONE_4PI_EPS0
 
         pair_nbf = self.handle_nonbonded_pairs()
         exception_bf = self.handle_nb_exceptions()
@@ -330,7 +332,7 @@ class ReactionFieldConverter(object):
         force_crf_self_term = openmm.CustomBondForce(crf_self_term)
         force_crf_self_term.addPerBondParameter('chargeprod_')
         force_crf_self_term.setUsesPeriodicBoundaryConditions(True)
-        
+
         for i in range(self._nbf.getNumParticles()):
             ch1, _, _ = self._nbf.getParticleParameters(i)
             force_crf_self_term.addBond(i, i, [ch1*ch1])
