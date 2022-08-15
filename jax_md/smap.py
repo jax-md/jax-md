@@ -236,6 +236,8 @@ def bond(fn: Callable[..., Array],
     if capture_kwargs is not None:
       geometry_handler_kwargs = {key: dynamic_kwargs.pop(key, None) \
             for key in capture_kwargs}
+    else:
+      geometry_handler_kwargs = {}
     _kwargs = merge_dicts(static_kwargs, dynamic_kwargs)
     _kwargs = _kwargs_to_bond_parameters(bond_types, _kwargs)
     _args = geometry_handler_fn(R, bonds, **geometry_handler_kwargs)
