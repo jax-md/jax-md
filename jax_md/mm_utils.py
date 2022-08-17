@@ -160,10 +160,12 @@ def assert_supported_force(forces : Iterable[openmm.Force]) -> None:
   for idx, force in enumerate(forces):
     force_name = force.__class__.__name__
     if force_name not in mm.CANONICAL_MM_FORCENAMES:
-      raise NotImplementedError(f"""force {idx} with name {force_name} is not currently supported;
+      raise NotImplementedError(f"""force {idx} with name {force_name} \
+        is not currently supported;
       current supported forces are {mm.CANONICAL_MM_FORCENAMES}""")
 
-def get_full_retrieval_fn_dict(**unused_kwargs) -> Dict[str, Callable[[openmm.Force, ...], NamedTuple]]:
+def get_full_retrieval_fn_dict(**unused_kwargs) -> \
+    Dict[str, Callable[[openmm.Force], NamedTuple]]:
   """get a dictionary to retrieve the entries of `mm.MMEnergyFnParameters`"""
   retrieval_dict = {
     'harmonic_bond_parameters': bond_and_angle_parameter_retrieval_fn,
