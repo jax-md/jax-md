@@ -34,13 +34,14 @@ from jax import vmap
 
 from jax_md import dataclasses
 
+"""
 flags.DEFINE_string(
     'jax_test_dut',
     '',
     help=
     'Describes the device under test in case special consideration is required.'
 )
-
+"""
 
 FLAGS = flags.FLAGS
 

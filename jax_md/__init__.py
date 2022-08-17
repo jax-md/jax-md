@@ -24,6 +24,7 @@ from jax_md import nn
 from jax_md import interpolate
 from jax_md import util
 from jax_md import io
+from jax_md import rigid_body
 
 try:
   # Attempt to load colab_tools if IPython is installed.

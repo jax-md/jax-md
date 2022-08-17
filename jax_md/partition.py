@@ -21,7 +21,7 @@ from collections import namedtuple
 
 from enum import Enum
 
-from typing import Any, Callable, Optional, Dict, Tuple, Generator, Union, Optional
+from typing import Any, Callable, Optional, Dict, Tuple, Generator, Union
 
 import math
 from operator import mul

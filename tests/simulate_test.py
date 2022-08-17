@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for google3.third_party.py.jax_md.ensemble."""
+"""Tests for google3.third_party.py.jax_md.simulate."""
 
 import functools
 
@@ -64,6 +64,11 @@ if FLAGS.jax_enable_x64:
 # pylint: disable=invalid-name
 class SimulateTest(test_util.JAXMDTestCase):
 
+  def test_canonicalize_mass(self):
+    assert simulate.canonicalize_mass(3.0) == 3.0
+    assert simulate.canonicalize_mass(f32(3.0)) == f32(3.0)
+    assert simulate.canonicalize_mass(f64(3.0)) == f64(3.0)
+
   # pylint: disable=g-complex-comprehension
   @parameterized.named_parameters(test_util.cases_from_list(
       {
@@ -90,7 +95,7 @@ class SimulateTest(test_util.JAXMDTestCase):
     state = init_fn(vel_key, R, kT=0.5, mass=mass)
 
     E_T = lambda state: \
-        E(state.position) + quantity.kinetic_energy(state.velocity, state.mass)
+        E(state.position) + quantity.kinetic_energy(state.momentum, state.mass)
     E_initial = E_T(state)
 
     for _ in range(DYNAMICS_STEPS):
@@ -119,7 +124,7 @@ class SimulateTest(test_util.JAXMDTestCase):
     state = init_fn(key, state.real_position, kT=1e-3)
 
     E_T = lambda state: \
-        E(state.position) + quantity.kinetic_energy(state.velocity, state.mass)
+        E(state.position) + quantity.kinetic_energy(state.momentum, state.mass)
     E_initial = E_T(state) * np.ones((DYNAMICS_STEPS,))
 
     def step_fn(i, state_and_energy):
@@ -155,7 +160,7 @@ class SimulateTest(test_util.JAXMDTestCase):
     state = init_fn(key, state.real_position, kT=1e-3)
 
     E_T = lambda state: \
-        E(state.position) + quantity.kinetic_energy(state.velocity, state.mass)
+        E(state.position) + quantity.kinetic_energy(state.momentum, state.mass)
     E_initial = E_T(state) * np.ones((DYNAMICS_STEPS,))
 
     def step_fn(i, state_and_energy):
@@ -192,7 +197,7 @@ class SimulateTest(test_util.JAXMDTestCase):
     state = init_fn(key, getattr(state, coords + '_position'), kT=1e-3)
 
     E_T = lambda state: \
-        E(state.position) + quantity.kinetic_energy(state.velocity, state.mass)
+        E(state.position) + quantity.kinetic_energy(state.momentum, state.mass)
     E_initial = E_T(state) * np.ones((DYNAMICS_STEPS,))
 
     def step_fn(i, state_and_energy):
@@ -305,7 +310,7 @@ class SimulateTest(test_util.JAXMDTestCase):
       for _ in range(DYNAMICS_STEPS):
         state = apply_fn(state)
 
-      T_final = quantity.temperature(state.velocity, state.mass)
+      T_final = quantity.temperature(state.momentum, state.mass)
       assert np.abs(T_final - T) / T < 0.1
       tol = 5e-4 if dtype is f32 else 1e-6
       self.assertAllClose(invariant(state, T), initial, rtol=tol)
@@ -383,7 +388,7 @@ class SimulateTest(test_util.JAXMDTestCase):
       state = apply_fn(state)
       energy = energy.at[i].set(invariant(state, P, kT))
       box = simulate.npt_box(state)
-      KE = quantity.kinetic_energy(state.velocity, state.mass)
+      KE = quantity.kinetic_energy(state.momentum, state.mass)
       p = pressure_fn(state.position, box, KE)
       pressure = pressure.at[i].set(p)
       return state, energy, pressure
@@ -392,7 +397,7 @@ class SimulateTest(test_util.JAXMDTestCase):
     Ps = np.zeros((DYNAMICS_STEPS,))
     state, Es, Ps = lax.fori_loop(0, DYNAMICS_STEPS, step_fn, (state, Es, Ps))
 
-    tol = 1e-3 if dtype is f32 else 1e-4
+    tol = 1e-3 if dtype is f32 else 1.2e-4
     self.assertEqual(state.position.dtype, dtype)
     self.assertAllClose(Es, E_initial, rtol=tol, atol=tol)
     self.assertAllClose(Ps, P_target, rtol=0.05, atol=0.05)
@@ -433,10 +438,10 @@ class SimulateTest(test_util.JAXMDTestCase):
       for step in range(LANGEVIN_DYNAMICS_STEPS):
         state = apply_fn(state)
         if step > 4000 and step % 100 == 0:
-          T_list += [quantity.temperature(state.velocity, state.mass)]
+          T_list += [quantity.temperature(state.momentum, state.mass)]
 
       # TODO(schsam): It would be good to check Gaussinity of R and V in the
-      # noninteracting case.
+        # noninteracting case.
       T_emp = np.mean(np.array(T_list))
       assert np.abs(T_emp - T) < 0.1
       assert state.position.dtype == dtype
@@ -446,12 +451,12 @@ class SimulateTest(test_util.JAXMDTestCase):
     E = lambda x: jnp.sum(0.5 * alpha * x ** 2)
     displacement, shift = space.free()
 
-    N = 10000
+    N = 1000000
     steps = 1000
     kT = 0.25
     dt = 1e-4
     gamma = 3
-    mass = 2.0
+    mass = 3.0
     tol = 1e-3
 
     X = jnp.ones((N, 1, 1))
@@ -461,12 +466,12 @@ class SimulateTest(test_util.JAXMDTestCase):
     step_fn = jit(vmap(step_fn))
 
     state = vmap(init_fn, (0, 0, None))(key, X, mass)
-    v0 = state.velocity
+    p0 = state.momentum
 
     for i in range(steps):
       state = step_fn(state)
 
-    # Compare mean position and velocity autocorrelation with theoretical
+    # Compare mean position and momentum autocorrelation with theoretical
     # prediction.
 
     d = jnp.sqrt(gamma ** 2 / 4 - alpha / mass)
@@ -480,15 +485,15 @@ class SimulateTest(test_util.JAXMDTestCase):
     Z = kT / (2 * d * mass)
 
     pos_fn = lambda t: A * exp1(t) + B * exp2(t)
-    vel_fn = lambda t: Z * (-beta_2 * exp2(t) + beta_1 * exp1(t))
+    mom_fn = lambda t: Z * (-beta_2 * exp2(t) + beta_1 * exp1(t)) * mass**2
 
     t = steps * dt
     self.assertAllClose(jnp.mean(state.position),
                         pos_fn(t),
                         rtol=tol,
                         atol=tol)
-    self.assertAllClose(jnp.mean(state.velocity * v0),
-                        vel_fn(t),
+    self.assertAllClose(jnp.mean(state.momentum * p0),
+                        mom_fn(t),
                         rtol=tol,
                         atol=tol)
 
@@ -564,7 +569,7 @@ class SimulateTest(test_util.JAXMDTestCase):
     def step_fn(i, state_and_temp):
       state, temp = state_and_temp
       state = apply_fn(state)
-      temp = temp.at[i].set(quantity.temperature(state.md.velocity))
+      temp = temp.at[i].set(quantity.temperature(state.md.momentum))
       return state, temp
 
     state, Ts = lax.fori_loop(0, DYNAMICS_STEPS, step_fn, (state, Ts))
