@@ -965,95 +965,43 @@ class NVTLangevinState:
   def velocity(self) -> Array:
     return self.momentum / self.mass
 
-
-def nvt_langevin(energy_or_force: Callable[..., Array],
-                 shift: ShiftFn,
+def nvt_langevin(energy_or_force_fn: Callable[..., Array],
+                 shift_fn: ShiftFn,
                  dt: float,
                  kT: float,
                  gamma: float=0.1,
-                 center_velocity: bool=True) -> Simulator:
-  """Simulation in the NVT ensemble using the Langevin thermostat.
+                 center_velocity: bool=True,
+                 **sim_kwargs) -> Simulator:
+  force_fn = quantity.canonicalize_force(energy_or_force_fn)
 
-  Samples from the canonical ensemble in which the number of particles (N),
-  the system volume (V), and the temperature (T) are held constant. Langevin
-  dynamics are stochastic and it is supposed that the system is interacting
-  with fictitious microscopic degrees of freedom. An example of this would be
-  large particles in a solvent such as water. Thus, Langevin dynamics are a
-  stochastic ODE described by a friction coefficient and noise of a given
-  covariance.
-
-  Our implementation follows the excellent set of lecture notes by Carlon,
-  Laleman, and Nomidis [#carlon]_ .
-
-  Args:
-    energy_or_force: A function that produces either an energy or a force from
-      a set of particle positions specified as an ndarray of shape
-      `[n, spatial_dimension]`.
-    shift_fn: A function that displaces positions, `R`, by an amount `dR`. Both
-      `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
-    dt: Floating point number specifying the timescale (step size) of the
-      simulation.
-    kT: Floating point number specifying the temperature in units of Boltzmann
-      constant. To update the temperature dynamically during a simulation one
-      should pass `kT` as a keyword argument to the step function.
-    gamma: A float specifying the friction coefficient between the particles
-      and the solvent.
-    center_velocity: A boolean specifying whether or not the center of mass
-      position should be subtracted.
-  Returns:
-    See above.
-
-  .. rubric:: References
-  .. [#carlon] E. Carlon, M. Laleman, S. Nomidis. "Molecular Dynamics Simulation."
-    http://itf.fys.kuleuven.be/~enrico/Teaching/molecular_dynamics_2015.pdf
-    Accessed on 06/05/2019.
-  """
-
-  force_fn = quantity.canonicalize_force(energy_or_force)
-
-  dt_2 = f32(dt / 2)
-  dt2 = f32(dt ** 2 / 2)
-  dt32 = f32(dt ** (3.0 / 2.0) / 2)
-
-  kT = f32(kT)
-
-  gamma = f32(gamma)
-
-  def init_fn(key, R, mass=f32(1), **kwargs):
-    _kT = kT if 'kT' not in kwargs else kwargs['kT']
-    mass = canonicalize_mass(mass)
-
+  @jit
+  def init_fn(key, R, mass=f32(1.0), **kwargs):
     key, split = random.split(key)
+    mass = canonicalize_mass(mass)
+    P = initialize_momenta(R, mass, split, kT)
+    force = force_fn(R, **kwargs)
+    return NVTLangevinState(R, P, force, mass, key)
 
-    P = initialize_momenta(R, mass, key, kT)
-    return NVTLangevinState(R, P, force_fn(R, **kwargs), mass, key)  # pytype: disable=wrong-arg-count
-
-  def apply_fn(state, **kwargs):
-    R, P, F, mass, key = dataclasses.astuple(state)
-
-    _kT = kT if 'kT' not in kwargs else kwargs['kT']
-    N, dim = R.shape
-
-    key, xi_key, theta_key = random.split(key, 3)
-    xi = random.normal(xi_key, (N, dim), dtype=R.dtype)
-    sqrt3 = f32(jnp.sqrt(3))
-    theta = random.normal(theta_key, (N, dim), dtype=R.dtype) / sqrt3
-
-    # NOTE(schsam): We really only need to recompute sigma if the temperature
-    # is nonconstant. @Optimization
-    # TODO(schsam): Check that this is really valid in the case that the masses
-    # are non identical for all particles.
-    sigma = jnp.sqrt(f32(2) * _kT * gamma * mass)
-    C = dt2 * (F - gamma * P) + sigma * dt32 * (xi + theta)
-
-    R = shift(R, (dt * P + C) / mass, **kwargs)
-    F_new = force_fn(R, **kwargs)
-    P = (f32(1) - dt * gamma) * P + dt_2 * (F_new + F)
-    P = P + sigma * jnp.sqrt(dt) * xi - gamma * C
-
-    return NVTLangevinState(R, P, F_new, mass, key)  # pytype: disable=wrong-arg-count
-  return init_fn, apply_fn
-
+  @jit
+  def step_fn(state, **kwargs):
+    _dt = dt
+    if 'dt' in kwargs:
+      _dt = kwargs['dt']
+      del kwargs['dt']
+    update_fn = inner_update_fn(state.position, shift_fn, **sim_kwargs)
+    def langevin_update_fn(R, P, F, M, dt, **kwargs):
+      key = kwargs.get('langevin_key')
+      # A step
+      R, P, F, M = update_fn(R, P, F, M, dt / 2)
+      # O step
+      P = stochastic_step(R, P, M, key, dt, kT, gamma)
+      # A step
+      R, P, F, M = update_fn(R, P, F, M, dt / 2)
+      return R, P, F, M
+    rng, kwargs['langevin_key'] = random.split(state.rng)
+    state = dataclasses.replace(state, rng=rng)
+    return velocity_verlet(force_fn, langevin_update_fn, _dt, state, **kwargs)
+  return init_fn, step_fn
 
 @dataclasses.dataclass
 class BrownianState:
