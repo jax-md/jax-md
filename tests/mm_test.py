@@ -51,10 +51,10 @@ try:
   import openmm
   from openmm import app, unit
 except ImportError as error:
-  print(error.__class__.__name__ + ": " + error.message)
+  print(error)
 except Exception as exception:
   print(exception, False)
-  print(exception.__class__.__name__ + ": " + exception.message)
+  print(exception)
 
 class MMTest(test_util.JAXMDTestCase):
     # TODO : make a class to handle omm loading utilities

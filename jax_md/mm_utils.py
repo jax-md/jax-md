@@ -34,10 +34,10 @@ from jax_md import (space, smap, partition, mm,
 try:
   import openmm
 except ImportError as error:
-    print(error.__class__.__name__ + ": " + error.message)
+    print(error)
 except Exception as exception:
     print(exception, False)
-    print(exception.__class__.__name__ + ": " + exception.message)
+    print(exception)
 
 from openmm import unit
 
