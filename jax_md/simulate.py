@@ -984,8 +984,9 @@ def nvt_langevin(energy_or_force_fn: Callable[..., Array],
 
   @jit
   def step_fn(state, **kwargs):
+    kwargs = util.merge_dicts(sim_kwargs, kwargs)
     _dt = kwargs.pop('dt', dt)
-    update_fn = inner_update_fn(state.position, shift_fn, **sim_kwargs)
+    update_fn = inner_update_fn(state.position, shift_fn, **kwargs)
     def langevin_update_fn(R, P, F, M, dt, **kwargs):
       key = kwargs.get('langevin_key')
       # A step
