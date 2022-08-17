@@ -18,6 +18,8 @@ from functools import wraps, partial
 
 from typing import Callable, Tuple, TextIO, Dict, Any, Optional
 
+import re
+
 import jax
 import jax.numpy as jnp
 from jax import ops
@@ -390,9 +392,10 @@ def gupta_potential(displacement, p, q, r_0n, U_n, A, cutoff):
   """.. _gupta-pot:
 
   Gupta potential with default parameters for Au_55 cluster. Gupta
-  potential was introduced by R. P. Gupta [#gupta]_. This potential uses parameters
-  that were fit for bulk gold by Jellinek [#jellinek]_. This particular implementation
-  of the Gupta potential was introduced by Garzon and Posada-Amarillas [#garzon]_.
+  potential was introduced by R. P. Gupta [#gupta]_. This potential uses
+  parameters that were fit for bulk gold by Jellinek [#jellinek]_. This
+  particular implementation of the Gupta potential was introduced by Garzon and
+  Posada-Amarillas [#garzon]_.
 
   Args:
     displacement: Function to compute displacement between two positions.
@@ -413,14 +416,14 @@ def gupta_potential(displacement, p, q, r_0n, U_n, A, cutoff):
       ignored.
 
   Returns:
-    A function that takes in positions of gold atoms (shape `[n, 3]` where `n` is
-    the number of atoms) and returns the total energy of the system in units
+    A function that takes in positions of gold atoms (shape `[n, 3]` where `n`
+    is the number of atoms) and returns the total energy of the system in units
     of eV.
 
   .. rubric:: References
   .. [#gupta] R.P. Gupta, Phys. Rev. B 23, 6265 (1981)
-  .. [#jellinek] J. Jellinek, in Metal-Ligand Interactions, edited by N. Russo and
-    D. R. Salahub (Kluwer Academic, Dordrecht, 1996), p. 325.
+  .. [#jellinek] J. Jellinek, in Metal-Ligand Interactions, edited by N. Russo
+     and D. R. Salahub (Kluwer Academic, Dordrecht, 1996), p. 325.
   .. [#garzon] I.L. Garzon, A. Posada-Amarillas, Phys. Rev. B 54, 16 (1996)
   """
   def _gupta_term1(r, p, r_0n, cutoff):
@@ -627,8 +630,8 @@ def bks(dr: Array,
 
   Beest-Kramer-van Santen (BKS) potential [#bks]_ which is commonly used to
   model silicas. This function computes the interaction between two
-  given atoms within the Buckingham form [#carre]_ , following the implementation
-  from Liu et al. [#liu]_ .
+  given atoms within the Buckingham form [#carre]_ , following the
+  implementation from Liu et al. [#liu]_ .
 
   Args:
     dr: An ndarray of shape `[n, m]` of pairwise distances between particles.
@@ -1071,7 +1074,7 @@ def _ters_cutoff(dr, R, D) -> Array:
     cut-off values
   """
   outer = jnp.where(dr < R + D,
-                    0.5*(1.0 - jnp.sin(jnp.pi/2*(dr - R)/D)),
+                    0.5 * (1 - jnp.sin(jnp.pi / 2 * (dr - R) / D)),
                     0)
   inner = jnp.where(dr < R - D, 1, outer)
   return inner
@@ -1113,26 +1116,24 @@ def _ters_bij(R, D, c, d, h, lam3, beta, n, m,
   drij = space.distance(dRij)
   drik = space.distance(dRik)
 
+  mask_ijk *= (1 - jnp.eye(mask_ijk.shape[-1]))[None, :, :]
+
   # compute g_ijk - angle penalty value
   costheta = quantity.cosine_angles(dRij)
   gijk = 1.0 + (c**2 / d**2) - (c**2 / (d**2 + (h - costheta)**2))
-  gijk *= mask_ijk
-  gijk = vmap(lambda x: x.at[jnp.diag_indices(x.shape[0])].set(0))(gijk)
 
   # compute exponential term - distance penalty value
-  dr_diff = vmap(vmap(jnp.subtract, (None, 0)))(drij, drik)
+  dr_diff = drij[:, None, :] - drik[:, :, None]
+  dr_diff = jnp.where(mask_ijk, dr_diff, 0)
   explr3 = jnp.exp(lam3**m * dr_diff**m)
-  explr3 *= mask_ijk
-  explr3 = vmap(lambda x: x.at[jnp.diag_indices(x.shape[0])].set(0))(explr3)
 
   # compute fC with dr_ik
   fC = _ters_cutoff(drik, R, D)
 
   # compute zeta without diagonal term
-  tmp = jnp.multiply(gijk, explr3)
-  zeta_ij = jnp.einsum('ik,ikj->ij', fC, tmp)
-  bij = (1 + (beta*zeta_ij)**n)**(-1 / 2 / n)
-
+  prod = jnp.where(mask_ijk, gijk * explr3, 0)
+  zeta_ij = jnp.einsum('ik,ikj->ij', fC, prod)
+  bij = (1 + (beta * zeta_ij)**n)**(-1 / 2 / n)
   return bij
 
 def _ters_attractive(B: f64, lam2: f64,
@@ -1173,10 +1174,9 @@ def _ters_attractive(B: f64, lam2: f64,
 
   dr12 = space.distance(dR12)
   fC = _ters_cutoff(dr12, R, D)
-  fA = -B*jnp.exp(-lam2*dr12)
-  bij = _ters_bij(R, D, c, d, h, lam3, beta, n, m,
-                  dR12, dR13, mask_ijk)
-  return 0.5*fC*bij*fA
+  fA = -B * jnp.exp(-lam2 * dr12)
+  bij = _ters_bij(R, D, c, d, h, lam3, beta, n, m, dR12, dR13, mask_ijk)
+  return 0.5 * fC * bij * fA
 
 def _ters_repulsive(A: f64, lam1: f64, R: f64, D: f64,
                     dr: Array) -> Array:
@@ -1224,9 +1224,9 @@ def tersoff(displacement: DisplacementFn,
   if species is None:
     params = params[0]
   else:
-    raise NotImplementedError('Multiple species is not implemented yet.'
-                              ' Please raise an issue if this is important for'
-                              ' you.')
+    raise NotImplementedError('Multiple species is not implemented yet. '
+                              'Please raise an issue if this is important for '
+                              'you.')
 
   # define a repulsive and an attractive function with given parameters.
   repulsive_fn = partial(_ters_repulsive,
@@ -1238,29 +1238,36 @@ def tersoff(displacement: DisplacementFn,
                           params['cTf'], params['dTf'], params['hTf'],
                           params['lam3'], params['beta'],
                           params['nTf'], params['mTf'])
-
   # define compute functions.
   def compute_fn(R, **kwargs):
     d = partial(displacement, **kwargs)
-    dR = space.map_neighbor(d)(R, R)
+    dR = space.map_product(d)(R, R)
     dr = space.distance(dR)
     N = R.shape[0]
-    neighbor = jnp.broadcast_to(jnp.arange(N)[None, :], (N, N))
-    mask = partition.neighbor_list_mask(neighbor, mask_self=True)
+    mask = jnp.where(1 - jnp.eye(N), dr < params['R'] + params['D'], 0)
     mask_ijk = mask[:, None, :] * mask[:, :, None]
-    first_term = util.high_precision_sum(repulsive_fn(dr) * mask)
-    second_term = util.high_precision_sum(attractive_fn(dR, dR, mask_ijk)
-                                          * mask)
+    repulsive = util.safe_mask(mask, repulsive_fn, dr)
+    attractive = attractive_fn(dR, dR, mask_ijk) * mask
+    first_term = util.high_precision_sum(repulsive)
+    second_term = util.high_precision_sum(attractive)
     return first_term + second_term
   return compute_fn
 
-  return compute_fn
+
+def tersoff_from_lammps_parameters(
+    displacement: DisplacementFn,
+    f: TextIO,
+    ) -> Callable[[Array], Array]:
+  """Convenience wrapper to compute Tersoff energy with LAMMPS parameters."""
+  return tersoff(displacement, load_lammps_tersoff_parameters(f))
+
 
 def tersoff_neighbor_list(displacement: DisplacementFn,
                           box_size: float,
                           params: Array,
                           species: Optional[Array]=None,
                           dr_threshold: float=0.5,
+                          disable_cell_list: bool=False,
                           fractional_coordinates: bool=True,
                           format: NeighborListFormat=partition.Dense,
                           **neighbor_kwargs
@@ -1320,13 +1327,13 @@ def tersoff_neighbor_list(displacement: DisplacementFn,
       box_size,
       params['R'] + params['D'],
       dr_threshold,
-      disable_cell_list=True,
+      disable_cell_list=disable_cell_list,
       fractional_coordinates=fractional_coordinates,
       format=format,
       **neighbor_kwargs)
   else:
     raise NotImplementedError('Tersoff potential only implemented '
-                                'with Dense neighbor lists.')
+                              'with Dense neighbor lists.')
 
   # define compute functions
   def compute_fn(R, neighbor, **kwargs):
@@ -1376,8 +1383,9 @@ def load_lammps_eam_parameters(file: TextIO) -> Tuple[Callable[[Array], Array],
   * Line 4: Number of elements and the element type
   * Line 5: The number of charge values that the embedding energy is evaluated
     on (`num_drho`), interval between the charge values (`drho`), the number of
-    distances the pairwise energy and the charge density is evaluated on (`num_dr`),
-    the interval between these distances (`dr`), and the cutoff distance (`cutoff`).
+    distances the pairwise energy and the charge density is evaluated on
+    (`num_dr`), the interval between these distances (`dr`), and the cutoff
+    distance (`cutoff`).
 
   The lines that come after are the embedding function evaluated on `num_drho`
   charge values, charge function evaluated at `num_dr` distance values, and
@@ -1413,7 +1421,12 @@ def load_lammps_eam_parameters(file: TextIO) -> Tuple[Callable[[Array], Array],
   num_drho, num_dr = int(temp_params[0]), int(temp_params[2])
   drho, dr, cutoff = float(temp_params[1]), float(temp_params[3]), float(
       temp_params[4])
-  data = maybe_downcast([float(i) for i in raw_text[6:-1]])
+  if len(re.split(' +',raw_text[6].strip()))>1:
+    data = [maybe_downcast([float(i) for i in re.split(' +',rt.strip())])
+            for rt in raw_text[6:]]
+    data = jnp.concatenate(data)
+  else:
+    data = maybe_downcast([float(i)  for i in raw_text[6:-1]])
   embedding_fn = interpolate.spline(data[:num_drho], drho)
   charge_fn = interpolate.spline(data[num_drho:num_drho + num_dr], dr)
   # LAMMPS EAM parameters file lists pairwise energies after multiplying by
@@ -1428,7 +1441,7 @@ def load_lammps_eam_parameters(file: TextIO) -> Tuple[Callable[[Array], Array],
   return charge_fn, embedding_fn, pairwise_fn, cutoff
 
 
-def eam(displacement: DisplacementFn,
+def eam(displacement_or_metric: DisplacementOrMetricFn,
         charge_fn: Callable[[Array], Array],
         embedding_fn: Callable[[Array], Array],
         pairwise_fn: Callable[[Array], Array],
@@ -1483,10 +1496,10 @@ def eam(displacement: DisplacementFn,
     potentials for monoatomic metals from experimental data and ab initio
     calculations." Physical Review B, 59 (1999)
   """
-  metric = space.map_product(space.metric(displacement))
-
+  metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
   def energy(R, **kwargs):
-    dr = metric(R, R, **kwargs)
+    d = partial(metric, **kwargs)
+    dr = space.map_product(d)(R, R)
     total_charge = util.high_precision_sum(charge_fn(dr), axis=1)
     embedding_energy = embedding_fn(total_charge)
     pairwise_energy = util.high_precision_sum(smap._diagonal_mask(
@@ -1530,17 +1543,17 @@ def eam_neighbor_list(
   def energy_fn(R, neighbor, **kwargs):
     mask = partition.neighbor_list_mask(neighbor)
     self_mask = partition.neighbor_list_mask(neighbor, mask_self=True)
+    d = partial(metric, **kwargs)
 
     if neighbor.format is partition.Dense:
-      dr = space.map_neighbor(metric)(R, R[neighbor.idx], **kwargs)
+      dr = space.map_neighbor(d)(R, R[neighbor.idx])
       total_charge = util.high_precision_sum(charge_fn(dr) * mask, axis=1)
       embedding_energy = embedding_fn(total_charge)
       pairwise_energy = util.high_precision_sum(pairwise_fn(dr) * self_mask,
                                                 axis=1)
     elif neighbor.format is partition.Sparse:
       N = len(R)
-      dr = space.map_bond(metric)(R[neighbor.idx[0]], R[neighbor.idx[1]],
-                                  **kwargs)
+      dr = space.map_bond(d)(R[neighbor.idx[0]], R[neighbor.idx[1]])
       total_charge = ops.segment_sum(charge_fn(dr) * mask, neighbor.idx[0], N)
       embedding_energy = embedding_fn(total_charge)
       pairwise_energy = ops.segment_sum(pairwise_fn(dr) * self_mask,
@@ -1557,7 +1570,7 @@ def eam_neighbor_list(
 
 def eam_from_lammps_parameters_neighbor_list(
     displacement: DisplacementFn,
-    box_size, float,
+    box_size: float,
     f: TextIO,
     axis=None,
     dr_threshold: float=0.5,
