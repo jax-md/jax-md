@@ -295,9 +295,9 @@ def get_neighbor_custom_mask_function(
         counts_dict = dict(zip(unique, counts))
         max_neighbors = max(counts_dict.values())
 
-    default_dense_mask = get_dense_exception_mask_jax(
+    default_dense_mask = get_dense_exception_mask(
                                  num_particles=n_particles,
-                                 max_neighbors=max_neighbors,
+                                 extra_padding=0,
                                  exceptions=default_exceptions)
 
     def row_masking_fn(idx_row: Array, dense_mask_row, **unused_kwargs):
