@@ -36,6 +36,19 @@ f32 = jnp.float32
 f64 = jnp.float64
 
 
+CUSTOM_SIMULATION_TYPE = []
+
+
+def register_custom_simulation_type(t: Any):
+  global CUSTOM_SIMULATION_TYPE
+  CUSTOM_SIMULATION_TYPE += [t]
+
+
+def check_custom_simulation_type(x: Any) -> bool:
+  if type(x) in CUSTOM_SIMULATION_TYPE:
+    raise ValueError()
+
+
 def static_cast(*xs):
   """Function to cast a value to the lowest dtype that can express it."""
   # NOTE(schsam): static_cast is so named because it cannot be jit.

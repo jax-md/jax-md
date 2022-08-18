@@ -224,7 +224,8 @@ def random_quaternion(key: KeyArray, dtype: DType) -> Quaternion:
 
 def tree_map_no_quat(fn: Callable[..., Any], tree: Any, *rest: Any):
   """Tree map over a PyTree treating Quaternions as leaves."""
-  return tree_map(fn, tree, *rest, lambda node: isinstance(node, Quaternion))
+  return tree_map(fn, tree, *rest,
+                  is_leaf=lambda node: isinstance(node, Quaternion))
 
 
 """Rigid body simulation functions.
@@ -287,6 +288,8 @@ class RigidBody:
   def __getitem__(self, idx):
     return RigidBody(self.center[idx], self.orientation[idx])
 
+
+util.register_custom_simulation_type(RigidBody)
 
 
 @partial(jnp.vectorize, signature='(d)->(k,k)')
@@ -361,7 +364,7 @@ def angular_momentum_to_conjugate_momentum(orientation: Quaternion,
   @partial(jnp.vectorize, signature='(d),(k)->(d)')
   def wrapped_fn(q: Array, o: Array) -> Array:
     o = jnp.concatenate((jnp.zeros((1,), dtype=q.dtype), o))
-    return 0.5 * _S(q) @ o
+    return 2 * _S(q) @ o
   return Quaternion(wrapped_fn(orientation.vec, omega))
 
 
@@ -432,6 +435,13 @@ Suzuki-Trotter decomposition to identify a factorization of the Liouville
 operator for Rigid Body motion. This factorization is compatible with either
 the NVE or NVT ensemble (but is not compatible with NPT).
 """
+
+
+@quantity.count_dof.register
+def _(position: RigidBody) -> int:
+  sizes = tree_map_no_quat(lambda x: x.size, position)
+  return tree_reduce(lambda accum, x: accum + x, sizes, 0)
+
 
 @simulate.initialize_momenta.register
 def _(R: RigidBody, mass: RigidBody, key: Array, kT: float):

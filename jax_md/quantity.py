@@ -99,7 +99,9 @@ def canonicalize_force(energy_or_force_fn: Union[EnergyFn, ForceFn]) -> ForceFn:
   return force_fn
 
 
+@functools.singledispatch
 def count_dof(position: Array) -> int:
+  util.check_custom_simulation_type(position)
   return tree_reduce(lambda accum, x: accum + x.size, position, 0)
 
 
@@ -141,6 +143,7 @@ def kinetic_energy(*unused_args,
 
   k = (lambda v, m: v**2 * m) if momentum is None else (lambda p, m: p**2 / m)
   q = velocity if momentum is None else momentum
+  util.check_custom_simulation_type(q)
 
   ke = tree_map(lambda m, q: 0.5 * util.high_precision_sum(k(q, m)), mass, q)
   return tree_reduce(operator.add, ke, 0.0)
@@ -173,6 +176,7 @@ def temperature(*unused_args,
 
   t = (lambda v, m: v**2 * m) if momentum is None else (lambda p, m: p**2 / m)
   q = velocity if momentum is None else momentum
+  util.check_custom_simulation_type(q)
 
   dof = count_dof(q)
 
