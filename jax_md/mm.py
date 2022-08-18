@@ -26,9 +26,8 @@ from typing import (Callable, Tuple, TextIO, Dict,
 import jax
 import jax.numpy as jnp
 import numpy as onp
-from jax import ops
 from jax.tree_util import tree_map
-from jax import vmap
+from jax import vmap, ops
 import haiku as hk
 from jax_md import (space, smap, partition, nn,
                     quantity, interpolate, util, dataclasses, energy)
@@ -221,23 +220,6 @@ def symmetrize_and_transpose(indices, **unused_kwargs):
     jnp.vstack((indices[:,1], indices[:,0]))))
     return out
 
-def row_operation(row_number: int,
-                  senders_receivers: Array,
-                  max_neighbors: int,
-                  fill_value: int) -> Array:
-    """
-    make a vmappable row operation for `get_dense_exception_mask_jax`
-    """
-    senders, receivers = senders_receivers
-#     row_match = jnp.where(senders == row_number,
-#                           receivers,
-#                           fill_value)
-    row_match = jnp.argwhere(senders == row_number,
-                             size=max_neighbors,
-                             fill_value=-1)
-    out = jnp.where(row_match != -1, receivers[row_match], fill_value)
-    return out.flatten()
-
 def get_dense_exception_mask(num_particles: int,
                              extra_padding: int,
                              exceptions: Array) -> Array:
@@ -258,21 +240,45 @@ def get_dense_exception_mask(num_particles: int,
 
     padded_template = [_lst + [-1]*((max_count - len(_lst))) \
                       for _lst in template_list]
-    return jnp.array(padded_template, dtype=jnp.int32)
+    return max_count, jnp.array(padded_template, dtype=jnp.int32)
 
-def get_dense_exception_mask_jax(num_particles: int,
-                                 max_neighbors: int,
-                                 exceptions: int) -> Array:
+def symm_exceptions_to_dense(N, exceptions, **kwargs):
+    """from a symmetrized/transposed default exceptions,
+    make a dense exception mask;
+    if `max_neighbors` is in kwargs, will use that (jittable);
+    otherwise, not jittable.
     """
-    try to build the same exception dict as `get_dense_exception_mask`,
-    but with array comprehension only
-    """
-    symm_exceptions = symmetrize_and_transpose(exceptions)
-    return jax.vmap(row_operation, in_axes=(0,None,None,None))(
-        jnp.arange(num_particles),
-        symm_exceptions,
-        max_neighbors,
-        -1)
+    receivers, senders = exceptions
+
+    # argsort to avoid misc tally errors
+    argsort_senders = jnp.argsort(senders)
+    receivers = receivers.at[argsort_senders].get()
+    senders = senders.at[argsort_senders].get()
+    count = ops.segment_sum(jnp.ones(len(receivers), jnp.int32),
+                            receivers,
+                            N)
+    max_count = kwargs.get('max_neighbors',
+                           jnp.max(
+                               ops.segment_sum(jnp.ones(len(receivers),
+                                                        jnp.int32),
+                            receivers,
+                            N)
+                           )
+                          )
+    offset = jnp.tile(jnp.arange(max_count), N)[:len(senders)]
+    hashes = senders.sort() * max_count + offset
+    dense_idx = -1 * jnp.ones((N * max_count,), jnp.int32)
+    dense_idx = dense_idx.at[hashes].set(receivers).reshape((N, max_count))
+    return max_count, dense_idx
+
+def assert_equiv_masks(m1, m2):
+    """ensure that two dense masks are equivalent; use in test"""
+    assert m1.shape[0] == m2.shape[0]
+    num_rows = m1.shape[0]
+    for idx in range(num_rows):
+        row1, row2 = m1[idx], m2[idx]
+        set1, set2 = set(row1.tolist()), set(row2.tolist())
+        assert set1==set2
 
 def get_neighbor_custom_mask_function(
     n_particles: int,
@@ -295,10 +301,8 @@ def get_neighbor_custom_mask_function(
         counts_dict = dict(zip(unique, counts))
         max_neighbors = max(counts_dict.values())
 
-    default_dense_mask = get_dense_exception_mask(
-                                 num_particles=n_particles,
-                                 extra_padding=0,
-                                 exceptions=default_exceptions)
+    default_dense_mask = symm_exceptions_to_dense(n_particles,
+                                                  symm_transp_pair_exceptions)
 
     def row_masking_fn(idx_row: Array, dense_mask_row, **unused_kwargs):
         return jnp.where(jnp.isin(idx_row, dense_mask_row), n_particles, idx_row)
