@@ -61,7 +61,7 @@ from jax import ops
 from jax import random
 import jax.numpy as jnp
 from jax_md import dataclasses, util, space, partition, quantity, simulate
-from functools import partial
+from functools import partial, reduce
 
 from jax.tree_util import tree_map, tree_reduce
 
