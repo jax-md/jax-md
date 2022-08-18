@@ -61,6 +61,10 @@ if FLAGS.jax_enable_x64:
   DTYPE += [f64]
 
 
+ke_fn = lambda p, m: quantity.kinetic_energy(momentum=p, mass=m)
+kT_fn = lambda p, m: quantity.temperature(momentum=p, mass=m)
+
+
 # pylint: disable=invalid-name
 class SimulateTest(test_util.JAXMDTestCase):
 
@@ -94,8 +98,7 @@ class SimulateTest(test_util.JAXMDTestCase):
 
     state = init_fn(vel_key, R, kT=0.5, mass=mass)
 
-    E_T = lambda state: \
-        E(state.position) + quantity.kinetic_energy(state.momentum, state.mass)
+    E_T = lambda state: E(state.position) + ke_fn(state.momentum, state.mass)
     E_initial = E_T(state)
 
     for _ in range(DYNAMICS_STEPS):
@@ -123,8 +126,7 @@ class SimulateTest(test_util.JAXMDTestCase):
 
     state = init_fn(key, state.real_position, kT=1e-3)
 
-    E_T = lambda state: \
-        E(state.position) + quantity.kinetic_energy(state.momentum, state.mass)
+    E_T = lambda state: E(state.position) + ke_fn(state.momentum, state.mass)
     E_initial = E_T(state) * np.ones((DYNAMICS_STEPS,))
 
     def step_fn(i, state_and_energy):
@@ -159,8 +161,7 @@ class SimulateTest(test_util.JAXMDTestCase):
 
     state = init_fn(key, state.real_position, kT=1e-3)
 
-    E_T = lambda state: \
-        E(state.position) + quantity.kinetic_energy(state.momentum, state.mass)
+    E_T = lambda state: E(state.position) + ke_fn(state.momentum, state.mass)
     E_initial = E_T(state) * np.ones((DYNAMICS_STEPS,))
 
     def step_fn(i, state_and_energy):
@@ -196,8 +197,7 @@ class SimulateTest(test_util.JAXMDTestCase):
 
     state = init_fn(key, getattr(state, coords + '_position'), kT=1e-3)
 
-    E_T = lambda state: \
-        E(state.position) + quantity.kinetic_energy(state.momentum, state.mass)
+    E_T = lambda state: E(state.position) + ke_fn(state.momentum, state.mass)
     E_initial = E_T(state) * np.ones((DYNAMICS_STEPS,))
 
     def step_fn(i, state_and_energy):
@@ -310,7 +310,7 @@ class SimulateTest(test_util.JAXMDTestCase):
       for _ in range(DYNAMICS_STEPS):
         state = apply_fn(state)
 
-      T_final = quantity.temperature(state.momentum, state.mass)
+      T_final = kT_fn(state.momentum, state.mass)
       assert np.abs(T_final - T) / T < 0.1
       tol = 5e-4 if dtype is f32 else 1e-6
       self.assertAllClose(invariant(state, T), initial, rtol=tol)
@@ -388,7 +388,7 @@ class SimulateTest(test_util.JAXMDTestCase):
       state = apply_fn(state)
       energy = energy.at[i].set(invariant(state, P, kT))
       box = simulate.npt_box(state)
-      KE = quantity.kinetic_energy(state.momentum, state.mass)
+      KE = ke_fn(state.momentum, state.mass)
       p = pressure_fn(state.position, box, KE)
       pressure = pressure.at[i].set(p)
       return state, energy, pressure
@@ -438,7 +438,7 @@ class SimulateTest(test_util.JAXMDTestCase):
       for step in range(LANGEVIN_DYNAMICS_STEPS):
         state = apply_fn(state)
         if step > 4000 and step % 100 == 0:
-          T_list += [quantity.temperature(state.momentum, state.mass)]
+          T_list += [kT_fn(state.momentum, state.mass)]
 
       # TODO(schsam): It would be good to check Gaussinity of R and V in the
         # noninteracting case.
@@ -569,7 +569,7 @@ class SimulateTest(test_util.JAXMDTestCase):
     def step_fn(i, state_and_temp):
       state, temp = state_and_temp
       state = apply_fn(state)
-      temp = temp.at[i].set(quantity.temperature(state.md.momentum))
+      temp = temp.at[i].set(kT_fn(state.md.momentum, 1.0))
       return state, temp
 
     state, Ts = lax.fori_loop(0, DYNAMICS_STEPS, step_fn, (state, Ts))

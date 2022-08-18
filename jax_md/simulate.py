@@ -154,7 +154,7 @@ def inner_update_fn(R: Array, shift_fn: Callable[..., Array],
 @functools.singledispatch
 def kinetic_energy(R: Array, P: Array, M: Array):
   """Compute the kinetic energy, possibly as a function of position."""
-  return quantity.kinetic_energy(P, M)
+  return quantity.kinetic_energy(momentum=P, mass=M)
 
 
 """Deterministic Simulations
@@ -772,7 +772,7 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
 
     mass = canonicalize_mass(mass)
     P = initialize_momenta(R, mass, key, kT)
-    KE = quantity.kinetic_energy(P, mass)
+    KE = quantity.kinetic_energy(momentum=P, mass=mass)
 
     # The box position is defined via pos = (1 / d) log V / V_0.
     zero = jnp.zeros((), dtype=R.dtype)
@@ -780,7 +780,7 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     box_position = zero
     box_momentum = zero
     box_mass = dim * (N + 1) * kT * barostat_kwargs['tau'] ** 2 * one
-    KE_box = quantity.kinetic_energy(box_momentum, box_mass)
+    KE_box = quantity.kinetic_energy(momentum=box_momentum, mass=box_mass)
 
     if jnp.isscalar(box) or box.ndim == 0:
       # TODO(schsam): This is necessary because of JAX issue #5849.
@@ -874,10 +874,10 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     S = dataclasses.replace(S, momentum=P, box_momentum=P_b)
     S = inner_step(S, **kwargs)
 
-    KE = quantity.kinetic_energy(S.momentum, S.mass)
+    KE = quantity.kinetic_energy(momentum=S.momentum, mass=S.mass)
     tc = dataclasses.replace(tc, kinetic_energy=KE)
 
-    KE_box = quantity.kinetic_energy(S.box_momentum, S.box_mass)
+    KE_box = quantity.kinetic_energy(momentum=S.box_momentum, mass=S.box_mass)
     bc = dataclasses.replace(bc, kinetic_energy=KE_box)
 
     P, tc = thermostat.half_step(S.momentum, tc, _kT)
@@ -911,7 +911,7 @@ def npt_nose_hoover_invariant(energy_fn: Callable[..., Array],
   """
   volume, box_fn = _npt_box_info(state)
   PE = energy_fn(state.position, box=box_fn(volume), **kwargs)
-  KE = quantity.kinetic_energy(state.momentum, state.mass)
+  KE = quantity.kinetic_energy(momentum=state.momentum, mass=state.mass)
 
   DOF = state.position.size
   E = PE + KE
