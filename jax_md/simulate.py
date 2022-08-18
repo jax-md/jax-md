@@ -965,6 +965,15 @@ class NVTLangevinState:
   def velocity(self) -> Array:
     return self.momentum / self.mass
 
+@functools.singledispatch
+def stochastic_step(R: Array, P: Array, M: Array,
+                    key: Array, dt:float, kT: float,
+                    gamma: float):
+  c1 = jnp.exp(-gamma * dt)
+  c2 = jnp.sqrt(kT * (1 - c1**2))
+  G = random.normal(key, P.shape)
+  return c1 * P + c2 * jnp.sqrt(M) * G
+
 def nvt_langevin(energy_or_force_fn: Callable[..., Array],
                  shift_fn: ShiftFn,
                  dt: float,
