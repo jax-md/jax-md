@@ -377,7 +377,7 @@ def bonded_energy_handler(
                   parameters,
                   **dynamic_kwargs):
         bonds = parameters.particles
-        bond_types = parameters._asdict()
+        bond_types = dict(parameters._asdict())
         _ = bond_types.pop('particles') # remove for redundancy
         out = bond_fn(R, bonds, bond_types, **dynamic_kwargs)
         return out
@@ -419,7 +419,7 @@ def nonbonded_energy_handler(
 
     # canonicalize the nb parameters
     canonicalized_nb_parameters = pair_parameter_combinator_mod(
-        default_parameters._asdict(),
+        dict(default_parameters._asdict()),
         combinator_dict=combinator_dict,
         key_mod_dict_converter=key_mod_dict_converter
     )
@@ -479,13 +479,13 @@ def nonbonded_energy_handler(
             'nonbonded_exception_parameters',
             Dummy())
         nonbonded_exception_indices = \
-            nonbonded_exception_parameters._asdict().get(
+            dict(nonbonded_exception_parameters._asdict()).get(
             'particles',
             default_particle_exception_indices)
 
         # mod the names of specified energy-specific parameters
         energy_specific_parameters =  {key_mod_dict_converter[key]: val for \
-            key, val in energy_specific_parameters._asdict().items()
+            key, val in dict(energy_specific_parameters._asdict()).items()
         }
 
         # query the nonbonded exception indices
@@ -623,7 +623,8 @@ def mm_energy_fn(
                                              default_mm_parameters)
         energies = jax.tree_util.tree_map(lambda e_fn:
                                             e_fn(R,
-                                            parent_parameters_dict=mm_parameters._asdict(),
+                                            parent_parameters_dict=\
+                                                dict(mm_parameters._asdict()),
                                             **dynamic_kwargs),
                                 mm_energy_fns)
         # do we want to return a dict or a singular float?
