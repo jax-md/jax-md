@@ -266,7 +266,7 @@ def symm_exceptions_to_dense(N, exceptions, **kwargs):
                            )
                           )
     offset = jnp.tile(jnp.arange(max_count), N)[:len(senders)]
-    hashes = senders.sort() * max_count + offset
+    hashes = senders * max_count + offset
     dense_idx = -1 * jnp.ones((N * max_count,), jnp.int32)
     dense_idx = dense_idx.at[hashes].set(receivers).reshape((N, max_count))
     return max_count, dense_idx
