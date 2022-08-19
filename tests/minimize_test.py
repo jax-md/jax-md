@@ -40,95 +40,103 @@ STOCHASTIC_SAMPLES = 10
 SPATIAL_DIMENSION = [2, 3]
 
 if FLAGS.jax_enable_x64:
-  DTYPE = [f32, f64]
+    DTYPE = [f32, f64]
 else:
-  DTYPE = [f32]
+    DTYPE = [f32]
+
 
 class DynamicsTest(test_util.JAXMDTestCase):
-  # pylint: disable=g-complex-comprehension
-  @parameterized.named_parameters(test_util.cases_from_list(
-      {
-          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
-          'spatial_dimension': dim,
-          'dtype': dtype
-      } for dim in SPATIAL_DIMENSION for dtype in DTYPE))
-  def test_gradient_descent(self, spatial_dimension, dtype):
-    key = random.PRNGKey(0)
+    # pylint: disable=g-complex-comprehension
+    @parameterized.named_parameters(
+        test_util.cases_from_list(
+            {
+                "testcase_name": "_dim={}_dtype={}".format(dim, dtype.__name__),
+                "spatial_dimension": dim,
+                "dtype": dtype,
+            }
+            for dim in SPATIAL_DIMENSION
+            for dtype in DTYPE
+        )
+    )
+    def test_gradient_descent(self, spatial_dimension, dtype):
+        key = random.PRNGKey(0)
 
-    for _ in range(STOCHASTIC_SAMPLES):
-      key, split, split0 = random.split(key, 3)
-      R = random.uniform(split,
-                         (PARTICLE_COUNT, spatial_dimension),
-                         dtype=dtype)
-      R0 = random.uniform(split0,
-                          (PARTICLE_COUNT, spatial_dimension),
-                          dtype=dtype)
+        for _ in range(STOCHASTIC_SAMPLES):
+            key, split, split0 = random.split(key, 3)
+            R = random.uniform(split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+            R0 = random.uniform(
+                split0, (PARTICLE_COUNT, spatial_dimension), dtype=dtype
+            )
 
-      energy = lambda R, **kwargs: np.sum((R - R0) ** 2)
-      _, shift_fn = space.free()
+            energy = lambda R, **kwargs: np.sum((R - R0) ** 2)
+            _, shift_fn = space.free()
 
-      opt_init, opt_apply = minimize.gradient_descent(energy,
-                                                      shift_fn,
-                                                      f32(1e-1))
+            opt_init, opt_apply = minimize.gradient_descent(energy, shift_fn, f32(1e-1))
 
-      E_current = energy(R)
-      dr_current = np.sum((R - R0) ** 2)
+            E_current = energy(R)
+            dr_current = np.sum((R - R0) ** 2)
 
-      for _ in range(OPTIMIZATION_STEPS):
-        R = opt_apply(R)
-        E_new = energy(R)
-        dr_new = np.sum((R - R0) ** 2)
-        assert E_new < E_current
-        assert E_new.dtype == dtype
-        assert dr_new < dr_current
-        assert dr_new.dtype == dtype
-        E_current = E_new
-        dr_current = dr_new
+            for _ in range(OPTIMIZATION_STEPS):
+                R = opt_apply(R)
+                E_new = energy(R)
+                dr_new = np.sum((R - R0) ** 2)
+                assert E_new < E_current
+                assert E_new.dtype == dtype
+                assert dr_new < dr_current
+                assert dr_new.dtype == dtype
+                E_current = E_new
+                dr_current = dr_new
 
-  @parameterized.named_parameters(test_util.cases_from_list(
-      {
-          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
-          'spatial_dimension': dim,
-          'dtype': dtype
-      } for dim in SPATIAL_DIMENSION for dtype in DTYPE))
-  def test_fire_descent(self, spatial_dimension, dtype):
-    key = random.PRNGKey(0)
+    @parameterized.named_parameters(
+        test_util.cases_from_list(
+            {
+                "testcase_name": "_dim={}_dtype={}".format(dim, dtype.__name__),
+                "spatial_dimension": dim,
+                "dtype": dtype,
+            }
+            for dim in SPATIAL_DIMENSION
+            for dtype in DTYPE
+        )
+    )
+    def test_fire_descent(self, spatial_dimension, dtype):
+        key = random.PRNGKey(0)
 
-    for _ in range(STOCHASTIC_SAMPLES):
-      key, split, split0 = random.split(key, 3)
-      R = random.uniform(
-        split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
-      R0 = random.uniform(
-        split0, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+        for _ in range(STOCHASTIC_SAMPLES):
+            key, split, split0 = random.split(key, 3)
+            R = random.uniform(split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+            R0 = random.uniform(
+                split0, (PARTICLE_COUNT, spatial_dimension), dtype=dtype
+            )
 
-      energy = lambda R, **kwargs: np.sum((R - R0) ** 2)
-      _, shift_fn = space.free()
+            energy = lambda R, **kwargs: np.sum((R - R0) ** 2)
+            _, shift_fn = space.free()
 
-      opt_init, opt_apply = minimize.fire_descent(energy, shift_fn)
+            opt_init, opt_apply = minimize.fire_descent(energy, shift_fn)
 
-      opt_state = opt_init(R)
-      E_current = energy(R)
-      dr_current = np.sum((R - R0) ** 2)
+            opt_state = opt_init(R)
+            E_current = energy(R)
+            dr_current = np.sum((R - R0) ** 2)
 
-      # NOTE(schsam): We add this to test to make sure we can jit through the
-      # creation of FireDescentState.
-      step_fn = lambda i, state: opt_apply(state)
+            # NOTE(schsam): We add this to test to make sure we can jit through the
+            # creation of FireDescentState.
+            step_fn = lambda i, state: opt_apply(state)
 
-      @jit
-      def three_steps(state):
-        return lax.fori_loop(0, 3, step_fn, state)
+            @jit
+            def three_steps(state):
+                return lax.fori_loop(0, 3, step_fn, state)
 
-      for _ in range(OPTIMIZATION_STEPS):
-        opt_state = three_steps(opt_state)
-        R = opt_state.position
-        E_new = energy(R)
-        dr_new = np.sum((R - R0) ** 2)
-        assert E_new < E_current
-        assert E_new.dtype == dtype
-        assert dr_new < dr_current
-        assert dr_new.dtype == dtype
-        E_current = E_new
-        dr_current = dr_new
+            for _ in range(OPTIMIZATION_STEPS):
+                opt_state = three_steps(opt_state)
+                R = opt_state.position
+                E_new = energy(R)
+                dr_new = np.sum((R - R0) ** 2)
+                assert E_new < E_current
+                assert E_new.dtype == dtype
+                assert dr_new < dr_current
+                assert dr_new.dtype == dtype
+                E_current = E_new
+                dr_current = dr_new
 
-if __name__ == '__main__':
-  absltest.main()
+
+if __name__ == "__main__":
+    absltest.main()
