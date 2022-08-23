@@ -361,20 +361,21 @@ def bonded_energy_handler(
                         geometry_handler_fn,
                         singular_fn,
                         per_term=False,
-                        bond_capture_kwargs=None,
+                        capture_geometry_kwargs=None,
                         **unused_kwargs):
     """
     create a smap.bond fn
     """
     camel_parameter_name = default_parameters.__class__.__name__
     snake_parameter_name = camel_to_snake(camel_parameter_name)
-    parameter_template_dict = {key: None for key in default_parameters._fields if key != 'particles'}
+    parameter_template_dict = {key: val for key in default_parameters._asdict()\
+                                if key != 'particles'}
     bond_fn = smap.bond(
         fn = singular_fn,
         geometry_handler_fn=geometry_handler_fn,
         displacement_or_metric=displacement_fn,
         per_term=per_term,
-        capture_kwargs=bond_capture_kwargs,
+        capture_geometry_kwargs=capture_geometry_kwargs,
         **parameter_template_dict)
 
     def energy_fn(R: Array,
@@ -512,7 +513,7 @@ def mm_energy_fn(
     neighbor_kwargs: Dict[str, Any]={},
     auxiliary_bond_prereq_fns: Dict[str, Any]={},
     nonbonded_energy_handler_kwargs: Dict[str, Any]={},
-    bond_capture_kwargs: Iterable[str]=None,
+    capture_geometry_kwargs: Iterable[str]=None,
     ):
     """
     retrieve a energy function and a `NeighborListFns` if `neighbor_kwargs` is
@@ -532,7 +533,7 @@ def mm_energy_fn(
         nonbonded_energy_handler_kwargs: A Dict of kwargs to pass to the
             `nonbonded_energy_handler` fn when creating `nonbonded_parameters`
             energy_fn.
-        bond_capture_kwargs: an iterable of strings that are passed to
+        capture_geometry_kwargs: an iterable of strings that are passed to
           `smap.bond` as `capture_kwargs`
     Returns:
         energy_fn: a function to pass positions R and kwargs to return

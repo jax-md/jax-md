@@ -96,19 +96,15 @@ Parameter = Union[ParameterTree, Array, float]
 # Mapping potential functional forms to bonds.
 
 
-def _get_bond_type_parameters(params: Array, bond_type: Union[Array, Dict[str,Array]], key: Any) -> Array:
+def _get_bond_type_parameters(params: Array, bond_type: Array) -> Array:
   """Get parameters for interactions for bonds indexed by a bond-type."""
   # TODO(schsam): We should do better error checking here.
-  assert util.is_array(bond_type) or util.is_dict(bond_type)
-  if util.is_array(bond_type):
-    assert len(bond_type.shape) == 1
+  assert util.is_array(bond_type)
+  assert len(bond_type.shape) == 1
 
   if util.is_array(params):
     if len(params.shape) == 1:
-      if util.is_array(bond_type):
-        return params[bond_type]
-      elif util.is_dict(bond_type):
-        raise NotImplementedError('Params as Array and bond_type as Dict is not supported.')
+      return params[bond_type]
     elif len(params.shape) == 0:
       return params
     else:
@@ -122,11 +118,6 @@ def _get_bond_type_parameters(params: Array, bond_type: Union[Array, Dict[str,Ar
     else:
       raise ValueError('ParameterTreeMapping must be either Global or PerBond'
                        'if used with `smap.bond`.')
-  elif params is None: # if the params is None, then the structure must be given by the bond_type
-      assert util.is_dict(bond_type)
-      out = bond_type[key]
-      assert util.is_array(out) and len(out.shape) == 1
-      return out
   elif(isinstance(params, int) or
        isinstance(params, float) or
        jnp.issubdtype(params, jnp.integer) or
@@ -134,25 +125,24 @@ def _get_bond_type_parameters(params: Array, bond_type: Union[Array, Dict[str,Ar
     return params
   raise NotImplementedError
 
-
-def _kwargs_to_bond_parameters(bond_type: Union[Array, Dict[str,Array]],
+def _kwargs_to_bond_parameters(bond_type: Array,
                                kwargs: Dict[str, Array]) -> Dict[str, Array]:
   """Extract parameters from keyword arguments."""
   # NOTE(schsam): We could pull out the species case from the generic case.
   for k, v in kwargs.items():
     if bond_type is not None:
-      kwargs[k] = _get_bond_type_parameters(v, bond_type, k)
+      kwargs[k] = _get_bond_type_parameters(v, bond_type)
   return kwargs
 
 
 def bond(fn: Callable[..., Array],
          displacement_or_metric: DisplacementOrMetricFn,
          static_bonds: Optional[Array]=None,
-         static_bond_types: Optional[Union[Array, Dict[str,Array]]]=None,
+         static_bond_types: Optional[Array]=None,
          ignore_unused_parameters: bool=False,
          geometry_handler_fn: Optional[Callable[..., Tuple[Array]]]=None,
          per_term: bool=False,
-         capture_kwargs: Iterable=None,
+         capture_geometry_kwargs: Iterable=None,
          **kwargs) -> Callable[..., Array]:
   """Promotes a function that acts on a single tuple to one on a set of bonds.
   This is a generalization to the previous `bond` fn since it
@@ -173,9 +163,8 @@ def bond(fn: Callable[..., Array],
     static_bonds: An ndarray of integer pairs wth shape `[b, 2]` where each
       pair specifies a bond. `static_bonds` are baked into the returned compute
       function statically and cannot be changed after the fact.
-    static_bond_types: Either an ndarray of integers of shape `[b]` specifying the
-      type of each bond or a Dict of [str, Array], where the str denotes the kwarg name of each `fn` parameter
-      and Array is it's value at that bond. Only specify bond types if you want to specify bond
+    static_bond_types: An ndarray of integers of shape `[b]` specifying the
+      type of each bond. Only specify bond types if you want to specify bond
       parameters by type. One can also specify constant or per-bond parameters
       (see below).
     ignore_unused_parameters: A boolean that denotes whether dynamically
@@ -201,8 +190,8 @@ def bond(fn: Callable[..., Array],
         2. an ndarray of shape `[max_bond_type]`.
         3. a ParameterTree containing a PyTree of parameters and a mapping. See
            ParameterTree for details.
-    capture_kwargs: An Iterable of kwargs that should be popped and passed to
-      `geometry_handler_fn` without registering as other parameters
+    capture_geometry_kwargs: An Iterable of kwargs that should be popped and passed to
+      `geometry_handler_fn` without registering as other parameters.
   Returns:
     A function `fn_mapped`. Note that `fn_mapped` can take arguments bonds and
     `bond_types` which will be bonds that are specified dynamically. This will
