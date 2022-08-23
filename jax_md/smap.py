@@ -222,13 +222,17 @@ def bond(fn: Callable[..., Array],
       geometry_handler_fn = _geometry_handler_fn
 
   def compute_fn(R, bonds, bond_types, static_kwargs, dynamic_kwargs):
-    if capture_kwargs is not None:
+    if capture_geometry_kwargs is not None:
       geometry_handler_kwargs = {key: dynamic_kwargs.pop(key, None) \
-            for key in capture_kwargs}
+            for key in capture_geometry_kwargs}
     else:
       geometry_handler_kwargs = {}
     _kwargs = merge_dicts(static_kwargs, dynamic_kwargs)
-    _kwargs = _kwargs_to_bond_parameters(bond_types, _kwargs)
+    if util.is_array(bond_types):
+      _kwargs = _kwargs_to_bond_parameters(bond_types, _kwargs)
+    else:
+      _kwargs = merge_dicts(_kwargs, bond_types)
+
     _args = geometry_handler_fn(R, bonds, **geometry_handler_kwargs)
     outs = fn(*_args, **_kwargs)
     if not per_term:
@@ -674,11 +678,14 @@ def _neighborhood_kwargs_to_params(format: partition.NeighborListFormat,
   out_dict = {}
   for k in kwargs:
     if species is None or (util.is_array(kwargs[k]) and kwargs[k].ndim == 1):
-      combinator = combinators.get(k, lambda x, y: 0.5 * (x + y))
-      out_dict[k] = _get_neighborhood_matrix_params(format,
+      if kwargs[k].shape[0] == idx.shape[0]:
+        combinator = combinators.get(k, lambda x, y: 0.5 * (x + y))
+        out_dict[k] = _get_neighborhood_matrix_params(format,
                                                     idx,
                                                     kwargs[k],
                                                     combinator)
+      else:
+        out_dict[k] = kwargs[k]
     else:
       if k in combinators:
         raise ValueError()
