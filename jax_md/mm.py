@@ -368,8 +368,9 @@ def bonded_energy_handler(
     """
     camel_parameter_name = default_parameters.__class__.__name__
     snake_parameter_name = camel_to_snake(camel_parameter_name)
-    parameter_template_dict = {key: val for key in default_parameters._asdict()\
-                                if key != 'particles'}
+    parameter_template_dict = dict(default_parameters._asdict())
+    _ = parameter_template_dict.pop('particles')
+
     bond_fn = smap.bond(
         fn = singular_fn,
         geometry_handler_fn=geometry_handler_fn,
@@ -571,7 +572,7 @@ def mm_energy_fn(
                 geometry_handler_fn=bond_prereq_fns[parameter_name]\
                     ['geometry_handler_fn'],
                 singular_fn=bond_prereq_fns[parameter_name]['singular_fn'],
-                bond_capture_kwargs=bond_capture_kwargs,
+                capture_geometry_kwargs=capture_geometry_kwargs,
             )
         elif is_nonbonded:
             if parameter[0] is None: # this is an empty default
