@@ -640,3 +640,74 @@ def mm_energy_fn(
                             )
         return accum
     return energy_fn, neighbor_list_fns
+
+def rf_mm_energy_fn(
+    box_vectors: Array,
+    default_mm_parameters: MMEnergyFnParameters,
+    space_shape: Union[space.periodic, space.periodic_general]=space.periodic,
+    r_cutoff: float=1.2,
+    fractional_coordinates: bool=False,
+    compute_self_energy: bool=True,
+    **unused_kwargs) -> Tuple[Callable[[Array], float], Callable[[Array], Array]]:
+  """
+  helper function to generate a reaction-field coulomb `mm_energy_fn`;
+  it is expected that the `default_mm_parameters` contains nonbonded_parameters;
+  returns `mm_energy_fn` and `neighbor_list_fns`
+  """
+  is_general = space_shape == space.periodic_general
+  # make displacement/shift fns
+  displacement_fn, shift_fn = space_shape(box_vectors)
+
+  # make neighbor kwargs
+  neighbor_kwargs = {
+    'displacement_or_metric': displacement_fn,
+    'box_size': box_vectors,
+    'r_cutoff': r_cutoff,
+    'fractional_coordinates': fractional_coordinates
+    }
+
+  # make full nonbonded function
+  def nb_fn(*args, **kwargs):
+    lj_e = energy.lennard_jones(*args, **kwargs)
+    aux_Q_sq = kwargs.get('Q_sq', 0.)
+    elec_e = energy.rf_coulomb(*args,
+                               aux_Q_sq=aux_Q_sq,
+                               **kwargs)
+    return jnp.where(args[0] > r_cutoff, 0., lj_e + elec_e)
+
+  nonbonded_energy_handler_kwargs = {
+    'singular_nb_fn': nb_fn
+  }
+
+  def nb_exception_rf(*args, **kwargs):
+    """for exceptions Q_sq is the exception chargeproduct and
+    aux_Q_sq is the non exception chargeproduct"""
+    out = energy.rf_coulomb(*args, **kwargs) + \
+      energy.lennard_jones(*args, **kwargs)
+    return out
+
+  aux_bond_prereq_fns = {'NonbondedExceptionParameters':
+    {'geometry_handler_fn': None,
+    'singular_fn': nb_exception_rf}
+    }
+  energy_fn, neighbor_list_fn = mm_energy_fn(
+    displacement_fn=displacement_fn,
+    default_mm_parameters = default_mm_parameters,
+    neighbor_kwargs = neighbor_kwargs,
+    nonbonded_energy_handler_kwargs=nonbonded_energy_handler_kwargs,
+    auxiliary_bond_prereq_fns=aux_bond_prereq_fns,
+    capture_geometry_kwargs=['neighbor'] if not \
+      is_general else ['neighbor', 'box']
+    )
+  if compute_self_energy: # add the self energy interaction from nbf
+    def wrapper_fn(*args, **kwargs):
+      default_params = kwargs.get('parameters', default_mm_parameters)
+      nbf_params = default_params.nonbonded_parameters
+      self_energy = util.high_precision_sum(
+        energy.self_rf_coulomb(Q_sq = nbf_params.charge**2, **kwargs))
+      interaction_energy = energy_fn(*args, **kwargs)
+      return self_energy + interaction_energy
+  else:
+    wrapper_fn = energy_fn
+
+  return wrapper_fn, neighbor_list_fn

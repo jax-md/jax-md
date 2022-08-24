@@ -124,7 +124,10 @@ def torsion_parameter_retrieval_fn(force, **unused_kwargs):
   )
   return out_parameters
 
-def nonbonded_exception_parameter_retrieval_fn(force, **unused_kwargs):
+def nonbonded_exception_parameter_retrieval_fn(
+    force,
+    parameter_template = mm.NonbondedExceptionParameters,
+    **unused_kwargs):
   """retrieve the nonbonded exceptions"""
   particles, Q_sq, sigma, epsilon = [], [], [], []
   for idx in range(force.getNumExceptions()):
@@ -133,12 +136,34 @@ def nonbonded_exception_parameter_retrieval_fn(force, **unused_kwargs):
     Q_sq.append(_params[2].value_in_unit_system(unit.md_unit_system))
     sigma.append(_params[3].value_in_unit_system(unit.md_unit_system))
     epsilon.append(_params[4].value_in_unit_system(unit.md_unit_system))
-  out_parameters = mm.NonbondedExceptionParameters(
+  out_parameters = parameter_template(
     particles = Array(particles, dtype=i32),
     Q_sq = Array(Q_sq),
     sigma = Array(sigma),
     epsilon = Array(epsilon)
   )
+  return out_parameters
+
+def rf_nonbonded_exception_parameter_retrieval_fn(force, **unused_kwargs):
+  """retrieve nonbonded exceptions in the reaction field regime"""
+  class NonbondedExceptionParameters(NamedTuple):
+    particles: jnp.array = None
+    Q_sq: jnp.array = None
+    sigma: jnp.array = None
+    epsilon: jnp.array = None
+    aux_Q_sq: jnp.array = None
+  out_parameters = nonbonded_exception_parameter_retrieval_fn(
+    force,
+    NonbondedExceptionParameters)
+  aux_Q_sqs = []
+  for idx in range(force.getNumExceptions()):
+    j, k, chargeprod, sigma, epsilon = force.getExceptionParameters(idx)
+    ch1, _, _ = force.getParticleParameters(j)
+    ch2, _, _ = force.getParticleParameters(k)
+    aux_Q_sqs.append((ch1*ch2).value_in_unit_system(unit.md_unit_system))
+  aux_Q_sqs = Array(aux_Q_sqs)
+  out_parameters = out_parameters._replace(aux_Q_sq=aux_Q_sqs)
+  del NonbondedExceptionParameters
   return out_parameters
 
 def nonbonded_parameter_retrieval_fn(force, **unused_kwargs):
@@ -164,14 +189,17 @@ def assert_supported_force(forces : Iterable[openmm.Force]) -> None:
         is not currently supported;
       current supported forces are {mm.CANONICAL_MM_FORCENAMES}""")
 
-def get_full_retrieval_fn_dict(**unused_kwargs) -> \
+def get_full_retrieval_fn_dict(use_rf_exceptions: bool=False,
+                               **unused_kwargs) -> \
     Dict[str, Callable[[openmm.Force], NamedTuple]]:
   """get a dictionary to retrieve the entries of `mm.MMEnergyFnParameters`"""
   retrieval_dict = {
     'harmonic_bond_parameters': bond_and_angle_parameter_retrieval_fn,
     'harmonic_angle_parameters': bond_and_angle_parameter_retrieval_fn,
     'periodic_torsion_parameters': torsion_parameter_retrieval_fn,
-    'nonbonded_exception_parameters': nonbonded_exception_parameter_retrieval_fn,
+    'nonbonded_exception_parameters': \
+        nonbonded_exception_parameter_retrieval_fn if not use_rf_exceptions else \
+        rf_nonbonded_exception_parameter_retrieval_fn,
     'nonbonded_parameters': nonbonded_parameter_retrieval_fn,
     }
   retrieval_dict_key_set = set(list(retrieval_dict.keys()))
@@ -185,7 +213,7 @@ def get_full_retrieval_fn_dict(**unused_kwargs) -> \
   return retrieval_dict
 
 def parameters_from_openmm_system(system : openmm.System,
-                                   **unused_kwargs) -> mm.MMEnergyFnParameters:
+                                  **kwargs) -> mm.MMEnergyFnParameters:
   """retrieve all parameters from an `openmm.System`
 
   Example:
@@ -198,18 +226,18 @@ def parameters_from_openmm_system(system : openmm.System,
   forces = system.getForces()
   parameter_dict = {}
   assert_supported_force(forces)
-  retrieval_dict = get_full_retrieval_fn_dict(**unused_kwargs)
+  retrieval_dict = get_full_retrieval_fn_dict(**kwargs)
   for force in forces:
     force_name = force.__class__.__name__
     if force_name == 'HarmonicBondForce':
-      parameter_dict['harmonic_bond_parameters'] = retrieval_dict['harmonic_bond_parameters'](force, **unused_kwargs)
+      parameter_dict['harmonic_bond_parameters'] = retrieval_dict['harmonic_bond_parameters'](force, **kwargs)
     elif force_name == 'HarmonicAngleForce':
-      parameter_dict['harmonic_angle_parameters'] = retrieval_dict['harmonic_angle_parameters'](force, **unused_kwargs)
+      parameter_dict['harmonic_angle_parameters'] = retrieval_dict['harmonic_angle_parameters'](force, **kwargs)
     elif force_name == 'PeriodicTorsionForce':
-      parameter_dict['periodic_torsion_parameters'] = retrieval_dict['periodic_torsion_parameters'](force, **unused_kwargs)
+      parameter_dict['periodic_torsion_parameters'] = retrieval_dict['periodic_torsion_parameters'](force, **kwargs)
     elif force_name == 'NonbondedForce':
-      parameter_dict['nonbonded_parameters'] = retrieval_dict['nonbonded_parameters'](force, **unused_kwargs)
-      parameter_dict['nonbonded_exception_parameters'] = retrieval_dict['nonbonded_exception_parameters'](force, **unused_kwargs)
+      parameter_dict['nonbonded_parameters'] = retrieval_dict['nonbonded_parameters'](force, **kwargs)
+      parameter_dict['nonbonded_exception_parameters'] = retrieval_dict['nonbonded_exception_parameters'](force, **kwargs)
   return mm.MMEnergyFnParameters(**parameter_dict)
 
 
