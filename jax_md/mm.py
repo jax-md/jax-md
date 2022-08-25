@@ -648,6 +648,7 @@ def rf_mm_energy_fn(
     r_cutoff: float=1.2,
     fractional_coordinates: bool=False,
     compute_self_energy: bool=True,
+    aux_neighbor_list_kwargs: Dict={},
     **unused_kwargs) -> Tuple[Callable[[Array], float], Callable[[Array], Array]]:
   """
   helper function to generate a reaction-field coulomb `mm_energy_fn`;
@@ -665,6 +666,7 @@ def rf_mm_energy_fn(
     'r_cutoff': r_cutoff,
     'fractional_coordinates': fractional_coordinates
     }
+  neighbor_kwargs.update(aux_neighbor_list_kwargs)
 
   # make full nonbonded function
   def nb_fn(*args, **kwargs):
