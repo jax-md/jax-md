@@ -822,8 +822,8 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     return shift_fn(R, R * (jnp.exp(x) - 1) + dt * V * jnp.exp(x_2) * sinhV,
                     box=box, **kwargs)  # pytype: disable=wrong-keyword-args
 
-  def exp_iL2(alpha, P, F, P_b):
-    x = alpha * P_b * dt_2
+  def exp_iL2(alpha, P, F, V_b):
+    x = alpha * V_b * dt_2
     x_2 = x / 2
     sinhP = sinhx_x(x_2)  # jnp.sinh(x_2) / x_2
     return P * jnp.exp(-x) + dt_2 * F * sinhP * jnp.exp(-x_2)
@@ -841,7 +841,7 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     alpha = 1 + 1 / N
     G_e = box_force(alpha, vol, box_fn, R, P, M, F, _pressure, **kwargs)
     P_b = P_b + dt_2 * G_e
-    P = exp_iL2(alpha, P, F, P_b)
+    P = exp_iL2(alpha, P, F, P_b / M_b)
 
     R_b = R_b + P_b / M_b * dt
     state = dataclasses.replace(state, box_position=R_b)
@@ -852,7 +852,7 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     R = exp_iL1(box, R, P / M, P_b / M_b)
     F = force_fn(R, box=box, **kwargs)
 
-    P = exp_iL2(alpha, P, F, P_b)
+    P = exp_iL2(alpha, P, F, P_b / M_b)
     G_e = box_force(alpha, vol, box_fn, R, P, M, F, _pressure, **kwargs)
     P_b = P_b + dt_2 * G_e
 
