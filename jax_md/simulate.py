@@ -841,7 +841,7 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     alpha = 1 + 1 / N
     G_e = box_force(alpha, vol, box_fn, R, P, M, F, _pressure, **kwargs)
     P_b = P_b + dt_2 * G_e
-    P = exp_iL2(alpha, P, F, P_b)
+    P = exp_iL2(alpha, P, F, P_b / M_b)
 
     R_b = R_b + P_b / M_b * dt
     state = dataclasses.replace(state, box_position=R_b)
