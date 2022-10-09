@@ -402,6 +402,77 @@ class SimulateTest(test_util.JAXMDTestCase):
     self.assertAllClose(Es, E_initial, rtol=tol, atol=tol)
     self.assertAllClose(Ps, P_target, rtol=0.05, atol=0.05)
 
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': f'dtype={dtype.__name__}_sy_steps={sy_steps}',
+          'dtype': dtype,
+          'sy_steps': sy_steps,
+      } for dtype in DTYPE
+        for sy_steps in [1, 3, 5, 7]))
+  def test_npt_nose_hoover_lammps(self, dtype, sy_steps):
+    key = random.PRNGKey(0)
+
+    box, pos, vel = test_util.load_lammps_npt_test_case(
+      'simulation_test_state.npy', dtype)
+
+    displacement, shift = space.periodic_general(box) 
+    dist_fun = space.metric(displacement) 
+    neighbor_fn, energy_fn = energy.stillinger_weber_neighbor_list(
+      displacement, box)
+
+    units = {
+      'mass': 1,
+      'distance': 1,
+      'time': 98.22694788,
+      'energy': 1,
+      'velocity': 0.01018051,
+      'force': 1.0,
+      'torque ': 1,
+      'temperature': 8.617330337217213e-05,
+      'pressure': 6.241509125883258e-07
+    }
+
+    dt = fs
+    write_every = 100
+    latvec = latvec_con
+    T_init = 300 * units['temperature']
+    P_init = 0.0 * units['pressure']
+    Mass = 28.0855 * units['mass']
+    key = random.PRNGKey(121)
+    key, split = random.split(key)
+
+    nbrs = neighbor_fn.allocate(R, box=latvec, extra_capacity=8)
+    init_fn, apply_fn = simulate.npt_nose_hoover(
+      energy_fn, shift, dt=dt, pressure=P_init, kT=T_init)
+    state = init_fn(key, R, box=box, neighbor=nbrs)
+
+    def step_fn(i, state_nbrs_buffers):
+      state, nbrs, buffers = state_nbrs_buffers
+      state = apply_fn(State, neighbor=nbrs)
+      nbrs = nbrs.update(state.position)
+      buffers['kT'] = buffers['kT'].at[i].set(quantity.temperature(
+        momentum=state.momentum, mass=state.mass))
+      KE = quantity.kinetic_energy(momentum=state.momentum, mass=Mass)
+      buffers['P'] = buffers['P'].at[i].set(quantity.pressure(
+        energy_fn, state.position, box=box, kinetic_energy=KE, neighbor=nbrs,
+      ))
+      buffers['H'] = buffers['H'].at[i].set(simulate.npt_nose_hoover_invariant(
+        energy_fn, state, pressure=P_init, kT=T_init, neighbor=nbrs
+      ))
+      return state, nbrs, buffers
+
+    buffers = {
+      'kT': np.zeros((DYNAMICS_STEPS,)),
+      'P': np.zeros((DYNAMICS_STEPS,)),
+      'H': np.zeros((DYNAMICS_STEPS,))
+    }
+
+    state, nbrs, buffers = lax.fori_loop(0, DYNAMICS_STEPS, step_fn, 
+                                         (state, nbrs, buffers))
+
+    self.assertAllClose(np.mean(buffers['kT']), kT_init)
+    self.assertAllClose(np.mean(buffers['P']), P_init)
+    self.assertAllClose(buffers['H'], buffers['H'][0])
 
   @parameterized.named_parameters(test_util.cases_from_list(
       {

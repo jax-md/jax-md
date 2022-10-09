@@ -34,15 +34,6 @@ from jax import vmap
 
 from jax_md import dataclasses
 
-"""
-flags.DEFINE_string(
-    'jax_test_dut',
-    '',
-    help=
-    'Describes the device under test in case special consideration is required.'
-)
-"""
-
 FLAGS = flags.FLAGS
 
 
@@ -357,3 +348,20 @@ def load_lammps_stress_data(dtype):
                         'lammps_lj_stress_test_states'),
             parse_results('/google3/third_party/py/jax_md/tests/data/'
                           'lammps_lj_stress_test'))
+
+
+def load_lammps_npt_test_case(dtype):
+  def parse_state(filename):
+    filename = FLAGS.test_srcdir + filename
+    lammps_step_0 = onp.loadtxt(filename)
+    position = jnp.array(lammps_step_0[:, 2:5], dtype=dtype)
+    velocity = jnp.array(lammps_step_0[:, 5:8], dtype=dtype)
+    latvec_con = jnp.array([[21.724, 0.0000, 0.0000],
+                            [0.0000, 21.724, 0.0000],
+                            [0.0000, 0.0000, 21.724]], dtype=dtype)
+    return latvec_con, position, velocity
+  try:
+    return parse_state('tests/data/lammps_npt_test')
+  except FileNotFoundError:
+    return parse_state('/google3/third_party/py/jax_md/tests/data/'
+                       'lammps_npt_test')
