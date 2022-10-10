@@ -451,7 +451,7 @@ class SimulateTest(test_util.JAXMDTestCase):
     E = lambda x: jnp.sum(0.5 * alpha * x ** 2)
     displacement, shift = space.free()
 
-    N = 1000000
+    N = 100_000
     steps = 1000
     kT = 0.25
     dt = 1e-4

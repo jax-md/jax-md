@@ -126,6 +126,31 @@ def initialize_momenta(R: Array, mass: Array, key: Array, kT: float):
   return P
 
 
+MOMENTUM_STEP_REGISTRY = {}
+POSITION_STEP_REGISTRY = {}
+
+
+def momentum_step(state: T, dt: float) -> T:
+  assert hasattr(state, 'momentum')
+  if type(state.position) in MOMENTUM_STEP_REGISTRY:
+    return MOMENTUM_STEP_REGISTRY[type(state.position)](state, dt)
+  new_momentum = tree_map(lambda p, f: p + dt * f,
+                          state.momentum,
+                          state.force)
+  return state.set(momentum=new_momentum)
+
+
+def position_step(state: T, shift_fn: Callable, dt: float, **kwargs) -> T:
+  if type(state.position) in POSITION_STEP_REGISTRY:
+    return POSITION_STEP_REGISTRY[type(state.position)](state, shift_fn, dt, **kwargs)
+  new_position = tree_map(lambda s_fn, r, p, m: s_fn(r, dt * p / m, **kwargs),
+                          shift_fn,
+                          state.position,
+                          state.momentum,
+                          state.mass)
+  return state.set(position=new_position)
+
+
 @functools.singledispatch
 def inner_update_fn(R: Array, shift_fn: Callable[..., Array],
                        **unused_kwargs
@@ -182,31 +207,20 @@ interesting simulations that involve e.g. temperature gradients.
 
 
 def velocity_verlet(force_fn: Callable[..., Array],
-                    update_fn: UpdateFn,
+                    shift_fn: UpdateFn,
                     dt: float,
                     state: T,
                     **kwargs) -> T:
   """Apply a single step of velocity Verlet integration to a state."""
   dt = f32(dt)
   dt_2 = f32(dt / 2)
-  dt2_2 = f32(dt ** 2 / 2)
 
-  R, P, F, M = state.position, state.momentum, state.force, state.mass
+  state = momentum_step(state, dt_2)
+  state = position_step(state, shift_fn, dt, **kwargs)
+  state = state.set(force=force_fn(state.position, **kwargs))
+  state = momentum_step(state, dt_2)
 
-  # First half step.
-  P = tree_map(lambda p, f: p + dt_2 * f, P, F)
-
-  # Update positional degrees of freedom.
-  R, P, F, M = update_fn(R, P, F, M, dt, **kwargs)
-
-  # Second half step.
-  F = force_fn(R, **kwargs)
-  P = tree_map(lambda p, f: p + dt_2 * f, P, F)
-
-  return dataclasses.replace(state,
-                             position=R,
-                             momentum=P,
-                             force=F)
+  return state
 
 
 # Constant Energy Simulations
@@ -270,12 +284,8 @@ def nve(energy_or_force_fn, shift_fn, dt=1e-3, **sim_kwargs):
 
   @jit
   def step_fn(state, **kwargs):
-    _dt = dt
-    if 'dt' in kwargs:
-      _dt = kwargs['dt']
-      del kwargs['dt']
-    update_fn = inner_update_fn(state.position, shift_fn, **sim_kwargs)
-    return velocity_verlet(force_fn, update_fn, _dt, state, **kwargs)
+    _dt = kwargs.pop('dt', dt)
+    return velocity_verlet(force_fn, shift_fn, _dt, state, **kwargs)
 
   return init_fn, step_fn
 
@@ -586,8 +596,6 @@ def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
 
   @jit
   def apply_fn(state, **kwargs):
-    update_fn = inner_update_fn(state.position, shift_fn, **sim_kwargs)
-
     _kT = kT if 'kT' not in kwargs else kwargs['kT']
 
     chain = state.chain
@@ -595,15 +603,15 @@ def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
     chain = chain_fns.update_mass(chain, _kT)
 
     p, chain = chain_fns.half_step(state.momentum, chain, _kT)
-    state = dataclasses.replace(state, momentum=p)
+    state = state.set(momentum=p)
 
-    state = velocity_verlet(force_fn, update_fn, dt, state, **kwargs)
+    state = velocity_verlet(force_fn, shift_fn, dt, state, **kwargs)
 
     KE = kinetic_energy(state.position, state.momentum, state.mass)
-    chain = dataclasses.replace(chain, kinetic_energy=KE)
+    chain = chain.set(kinetic_energy=KE)
 
     p, chain = chain_fns.half_step(state.momentum, chain, _kT)
-    state = dataclasses.replace(state, momentum=p, chain=chain)
+    state = state.set(momentum=p, chain=chain)
 
     return state
   return init_fn, apply_fn
@@ -795,7 +803,7 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     N, dim = state.position.shape
     dtype = state.position.dtype
     box_mass = jnp.array(dim * (N + 1) * kT * state.barostat.tau ** 2, dtype)
-    return dataclasses.replace(state, box_mass=box_mass)
+    return state.set(box_mass=box_mass)
 
   def box_force(alpha, vol, box_fn, position, momentum, mass, force, pressure,
                 **kwargs):
@@ -844,7 +852,7 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     P = exp_iL2(alpha, P, F, P_b)
 
     R_b = R_b + P_b / M_b * dt
-    state = dataclasses.replace(state, box_position=R_b)
+    state = state.set( box_position=R_b)
 
     vol, box_fn = _npt_box_info(state)
 
@@ -856,7 +864,7 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     G_e = box_force(alpha, vol, box_fn, R, P, M, F, _pressure, **kwargs)
     P_b = P_b + dt_2 * G_e
 
-    return dataclasses.replace(state,
+    return state.set(
                                position=R, momentum=P, mass=M, force=F,
                                box_position=R_b, box_momentum=P_b, box_mass=M_b)
 
@@ -871,21 +879,19 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     P_b, bc = barostat.half_step(S.box_momentum, bc, _kT)
     P, tc = thermostat.half_step(S.momentum, tc, _kT)
 
-    S = dataclasses.replace(S, momentum=P, box_momentum=P_b)
+    S = S.set(momentum=P, box_momentum=P_b)
     S = inner_step(S, **kwargs)
 
     KE = quantity.kinetic_energy(momentum=S.momentum, mass=S.mass)
-    tc = dataclasses.replace(tc, kinetic_energy=KE)
+    tc = tc.set(kinetic_energy=KE)
 
     KE_box = quantity.kinetic_energy(momentum=S.box_momentum, mass=S.box_mass)
-    bc = dataclasses.replace(bc, kinetic_energy=KE_box)
+    bc = bc.set(kinetic_energy=KE_box)
 
     P, tc = thermostat.half_step(S.momentum, tc, _kT)
     P_b, bc = barostat.half_step(S.box_momentum, bc, _kT)
 
-    S = dataclasses.replace(S,
-                            thermostat=tc, barostat=bc,
-                            momentum=P, box_momentum=P_b)
+    S = S.set(thermostat=tc, barostat=bc, momentum=P, box_momentum=P_b)
 
     return S
   return init_fn, apply_fn
@@ -940,6 +946,21 @@ TODO: Make Langevin and Brownian simulations work with new `tree_map`
 formalism.
 """
 
+
+@dataclasses.dataclass
+class Normal:
+  mean: jnp.ndarray
+  var: jnp.ndarray
+
+  def sample(self, key):
+    mu, sigma = self.mean, jnp.sqrt(self.var)
+    return mu + sigma * random.normal(key, mu.shape ,dtype=mu.dtype)
+
+  def log_prob(self, x):
+    return (-0.5 * jnp.log(2 * jnp.pi * self.var) -
+            1 / (2 * self.var) * (x - self.mean)**2)
+
+
 @dataclasses.dataclass
 class NVTLangevinState:
   """A struct containing state information for the Langevin thermostat.
@@ -966,7 +987,91 @@ class NVTLangevinState:
     return self.momentum / self.mass
 
 
-def nvt_langevin(energy_or_force: Callable[..., Array],
+STOCHASTIC_STEP_REGISTRY = {}
+def stochastic_step(state: NVTLangevinState, dt:float, kT: float, gamma: float):
+  if type(state.position) in STOCHASTIC_STEP_REGISTRY:
+    return STOCHASTIC_STEP_REGISTRY[type(state.position)](state, dt, kT, gamma)
+
+  c1 = jnp.exp(-gamma * dt)
+  c2 = jnp.sqrt(kT * (1 - c1**2))
+  momentum_dist = Normal(c1 * state.momentum, c2**2 * state.mass)
+  key, split = random.split(state.rng)
+  return state.set(momentum=momentum_dist.sample(split), rng=key)
+
+
+def nvt_langevin(energy_or_force_fn: Callable[..., Array],
+                 shift_fn: ShiftFn,
+                 dt: float,
+                 kT: float,
+                 gamma: float=0.1,
+                 center_velocity: bool=True,
+                 **sim_kwargs) -> Simulator:
+  """Simulation in the NVT ensemble using the BAOAB Langevin thermostat.
+
+  Samples from the canonical ensemble in which the number of particles (N),
+  the system volume (V), and the temperature (T) are held constant. Langevin
+  dynamics are stochastic and it is supposed that the system is interacting
+  with fictitious microscopic degrees of freedom. An example of this would be
+  large particles in a solvent such as water. Thus, Langevin dynamics are a
+  stochastic ODE described by a friction coefficient and noise of a given
+  covariance.
+
+  Our implementation follows the paper [#davidcheck] by Davidchack, Ouldridge,
+  and Tretyakov.
+
+  Args:
+    energy_or_force: A function that produces either an energy or a force from
+      a set of particle positions specified as an ndarray of shape
+      `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`. Both
+      `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
+    dt: Floating point number specifying the timescale (step size) of the
+      simulation.
+    kT: Floating point number specifying the temperature in units of Boltzmann
+      constant. To update the temperature dynamically during a simulation one
+      should pass `kT` as a keyword argument to the step function.
+    gamma: A float specifying the friction coefficient between the particles
+      and the solvent.
+    center_velocity: A boolean specifying whether or not the center of mass
+      position should be subtracted.
+  Returns:
+    See above.
+
+  .. rubric:: References
+  .. [#carlon] R. L. Davidchack, T. E. Ouldridge, and M. V. Tretyakov.
+    "New Langevin and gradient thermostats for rigid body dynamics."
+    The Journal of Chemical Physics 142, 144114 (2015)
+  """
+  force_fn = quantity.canonicalize_force(energy_or_force_fn)
+
+  @jit
+  def init_fn(key, R, mass=f32(1.0), **kwargs):
+    _kT = kwargs.pop('kT', kT)
+    key, split = random.split(key)
+    mass = canonicalize_mass(mass)
+    P = initialize_momenta(R, mass, split, _kT)
+    force = force_fn(R, **kwargs)
+    return NVTLangevinState(R, P, force, mass, key)
+
+  @jit
+  def step_fn(state, **kwargs):
+    _dt = kwargs.pop('dt', dt)
+    _kT = kwargs.pop('kT', kT)
+    dt_2 = _dt / 2
+
+    state = momentum_step(state, dt_2)
+    state = position_step(state, shift_fn, dt_2, **kwargs)
+    state = stochastic_step(state, _dt, _kT, gamma)
+    state = position_step(state, shift_fn, dt_2, **kwargs)
+    state = state.set(force=force_fn(state.position, **kwargs))
+    state = momentum_step(state, dt_2)
+
+    return state
+
+  return init_fn, step_fn
+
+
+def nvt_langevin2(energy_or_force: Callable[..., Array],
                  shift: ShiftFn,
                  dt: float,
                  kT: float,
