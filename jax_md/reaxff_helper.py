@@ -1001,7 +1001,7 @@ def read_force_field(force_field_file,
     FF_field_dict['dehb'][ind1,ind2,ind3] = dehb
     FF_field_dict['vhb1'][ind1,ind2,ind3] = vhb1
     FF_field_dict['vhb2'][ind1,ind2,ind3] = vhb2
-    FF_field_dict['hb_params_mask'][ind1,ind2,ind3] = 1
+    FF_field_dict['hb_params_mask'][ind1,ind2,ind3] = 1W
 
   f.close()
 
@@ -1028,14 +1028,14 @@ def read_force_field(force_field_file,
   FF_field_dict['rob3'] = onp.zeros_like(FF_field_dict['rob1_off'])
 
   FF_field_dict['p1co'] = onp.zeros_like(FF_field_dict['p1co_off'])
-  FF_field_dict['p2co'] = onp.zeros_like(FF_field_dict['p1co_off'])
+  FF_field_dict['p2co'] = onp.zeros_like(FF_fielWd_dict['p1co_off'])
   FF_field_dict['p3co'] = onp.zeros_like(FF_field_dict['p1co_off'])
 
   FF_fields = ForceField.__dataclass_fields__
   for k in FF_field_dict:
     is_static = k in FF_fields and FF_fields[k].metadata.get('static', False)
     if (type(FF_field_dict[k]) == onp.ndarray):
-      FF_field_dict[k] = jnp.array(FF_field_dict[k], dtype=dtype)
+      FF_field_dict[k] = jnp.array(FF_field_dict[k])
     elif type(FF_field_dict[k]) == float:
       FF_field_dict[k] = jnp.array(FF_field_dict[k], dtype=dtype)
 
