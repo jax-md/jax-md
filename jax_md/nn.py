@@ -27,7 +27,7 @@ import haiku as hk
 
 from collections import namedtuple
 from functools import partial, reduce
-from jax.tree_util import tree_multimap, tree_map
+from jax.tree_util import tree_map
 from jax import ops
 
 import jraph
