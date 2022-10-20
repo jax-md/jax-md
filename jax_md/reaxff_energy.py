@@ -35,8 +35,10 @@ def calculate_reaxff_energy(species: Array,
                             body_4_angles: Array,
                             hb_ang_dist: Array,
                             force_field: ForceField,
-                            total_charge: float,
-                            tol: float = 1e-06):
+                            total_charge: float = 0.0,
+                            tol: float = 1e-06,
+                            backprop_solve: bool = False,
+                            tors_2013: bool = False):
   cou_pot = 0
   vdw_pot = 0
   charge_pot = 0
@@ -49,6 +51,8 @@ def calculate_reaxff_energy(species: Array,
   tor_conj = 0
   torsion_pot = 0
   hb_pot = 0
+
+  result_dict = dict()
 
   N = len(species)
   atom_mask = jnp.ones_like(species, dtype=jnp.int32)
@@ -83,18 +87,22 @@ def calculate_reaxff_energy(species: Array,
                                   force_field.idempotential,
                                   force_field.electronegativity,
                                   total_charge,
+                                  backprop_solve,
                                   tol)
+  result_dict['charges'] = charges
 
   cou_pot = calculate_coulomb_pot(far_nbr_inds,
                                   atom_mask,
                                   hulp1_mat,
                                   tapered_dists,
                                   charges)
+  result_dict['E_coulomb'] = cou_pot
 
   charge_pot = calculate_charge_energy(species,
                                        charges,
                                        force_field.idempotential,
                                        force_field.electronegativity)
+  result_dict['E_charge'] = charge_pot
 
   vdw_pot = calculate_vdw_pot(species,
                               atom_mask,
@@ -102,6 +110,7 @@ def calculate_reaxff_energy(species: Array,
                               far_nbr_dists,
                               tapered_dists,
                               force_field)
+  result_dict['E_vdw'] = vdw_pot
 
   atomic_num1 = atomic_numbers.reshape(-1, 1)
   atomic_num2 = atomic_numbers[close_nbr_inds]
@@ -116,12 +125,13 @@ def calculate_reaxff_energy(species: Array,
                                                          species,
                                                          triple_bond,
                                                          force_field)
+  result_dict['E_covalent'] = cov_pot
 
   [lone_pot, vlp] = calculate_lonpar_pot(species,
                                          atom_mask,
                                          abo,
                                          force_field)
-
+  result_dict['E_lone_pair'] = lone_pot
   overunder_pot = calculate_ovcor_pot(species,
                                       atomic_numbers,
                                       atom_mask,
@@ -130,28 +140,33 @@ def calculate_reaxff_energy(species: Array,
                                       close_nbr_inds != N,
                                       bo, bopi, bopi2, abo, vlp,
                                       force_field)
-
+  result_dict['E_over_under'] = overunder_pot
 
   [val_pot,
    total_penalty,
    total_conj] = calculate_valency_pot(species,
                                        body_3_inds,
                                        body_3_angles,
-                                       body_3_inds[:,1] != body_3_inds[:,2],
+                                       body_3_inds[:,0] != -1,
                                        close_nbr_inds,
                                        vlp,
                                        bo,bopi, bopi2, abo,
                                        force_field)
-
+  result_dict['E_valency'] = val_pot
+  result_dict['E_valency_penalty'] = total_penalty
+  result_dict['E_valency_conj'] = total_conj
   [torsion_pot,
    tor_conj] = calculate_torsion_pot(species,
                                      body_4_inds,
                                      body_4_angles,
-                                     body_4_inds[:,1] != body_4_inds[:,2],
+                                     body_4_inds[:,0] != -1,
                                      close_nbr_inds,
                                      bo,bopi,abo,
-                                     force_field)
-
+                                     force_field,
+                                     tors_2013)
+  result_dict['E_torsion'] = torsion_pot
+  result_dict['E_torsion_conj'] = tor_conj
+  result_dict['E_hbond'] = 0.0
   if hb_inds != None:
 
     hb_mask = (hb_inds[:,1] != -1) & (hb_inds[:,2] != -1)
@@ -164,21 +179,15 @@ def calculate_reaxff_energy(species: Array,
                              far_nbr_inds,
                              bo,
                              force_field)
+    result_dict['E_hbond'] = hb_pot
 
-  '''
-  print (cou_pot,vdw_pot , charge_pot
-         , cov_pot , lone_pot , val_pot
-         , total_penalty , total_conj
-         , overunder_pot , tor_conj
-         , torsion_pot , hb_pot)
-  '''
+  #print(result_dict)
 
   return (cou_pot + vdw_pot + charge_pot
           + cov_pot + lone_pot + val_pot
           + total_penalty + total_conj
           + overunder_pot + tor_conj
-            + torsion_pot + hb_pot), charges
-
+            + torsion_pot + hb_pot), result_dict
 
 def calculate_eem_charges(species: Array,
                           atom_mask: Array,
@@ -188,9 +197,11 @@ def calculate_eem_charges(species: Array,
                           idempotential: Array,
                           electronegativity: Array,
                           total_charge: float,
+                          backprop_solve: bool = False,
                           tol: float = 1e-06):
-  tapered_dists = jax.lax.stop_gradient(tapered_dists)
-  hulp1_mat = jax.lax.stop_gradient(hulp1_mat)
+  if backprop_solve == False:
+    tapered_dists = jax.lax.stop_gradient(tapered_dists)
+    hulp1_mat = jax.lax.stop_gradient(hulp1_mat)
   prev_dtype = tapered_dists.dtype
   N = len(species)
   hulp2_mat = hulp1_mat**(1.0/3.0)
@@ -198,6 +209,17 @@ def calculate_eem_charges(species: Array,
   A = jnp.where(hulp2_mat == 0, 0.0, tapered_dists * 14.4 / hulp2_mat)
   my_idemp = idempotential[species]
   my_elect = electronegativity[species]
+
+  def to_dense():
+    A_ = jax.vmap(lambda j: jax.vmap(lambda i: jnp.sum(A[i] * (nbr_inds[i] == j)))(jnp.arange(N)))(jnp.arange(N))
+    A_ =  A_.at[jnp.diag_indices(N)].add(2.0 * my_idemp)
+    matrix = jnp.zeros(shape=(N+1,N+1),dtype=prev_dtype)
+    matrix = matrix.at[:N,:N].set(A_)
+    matrix = matrix.at[N,:N].set(atom_mask)
+    matrix = matrix.at[:N,N].set(atom_mask)
+    matrix = matrix.at[N,N].set(0.0)
+    return matrix
+
 
   def SPMV_dense(vec):
     res = jnp.zeros(shape=(N+1,), dtype=jnp.float64)
@@ -211,6 +233,7 @@ def calculate_eem_charges(species: Array,
   b = jnp.zeros(shape=(N+1,), dtype=jnp.float64)
   b = b.at[:N].set(-1 * my_elect)
   b = b.at[N].set(total_charge)
+  #charges = jnp.linalg.solve(to_dense(), b)
   charges, conv_info = linalg.cg(SPMV_dense, b, tol=tol, maxiter=10000)
   charges = charges.astype(prev_dtype)
   return charges[:-1] * atom_mask
@@ -270,7 +293,6 @@ def calculate_vdw_pot(species: Array,
   ewh_mat = p2_mat * (h1_mat - 2.0 * h2_mat)
   ewhtap_mat = ewh_mat * tapered_dists
   ewhtap_mat = ewhtap_mat * mask
-  #total_pot = jnp.sum(ewhtap_mat) / 2.0
   total_pot = high_precision_sum(ewhtap_mat) / 2.0
 
   return total_pot
@@ -368,7 +390,6 @@ def calculate_covbon_pot(nbr_inds: Array,
   bopi = ehulpp
   bopi2 = ehulppp
   bo = bor - force_field.cutoff
-  # cutoff_mask = jnp.where(bo <= 0) # if (bor.gt.cutoff) then
   bo = jnp.where(bo <= 0, 0.0, bo)
   abo = jnp.sum(bo, axis=1)
 
@@ -381,7 +402,6 @@ def calculate_covbon_pot(nbr_inds: Array,
   abo = jnp.sum(bo * nbr_mask, axis=1)
 
   bosia = bo - bopi - bopi2
-  #bosia = bosia.clip(min=0)
   bosia = jnp.clip(bosia, a_min=0)
   de1h = symm * my_de1
   de2h = symm * my_de2
@@ -493,10 +513,6 @@ def calculate_boncor_pot(nbr_inds: Array,
 
   bocor1 = jnp.where(my_v13cor > 0.001, bocor1, 1.0)
   bocor2 = jnp.where(my_v13cor > 0.001, bocor2, 1.0)
-
-  # for i in range(N):
-  #    for j in range(len(nbr_inds[0])):
-  #        print("corr1", i+1, nbr_inds[i][j]+1, ov_j1[i][j])
 
   bo = bo * corrtot * bocor1 * bocor2
   bo = safe_mask(nbr_mask & (bo >1e-10), lambda x: x, bo, 0)
@@ -670,10 +686,6 @@ def calculate_valency_pot(species: Array,
                           abo: Array,
                           force_field: ForceField):
   prev_type = bo.dtype
-  ##[ind1, type1, ind2, type2, ind3, type3, bond_ind1,bond_ind2]
-  #type_indices = global_body_3_inter_list[:,[1,3,5]]
-  #atom_indices = global_body_3_inter_list[:,[0,1,2]]
-  # = type_indices.transpose()
   center = body_3_inds[:, 0]
   neigh1_lcl = body_3_inds[:, 1]
   neigh2_lcl = body_3_inds[:, 2]
@@ -686,17 +698,18 @@ def calculate_valency_pot(species: Array,
 
   val_angles = body_3_angles
 
-  bo_new = bo - force_field.cutoff2
-  boa = bo_new[center, neigh1_lcl]
-  bob = bo_new[center, neigh2_lcl]
-
-  # thresholding
-  boa = jnp.clip(boa, a_min=0)  # if (boa.lt.zero.or.bob.lt.zero) then skip
-  bob = jnp.clip(bob, a_min=0)
+  boa = bo[center, neigh1_lcl]
+  bob = bo[center, neigh2_lcl]
   # !Scott Habershon recommendation March 2009
   mask = jnp.where(boa * bob < 0.00001, 0, 1)
   complete_mask = mask * body_3_mask
 
+  boa = boa - force_field.cutoff2
+  bob = bob - force_field.cutoff2
+
+  # thresholding
+  boa = jnp.clip(boa, a_min=0)  # if (boa.lt.zero.or.bob.lt.zero) then skip
+  bob = jnp.clip(bob, a_min=0)
   # calculate SBO term
   # calculate sbo2 and vmbo for every atom in the sim.sys.
   sbo2 = jnp.sum(bopi, axis=1) + jnp.sum(bopi2, axis=1)
@@ -732,7 +745,6 @@ def calculate_valency_pot(species: Array,
   # TODO: temorary change related to new dataset
   # calculate for every atom in the sim.sys.
   sbo2 = sbo2 + (1 - vmbo) * (-exbo - force_field.val_par34 * vlpadj)
-  # sbo2 = sbo2 + (1 - vmbo) * (- val_par34 * vlpadj)
   sbo2 = jnp.clip(sbo2, 0, 2.0)
   sbo2 = vectorized_cond(sbo2 < 1,
                          lambda x: x ** force_field.val_par17,
@@ -795,7 +807,7 @@ def calculate_valency_pot(species: Array,
   ecsboadj = htov1/htov2
 
   ecsboadj = jnp.array(ecsboadj, dtype=prev_type)
-  my_ecsboadj = ecsboadj[cent_types]  # for the center atom
+  my_ecsboadj = ecsboadj[center]  # for the center atom
 
   my_vkap = force_field.vkap[neigh1_types, cent_types, neigh2_types]
   exphu1 = jnp.exp(-force_field.val_par20*(boa-2.0)*(boa-2.0))
@@ -812,10 +824,8 @@ def calculate_valency_pot(species: Array,
 
   unda = abo_i - boa
   ovb = my_abo - force_field.vval3[cent_types]
-  # print("ovb",ovb)
 
   undc = abo_k - bob
-  # print("undc",undc)
   ba = (boa-1.50)*(boa-1.50)
   bb = (bob-1.50)*(bob-1.50)
 
@@ -845,7 +855,8 @@ def calculate_torsion_pot(species: Array,
                           bo: Array,
                           bopi: Array,
                           abo: Array,
-                          force_field: ForceField):
+                          force_field: ForceField,
+                          tors_2013: bool = False):
   prev_type = bo.dtype
   #bo = bo.astype(jnp.float64)
   # left : nbr_inds[ind2][n21]      or nbr_inds[center1][body_4_inds[:,1]]
@@ -892,9 +903,7 @@ def calculate_torsion_pot(species: Array,
   expov2 = jnp.exp(-force_field.par_25 * htovt)
   htov1 = 2.0 + expov2
   htov2 = 1.0 + expov + expov2
-  #etboadj = jnp.exp(jnp.log(htov1) - jnp.log(htov2))
   etboadj = htov1 / htov2
-  #etboadj = 1.0
   etboadj = jnp.array(etboadj, dtype=prev_type)
 
   bo2t = 2.0 - bopi[center1_glb, center2_lcl] - etboadj
@@ -924,18 +933,21 @@ def calculate_torsion_pot(species: Array,
   bo_mask = jnp.where(bob > 0, bo_mask, 0)
   bo_mask = jnp.where(boc > 0, bo_mask, 0)
   complete_mask = bo_mask * complete_mask
-  # ORIGINAL
-  exphua = jnp.exp(-force_field.par_24 * boa)
-  exphub = jnp.exp(-force_field.par_24 * bob)
-  exphuc = jnp.exp(-force_field.par_24 * boc)
-  # TORSION2013
-  #exphua = jnp.exp(-2*force_field.par_24 * boa**2)
-  #exphub = jnp.exp(-2*force_field.par_24 * bob**2)
-  #exphuc = jnp.exp(-2*force_field.par_24 * boc**2)
+
+  if tors_2013:
+    exphua = jnp.exp(-2*force_field.par_24 * boa**2)
+    exphub = jnp.exp(-2*force_field.par_24 * bob**2)
+    exphuc = jnp.exp(-2*force_field.par_24 * boc**2)
+  else:
+    exphua = jnp.exp(-force_field.par_24 * boa)
+    exphub = jnp.exp(-force_field.par_24 * bob)
+    exphuc = jnp.exp(-force_field.par_24 * boc)
+
   bocor4 = (1.0 - exphua) * (1.0 - exphub) * (1.0 - exphuc)
   eth = hsin * ethhulp * bocor4
 
   eth = safe_mask(complete_mask, lambda x: x, eth, 0)
+
   tors_pot = high_precision_sum(eth).astype(prev_type)
   # calculate conjugation pot
   ba = (boa-1.50)*(boa-1.50)

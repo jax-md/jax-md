@@ -10,9 +10,6 @@ import jax.numpy as jnp
 
 Array = util.Array
 
-#TODO: this part needs to be removed
-CLOSE_NEIGH_CUTOFF=5.0
-
 # copy of the safe_sqrt from reaxff_helper.py due to circular dependency
 # better place for this function would be jax_md.util
 
@@ -22,7 +19,8 @@ class ForceField(object):
   num_atom_types: int = dataclasses.static_field()
   name_to_index: dict = dataclasses.static_field()
   params_to_indices: dict = dataclasses.static_field()
-
+  # these tuples are used to handle symmetric parameters in 3 and 4 body param
+  # lists
   body3_indices_src: tuple = dataclasses.static_field()
   body3_indices_dst: tuple = dataclasses.static_field()
   body4_indices_src: tuple = dataclasses.static_field()
@@ -34,9 +32,14 @@ class ForceField(object):
   cutoff: Array = dataclasses.static_field()
   cutoff2: Array = dataclasses.static_field()
 
+
+
   body2_params_mask: Array = dataclasses.static_field()
   body3_params_mask: Array = dataclasses.static_field()
   body4_params_mask: Array = dataclasses.static_field()
+  # since 4 body interactions are created from 3-body, we need to extend
+  # 3 body mask based on the 4-body interactions to not miss any 4 body inter.
+  body34_params_mask: Array = dataclasses.static_field()
   hb_params_mask: Array = dataclasses.static_field()
 
   global_params: Array
@@ -212,9 +215,9 @@ class ForceField(object):
               body_4_indices_dst, arr[body_4_indices_src])
       replace_dict[attr] = arr
 
-      force_field = force_field.replace(**replace_dict)
+    force_field = force_field.replace(**replace_dict)
 
-      return force_field
+    return force_field
 
   def fill_off_diag(force_field):
     num_rows = force_field.num_atom_types
@@ -256,7 +259,7 @@ class ForceField(object):
     rob3_temp = (mat1 + mat1_tr) * 0.5
     rob3_temp = jnp.where(mat1 > 0.0, rob3_temp, 0.0)
     rob3_temp = jnp.where(mat1_tr > 0.0, rob3_temp, 0.0)
-    #TODO: gradient of sqrt. at 0 is nan, use safe sqrt
+
     p1co_temp = util.safe_sqrt(4.0 * rvdw.reshape(-1,1).dot(rvdw.reshape(1,-1)))
     p2co_temp = util.safe_sqrt(eps.reshape(-1,1).dot(eps.reshape(1,-1)))
     p3co_temp = util.safe_sqrt(alf.reshape(-1,1).dot(alf.reshape(1,-1)))
@@ -277,6 +280,7 @@ class ForceField(object):
                                       p2co=p2co,
                                       p3co=p3co)
     return force_field
+
 
 
 

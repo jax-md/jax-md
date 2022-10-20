@@ -85,7 +85,9 @@ class Filtration:
       size = jnp.sum(mask) * capacity_multiplier
       size = max(min_capacity, size)
       selected_inds = jnp.argwhere(mask, size=size,fill_value=-1).flatten()
-      idx = candidate_inds[selected_inds] * (selected_inds != -1).reshape(-1,1)
+      idx = candidate_inds[selected_inds]
+      idx = jnp.where((selected_inds == -1).reshape(-1,1), -1, idx)
+      #idx = candidate_inds[selected_inds] * (selected_inds != -1).reshape(-1,1)
     return Filtration(self.candidate_fn,
                       self.mask_fn,
                       self.is_dense,
@@ -115,7 +117,8 @@ class Filtration:
       selected_inds = jnp.argwhere(mask,
                                    size=len(self.idx),
                                    fill_value=-1).flatten()
-      idx = candidate_inds[selected_inds] * (selected_inds != -1).reshape(-1,1)
+      idx = candidate_inds[selected_inds]
+      idx = jnp.where((selected_inds == -1).reshape(-1,1), -1, idx)
       did_buffer_overflow = (self.did_buffer_overflow
                              | (jnp.sum(mask) > len(self.idx)))
     return Filtration(self.candidate_fn,
@@ -132,6 +135,42 @@ def filtration(candidate_fn:CandidateFn,
   '''
   return Filtration(candidate_fn,mask_fn, is_dense, None, jnp.bool_(False))
 
+def calculate_all_angles_and_distances(R, nbr_lists, map_metric, map_disp):
+  close_nbr_dist = map_metric(R, R[nbr_lists.close_nbrs.idx])
+  far_nbr_dist = map_metric(R, R[nbr_lists.far_nbrs.idx])
+
+  close_nbr_disps = map_disp(R, R[nbr_lists.close_nbrs.idx])
+
+
+  center = nbr_lists.filter3.idx[:, 0]
+  neigh1_lcl = nbr_lists.filter3.idx[:,1]
+  neigh2_lcl = nbr_lists.filter3.idx[:,2]
+
+  body_3_angles = jax.vmap(calculate_angle)(close_nbr_disps[center,
+                                                            neigh1_lcl],
+                                            close_nbr_disps[center,
+                                                            neigh2_lcl])
+
+  body_4_angles = calculate_all_4_body_angles(nbr_lists.filter4.idx,
+                                              nbr_lists.close_nbrs.idx,
+                                              close_nbr_disps)
+
+  if nbr_lists.filter_hb != None:
+    hb_inds = nbr_lists.filter_hb.idx
+    far_nbr_disps = map_disp(R, R[nbr_lists.far_nbrs.idx])
+    hb_ang_dist = calculate_all_hbond_angles_and_dists(hb_inds,
+                                                       close_nbr_disps,
+                                                       far_nbr_disps)
+  else:
+    # filler arrays when there is no hbond
+    hb_inds = jnp.zeros(shape=(0,3),dtype=center.dtype)
+    hb_ang_dist = jnp.zeros(shape=(2,0),dtype=R.dtype)
+
+  return (close_nbr_dist,
+          far_nbr_dist,
+          body_3_angles,
+          body_4_angles,
+          hb_ang_dist)
 
 @dataclasses.dataclass
 class ReaxFFNeighborLists:
@@ -168,8 +207,10 @@ def calculate_angle(disp12, disp32):
   '''
   prev_type = disp12.dtype
   disp12 = disp12.astype(jnp.float64)
-  norm1 = safe_sqrt(jnp.sum(disp12 * disp12))
-  norm2 = safe_sqrt(jnp.sum(disp32 * disp32))
+  # TODO: if  " + 1e-20" removed, forces become nan when disp. are 0
+  # investigate further later
+  norm1 = safe_sqrt(jnp.sum(disp12 * disp12) + 1e-20)
+  norm2 = safe_sqrt(jnp.sum(disp32 * disp32) + 1e-20)
   norm_mult = norm1 * norm2
   dot_prod = safe_mask(norm_mult != 0,
                        lambda x: jnp.dot(disp12, disp32)/x, norm_mult,
@@ -272,14 +313,15 @@ def find_body_4_inter(body_3_item, neigh_inds,neigh_bo,nbr_filtered_inds):
   ind3 = neigh_inds[ind2][n22]
   bo_mult = bo1 * bo2
   # 3-body inter. list (i,j,k) exists if k>j
-  #
   sub_inds = nbr_filtered_inds[ind3]
   vals1,inds1 = jax.vmap(lambda x, n31:
                   ((x * bo_mult
                    * (ind1 != neigh_inds[ind2][n22]) # left != center2
                    * (neigh_inds[ind3][n31] != ind2) # right != center1
                    * (ind3 > ind2)
-                   * (neigh_inds[ind2][n21] != neigh_inds[ind3][n31])),
+                   * (neigh_inds[ind2][n21] != neigh_inds[ind3][n31])
+                   * (n31 != -1) # dummy item in filter2
+                   * (ind2 != -1)), #dummy item in filter3
                    jnp.array([ind2,
                               n21,
                               n22,
@@ -293,7 +335,9 @@ def find_body_4_inter(body_3_item, neigh_inds,neigh_bo,nbr_filtered_inds):
                    * (ind1 != neigh_inds[ind2][n22]) # left != center2
                    * (neigh_inds[ind3][n31] != ind2) # right != center1
                    * (ind3 > ind2)
-                   * (neigh_inds[ind2][n21] != neigh_inds[ind3][n31])),
+                   * (neigh_inds[ind2][n21] != neigh_inds[ind3][n31])
+                   * (n31 != -1) # dummy item in filter2
+                   * (ind2 != -1)), #dummy item in filter3
                    jnp.array([ind2,
                               n21,
                               n22,
@@ -408,8 +452,11 @@ def reaxff_inter_list(displacement: DisplacementFn,
                     box_size: Box,
                     species: Array,
                     species_AN: Array,
-                    force_field: ForceField,
-                    tol: float = 1e-6) -> Tuple[ReaxFFNeighborListFns,
+                    force_field,
+                    tol: float = 1e-6,
+                    backprop_solve: bool = False,
+                    tors_2013: bool = False,
+                    ) -> Tuple[ReaxFFNeighborListFns,
                                                 Callable]:
   '''
   Contains all the neccesary logic to run a reaxff simulation and
@@ -466,7 +513,9 @@ def reaxff_inter_list(displacement: DisplacementFn,
   map_metric = space.map_neighbor(metric)
   map_disp = space.map_neighbor(displacement)
 
-  def update(R,reax_nbrs):
+  new_body3_mask = force_field.body34_params_mask | force_field.body3_params_mask
+
+  def update(R, reax_nbrs):
 
     [close_nbrs,
     far_nbrs,
@@ -489,7 +538,7 @@ def reaxff_inter_list(displacement: DisplacementFn,
                     species_AN,
                     force_field)
 
-    neigh_bo2 = bo - cutoff
+    neigh_bo2 = bo
     neigh_bo2 = jnp.clip(neigh_bo2,a_min=0)
 
     filter2 = filter2.update(candidate_args=(close_nbrs.idx,bo))
@@ -498,7 +547,7 @@ def reaxff_inter_list(displacement: DisplacementFn,
                                              #sub_inds,
                                              filter2.idx,
                                              species,
-                                             force_field.body3_params_mask))
+                                             new_body3_mask))
     filter4 = filter4.update(candidate_args=(filter3.idx,
                                              close_nbrs.idx,
                                              neigh_bo2,
@@ -558,7 +607,7 @@ def reaxff_inter_list(displacement: DisplacementFn,
 
     filter2 = filter2_fn.allocate(candidate_args=(close_nbrs.idx,bo),
                                   capacity_multiplier=1.2)
-    neigh_bo2 = bo - cutoff
+    neigh_bo2 = bo
     neigh_bo2 = jnp.clip(neigh_bo2,a_min=0)
     #TODO: What if a 4 body interaction exists without having corresponding
     # 3 body interactions? (Not likely but possible)
@@ -567,7 +616,7 @@ def reaxff_inter_list(displacement: DisplacementFn,
                                              filter2.idx,
                                              #sub_inds,
                                              species,
-                                             force_field.body3_params_mask),
+                                             new_body3_mask),
                                   capacity_multiplier=1.2)
     filter4 = filter4_fn.allocate(candidate_args=(filter3.idx,
                                              close_nbrs.idx,
@@ -616,7 +665,7 @@ def reaxff_inter_list(displacement: DisplacementFn,
                                 filter_hb,
                                 jnp.bool_(False))
 
-  def reallocate(R,nbr_lists,counts=None):
+  def reallocate(R, nbr_lists,counts=None):
     '''
     Reallocate interaction lists if needed, otherwise update
     '''
@@ -642,7 +691,7 @@ def reaxff_inter_list(displacement: DisplacementFn,
                     species,
                     species_AN,
                     force_field)
-    neigh_bo2 = bo -  cutoff
+    neigh_bo2 = bo
     neigh_bo2 = jnp.clip(neigh_bo2,a_min=0)
 
 
@@ -666,7 +715,7 @@ def reaxff_inter_list(displacement: DisplacementFn,
                                                  neigh_bo2,
                                                  filter2.idx,
                                                  species,
-                                                 force_field.body3_params_mask),
+                                                 new_body3_mask),
                                       capacity_multiplier=1.2**counts[0],
                                       min_capacity=len(filter3.idx))
       counts[0] += 1
@@ -675,7 +724,7 @@ def reaxff_inter_list(displacement: DisplacementFn,
                                                 neigh_bo2,
                                                 filter2.idx,
                                                 species,
-                                                force_field.body3_params_mask))
+                                                new_body3_mask))
     # reallocate filtered 4 body list if itself or
     # the parents (close nbr list, filter2 or filter3) are overflowed
     filter4 = nbr_lists.filter4
@@ -772,37 +821,17 @@ def reaxff_inter_list(displacement: DisplacementFn,
                                jnp.bool_(False))
 
   def energy_fn(R, nbr_lists):
-    close_nbr_dist = map_metric(R, R[nbr_lists.close_nbrs.idx])
-    far_nbr_dist = map_metric(R, R[nbr_lists.far_nbrs.idx])
 
-    close_nbr_disps = map_disp(R, R[nbr_lists.close_nbrs.idx])
+    (close_nbr_dist,
+    far_nbr_dist,
+    body_3_angles,
+    body_4_angles,
+    hb_ang_dist) = calculate_all_angles_and_distances(R,
+                                                      nbr_lists,
+                                                      map_metric,
+                                                      map_disp)
 
-
-    center = nbr_lists.filter3.idx[:, 0]
-    neigh1_lcl = nbr_lists.filter3.idx[:,1]
-    neigh2_lcl = nbr_lists.filter3.idx[:,2]
-
-    body_3_angles = jax.vmap(calculate_angle)(close_nbr_disps[center,
-                                                              neigh1_lcl],
-                                              close_nbr_disps[center,
-                                                              neigh2_lcl])
-
-    body_4_angles = calculate_all_4_body_angles(nbr_lists.filter4.idx,
-                                                nbr_lists.close_nbrs.idx,
-                                                close_nbr_disps)
-
-    if hbond_flag:
-      hb_inds = nbr_lists.filter_hb.idx
-      far_nbr_disps = map_disp(R, R[nbr_lists.far_nbrs.idx])
-      hb_ang_dist = calculate_all_hbond_angles_and_dists(hb_inds,
-                                                         close_nbr_disps,
-                                                         far_nbr_disps)
-    else:
-      # filler arrays when there is no hbond
-      hb_inds = jnp.zeros(shape=(0,3),dtype=center.dtype)
-      hb_ang_dist = jnp.zeros(shape=(2,0),dtype=R.dtype)
-
-    energy,charges = calculate_reaxff_energy(species,
+    energy,result_dict = calculate_reaxff_energy(species,
                                             species_AN,
                                             nbr_lists,
                                             close_nbr_dist,
@@ -812,7 +841,9 @@ def reaxff_inter_list(displacement: DisplacementFn,
                                             hb_ang_dist,
                                             force_field,
                                             0.0,
-                                            tol)
+                                            tol,
+                                            backprop_solve,
+                                            )
 
 
     return energy

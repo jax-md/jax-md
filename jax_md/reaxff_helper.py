@@ -8,7 +8,6 @@ import jax
 import jax.numpy as jnp
 import numpy as onp
 from jax_md.reaxff_forcefield import ForceField
-from jax_md.reaxff_forcefield import CLOSE_NEIGH_CUTOFF
 from dataclasses import fields
 
 # it fixes nan values issue, from: https://github.com/google/jax/issues/1052
@@ -90,7 +89,7 @@ def find_limits(type1, type2, force_field, cutoff):
 
   return distance[ind]
 
-def find_all_cutoffs(force_field,cutoff,atom_indices):
+def find_all_cutoffs(force_field,cutoff,atom_indices, cutoff_dist=5.0):
   lenn = len(atom_indices)
   cutoff_dict = dict()
   for i in range(lenn):
@@ -101,12 +100,12 @@ def find_all_cutoffs(force_field,cutoff,atom_indices):
       cutoff_dict[(type_i,type_j)] = dist
       cutoff_dict[(type_j,type_i)] = dist
 
-      if dist > CLOSE_NEIGH_CUTOFF and type_i != -1 and type_j!=-1: #-1 TYPE is for the filler atom
+      if dist > cutoff_dist and type_i != -1 and type_j!=-1: #-1 TYPE is for the filler atom
         dist = round(dist,2)
         print(f"[WARNING] between type {type_i} and type {type_j}" +
               "the bond length could be greater than {CLOSE_NEIGH_CUTOFF} A! ({dist} A)")
-        cutoff_dict[(type_i,type_j)] = CLOSE_NEIGH_CUTOFF
-        cutoff_dict[(type_j,type_i)] = CLOSE_NEIGH_CUTOFF
+        cutoff_dict[(type_i,type_j)] = cutoff_dist
+        cutoff_dict[(type_j,type_i)] = cutoff_dist
   return cutoff_dict
 
 def parse_and_save_force_field(old_ff_file, new_ff_file,force_field):
@@ -442,7 +441,9 @@ def init_params_for_filler_atom_type(FF_field_dict):
   FF_field_dict['bo132'][-1] = 1
   FF_field_dict['bo133'][-1] = 1
 
-def read_force_field(force_field_file, cutoff2, dtype=jnp.float32):
+def read_force_field(force_field_file,
+                     cutoff2 = 1e-3,
+                     dtype = jnp.float32):
   # to store all arguments together before creating the class
   FF_field_dict = {f.name:None for f in fields(ForceField) if f.init}
 
@@ -814,6 +815,10 @@ def read_force_field(force_field_file, cutoff2, dtype=jnp.float32):
   # torsion parameters
   line = f.readline().strip()
   num_tors_params = int(line.split()[0])
+  FF_field_dict['body34_params_mask'] =  onp.zeros((num_atom_types,
+                                                   num_atom_types,
+                                                   num_atom_types),
+                                                  dtype=jnp.bool_)
   FF_field_dict['body4_params_mask'] =  onp.zeros((num_atom_types,
                                                    num_atom_types,
                                                    num_atom_types,
@@ -870,6 +875,11 @@ def read_force_field(force_field_file, cutoff2, dtype=jnp.float32):
 
     # TODO: handle 0 indices in the param. file later
     if (ind1 > -1 and ind4 > -1):
+      if (ind1,ind2,ind3,ind4) in torsion_param_sets:
+        print(f"[WARNING] 4-body parameters for ({ind1+1},{ind2+1},{ind3+1},{ind4+1}) appeared twice!")
+        print("Might cause numerical inaccuracies!")
+        print("Skipping the dublicate occurance...")
+        continue
       FF_field_dict['v1'][ind1,ind2,ind3,ind4] = v1
       FF_field_dict['v2'][ind1,ind2,ind3,ind4] = v2
       FF_field_dict['v3'][ind1,ind2,ind3,ind4] = v3
@@ -877,6 +887,11 @@ def read_force_field(force_field_file, cutoff2, dtype=jnp.float32):
       FF_field_dict['vconj'][ind1,ind2,ind3,ind4] = vconj
       FF_field_dict['body4_params_mask'][ind1,ind2,ind3,ind4] = 1
       FF_field_dict['body4_params_mask'][ind4,ind3,ind2,ind1] = 1
+
+      FF_field_dict['body34_params_mask'][ind1,ind2,ind3] = 1
+      FF_field_dict['body34_params_mask'][ind3,ind2,ind1] = 1
+      FF_field_dict['body34_params_mask'][ind2,ind3,ind4] = 1
+      FF_field_dict['body34_params_mask'][ind4,ind3,ind2] = 1
 
       body_4_indices_dst[0].append(ind4)
       body_4_indices_dst[1].append(ind3)
@@ -904,10 +919,15 @@ def read_force_field(force_field_file, cutoff2, dtype=jnp.float32):
     ind1,ind2,ind3,ind4,v1,v2,v3,v4,vconj = vals
     # Last index is reserved for this part
     sel_ind = FF_field_dict['num_atom_types'] - 1
+    FF_field_dict['v1'][sel_ind,ind2,ind3,sel_ind] = v1
+    FF_field_dict['v2'][sel_ind,ind2,ind3,sel_ind] = v2
+    FF_field_dict['v3'][sel_ind,ind2,ind3,sel_ind] = v3
+    FF_field_dict['v4'][sel_ind,ind2,ind3,sel_ind] = v4
+    FF_field_dict['vconj'][sel_ind,ind2,ind3,sel_ind] = vconj
 
     for i in range(real_num_atom_types):
       for j in range(real_num_atom_types):
-        if (i,ind2,ind3,j) not in torsion_param_sets:
+        if FF_field_dict['body4_params_mask'][i,ind2,ind3,j] == 0:
           body_4_indices_src[0].append(sel_ind)
           body_4_indices_src[1].append(ind2)
           body_4_indices_src[2].append(ind3)
@@ -917,7 +937,14 @@ def read_force_field(force_field_file, cutoff2, dtype=jnp.float32):
           body_4_indices_dst[1].append(ind2)
           body_4_indices_dst[2].append(ind3)
           body_4_indices_dst[3].append(j)
+          FF_field_dict['body4_params_mask'][i,ind2,ind3,j] = 1
 
+          FF_field_dict['body34_params_mask'][i,ind2,ind3] = 1
+          FF_field_dict['body34_params_mask'][ind3,ind2,i] = 1
+          FF_field_dict['body34_params_mask'][ind2,ind3,j] = 1
+          FF_field_dict['body34_params_mask'][j,ind3,ind2] = 1
+
+        if FF_field_dict['body4_params_mask'][j,ind3,ind2,i] == 0:
           body_4_indices_src[0].append(sel_ind)
           body_4_indices_src[1].append(ind2)
           body_4_indices_src[2].append(ind3)
@@ -927,14 +954,12 @@ def read_force_field(force_field_file, cutoff2, dtype=jnp.float32):
           body_4_indices_dst[1].append(ind3)
           body_4_indices_dst[2].append(ind2)
           body_4_indices_dst[3].append(i)
-
-          FF_field_dict['v1'][sel_ind,ind2,ind3,sel_ind] = v1
-          FF_field_dict['v2'][sel_ind,ind2,ind3,sel_ind] = v2
-          FF_field_dict['v3'][sel_ind,ind2,ind3,sel_ind] = v3
-          FF_field_dict['v4'][sel_ind,ind2,ind3,sel_ind] = v4
-          FF_field_dict['vconj'][sel_ind,ind2,ind3,sel_ind] = vconj
-          FF_field_dict['body4_params_mask'][i,ind2,ind3,j] = 1
           FF_field_dict['body4_params_mask'][j,ind3,ind2,i] = 1
+
+          FF_field_dict['body34_params_mask'][i,ind2,ind3] = 1
+          FF_field_dict['body34_params_mask'][ind3,ind2,i] = 1
+          FF_field_dict['body34_params_mask'][ind2,ind3,j] = 1
+          FF_field_dict['body34_params_mask'][j,ind3,ind2] = 1
 
   # hbond parameters
   line = f.readline().strip()
@@ -965,7 +990,7 @@ def read_force_field(force_field_file, cutoff2, dtype=jnp.float32):
 
     ind1 = int(split_line[0]) - 1
     ind2 = int(split_line[1]) - 1
-    ind3 = int(split_line[2]) -1
+    ind3 = int(split_line[2]) - 1
 
     rhb = float(split_line[3])
     dehb = float(split_line[4])
@@ -1009,9 +1034,10 @@ def read_force_field(force_field_file, cutoff2, dtype=jnp.float32):
   FF_fields = ForceField.__dataclass_fields__
   for k in FF_field_dict:
     is_static = k in FF_fields and FF_fields[k].metadata.get('static', False)
-    if (type(FF_field_dict[k]) == onp.ndarray
-        or type(FF_field_dict[k]) == float):
-      FF_field_dict[k] = jnp.array(FF_field_dict[k],dtype=dtype)
+    if (type(FF_field_dict[k]) == onp.ndarray):
+      FF_field_dict[k] = jnp.array(FF_field_dict[k])
+    elif type(FF_field_dict[k]) == float:
+      FF_field_dict[k] = jnp.array(FF_field_dict[k], dtype=dtype)
 
   force_field = ForceField.init_from_arg_dict(FF_field_dict)
 
