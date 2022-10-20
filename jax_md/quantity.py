@@ -99,7 +99,9 @@ def canonicalize_force(energy_or_force_fn: Union[EnergyFn, ForceFn]) -> ForceFn:
   return force_fn
 
 
+@functools.singledispatch
 def count_dof(position: Array) -> int:
+  util.check_custom_simulation_type(position)
   return tree_reduce(lambda accum, x: accum + x.size, position, 0)
 
 
@@ -114,28 +116,72 @@ def volume(dimension: int, box: Box) -> float:
                     f'Found {box}.'))
 
 
-# Right now, these functions will silently fail for systems where the
-# orientation is a quaternion.
+def kinetic_energy(*unused_args,
+                   momentum: Array=None,
+                   velocity: Array=None,
+                   mass: Array=f32(1.0)
+                   ) -> float:
+  """Computes the kinetic energy of a system.
 
-def kinetic_energy(momentum: Array, mass: Array=f32(1.0)) -> float:
-  """Computes the kinetic energy of a system with some momenta."""
-  logging.info('In version 0.2.0, the function signature of '
-               '`quantity.kinetic_energy` changed from taking velocity to '
-               'taking momentum.')
-  ke = tree_map(lambda m, p: 0.5 * util.high_precision_sum(p**2 / m),
-                mass, momentum)
+  To avoid ambiguity, either momentum or velocity must be passed explicitly
+  as a keyword argument.
+
+  Args:
+    momentum: Array specifying the momentum of the system.
+    velocity: Array specifying the velocity of the system.
+    mass: Array specifying the mass of the constituents.
+
+  Returns:
+    The kinetic energy of the system.
+  """
+  if unused_args:
+    raise ValueError('To use the kinetic energy function, you must explicitly '
+                     'pass either momentum or velocity as a keyword argument.')
+  if momentum is not None and velocity is not None:
+    raise ValueError('To use the kinetic energy function, you must pass either'
+                     ' a momentum or a velocity.')
+
+  k = (lambda v, m: v**2 * m) if momentum is None else (lambda p, m: p**2 / m)
+  q = velocity if momentum is None else momentum
+  util.check_custom_simulation_type(q)
+
+  ke = tree_map(lambda m, q: 0.5 * util.high_precision_sum(k(q, m)), mass, q)
   return tree_reduce(operator.add, ke, 0.0)
 
 
-def temperature(momentum: Array, mass: Array=f32(1.0)) -> float:
-  """Computes the temperature of a system with some momenta."""
-  logging.info('In version 0.2.0, the function signature of '
-               '`quantity.temperature` changed from taking velocity to '
-               'taking momentum.')
-  dof = count_dof(momentum)
-  T = tree_map(lambda m, p: util.high_precision_sum(p**2 / m) / dof,
-               mass, momentum)
-  return tree_reduce(operator.add, T, 0.0)
+def temperature(*unused_args,
+                momentum: Array=None,
+                velocity: Array=None,
+                mass: Array=f32(1.0)
+                ) -> float:
+  """Computes the temperature of a system.
+
+  To avoid ambiguity, either momentum or velocity must be passed explicitly
+  as a keyword argument.
+
+  Args:
+    momentum: Array specifying the momentum of the system.
+    velocity: Array specifying the velocity of the system.
+    mass: Array specifying the mass of the constituents.
+
+  Returns:
+    The temperature of the system in units of the Boltzmann constant.
+  """
+  if unused_args:
+    raise ValueError('To use the kinetic energy function, you must explicitly '
+                     'pass either momentum or velocity as a keyword argument.')
+  if momentum is not None and velocity is not None:
+    raise ValueError('To use the kinetic energy function, you must pass either'
+                     ' a momentum or a velocity.')
+
+  t = (lambda v, m: v**2 * m) if momentum is None else (lambda p, m: p**2 / m)
+  q = velocity if momentum is None else momentum
+  util.check_custom_simulation_type(q)
+
+  dof = count_dof(q)
+
+  kT = tree_map(lambda m, q: util.high_precision_sum(t(q, m)) / dof, mass, q)
+  return tree_reduce(operator.add, kT, 0.0)
 
 
 def pressure(energy_fn: EnergyFn, position: Array, box: Box,

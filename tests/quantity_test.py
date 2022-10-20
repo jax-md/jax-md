@@ -61,7 +61,7 @@ class QuantityTest(test_util.JAXMDTestCase):
       key = random.PRNGKey(0)
       V = random.normal(key, (PARTICLE_COUNT, spatial_dimension), dtype=f32)
 
-      return quantity.kinetic_energy(theta * V)
+      return quantity.kinetic_energy(velocity=theta * V)
 
     grad(do_fn)(2.0)
 
