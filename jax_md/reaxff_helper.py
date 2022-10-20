@@ -451,7 +451,7 @@ def read_force_field(force_field_file,
   header = f.readline().strip()
 
   num_params = int(f.readline().strip().split()[0])
-  global_params = onp.zeros(shape=(num_params,1), dtype=onp.float64)
+  global_params = onp.zeros(shape=(num_params,1), dtype=dtype)
   name_to_index = dict()
   body_3_indices_src = [[],[],[]]
   body_3_indices_dst = [[],[],[]]
@@ -1035,7 +1035,7 @@ def read_force_field(force_field_file,
   for k in FF_field_dict:
     is_static = k in FF_fields and FF_fields[k].metadata.get('static', False)
     if (type(FF_field_dict[k]) == onp.ndarray):
-      FF_field_dict[k] = jnp.array(FF_field_dict[k])
+      FF_field_dict[k] = jnp.array(FF_field_dict[k], dtype=dtype)
     elif type(FF_field_dict[k]) == float:
       FF_field_dict[k] = jnp.array(FF_field_dict[k], dtype=dtype)
 

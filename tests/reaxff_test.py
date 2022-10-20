@@ -181,8 +181,6 @@ class ReaxFFEnergyTest(JAXMDTestCase):
     atom_inds = jnp.arange(N).reshape(-1,1)
     close_nbr_inds = self.nbr_lists[i].close_nbrs.idx[atom_inds,
                                                   self.nbr_lists[i].filter2.idx]
-    close_nbr_inds = self.nbr_lists[i].close_nbrs.idx[atom_inds,
-                                                  self.nbr_lists[i].filter2.idx]
     close_nbr_inds = jnp.where(self.nbr_lists[i].filter2.idx != -1,
                                    close_nbr_inds,
                                    N)
