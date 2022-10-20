@@ -136,10 +136,16 @@ def filtration(candidate_fn:CandidateFn,
   return Filtration(candidate_fn,mask_fn, is_dense, None, jnp.bool_(False))
 
 def calculate_all_angles_and_distances(R, nbr_lists, map_metric, map_disp):
-  close_nbr_dist = map_metric(R, R[nbr_lists.close_nbrs.idx])
+  N = len(R)
+  atom_inds = jnp.arange(N).reshape(-1,1)
+  filtered_close_idx = nbr_lists.close_nbrs.idx[atom_inds,nbr_lists.filter2.idx]
+  filtered_close_idx = jnp.where(nbr_lists.filter2.idx != -1,
+                                 filtered_close_idx,
+                                 N)
+  close_nbr_dist = map_metric(R, R[filtered_close_idx])
   far_nbr_dist = map_metric(R, R[nbr_lists.far_nbrs.idx])
 
-  close_nbr_disps = map_disp(R, R[nbr_lists.close_nbrs.idx])
+  close_nbr_disps = map_disp(R, R[filtered_close_idx])
 
 
   center = nbr_lists.filter3.idx[:, 0]
@@ -152,7 +158,7 @@ def calculate_all_angles_and_distances(R, nbr_lists, map_metric, map_disp):
                                                             neigh2_lcl])
 
   body_4_angles = calculate_all_4_body_angles(nbr_lists.filter4.idx,
-                                              nbr_lists.close_nbrs.idx,
+                                              filtered_close_idx,
                                               close_nbr_disps)
 
   if nbr_lists.filter_hb != None:
@@ -280,32 +286,29 @@ def calculate_all_hbond_angles_and_dists(hbond_inds,
 
   return jnp.array([angles, dists13])
 
-
-def find_3_body_inter(ctr_ind, nbr_pot, nbr_inds, filtered_lcl_inds):
+def find_3_body_inter(N, ctr_ind, nbr_pot, nbr_inds, lcl_inds, cutoff2):
   '''
   Finds all potential 3-body interactions based on bonded potentials
   '''
   # filler values in filtered_lcl_inds is "-1", defined in the filter
-  lcl_inds = filtered_lcl_inds
   n = lcl_inds.shape[0]
-  nbrs = nbr_inds[lcl_inds]
+  nbrs = nbr_inds
   vals,inds = jax.vmap(lambda n1,i1:
-                 jax.vmap(lambda n2,i2: ((nbr_pot[n1]
-                                         * nbr_pot[n2]
+                 jax.vmap(lambda n2,i2: (((nbr_pot[n1] > cutoff2)
+                                         * (nbr_pot[n2] > cutoff2)
                                          * (i2>i1)
-                                         * (n1 != -1) * (n2 != -1)),
+                                         * (n1 != N) * (n2 != N)),
                           jnp.array([ctr_ind,
                                      n1,
                                      n2])))(lcl_inds,nbrs))(lcl_inds,nbrs)
 
   return inds, (vals * (1.0 - jnp.eye(n)))
 
-
-
-def find_body_4_inter(body_3_item, neigh_inds,neigh_bo,nbr_filtered_inds):
+def find_body_4_inter(body_3_item, neigh_inds,neigh_bo, cutoff2):
   '''
   Finds all potential 4 body interactions involving a 3-body item
   '''
+  N = neigh_inds.shape[0]
   ind2,n21,n22 = body_3_item
   bo1 = neigh_bo[ind2][n21]
   bo2 = neigh_bo[ind2][n22]
@@ -313,35 +316,42 @@ def find_body_4_inter(body_3_item, neigh_inds,neigh_bo,nbr_filtered_inds):
   ind3 = neigh_inds[ind2][n22]
   bo_mult = bo1 * bo2
   # 3-body inter. list (i,j,k) exists if k>j
-  sub_inds = nbr_filtered_inds[ind3]
+  sub_inds = jnp.arange(neigh_inds.shape[1])
+  sub_pots = neigh_bo[ind3]
   vals1,inds1 = jax.vmap(lambda x, n31:
                   ((x * bo_mult
+                   * (x > cutoff2)
+                   * (bo1 > cutoff2)
+                   * (bo2 > cutoff2)
                    * (ind1 != neigh_inds[ind2][n22]) # left != center2
                    * (neigh_inds[ind3][n31] != ind2) # right != center1
                    * (ind3 > ind2)
                    * (neigh_inds[ind2][n21] != neigh_inds[ind3][n31])
-                   * (n31 != -1) # dummy item in filter2
+                   * (neigh_inds[ind3][n31] != N) # dummy item in filter2
                    * (ind2 != -1)), #dummy item in filter3
                    jnp.array([ind2,
                               n21,
                               n22,
-                              n31])))(neigh_bo[ind3][sub_inds],sub_inds)
+                              n31])))(sub_pots,sub_inds)
 
   ind3,ind1 = ind1,ind3
   n22,n21 = n21,n22
-  sub_inds = nbr_filtered_inds[ind3]
+  sub_pots = neigh_bo[ind3]
   vals2,inds2 = jax.vmap(lambda x, n31:
                   ((x * bo_mult
+                   * (x > cutoff2)
+                   * (bo1 > cutoff2)
+                   * (bo2 > cutoff2)
                    * (ind1 != neigh_inds[ind2][n22]) # left != center2
                    * (neigh_inds[ind3][n31] != ind2) # right != center1
                    * (ind3 > ind2)
                    * (neigh_inds[ind2][n21] != neigh_inds[ind3][n31])
-                   * (n31 != -1) # dummy item in filter2
+                   * (neigh_inds[ind3][n31] != N) # dummy item in filter2
                    * (ind2 != -1)), #dummy item in filter3
                    jnp.array([ind2,
                               n21,
                               n22,
-                              n31])))(neigh_bo[ind3][sub_inds],sub_inds)
+                              n31])))(sub_pots,sub_inds)
 
   # left : neigh_inds[ind2][n21]    or neigh_inds[center1][body_4_inds[:,1]]
   # center1: ind2                   or body_4_inds[:,0]
@@ -351,20 +361,24 @@ def find_body_4_inter(body_3_item, neigh_inds,neigh_bo,nbr_filtered_inds):
 
 def body_3_candidate_fn(nbr_inds,
                         neigh_bo,
-                        nbr_filtered_inds,
                         species,
+                        cutoff2,
                         param_mask):
   '''
   Creates full candidate index and value arrays for 3 body interactions,
   to be used by a filter.
   '''
-
-  atom_inds = jnp.arange(len(nbr_inds))
-  find_all_3_body_inter = jax.vmap(find_3_body_inter)
-  inds,body_3_vals = find_all_3_body_inter(atom_inds,
+  N = len(nbr_inds)
+  atom_inds = jnp.arange(N)
+  find_all_3_body_inter = jax.vmap(find_3_body_inter,in_axes=(None,
+                                                              0,0,0,
+                                                              None,None))
+  local_inds = jnp.arange(nbr_inds.shape[1])
+  inds,body_3_vals = find_all_3_body_inter(N,atom_inds,
                                            neigh_bo,
                                            nbr_inds,
-                                           nbr_filtered_inds)
+                                           local_inds,
+                                           cutoff2)
   inds = inds.reshape(-1,3)
   center = inds[:, 0]
   neigh1_lcl = inds[:,1]
@@ -382,18 +396,19 @@ def body_3_candidate_fn(nbr_inds,
 def body_4_candidate_fn(body_3_inds,
                         nbr_inds,
                         neigh_bo,
-                        nbr_filtered_inds,
                         species,
+                        cutoff2,
                         param_mask):
   '''
   Creates full candidate index and value arrays for 4 body interactions,
   to be used by a filter.
   '''
-  find_all_4_body_inter = jax.vmap(find_body_4_inter,in_axes=(0,None,None,None))
+  find_all_4_body_inter = jax.vmap(find_body_4_inter,in_axes=(0,
+                                                              None,None,None))
   inds, body_4_vals = find_all_4_body_inter(body_3_inds,
                                             nbr_inds,
                                             neigh_bo,
-                                            nbr_filtered_inds)
+                                            cutoff2)
   inds = inds.reshape(-1,4)
   center1_glb = inds[:,0]
   left_lcl = inds[:,1] # local to center1
@@ -465,7 +480,7 @@ def reaxff_inter_list(displacement: DisplacementFn,
 
   neighbor_fn1 = partition.neighbor_list(displacement,
                                   box_size=box_size,
-                                  r_cutoff=5.0,
+                                  r_cutoff=4.5,
                                   dr_threshold=0.5,
                                   capacity_multiplier=1.2,
                                   format=partition.Dense)
@@ -487,7 +502,7 @@ def reaxff_inter_list(displacement: DisplacementFn,
   hbond_flag = (jnp.sum(hb_donor_mask) > 0) and (jnp.sum(hb_acceptor_mask) > 0)
 
   filter2_fn = filtration(lambda inds,vals: (inds,vals),
-                          lambda x: x > cutoff2,
+                          lambda x: x > 0.0,
                           is_dense=True)
 
   filter3_fn = filtration(body_3_candidate_fn, lambda x: x > 0.00001)
@@ -526,7 +541,7 @@ def reaxff_inter_list(displacement: DisplacementFn,
     filter_hb_far,
     filter_hb,
     overflow_flag] = list(reax_nbrs)
-
+    N = len(R)
     close_nbrs = close_nbrs.update(R)
     far_nbrs = far_nbrs.update(R)
     close_nbr_dist = map_metric(R, R[close_nbrs.idx])
@@ -538,26 +553,34 @@ def reaxff_inter_list(displacement: DisplacementFn,
                     species_AN,
                     force_field)
 
-    neigh_bo2 = bo
-    neigh_bo2 = jnp.clip(neigh_bo2,a_min=0)
-
     filter2 = filter2.update(candidate_args=(close_nbrs.idx,bo))
-    filter3 = filter3.update(candidate_args=(close_nbrs.idx,
+    atom_inds = jnp.arange(N).reshape(-1,1)
+
+    filtered_close_idx = close_nbrs.idx[atom_inds,filter2.idx]
+    filtered_close_idx = jnp.where(filter2.idx != -1,
+                                   filtered_close_idx,
+                                   N)
+    neigh_bo2 = bo[atom_inds,filter2.idx]
+    neigh_bo2 = jnp.where(filter2.idx != -1,
+                                   neigh_bo2,
+                                   0.0)
+
+    filter3 = filter3.update(candidate_args=(filtered_close_idx,
                                              neigh_bo2,
                                              #sub_inds,
-                                             filter2.idx,
                                              species,
+                                             cutoff2,
                                              new_body3_mask))
     filter4 = filter4.update(candidate_args=(filter3.idx,
-                                             close_nbrs.idx,
+                                             filtered_close_idx,
                                              neigh_bo2,
                                              #sub_inds,
-                                             filter2.idx,
                                              species,
+                                             cutoff2,
                                              force_field.body4_params_mask))
     if hbond_flag:
-      dnr_nbr_inds = close_nbrs.idx[hb_donor_inds]
-      dnr_nbr_pots = bo[hb_donor_inds]
+      dnr_nbr_inds = filtered_close_idx[hb_donor_inds]
+      dnr_nbr_pots = neigh_bo2[hb_donor_inds]
       dnr_long_nbr_inds = far_nbrs.idx[hb_donor_inds]
       dnr_long_nbr_dists = far_nbr_dist[hb_donor_inds]
       filter_hb_close = filter_hb_close.update(candidate_args=(dnr_nbr_inds,
@@ -567,7 +590,7 @@ def reaxff_inter_list(displacement: DisplacementFn,
                                                            dnr_long_nbr_dists,
                                                            hb_acceptor_mask))
       filter_hb = filter_hb.update(candidate_args=(hb_donor_inds,
-                                                  close_nbrs.idx,
+                                                  filtered_close_idx,
                                                   filter_hb_close.idx,
                                                   far_nbrs.idx,
                                                   filter_hb_far.idx,
@@ -594,6 +617,7 @@ def reaxff_inter_list(displacement: DisplacementFn,
                                 overflow_flag)
 
   def allocate(R):
+    N = len(R)
     close_nbrs = neighbor_fn1.allocate(R)
     far_nbrs = neighbor_fn2.allocate(R)
     close_nbr_dist = map_metric(R, R[close_nbrs.idx])
@@ -607,28 +631,37 @@ def reaxff_inter_list(displacement: DisplacementFn,
 
     filter2 = filter2_fn.allocate(candidate_args=(close_nbrs.idx,bo),
                                   capacity_multiplier=1.2)
-    neigh_bo2 = bo
-    neigh_bo2 = jnp.clip(neigh_bo2,a_min=0)
+    atom_inds = jnp.arange(N).reshape(-1,1)
+
+    filtered_close_idx = close_nbrs.idx[atom_inds,filter2.idx]
+    filtered_close_idx = jnp.where(filter2.idx != -1,
+                                   filtered_close_idx,
+                                   N)
+    neigh_bo2 = bo[atom_inds,filter2.idx]
+    neigh_bo2 = jnp.where(filter2.idx != -1,
+                                   neigh_bo2,
+                                   0.0)
+
     #TODO: What if a 4 body interaction exists without having corresponding
     # 3 body interactions? (Not likely but possible)
-    filter3 = filter3_fn.allocate(candidate_args=(close_nbrs.idx,
+    filter3 = filter3_fn.allocate(candidate_args=(filtered_close_idx,
                                              neigh_bo2,
-                                             filter2.idx,
                                              #sub_inds,
                                              species,
+                                             force_field.cutoff2,
                                              new_body3_mask),
                                   capacity_multiplier=1.2)
     filter4 = filter4_fn.allocate(candidate_args=(filter3.idx,
-                                             close_nbrs.idx,
+                                             filtered_close_idx,
                                              neigh_bo2,
-                                             filter2.idx,
                                              #sub_inds,
                                              species,
+                                             force_field.cutoff2,
                                              force_field.body4_params_mask),
                                   capacity_multiplier=1.2)
     if hbond_flag:
-      dnr_nbr_inds = close_nbrs.idx[hb_donor_inds]
-      dnr_nbr_pots = bo[hb_donor_inds]
+      dnr_nbr_inds = filtered_close_idx[hb_donor_inds]
+      dnr_nbr_pots = neigh_bo2[hb_donor_inds]
       dnr_long_nbr_inds = far_nbrs.idx[hb_donor_inds]
       dnr_long_nbr_dists = far_nbr_dist[hb_donor_inds]
       filter_hb_close = filter_hb_close_fn.allocate(
@@ -642,7 +675,7 @@ def reaxff_inter_list(displacement: DisplacementFn,
                                                             hb_acceptor_mask),
                                             capacity_multiplier=1.2)
       filter_hb = filter_hb_fn.allocate(candidate_args=(hb_donor_inds,
-                                               close_nbrs.idx,
+                                               filtered_close_idx,
                                                filter_hb_close.idx,
                                                far_nbrs.idx,
                                                filter_hb_far.idx,
@@ -669,6 +702,7 @@ def reaxff_inter_list(displacement: DisplacementFn,
     '''
     Reallocate interaction lists if needed, otherwise update
     '''
+    N = len(R)
     if counts == None:
         counts = [1] * 2
     # reallocate close and far negihbor lists
@@ -691,9 +725,6 @@ def reaxff_inter_list(displacement: DisplacementFn,
                     species,
                     species_AN,
                     force_field)
-    neigh_bo2 = bo
-    neigh_bo2 = jnp.clip(neigh_bo2,a_min=0)
-
 
     # reallocate filtered 2 body list if itself or
     # the parent (close nbr list) is overflowed
@@ -705,25 +736,36 @@ def reaxff_inter_list(displacement: DisplacementFn,
                                       min_capacity=len(filter2.idx[0]))
     else:
       filter2 = filter2.update(candidate_args=(close_nbrs.idx,bo))
+
+    atom_inds = jnp.arange(N).reshape(-1,1)
+
+    filtered_close_idx = close_nbrs.idx[atom_inds,filter2.idx]
+    filtered_close_idx = jnp.where(filter2.idx != -1,
+                                   filtered_close_idx,
+                                   N)
+    neigh_bo2 = bo[atom_inds,filter2.idx]
+    neigh_bo2 = jnp.where(filter2.idx != -1,
+                                   neigh_bo2,
+                                   0.0)
     # reallocate filtered 3 body list if itself or
     # the parents (close nbr list or filter2) are overflowed
     filter3 = nbr_lists.filter3
     if (close_nbrs.did_buffer_overflow
         or filter2.did_buffer_overflow
         or filter3.did_buffer_overflow):
-      filter3 = filter3_fn.allocate(candidate_args=(close_nbrs.idx,
+      filter3 = filter3_fn.allocate(candidate_args=(filtered_close_idx,
                                                  neigh_bo2,
-                                                 filter2.idx,
                                                  species,
+                                                 force_field.cutoff2,
                                                  new_body3_mask),
                                       capacity_multiplier=1.2**counts[0],
                                       min_capacity=len(filter3.idx))
       counts[0] += 1
     else:
-      filter3 = filter3.update(candidate_args=(close_nbrs.idx,
+      filter3 = filter3.update(candidate_args=(filtered_close_idx,
                                                 neigh_bo2,
-                                                filter2.idx,
                                                 species,
+                                                force_field.cutoff2,
                                                 new_body3_mask))
     # reallocate filtered 4 body list if itself or
     # the parents (close nbr list, filter2 or filter3) are overflowed
@@ -733,26 +775,26 @@ def reaxff_inter_list(displacement: DisplacementFn,
         or filter3.did_buffer_overflow
         or filter4.did_buffer_overflow):
       filter4 = filter4_fn.allocate(candidate_args=(filter3.idx,
-                                               close_nbrs.idx,
+                                               filtered_close_idx,
                                                neigh_bo2,
-                                               filter2.idx,
                                                species,
+                                               force_field.cutoff2,
                                                force_field.body4_params_mask),
                                     capacity_multiplier=1.2**counts[1],
                                     min_capacity=len(filter4.idx))
       counts[1] += 1
     else:
       filter4 = filter4.update(candidate_args=(filter3.idx,
-                                               close_nbrs.idx,
+                                               filtered_close_idx,
                                                neigh_bo2,
-                                               filter2.idx,
                                                species,
+                                               force_field.cutoff2,
                                                force_field.body4_params_mask))
     # reallocate filtered h. bond list if itself or
     # the parents are overflowed
     if hbond_flag:
-      dnr_nbr_inds = close_nbrs.idx[hb_donor_inds]
-      dnr_nbr_pots = bo[hb_donor_inds]
+      dnr_nbr_inds = filtered_close_idx[hb_donor_inds]
+      dnr_nbr_pots = neigh_bo2[hb_donor_inds]
       dnr_long_nbr_inds = far_nbrs.idx[hb_donor_inds]
       dnr_long_nbr_dists = far_nbr_dist[hb_donor_inds]
       filter_hb_close = nbr_lists.filter_hb_close
@@ -789,7 +831,7 @@ def reaxff_inter_list(displacement: DisplacementFn,
           or filter_hb_far.did_buffer_overflow
           or filter_hb.did_buffer_overflow):
         filter_hb = filter_hb_fn.allocate(candidate_args=(hb_donor_inds,
-                                                 close_nbrs.idx,
+                                                 filtered_close_idx,
                                                  filter_hb_close.idx,
                                                  far_nbrs.idx,
                                                  filter_hb_far.idx,

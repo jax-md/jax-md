@@ -58,6 +58,12 @@ def calculate_reaxff_energy(species: Array,
   atom_mask = jnp.ones_like(species, dtype=jnp.int32)
   far_nbr_inds = nbr_lists.far_nbrs.idx
   close_nbr_inds = nbr_lists.close_nbrs.idx
+  atom_inds = jnp.arange(N).reshape(-1,1)
+  close_nbr_inds = nbr_lists.close_nbrs.idx[atom_inds,
+                                                nbr_lists.filter2.idx]
+  close_nbr_inds = jnp.where(nbr_lists.filter2.idx != -1,
+                                 close_nbr_inds,
+                                 N)
   body_3_inds = nbr_lists.filter3.idx
   body_4_inds = nbr_lists.filter4.idx
   if nbr_lists.filter_hb != None:
@@ -275,9 +281,12 @@ def calculate_vdw_pot(species: Array,
   N = len(species)
   neigh_types = species[nbr_inds]
   my_vop = force_field.vop[species]
-  gamwh_mat = jnp.sqrt(my_vop.reshape(-1, 1) * my_vop[nbr_inds])
   mask = atom_mask.reshape(-1, 1) * atom_mask[nbr_inds] * (nbr_inds != N)
-  gamwco_mat = (1.0 / gamwh_mat) ** force_field.vdw_shiedling
+
+  gamwh_mat = jnp.sqrt(force_field.vop.reshape(-1, 1) *
+                       force_field.vop.reshape(1, -1))
+  gamwh_mat = (1.0 / gamwh_mat) ** force_field.vdw_shiedling
+  gamwco_mat = gamwh_mat[neigh_types, species.reshape(-1, 1)]
   # select the required values
   p1_mat = force_field.p1co[neigh_types, species.reshape(-1, 1)]
   p2_mat = force_field.p2co[neigh_types, species.reshape(-1, 1)]
@@ -515,13 +524,14 @@ def calculate_boncor_pot(nbr_inds: Array,
   bocor2 = jnp.where(my_v13cor > 0.001, bocor2, 1.0)
 
   bo = bo * corrtot * bocor1 * bocor2
-  bo = safe_mask(nbr_mask & (bo >1e-10), lambda x: x, bo, 0)
+  threshold = 0.0 # fortran threshold: 1e-10
+  bo = safe_mask(nbr_mask & (bo > threshold), lambda x: x, bo, 0)
   corrtot2 = corrtot*corrtot
   bopi = bopi*corrtot2*bocor1*bocor2
   bopi2 = bopi2*corrtot2*bocor1*bocor2
 
-  bopi = safe_mask(nbr_mask & (bopi >1e-10), lambda x: x, bopi, 0)
-  bopi2 = safe_mask(nbr_mask & (bopi2 >1e-10), lambda x: x, bopi2, 0)
+  bopi = safe_mask(nbr_mask & (bopi > threshold), lambda x: x, bopi, 0)
+  bopi2 = safe_mask(nbr_mask & (bopi2 > threshold), lambda x: x, bopi2, 0)
 
   return bo, bopi, bopi2
 

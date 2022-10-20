@@ -181,10 +181,12 @@ class ReaxFFEnergyTest(JAXMDTestCase):
     atom_inds = jnp.arange(N).reshape(-1,1)
     close_nbr_inds = self.nbr_lists[i].close_nbrs.idx[atom_inds,
                                                   self.nbr_lists[i].filter2.idx]
-    #close_nbr_inds = jnp.where(self.nbr_lists[i].filter2.idx != -1,
-    #                               close_nbr_inds,
-    #                               N)
-    close_nbr_inds = self.nbr_lists[i].close_nbrs.idx
+    close_nbr_inds = self.nbr_lists[i].close_nbrs.idx[atom_inds,
+                                                  self.nbr_lists[i].filter2.idx]
+    close_nbr_inds = jnp.where(self.nbr_lists[i].filter2.idx != -1,
+                                   close_nbr_inds,
+                                   N)
+    #close_nbr_inds = self.nbr_lists[i].close_nbrs.idx
     close_nbr_dists = self.angles_and_dists[i][0]
     atomic_num1 = self.atomic_nums[i].reshape(-1, 1)
     atomic_num2 = self.atomic_nums[i][close_nbr_inds]
@@ -213,9 +215,12 @@ class ReaxFFEnergyTest(JAXMDTestCase):
     N = len(self.species[i])
     atom_mask = jnp.ones(N, dtype=jnp.bool_)
     atom_inds = jnp.arange(N).reshape(-1,1)
-    #close_nbr_inds = self.nbr_lists[i].close_nbrs.idx[atom_inds,
-    #                                              self.nbr_lists[i].filter2.idx]
-    close_nbr_inds = self.nbr_lists[i].close_nbrs.idx
+    close_nbr_inds = self.nbr_lists[i].close_nbrs.idx[atom_inds,
+                                                  self.nbr_lists[i].filter2.idx]
+    close_nbr_inds = jnp.where(self.nbr_lists[i].filter2.idx != -1,
+                                   close_nbr_inds,
+                                   N)
+    #close_nbr_inds = self.nbr_lists[i].close_nbrs.idx
     close_nbr_dists = self.angles_and_dists[i][0]
     atomic_num1 = self.atomic_nums[i].reshape(-1, 1)
     atomic_num2 = self.atomic_nums[i][close_nbr_inds]
@@ -249,14 +254,14 @@ class ReaxFFEnergyTest(JAXMDTestCase):
     N = len(self.species[i])
     atom_mask = jnp.ones(N, dtype=jnp.bool_)
     atom_inds = jnp.arange(N).reshape(-1,1)
-    '''
+
     close_nbr_inds = self.nbr_lists[i].close_nbrs.idx[atom_inds,
                                                   self.nbr_lists[i].filter2.idx]
     close_nbr_inds = jnp.where(self.nbr_lists[i].filter2.idx != -1,
                                    close_nbr_inds,
                                    N)
-    '''
-    close_nbr_inds = self.nbr_lists[i].close_nbrs.idx
+
+    #close_nbr_inds = self.nbr_lists[i].close_nbrs.idx
     close_nbr_dists = self.angles_and_dists[i][0]
     atomic_num1 = self.atomic_nums[i].reshape(-1, 1)
     atomic_num2 = self.atomic_nums[i][close_nbr_inds]
@@ -305,14 +310,14 @@ class ReaxFFEnergyTest(JAXMDTestCase):
   def test_4_body(self, i, name):
     N = len(self.geos[i])
     atom_inds = jnp.arange(N).reshape(-1,1)
-    '''
+
     close_nbr_inds = self.nbr_lists[i].close_nbrs.idx[atom_inds,
                                                   self.nbr_lists[i].filter2.idx]
     close_nbr_inds = jnp.where(self.nbr_lists[i].filter2.idx != -1,
                                    close_nbr_inds,
                                    N)
-    '''
-    close_nbr_inds = self.nbr_lists[i].close_nbrs.idx
+
+    #close_nbr_inds = self.nbr_lists[i].close_nbrs.idx
     close_nbr_dists = self.angles_and_dists[i][0]
     atomic_num1 = self.atomic_nums[i].reshape(-1, 1)
     atomic_num2 = self.atomic_nums[i][close_nbr_inds]
@@ -355,14 +360,14 @@ class ReaxFFEnergyTest(JAXMDTestCase):
   def test_hbond(self, i, name):
     N = len(self.species[i])
     atom_inds = jnp.arange(N).reshape(-1,1)
-    '''
+
     close_nbr_inds = self.nbr_lists[i].close_nbrs.idx[atom_inds,
                                                   self.nbr_lists[i].filter2.idx]
     close_nbr_inds = jnp.where(self.nbr_lists[i].filter2.idx != -1,
                                    close_nbr_inds,
                                    N)
-    '''
-    close_nbr_inds = self.nbr_lists[i].close_nbrs.idx
+
+    #close_nbr_inds = self.nbr_lists[i].close_nbrs.idx
     close_nbr_dists = self.angles_and_dists[i][0]
     atomic_num1 = self.atomic_nums[i].reshape(-1, 1)
     atomic_num2 = self.atomic_nums[i][close_nbr_inds]
@@ -409,14 +414,14 @@ class ReaxFFEnergyTest(JAXMDTestCase):
     N = len(self.species[i])
     atom_mask = jnp.ones(N, dtype=jnp.bool_)
     atom_inds = jnp.arange(N).reshape(-1,1)
-    '''
+
     close_nbr_inds = self.nbr_lists[i].close_nbrs.idx[atom_inds,
                                                   self.nbr_lists[i].filter2.idx]
     close_nbr_inds = jnp.where(self.nbr_lists[i].filter2.idx != -1,
                                    close_nbr_inds,
                                    N)
-    '''
-    close_nbr_inds = self.nbr_lists[i].close_nbrs.idx
+
+    #close_nbr_inds = self.nbr_lists[i].close_nbrs.idx
     close_nbr_dists = self.angles_and_dists[i][0]
     atomic_num1 = self.atomic_nums[i].reshape(-1, 1)
     atomic_num2 = self.atomic_nums[i][close_nbr_inds]
