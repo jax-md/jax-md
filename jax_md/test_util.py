@@ -357,3 +357,18 @@ def load_lammps_stress_data(dtype):
                         'lammps_lj_stress_test_states'),
             parse_results('/google3/third_party/py/jax_md/tests/data/'
                           'lammps_lj_stress_test'))
+
+def compressed_pickle(filename:str, data:Any):
+  # pickle a file and compress
+  import bz2
+  import _pickle as cPickle
+  with bz2.BZ2File(filename, 'w') as f:
+    cPickle.dump(data, f)
+
+def decompress_pickle(filename:str) -> Any:
+  # Load any compressed pickle file
+  import bz2
+  import _pickle as cPickle
+  data = bz2.BZ2File(filename, 'rb')
+  data = cPickle.load(data)
+  return data

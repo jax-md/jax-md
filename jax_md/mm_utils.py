@@ -53,6 +53,17 @@ i32 = util.i32
 Array = jnp.array
 
 
+# Auxiliary Dataclasses
+
+
+class NonbondedExceptionParameters(NamedTuple):
+  particles: jnp.array = None
+  Q_sq: jnp.array = None
+  sigma: jnp.array = None
+  epsilon: jnp.array = None
+  aux_Q_sq: jnp.array = None
+
+
 # `openmm` general conversion utilities
 
 def get_box_vectors_from_vec3s(
@@ -146,12 +157,6 @@ def nonbonded_exception_parameter_retrieval_fn(
 
 def rf_nonbonded_exception_parameter_retrieval_fn(force, **unused_kwargs):
   """retrieve nonbonded exceptions in the reaction field regime"""
-  class NonbondedExceptionParameters(NamedTuple):
-    particles: jnp.array = None
-    Q_sq: jnp.array = None
-    sigma: jnp.array = None
-    epsilon: jnp.array = None
-    aux_Q_sq: jnp.array = None
   out_parameters = nonbonded_exception_parameter_retrieval_fn(
     force,
     NonbondedExceptionParameters)
@@ -163,7 +168,6 @@ def rf_nonbonded_exception_parameter_retrieval_fn(force, **unused_kwargs):
     aux_Q_sqs.append((ch1*ch2).value_in_unit_system(unit.md_unit_system))
   aux_Q_sqs = Array(aux_Q_sqs)
   out_parameters = out_parameters._replace(aux_Q_sq=aux_Q_sqs)
-  del NonbondedExceptionParameters
   return out_parameters
 
 def nonbonded_parameter_retrieval_fn(force, **unused_kwargs):
