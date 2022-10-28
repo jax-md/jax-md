@@ -76,7 +76,6 @@ f32 = util.f32
 KeyArray = random.KeyArray
 NeighborListFns = partition.NeighborListFns
 ShiftFn = space.ShiftFn
-UpdateFn = simulate.UpdateFn
 
 
 """Quaternion Utilities.
@@ -513,7 +512,7 @@ MOMENTUM_PERMUTATION = [
 
 
 def _rigid_body_3d_position_step(state, shift_fn: ShiftFn, dt, m_rot: int,
-                                 **kwargs) -> UpdateFn:
+                                 **kwargs):
   """A symplectic update function for 3d rigid bodies."""
   def free_rotor(k, dt, quat, p_quat, M):
     delta = dt / m_rot
@@ -560,7 +559,7 @@ def _rigid_body_3d_position_step(state, shift_fn: ShiftFn, dt, m_rot: int,
 
 
 def _rigid_body_2d_position_step(state, shift_fn: ShiftFn, dt,
-                                 **kwargs) -> UpdateFn:
+                                 **kwargs):
   """A symplectic update function for 2d rigid bodies."""
   rest, center, orientation = split_center_and_orientation(state)
   center = simulate.position_step(center, shift_fn, dt, **kwargs)
