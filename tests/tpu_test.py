@@ -27,7 +27,7 @@ from jax import random
 from jax_md import energy, space, simulate
 from jax_md import test_util
 import numpy as onp
-from jax_md.experimental import tpu
+from jax_md import tpu
 from jax.config import config as jax_config
 jax_config.parse_flags_with_absl()
 update_test_tolerance(5e-5, 1e-7)
