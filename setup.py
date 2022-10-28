@@ -28,7 +28,8 @@ INSTALL_REQUIRES = [
     'jaxlib>=0.1.52',
     'dm-haiku>=0.0.2',
     'jraph',
-    'dataclasses'
+    'dataclasses',
+    'einops'
 ]
 
 setuptools.setup(
