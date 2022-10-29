@@ -61,7 +61,6 @@ from absl import logging
 
 import numpy as onp
 
-jax.config.update('jax_numpy_rank_promotion', 'raise')
 partial = functools.partial
 
 
