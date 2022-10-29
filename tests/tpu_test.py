@@ -62,9 +62,7 @@ def get_test_grid(topology=None, num_dims=2, add_aux=False, rng_key=None):
     elif num_dims == 2:
       box_size_in_cells = 160
     elif num_dims == 3:
-      # box_size = 16.
-      box_size_in_cells = 32
-      # box_size = 2.
+      box_size_in_cells = 16
 
   box_size_in_cells = tpu.nearest_valid_grid_size(
       box_size_in_cells,
