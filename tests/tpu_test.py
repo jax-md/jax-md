@@ -32,7 +32,7 @@ from jax_md import test_util
 
 import numpy as onp
 
-from jax_md.experimental import tpu
+from jax_md import tpu
 
 from jax.config import config as jax_config
 
