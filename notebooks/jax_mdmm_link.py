@@ -13,16 +13,19 @@ from jax_md.util import Array
 
 """build a neighbor list, create a reaction field pairwise interaction, and build the potential energy fn"""
 out_expl_rf = test_util.decompress_pickle(
-    '/content/jax-md/tests/data/alanine_dipeptide_explicit_rf.pbz2') # what is this location
+    #'/content/jax-md/tests/data/alanine_dipeptide_explicit_rf.pbz2') # what is this location
+    '/mnt/c/Users/domin/github/jax-md/tests/data/alanine_dipeptide_explicit_rf.pbz2')
+
+bvs = out_expl_rf['box_vectors']
+params = out_expl_rf['mm_parameters']
 
 energy_fn, neighbor_list_fns = mm.rf_mm_energy_fn(
-  box_vectors=out_expl_rf['box_vectors'],
-  default_mm_parameters=out_expl_rf['mm_parameters'],
+  box_vectors=bvs,
+  default_mm_parameters=params,
   aux_neighbor_list_kwargs={'dr_threshold': 1e-1}
   )
 
 positions = out_expl_rf['positions']
-
 nbrs = neighbor_list_fns.allocate(positions)
 
 # get kT
@@ -55,10 +58,10 @@ def run_sim(num_steps, neighbor_list_fns):
 
 run_1k_sim = jax.jit(partial(run_sim, neighbor_list_fns = neighbor_list_fns)(1000))
 
-import tensorflow as tf
+#import tensorflow as tf
 import jax
 import jax.numpy as jnp
-import tensorflow_datasets as tfds
+#import tensorflow_datasets as tfds
 #jax.profiler.start_trace(log_dir='/tmp/simple_demo2')
 
 _dr_threshold = 7.5e-2
