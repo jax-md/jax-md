@@ -78,7 +78,7 @@ run_1k_sim = jax.jit(partial(run_sim, neighbor_list_fns = neighbor_list_fns)(10)
 out_state, out_nbrs = run_1k_sim((state, nbrs))
 _ = out_state.position.block_until_ready()
 
-jax.profiler.start_trace(log_dir='/tmp/simple_demo',create_perfetto_link=True, create_perfetto_trace=True)
-with jax.profiler.TraceAnnotation("train"):
-  out_state, out_nbrs = run_1k_sim((state, nbrs))
-  _ = out_state.position.block_until_ready()
+# jax.profiler.start_trace(log_dir='/tmp/simple_demo',create_perfetto_link=True, create_perfetto_trace=True)
+# with jax.profiler.TraceAnnotation("train"):
+#   out_state, out_nbrs = run_1k_sim((state, nbrs))
+#   _ = out_state.position.block_until_ready()
