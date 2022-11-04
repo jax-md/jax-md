@@ -285,6 +285,39 @@ def is_integer(x: Array) -> bool:
   return x.dtype == jnp.int32 or x.dtype == jnp.int64
 
 
+def average_pair_correlation_results(gofr, species=None):
+  """ Calculate species-based averages of pair correlations.
+
+  Average the results of pair_correlation or pair_correlation_neighbor_list,
+  appropriately taking species information into account.
+
+  When species=None, gofr is expected to be an array of shape (N,nr), where N is
+  the number of species and nr is the number of radii to be considered. The
+  average is calculated over all particles, so an array of shape (nr,) is
+  returned.
+
+  When species is specified, gofr is expected to be a list of nspecies arrays,
+  each of shape (N,nr), where nspecies is the number of unique species types. 
+  Here, the average is carried out separately for every pair of species, so the
+  returned array has shape (nspecies, nspecies, nr). 
+
+  Args:
+    gofr: array of shape (N,nr) or a list of arrays of shape (N,nr), where nr is
+      the number of radii for which :math:`g(r)` is calculated.
+    species: Optional. Array of shape (N,) specifying the species of each 
+      particle.
+
+  Returns:
+    An array of shape (nr,) for species=None, otherwise an array of shape 
+      (nspecies, nspecies, nr), where nspecies is the number of unique species.
+  """
+  if species is None:
+    return jnp.mean(gofr, axis=0)
+  species_types = jnp.unique(species) #note: this returns in sorted order
+  return jnp.array([ [ jnp.mean(gofr[si][species==s], axis=0) \
+      for s in species_types] for si in range(species_types.size)])
+
+
 def pair_correlation(displacement_or_metric: Union[DisplacementFn, MetricFn],
                      radii: Array,
                      sigma: float,
@@ -317,6 +350,18 @@ def pair_correlation(displacement_or_metric: Union[DisplacementFn, MetricFn],
   Returns:
     A function `g_fn` that computes the pair correlation function for a
     collection of particles.
+
+  :math:`g(r)` is calculated separately for each particle. For species=None, the
+  output of `g_fn` is an array of shape (N, nr), where N is the number of 
+  particles passed to `g_fn` and nr is the size of radii (the number of points 
+  at which we calculate :math:`g(r)`. When species is specified, the output is a
+  list of nspecies arrays, each of shape (N, nr), where nspecies is the number
+  of unique species. If `gofr` is the output of `g_fn`, then gofr[si][i] gives
+  the :math:`g(r)` for particle i considering only pair particles of species si.
+
+  Note: when species is specified, the returned list is in the order of the 
+  sorted unique species indices, not the order in which they appear. 
+  
   """
   d = space.canonicalize_displacement_or_metric(displacement_or_metric)
   d = space.map_product(d)
@@ -395,6 +440,17 @@ def pair_correlation_neighbor_list(
     `neighbor_list` in `partition.py` for details). `g_fn` that computes the
     pair correlation function for a collection of particles given their
     position and a neighbor list.
+
+  :math:`g(r)` is calculated separately for each particle. For species=None, the
+  output of `g_fn` is an array of shape (N, nr), where N is the number of 
+  particles passed to `g_fn` and nr is the size of radii (the number of points 
+  at which we calculate :math:`g(r)`. When species is specified, the output is a
+  list of nspecies arrays, each of shape (N, nr), where nspecies is the number
+  of unique species. If `gofr` is the output of `g_fn`, then gofr[si][i] gives
+  the :math:`g(r)` for particle i considering only pair particles of species si.
+
+  Note: when species is specified, the returned list is in the order of the
+  sorted unique species indices, not the order in which they appear. 
   """
   metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
   inv_rad = 1 / (radii + eps)
