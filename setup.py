@@ -28,12 +28,13 @@ INSTALL_REQUIRES = [
     'jaxlib>=0.1.52',
     'dm-haiku>=0.0.2',
     'jraph',
-    'dataclasses'
+    'dataclasses',
+    'einops'
 ]
 
 setuptools.setup(
     name='jax-md',
-    version='0.2.1',
+    version='0.2.3',
     license='Apache 2.0',
     author='Google',
     author_email='jax-md-dev@google.com',

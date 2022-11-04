@@ -35,6 +35,7 @@ from jax_md import util
 from jax_md import test_util
 from jax_md import partition
 from jax_md import smap
+from jax_md import dataclasses
 from jax_md.util import *
 
 from functools import partial
@@ -67,11 +68,6 @@ kT_fn = lambda p, m: quantity.temperature(momentum=p, mass=m)
 
 # pylint: disable=invalid-name
 class SimulateTest(test_util.JAXMDTestCase):
-
-  def test_canonicalize_mass(self):
-    assert simulate.canonicalize_mass(3.0) == 3.0
-    assert simulate.canonicalize_mass(f32(3.0)) == f32(3.0)
-    assert simulate.canonicalize_mass(f64(3.0)) == f64(3.0)
 
   # pylint: disable=g-complex-comprehension
   @parameterized.named_parameters(test_util.cases_from_list(
@@ -527,7 +523,7 @@ class SimulateTest(test_util.JAXMDTestCase):
     E = lambda x: jnp.sum(0.5 * alpha * x ** 2)
     displacement, shift = space.free()
 
-    N = 1000000
+    N = 100_000
     steps = 1000
     kT = 0.25
     dt = 1e-4

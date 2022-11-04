@@ -106,10 +106,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     @jit
     def total_energy(state):
       pos = state.position
-      mom = state.momentum
-      mass = state.mass
-
-      return energy_fn(pos) + rigid_body.kinetic_energy(pos, mom, mass)
+      return energy_fn(pos) + simulate.kinetic_energy(state)
 
     state = init_fn(key, body, 1e-3, mass=shape.mass())
     E_initial = total_energy(state)
@@ -157,10 +154,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     @jit
     def total_energy(state):
       pos = state.position
-      mom = state.momentum
-      mass = state.mass
-
-      return energy_fn(pos) + rigid_body.kinetic_energy(pos, mom, mass)
+      return energy_fn(pos) + simulate.kinetic_energy(state)
 
     state = init_fn(key, body, 1e-3, mass=shape.mass(species))
     E_initial = total_energy(state)
@@ -204,10 +198,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     @jit
     def total_energy(state):
       pos = state.position
-      mom = state.momentum
-      mass = state.mass
-
-      return energy_fn(pos) + rigid_body.kinetic_energy(pos, mom, mass)
+      return energy_fn(pos) + simulate.kinetic_energy(state)
 
     state = init_fn(key, body, 1e-3, mass=shape.mass())
     E_initial = total_energy(state)
@@ -253,11 +244,8 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     @jit
     def total_energy(state, nbrs):
       pos = state.position
-      mom = state.momentum
-      mass = state.mass
-
       return (energy_fn(pos, neighbor=nbrs) +
-              rigid_body.kinetic_energy(pos, mom, mass))
+              simulate.kinetic_energy(state))
 
     nbrs = neighbor_fn.allocate(body)
     state = init_fn(key, body, 1e-3, mass=shape.mass(), neighbor=nbrs)
@@ -308,11 +296,8 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     @jit
     def total_energy(state, nbrs):
       pos = state.position
-      mom = state.momentum
-      mass = state.mass
-
       return (energy_fn(pos, neighbor=nbrs) +
-              rigid_body.kinetic_energy(pos, mom, mass))
+              simulate.kinetic_energy(state))
 
     nbrs = neighbor_fn.allocate(body)
     state = init_fn(key, body, 1e-3, mass=shape.mass(), neighbor=nbrs)
@@ -370,11 +355,8 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     @jit
     def total_energy(state, nbrs):
       pos = state.position
-      mom = state.momentum
-      mass = state.mass
-
       return (energy_fn(pos, neighbor=nbrs) +
-              rigid_body.kinetic_energy(pos, mom, mass))
+              simulate.kinetic_energy(state))
 
     nbrs = neighbor_fn.allocate(body)
     state = init_fn(key,
@@ -461,10 +443,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     @jit
     def total_energy(state):
       pos = state.position
-      mom = state.momentum
-      mass = state.mass
-
-      return energy_fn(pos) + rigid_body.kinetic_energy(pos, mom, mass)
+      return energy_fn(pos) + simulate.kinetic_energy(state)
 
     state = init_fn(key, body, 1e-3, mass=shape.mass())
     E_initial = total_energy(state)
@@ -516,10 +495,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     @jit
     def total_energy(state):
       pos = state.position
-      mom = state.momentum
-      mass = state.mass
-
-      return energy_fn(pos) + rigid_body.kinetic_energy(pos, mom, mass)
+      return energy_fn(pos) + simulate.kinetic_energy(state)
 
     state = init_fn(key, body, 1e-3, mass=shape.mass(species))
     E_initial = total_energy(state)
@@ -576,10 +552,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     @jit
     def total_energy(state):
       pos = state.position
-      mom = state.momentum
-      mass = state.mass
-
-      return energy_fn(pos) + rigid_body.kinetic_energy(pos, mom, mass)
+      return energy_fn(pos) + simulate.kinetic_energy(state)
 
     state = init_fn(key, body, 1e-3, mass=shape.mass(species))
     E_initial = total_energy(state)
@@ -630,11 +603,8 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     @jit
     def total_energy(state, nbrs):
       pos = state.position
-      mom = state.momentum
-      mass = state.mass
-
       return (energy_fn(pos, neighbor=nbrs) +
-              rigid_body.kinetic_energy(pos, mom, mass))
+              simulate.kinetic_energy(state))
 
     nbrs = neighbor_fn.allocate(body)
     state = init_fn(key, body, 1e-3, mass=shape.mass(), neighbor=nbrs)
@@ -1153,6 +1123,98 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     self.assertTrue(energy_fn(state.position) < 12.0)
     self.assertTrue(state.position.center.dtype==dtype)
 
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': f'kT={int(kT*1e3)}_dtype={dtype.__name__}',
+          'dtype': dtype,
+          'kT': kT
+      } for dtype in DTYPE for kT in [1e-3, 5e-3, 1e-2, 1e-1]))
+  def test_nvt_3d_simple_langevin(self, dtype, kT):
+    N = PARTICLE_COUNT
+    box_size = quantity.box_size_at_number_density(N, 0.1, 3)
+
+    displacement, shift = space.periodic(box_size)
+
+    key = random.PRNGKey(0)
+
+    key, pos_key, quat_key = random.split(key, 3)
+
+    R = box_size * random.uniform(pos_key, (N, 3), dtype=dtype)
+    quat_key = random.split(quat_key, N)
+    quaternion = rand_quat(quat_key, dtype)
+
+    body = rigid_body.RigidBody(R, quaternion)
+    shape = rigid_body.point_union_shape(
+      rigid_body.tetrahedron.points * jnp.array([[1.0, 2.0, 3.0]], dtype),
+      rigid_body.tetrahedron.masses
+    )
+
+    energy_fn = rigid_body.point_energy(energy.soft_sphere_pair(displacement),
+                                        shape)
+
+    dt = 5e-4
+
+    gamma = rigid_body.RigidBody(0.1, 0.1)
+    init_fn, step_fn = simulate.nvt_langevin(energy_fn, shift, dt, kT, gamma)
+
+    step_fn = jit(step_fn)
+
+    state = init_fn(key, body, mass=shape.mass())
+
+    for i in range(DYNAMICS_STEPS):
+      state = step_fn(state)
+
+    kT_final = rigid_body.temperature(state.position, state.momentum, state.mass)
+
+    tol = 5e-4 if kT < 2e-3 else kT / 10
+    self.assertAllClose(kT_final, dtype(kT), rtol=tol, atol=tol)
+
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': f'kT={int(kT * 1e3)}_dtype={dtype.__name__}',
+          'dtype': dtype,
+          'kT': kT
+      } for dtype in DTYPE for kT in [1e-3, 5e-3, 1e-2, 1e-1]))
+  def test_nvt_langevin_3d_multi_shape_species(self, dtype, kT):
+    N = PARTICLE_COUNT
+    box_size = quantity.box_size_at_number_density(N, 0.1, 3)
+
+    displacement, shift = space.periodic(box_size)
+
+    key = random.PRNGKey(0)
+
+    key, pos_key, quat_key = random.split(key, 3)
+
+    R = box_size * random.uniform(pos_key, (N, 3), dtype=dtype)
+    quat_key = random.split(quat_key, N)
+    quaternion = rand_quat(quat_key, dtype)
+
+    species = onp.where(onp.arange(N) < N // 2, 0, 1)
+
+    body = rigid_body.RigidBody(R, quaternion)
+    shape = rigid_body.point_union_shape(
+      rigid_body.tetrahedron.points * jnp.array([[1.0, 2.0, 3.0]], f32),
+      rigid_body.tetrahedron.masses)
+    shape = rigid_body.concatenate_shapes(rigid_body.tetrahedron, shape)
+
+    energy_fn = rigid_body.point_energy(energy.soft_sphere_pair(displacement),
+                                        shape,
+                                        species)
+
+    dt = 5e-4
+    gamma = rigid_body.RigidBody(0.1, 0.1)
+    init_fn, step_fn = simulate.nvt_langevin(energy_fn, shift, dt, kT, gamma)
+
+    step_fn = jit(step_fn)
+
+    state = init_fn(key, body, shape.mass(species))
+
+    for i in range(DYNAMICS_STEPS):
+      state = step_fn(state)
+
+    kT_final = rigid_body.temperature(state.position, state.momentum, state.mass)
+    tol = 5e-4 if kT < 2e-3 else kT / 8
+    self.assertAllClose(kT_final, dtype(kT), rtol=tol, atol=tol)
 
 if __name__ == '__main__':
   absltest.main()
