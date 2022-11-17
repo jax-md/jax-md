@@ -578,8 +578,7 @@ def _(state, shift_fn, dt, m_rot=1, **kwargs):
     return _rigid_body_2d_position_step(state, shift_fn, dt, **kwargs)
 
 
-@simulate.stochastic_step.register(RigidBody)
-def _(state, dt: float, kT: float, gamma: float):
+def _rigid_body_3d_stochastic_step(state, dt: float, kT: float, gamma: float):
   key, center_key, orientation_key = random.split(state.rng, 3)
 
   rest, center, orientation = split_center_and_orientation(state)
@@ -619,6 +618,24 @@ def _(state, dt: float, kT: float, gamma: float):
   orientation = orientation.set(momentum=new_momentum)
 
   return merge_center_and_orientation(rest.set(rng=key), center, orientation)
+
+
+def _rigid_body_2d_stochastic_step(state, dt: float, kT: float, gamma: float):
+  key, center_key, orientation_key = random.split(state.rng, 3)
+  rest, center, orientation = split_center_and_orientation(state)
+  center = simulate.stochastic_step(
+    center.set(rng=center_key), dt, kT, gamma.center)
+  orientation = simulate.stochastic_step(
+    orientation.set(rng=orientation_key), dt, kT, gamma.orientation)
+  return merge_center_and_orientation(rest.set(rng=key), center, orientation)
+
+
+@simulate.stochastic_step.register(RigidBody)
+def _(state, dt: float, kT: float, gamma: float):
+  if isinstance(state.position.orientation, Quaternion):
+    return _rigid_body_3d_stochastic_step(state, dt, kT, gamma)
+  else:
+    return _rigid_body_2d_stochastic_step(state, dt, kT, gamma)
 
 
 @simulate.canonicalize_mass.register(RigidBody)
@@ -878,26 +895,40 @@ def union_to_points(body: RigidBody,
   if shape_species is None:
     position = vmap(transform, (0, None))(body, shape)
     point_species = shape.point_species
+
+    body_id = jnp.arange(len(body.center))
+    body_id = jnp.broadcast_to(body_id[:, None], position.shape[:-1])
+    body_id = jnp.reshape(body_id, (-1,))
+
     if point_species is not None:
       point_species = shape.point_species[None, :]
       point_species = jnp.broadcast_to(point_species, position.shape[:-1])
       point_species = jnp.reshape(point_species, (-1,))
     position = jnp.reshape(position, (-1, position.shape[-1]))
-    return position, point_species
+    return position, point_species, body_id
   elif isinstance(shape_species, onp.ndarray):
     shape_species_types = onp.unique(shape_species)
     shape_species_count = len(shape_species_types)
-    assert (len(shape.point_count) == shape_species_count and
-            onp.max(shape_species_types) == shape_species_count - 1 and
-            onp.min(shape_species_types) == 0)
+
     shape = tree_map(lambda x: onp.array(x), shape)
 
     point_position = []
     point_species = []
+    body_ids = []
 
-    for s in range(shape_species_count):
+    body_id = jnp.arange(len(body.center))
+
+    for s in shape_species_types:
+      if s < 0 or s >= len(shape.point_count):
+        raise ValueError(f'Out of bounds shape type: {s}. Should be between 0 '
+                         f'and {len(shape.point_count) - 1}.')
+
       cur_shape = shape[s]
       pos = vmap(transform, (0, None))(body[shape_species == s], cur_shape)
+
+      this_body_id = body_id[shape_species == s]
+      this_body_id = jnp.broadcast_to(this_body_id[:, None], pos.shape[:-1])
+      body_ids += [jnp.reshape(this_body_id, (-1,))]
 
       ps = cur_shape.point_species
       if ps is not None:
@@ -909,7 +940,8 @@ def union_to_points(body: RigidBody,
       point_position += [pos]
     point_position = jnp.concatenate(point_position)
     point_species = jnp.concatenate(point_species) if point_species else None
-    return point_position, point_species
+    body_ids = jnp.concatenate(body_ids)
+    return point_position, point_species, body_ids
   else:
     raise NotImplementedError('Shape species must either be None or of type '
                               'onp.ndarray since it must be specified ahead '
@@ -942,10 +974,10 @@ def point_energy(energy_fn: Callable[..., Array],
     energy.
   """
   def wrapped_energy_fn(body, **kwargs):
-    pos, point_species = union_to_points(body, shape, shape_species)
+    pos, point_species, body_id = union_to_points(body, shape, shape_species)
     if point_species is None:
-      return energy_fn(pos, **kwargs)
-    return energy_fn(pos, species=point_species, **kwargs)
+      return energy_fn(pos, body_id=body_id, **kwargs)
+    return energy_fn(pos, species=point_species, body_id=body_id, **kwargs)
   return wrapped_energy_fn
 
 
@@ -981,17 +1013,18 @@ def point_energy_neighbor_list(energy_fn: Callable[..., Array],
   """
 
   def wrapped_energy_fn(body, neighbor, **kwargs):
-    pos, species = union_to_points(body, shape, shape_species)
-    return energy_fn(pos, neighbor=neighbor, species=species, **kwargs)
+    pos, species, body_id = union_to_points(body, shape, shape_species)
+    return energy_fn(pos, neighbor=neighbor, species=species, body_id=body_id,
+                     **kwargs)
 
   def neighbor_allocate_fn(body, **kwargs):
-    pos, species = union_to_points(body, shape, shape_species)
+    pos, species, body_id = union_to_points(body, shape, shape_species)
     nbrs = neighbor_fn.allocate(pos, **kwargs)
     nbrs = dataclasses.replace(nbrs, update_fn=neighbor_update_fn)
     return nbrs
 
   def neighbor_update_fn(body, neighbor, **kwargs):
-    pos, species = union_to_points(body, shape, shape_species)
+    pos, species, body_id = union_to_points(body, shape, shape_species)
     return neighbor_fn.update(pos, neighbor, **kwargs)
 
   wrapped_neighbor_fns = partition.NeighborListFns(neighbor_allocate_fn,

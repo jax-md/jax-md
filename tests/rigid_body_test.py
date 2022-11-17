@@ -924,6 +924,64 @@ class RigidBodyTest(test_util.JAXMDTestCase):
           'testcase_name': '_dtype={}'.format(dtype.__name__),
           'dtype': dtype
       } for dtype in DTYPE))
+  def disabled_test_nvt_langevin_2d_multi_shape_species_neighbor_list(self, dtype):
+    N = PARTICLE_COUNT
+    box_size = quantity.box_size_at_number_density(N, 0.1, 2)
+
+    displacement, shift = space.periodic(box_size)
+
+    key = random.PRNGKey(0)
+
+    key, pos_key, angle_key = random.split(key, 3)
+
+    R = box_size * random.uniform(pos_key, (N, 2), dtype=dtype)
+    angle = random.uniform(angle_key, (N,), dtype=dtype) * jnp.pi * 2
+
+    body = rigid_body.RigidBody(R, angle)
+    shape = rigid_body.concatenate_shapes(
+      rigid_body.square.set(point_species=jnp.array([0, 1, 0, 1])),
+      rigid_body.trimer.set(point_species=jnp.array([0, 0, 1])))
+
+    shape_species = onp.where(onp.arange(N) < N // 2, 0, 1)
+
+    neighbor_fn, energy_fn = energy.soft_sphere_neighbor_list(
+      displacement,
+      box_size,
+      sigma=jnp.array([[0.5, 1.0],
+                       [1.0, 1.5]], f32),
+      species=2)
+    neighbor_fn, energy_fn = rigid_body.point_energy_neighbor_list(energy_fn,
+                                                                   neighbor_fn,
+                                                                   shape)
+
+    kT = 1e-2
+    dt = 1e-4
+
+    init_fn, step_fn = simulate.nvt_langevin(energy_fn, shift, dt, kT,
+                                             gamma=rigid_body.RigidBody(0.1, 0.1))
+
+    step_fn = jit(step_fn)
+
+    nbrs = neighbor_fn.allocate(body)
+    state = init_fn(key, body, mass=shape.mass(shape_species), neighbor=nbrs)
+    def sim_fn(i, state_nbrs):
+      state, nbrs = state_nbrs
+      state = step_fn(state, neighbor=nbrs)
+      nbrs = nbrs.update(state.position)
+      return state, nbrs
+    state, nbrs = lax.fori_loop(0, LANGEVIN_DYNAMICS_STEPS, sim_fn, (state, nbrs))
+    T_final = simulate.temperature(state)
+    self.assertFalse(nbrs.did_buffer_overflow)
+
+    tol = 5e-8 if dtype == f64 else 5e-5
+
+    self.assertAllClose(T_final, dtype(kT), rtol=tol, atol=tol)
+
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': '_dtype={}'.format(dtype.__name__),
+          'dtype': dtype
+      } for dtype in DTYPE))
   def test_nvt_2d_multi_shape_species_neighbor_list(self, dtype):
     N = PARTICLE_COUNT
     box_size = quantity.box_size_at_number_density(N, 0.1, 2)
