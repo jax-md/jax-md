@@ -433,3 +433,22 @@ def model_from_config(cfg: ConfigDict
       )
 
   return featurizer(cfg.sh_irreps), model
+
+
+def default_config() -> ConfigDict:
+  config = ConfigDict()
+
+  config.graph_net_steps = 5
+  config.nonlinearities = {'e': 'raw_swish', 'o': 'tanh'}
+  config.use_sc = True
+  config.n_elements = 94
+  config.hidden_irreps = '128x0e + 64x1e + 4x2e'
+  config.sh_irreps = '1x0e + 1x1e + 1x2e'
+  config.num_basis = 8
+  config.r_max = 5.
+  config.radial_net_nonlinearity = 'raw_swish'
+  config.radial_net_n_hidden = 64
+  config.radial_net_n_layers = 2
+
+  return config
+
