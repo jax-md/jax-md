@@ -29,7 +29,11 @@ import haiku as hk
 from jax.scipy.special import erfc  # error function
 from jax_md import space, smap, partition, nn, quantity, interpolate, util
 
+bp = nn.behler_parrinello
+gnome = nn.gnome
+
 maybe_downcast = util.maybe_downcast
+
 
 # Types
 
@@ -1494,9 +1498,7 @@ def behler_parrinello(displacement: DisplacementFn,
         'activation': jnp.tanh
     }
 
-  sym_fn = nn.behler_parrinello_symmetry_functions(displacement,
-                                                   species,
-                                                   **sym_kwargs)
+  sym_fn = bp.symmetry_functions(displacement, species, **sym_kwargs)
 
   @hk.without_apply_rng
   @hk.transform
@@ -1547,9 +1549,8 @@ def behler_parrinello_neighbor_list(
     format=format,
     **neighbor_kwargs)
 
-  sym_fn = nn.behler_parrinello_symmetry_functions_neighbor_list(displacement,
-                                                                 species,
-                                                                 **sym_kwargs)
+  sym_fn = bp.symmetry_functions_neighbor_list(displacement, species,
+                                               **sym_kwargs)
 
   @hk.without_apply_rng
   @hk.transform
@@ -1779,3 +1780,26 @@ def graph_network_neighbor_list(
   init_fn, apply_fn = model.init, model.apply
 
   return neighbor_fn, init_fn, apply_fn
+
+
+def load_gnome_neighbor_list(displacement_fn, box, directory: str, atoms=None,
+                             **nl_kwargs):
+  cfg, featurizer, model, params = gnome.load_model(directory)
+
+  neighbor_fn = partition.neighbor_list(
+    displacement_fn,
+    box,
+    cfg.r_max,
+    format=partition.Sparse,
+    **nl_kwargs)
+
+  featurizer = nn.util.neighbor_list_featurizer(displacement_fn, *featurizer)
+
+  def energy_fn(position, neighbor, **kwargs):
+    _atoms = kwargs.pop('atoms', atoms)
+    if atoms is None:
+      raise ValueError()
+    graph = featurizer(_atoms, position, neighbor, **kwargs)
+    return model.apply(params, graph)[0, 0]
+
+  return neighbor_fn, energy_fn
