@@ -3,8 +3,7 @@ config.update("jax_enable_x64", True)
 import numpy as onp
 import jax.numpy as jnp
 from ase.io import read
-from jax_md import partition,space,simulate,quantity
-import jax
+from jax_md import space
 from jax_md.reaxff_interactions import reaxff_inter_list
 from jax_md.reaxff_interactions import calculate_all_angles_and_distances
 from jax_md.reaxff_helper import read_force_field
@@ -15,8 +14,8 @@ from jax_md.test_util import JAXMDTestCase
 import os
 import json
 
-ATOL = 1e-6 # per atom
-RTOL = 1e-6
+ATOL = 1e-5 # per atom
+RTOL = 1e-5
 
 
 TEST_DATA = []
@@ -109,6 +108,7 @@ class ReaxFFEnergyTest(JAXMDTestCase):
     N = len(self.species[i])
     atom_mask = jnp.ones(N, dtype=jnp.bool_)
     far_nbr_inds = self.nbr_lists[i].far_nbrs.idx
+    far_neigh_types = self.species[i][far_nbr_inds]
     far_nbr_dists = self.angles_and_dists[i][1]
     far_nbr_dists = far_nbr_dists * (far_nbr_inds != N)
 
@@ -118,29 +118,32 @@ class ReaxFFEnergyTest(JAXMDTestCase):
                               tapered_dists)
 
     # shared accross charge calc and coulomb
-    my_gamma = self.ffields[i].gamma[self.species[i]]  # gamma
-    gamma_mat = jnp.sqrt(my_gamma.reshape(-1, 1) * my_gamma[far_nbr_inds])
-    hulp1_mat = far_nbr_dists ** 3 + (1/gamma_mat**3)
+    gamma = jnp.power(self.ffields[i].gamma.reshape(-1, 1), 3/2)
+    gamma_mat = gamma * gamma.transpose()
+    gamma_mat = gamma_mat[far_neigh_types, self.species[i].reshape(-1, 1)]
+    hulp1_mat = far_nbr_dists ** 3 + (1/gamma_mat)
+    hulp2_mat = jnp.power(hulp1_mat, 1.0/3.0)
 
     charges = reaxff_energy.calculate_eem_charges(self.species[i],
                                     atom_mask,
                                     far_nbr_inds,
-                                    hulp1_mat,
+                                    hulp2_mat,
                                     tapered_dists,
                                     self.ffields[i].idempotential,
                                     self.ffields[i].electronegativity,
+                                    None,
                                     0.0,
                                     False,
                                     1e-14)
 
     cou_pot = reaxff_energy.calculate_coulomb_pot(far_nbr_inds,
                                     atom_mask,
-                                    hulp1_mat,
+                                    hulp2_mat,
                                     tapered_dists,
-                                    charges)
+                                    charges[:-1])
 
     charge_pot = reaxff_energy.calculate_charge_energy(self.species[i],
-                                         charges,
+                                         charges[:-1],
                                          self.ffields[i].idempotential,
                                          self.ffields[i].electronegativity)
     TEST_DATA[i]["preds"]["E_coul"] = cou_pot
@@ -158,14 +161,15 @@ class ReaxFFEnergyTest(JAXMDTestCase):
     far_nbr_inds = self.nbr_lists[i].far_nbrs.idx
     far_nbr_dists = self.angles_and_dists[i][1]
     far_nbr_dists = far_nbr_dists * (far_nbr_inds != N)
-
+    far_nbr_mask = ((far_nbr_inds != N)
+                    & (atom_mask.reshape(-1,1) & atom_mask[far_nbr_inds]))
     tapered_dists = reaxff_energy.taper(far_nbr_dists, 0.0, 10.0)
     tapered_dists = jnp.where((far_nbr_dists > 10.0) | (far_nbr_dists < 0.001),
                               0.0,
                               tapered_dists)
 
     vdw_pot = reaxff_energy.calculate_vdw_pot(self.species[i],
-                                atom_mask,
+                                far_nbr_mask,
                                 far_nbr_inds,
                                 far_nbr_dists,
                                 tapered_dists,

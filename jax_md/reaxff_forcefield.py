@@ -10,12 +10,11 @@ import jax.numpy as jnp
 
 Array = util.Array
 
-# copy of the safe_sqrt from reaxff_helper.py due to circular dependency
-# better place for this function would be jax_md.util
-
-
 @dataclasses.dataclass
 class ForceField(object):
+  '''
+  Container for ReaxFF parameters
+  '''
   num_atom_types: int = dataclasses.static_field()
   name_to_index: dict = dataclasses.static_field()
   params_to_indices: dict = dataclasses.static_field()
@@ -25,14 +24,18 @@ class ForceField(object):
   body3_indices_dst: tuple = dataclasses.static_field()
   body4_indices_src: tuple = dataclasses.static_field()
   body4_indices_dst: tuple = dataclasses.static_field()
+  # self energies for each atom type
+  self_energies: Array
+  # overall energy shift
+  shift: Array
 
   low_tap_rad: Array = dataclasses.static_field()
   up_tap_rad: Array = dataclasses.static_field()
 
   cutoff: Array = dataclasses.static_field()
   cutoff2: Array = dataclasses.static_field()
-
-
+  hb_close_cutoff: Array = dataclasses.static_field()
+  hb_far_cutoff: Array = dataclasses.static_field()
 
   body2_params_mask: Array = dataclasses.static_field()
   body3_params_mask: Array = dataclasses.static_field()
@@ -102,6 +105,9 @@ class ForceField(object):
   ovc: Array = dataclasses.static_field()
   v13cor: Array = dataclasses.static_field()
 
+  softcut: Array # acks2 parameter
+  softcut_2d: Array # softcut_2d[i,j] = 0.5 * (softcut[i] + softcut[j])
+
   stlp: Array
   valf: Array
   vval1: Array
@@ -164,6 +170,8 @@ class ForceField(object):
   par_26: Array
   par_28: Array
 
+  par_35: Array #ACKS2
+
   @classmethod
   def init_from_arg_dict(cls, kwargs):
     field_set = {f.name for f in fields(cls) if f.init}
@@ -176,6 +184,9 @@ class ForceField(object):
     return cls(**filtered_kwargs)
 
   def fill_symm(force_field):
+    '''
+    Fills the parameter arrays based on the symmetries
+    '''
     # 2 body-params
     # for now global
     num_atoms = force_field.num_atom_types
@@ -197,22 +208,19 @@ class ForceField(object):
                    "psp", "psi", "vover"]
     for attr in body_2_attr:
       arr = getattr(force_field, attr)
-      arr = jax.ops.index_update(arr,
-              body_2_indices, arr.transpose()[body_2_indices])
+      arr = arr.at[body_2_indices].set(arr.transpose()[body_2_indices])
       replace_dict[attr] = arr
 
     body_3_attr = ["vval2","vkac", "th0", "vka", "vkap", "vka3", "vka8"]
     for attr in body_3_attr:
       arr = getattr(force_field, attr)
-      arr = jax.ops.index_update(arr,
-              body_3_indices_dst, arr[body_3_indices_src])
+      arr = arr.at[body_3_indices_dst].set(arr[body_3_indices_src])
       replace_dict[attr] = arr
 
     body_4_attr = ["v1","v2", "v3", "v4", "vconj"]
     for attr in body_4_attr:
       arr = getattr(force_field, attr)
-      arr = jax.ops.index_update(arr,
-              body_4_indices_dst, arr[body_4_indices_src])
+      arr = arr.at[body_4_indices_dst].set(arr[body_4_indices_src])
       replace_dict[attr] = arr
 
     force_field = force_field.replace(**replace_dict)
@@ -220,6 +228,9 @@ class ForceField(object):
     return force_field
 
   def fill_off_diag(force_field):
+    '''
+    Fills the off-diagonal entries in the parameter arrays
+    '''
     num_rows = force_field.num_atom_types
     rat = force_field.rat
     rapt = force_field.rapt
@@ -239,6 +250,9 @@ class ForceField(object):
     p1co_off_mask = force_field.p1co_off_mask
     p2co_off_mask = force_field.p2co_off_mask
     p3co_off_mask = force_field.p3co_off_mask
+
+    softcut = force_field.softcut
+
     mat1 = rat.reshape(1,-1)
     mat1 = jnp.tile(mat1,(num_rows,1))
     mat1_tr = mat1.transpose()
@@ -273,12 +287,15 @@ class ForceField(object):
     p2co = jnp.where(p2co_off_mask == 0, p2co_temp, p2co_off)
     p3co = jnp.where(p3co_off_mask == 0, p3co_temp, p3co_off)
 
+    softcut_2d = 0.5 * (softcut.reshape(-1,1) + softcut.reshape(1,-1))
+
     force_field = force_field.replace(rob1=rob1,
                                       rob2=rob2,
                                       rob3=rob3,
                                       p1co=p1co,
                                       p2co=p2co,
-                                      p3co=p3co)
+                                      p3co=p3co,
+                                      softcut_2d=softcut_2d)
     return force_field
 
 
