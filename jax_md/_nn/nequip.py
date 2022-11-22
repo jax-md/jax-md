@@ -450,5 +450,13 @@ def default_config() -> ConfigDict:
   config.radial_net_n_hidden = 64
   config.radial_net_n_layers = 2
 
+# average number of neighbors per atom, used to divide activations are sum
+  # in the nequip convolution, helpful for internal normalization.
+  config.n_neighbors = 10.
+
+  # Standard deviation used for the initializer of the weight matrix in the
+  # radial scalar MLP
+  config.scalar_mlp_std = 4.
+
   return config
 

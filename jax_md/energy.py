@@ -1791,9 +1791,8 @@ def nequip_neighbor_list(displacement_fn,
                          atoms=None,
                          **nl_kwargs):
   cfg = nequip.default_config() if cfg is None else cfg
-  featurizer = nequip.featurizer(cfg.sh_irreps)
 
-  model = nequip.model_from_config(cfg)
+  featurizer, model = nequip.model_from_config(cfg)
 
   neighbor_fn = partition.neighbor_list(
     displacement_fn,
