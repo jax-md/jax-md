@@ -62,15 +62,24 @@ partial = functools.partial
 def featurizer(sh_irreps: str)-> FeaturizerFn:
   """Node, edge, global features for NequIP."""
   def node_feature_fn(graph):
+    """ NequIP node features are simply the input graph's nodes. """
     return graph.nodes
 
   def edge_feature_fn(dR):
+    """ NequIP edge features.
+
+     Builds the following:
+     - the relative interatomic positions \vec{r}_{ij}
+     - interatomic distances r_{ij}
+     - normalized spherical harmonics Y(\hat{r}_{ij})
+     """
     features = []
     edge_sh_irreps = Irreps(sh_irreps)
     edge_sh = e3nn.spherical_harmonics(edge_sh_irreps, dR, normalize=True)
     return dR, space.distance(dR), edge_sh
 
   def global_feature_fn(g):
+    """ NequIP does not use global features. """
     return g
 
   return node_feature_fn, edge_feature_fn, global_feature_fn
@@ -105,6 +114,21 @@ class NequIPConvolution(nn.Module):
 
   nature.com/articles/s41467-022-29939-5 and partially
   https://github.com/mir-group/nequip.
+
+  Args:
+        hidden_irreps: irreducible representation of hidden/latent features
+        use_sc: use self-connection in network (recommended)
+        nonlinearities: nonlinearities to use for even/odd irreps
+        radial_net_nonlinearity: nonlinearity to use in radial MLP
+        radial_net_n_hidden: number of hidden neurons in radial MLP
+        radial_net_n_layers: number of hidden layers for radial MLP
+        num_basis: number of Bessel basis functions to use
+        n_neighbors: constant number of per-atom neighbors, used for internal
+        normalization
+        scalar_mlp_std: standard deviation of weight init of radial MLP
+
+    Returns:
+        Updated node features h after the convolution.
   """
   hidden_irreps: Irreps
   use_sc: bool
@@ -241,10 +265,13 @@ class NequIPConvolution(nn.Module):
     # have biases
     n_tp_weights = 0
 
+    # get output dim of radial MLP / number of TP weights
     for ins in tp.instructions:
       if ins.has_weight:
         n_tp_weights += prod(ins.path_shape)
 
+    # build radial MLP R(r) that maps from interatomic distances to TP weights
+    # must not use bias to that R(0)=0
     fc = nn_util.MLP(
         (self.radial_net_n_hidden,) * self.radial_net_n_layers + (n_tp_weights,),
         self.radial_net_nonlinearity,
@@ -301,6 +328,27 @@ class NequIPEnergyModel(nn.Module):
 
   nature.com/articles/s41467-022-29939-5 and partially
   https://github.com/mir-group/nequip.
+
+    Args:
+        graph_net_steps: number of NequIP convolutional layers
+        use_sc: use self-connection in network (recommended)
+        nonlinearities: nonlinearities to use for even/odd irreps
+        n_element: number of chemical elements in input data
+        hidden_irreps: irreducible representation of hidden/latent features
+        sh_irreps: irreducible representations on the edges
+        num_basis: number of Bessel basis functions to use
+        r_max: radial cutoff used in length units
+        radial_net_nonlinearity: nonlinearity to use in radial MLP
+        radial_net_n_hidden: number of hidden neurons in radial MLP
+        radial_net_n_layers: number of hidden layers for radial MLP
+        shift: per-atom energy shift
+        scale: per-atom energy scale
+        n_neighbors: constant number of per-atom neighbors, used for internal
+        normalization
+        scalar_mlp_std: standard deviation of weight init of radial MLP
+
+    Returns:
+        Potential energy of the inputs.
   """
 
   graph_net_steps: int
