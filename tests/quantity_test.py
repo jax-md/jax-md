@@ -514,7 +514,6 @@ class QuantityTest(test_util.JAXMDTestCase):
 
     self.assertAllClose(g_0, g_0_neigh)
 
-
   @parameterized.named_parameters(test_util.cases_from_list(
       {
         'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'),
@@ -569,10 +568,6 @@ class QuantityTest(test_util.JAXMDTestCase):
 
     self.assertAllClose(g_00, g_average[0][0])
     self.assertAllClose(g_11, g_average[1][1])
-
-
-
-
 
   @parameterized.named_parameters(test_util.cases_from_list(
       {
