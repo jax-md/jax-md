@@ -459,6 +459,56 @@ def pair_correlation_neighbor_list(
       return g_R
   return neighbor_fn, g_fn
 
+def nball_unit_volume(spatial_dimension: int) -> float:
+  return jnp.power(jnp.pi, spatial_dimension / 2) / \
+    jnp.exp( jsp.special.gammaln(spatial_dimension / 2 + 1))
+
+def particle_volume(radii: Array, 
+                    spatial_dimension: int, 
+                    particle_count: Array = 1, 
+                    species: Array = None) -> float:
+  """ Calculate the volume of a collection of particles
+
+  Args:
+    radii: array of shape (n,) giving particle radii
+    spatial_dimension: int giving the spatial dimension
+    particle_count: number of particles with each radii. broadcastable to radii.
+    species: list of particle species. If provided, this overrides 
+      particle_count.
+  
+  Returns: the sum of the volume of all the particles
+  """
+  V_unit = nball_unit_volume(spatial_dimension)
+  V_particle = V_unit * jnp.power(radii, spatial_dimension)
+
+  if species is not None:
+    particle_count = jnp.bincount(species)
+
+  return jnp.sum(particle_count * V_particle)
+
+def volume_fraction(box: Box, 
+                    radii: Array, 
+                    spatial_dimension: int, 
+                    particle_count: Array = 1, 
+                    species: Array = None) -> float:
+  """ Calculate the volume fraction
+
+  See documentation for particle_volume for explanation of parameters
+  """
+  Vparticle = particle_volume(radii, spatial_dimension, particle_count, species)
+  return Vparticle / quantity.volume(spatial_dimension, box)
+
+def box_size_at_volume_fraction(volume_fraction: float,
+                                radii: Array,
+                                spatial_dimension: int,
+                                particle_count: Array = 1,
+                                species: Array = None) -> float:
+  """ Calculate box_size to obtain a desired volume fraction
+
+  See documentation for particle_volume for explanation of parameters
+  """
+  Vparticle = particle_volume(radii, spatial_dimension, particle_count, species)
+  return jnp.power( Vparticle / volume_fraction, 1 / spatial_dimension)
 
 def box_size_at_number_density(particle_count: int,
                                number_density: float,
