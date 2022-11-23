@@ -768,12 +768,18 @@ class NequIPConvolution(nn.Module):
     # tp between node features that have been mapped onto edges and edge RSH
     # weighted by FC weight, we vmap over the dimension of the edges
     edge_features = jax.vmap(tp.left_right)(weight, edge_features, edge_sh)
+    # TODO: It's not great that e3nn_jax automatically upcasts internally,
+    # but this would need to be fixed at the e3nn level.
+    edge_features = jax.tree_map(lambda x: x.astype(h.dtype), edge_features)
 
     # aggregate edges onto nodes after tp using e3nn-jax's index_add
+    h_type = h.dtype
     h = jax.tree_map(
         lambda x: e3nn.index_add(edge_dst, x, out_dim=h.shape[0]),
         edge_features
         )
+    # TODO: Remove this once e3nn_jax doesn't upcast inputs.
+    h = jax.tree_map(lambda x: x.astype(h_type), h)
 
     # normalize by the average (not local) number of neighbors
     h = h / self.n_neighbors
@@ -800,6 +806,8 @@ class NequIPConvolution(nn.Module):
         )
 
     h = gate_fn(h)
+    # TODO: Remove this once e3nn_jax doesn't upcast inputs.
+    h = jax.tree_map(lambda x: x.astype(h_type), h)
 
     return h
 

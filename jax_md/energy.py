@@ -1782,8 +1782,14 @@ def graph_network_neighbor_list(
   return neighbor_fn, init_fn, apply_fn
 
 
-def load_gnome_neighbor_list(displacement_fn, box, directory: str, atoms=None,
-                             **nl_kwargs):
+def load_gnome_model_neighbor_list(
+        displacement_fn: DisplacementFn,
+        box: Array,
+        directory: str,
+        atoms: Optional[Array] = None,
+        **nl_kwargs) -> Tuple[NeighborFn,
+                              Callable[[Array, NeighborList], Array]]:
+  """Load a gnome model from a checkpoint."""
   cfg, featurizer, model, params = gnome.load_model(directory)
 
   neighbor_fn = partition.neighbor_list(
@@ -1797,9 +1803,10 @@ def load_gnome_neighbor_list(displacement_fn, box, directory: str, atoms=None,
 
   def energy_fn(position, neighbor, **kwargs):
     _atoms = kwargs.pop('atoms', atoms)
-    if atoms is None:
-      raise ValueError()
+    if _atoms is None:
+      raise ValueError('A one-hot encoding of the atoms is required.')
     graph = featurizer(_atoms, position, neighbor, **kwargs)
     return model.apply(params, graph)[0, 0]
 
   return neighbor_fn, energy_fn
+

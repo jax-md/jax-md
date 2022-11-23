@@ -1,5 +1,4 @@
 """The modules in this file are modifications from original code here:
-
 https://github.com/e3nn/e3nn-jax
 
 We include the license of the original code below:
@@ -223,6 +222,7 @@ from jax.nn import initializers
 from jax import tree_util
 from jax import jit
 from jax import vmap
+from jax import tree_map
 
 import numpy as onp
 
@@ -285,6 +285,7 @@ class FullyConnectedTensorProductE3nn(nn.Module):
 
     f = naive_broadcast_decorator(lambda x1, x2: tp.left_right(ws, x1, x2))
     output = f(x1, x2)
+    output = tree_map(lambda x: x.astype(x1.dtype), output)
     return output._convert(self.irreps_out)
 
 
@@ -329,4 +330,6 @@ class Linear(nn.Module):
     for _ in range(x.ndim - 1):
       f = vmap(f)
     output = f(x)
+    output = tree_map(lambda y: y.astype(x.dtype), output)
     return output
+

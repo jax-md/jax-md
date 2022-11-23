@@ -1008,7 +1008,7 @@ class EnergyTest(test_util.JAXMDTestCase):
 
     displacement_fn, _ = space.periodic_general(box)
 
-    neighbor_fn, energy_fn = energy.load_gnome_neighbor_list(
+    neighbor_fn, energy_fn = energy.load_gnome_model_neighbor_list(
       displacement_fn,
       box,
       'tests/data/nequip_silicon_test/',
