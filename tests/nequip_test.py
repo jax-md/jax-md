@@ -169,7 +169,7 @@ class NequIPTest(test_util.JAXMDTestCase):
     displacement, _ = space.periodic_general(box)
 
     # build network and initialize
-    net = nequip.nequip_model(c)
+    featurizer, net = nequip.model_from_config(c)
     neighbor = partition.neighbor_list(
         displacement,
         jnp.diag(box),
@@ -180,15 +180,13 @@ class NequIPTest(test_util.JAXMDTestCase):
 
     @jax.jit
     def init_fn(key, atoms, position, nbrs):
-      featurizer = nn_util.neighbor_list_featurizer(
-          displacement, *nequip.nequip_featurizer(c.sh_irreps))
-      return net.init(key, featurizer(atoms, pos, nbrs))
+      f = nn_util.neighbor_list_featurizer(displacement, *featurizer)
+      return net.init(key, f(atoms, pos, nbrs))
 
     @jax.jit
     def apply_fn(params, atoms, position, nbrs):
-      featurizer = nn_util.neighbor_list_featurizer(
-          displacement, *nequip.nequip_featurizer(c.sh_irreps))
-      return net.apply(params, featurizer(atoms, pos, nbrs))[0, 0]
+      f = nn_util.neighbor_list_featurizer(displacement, *featurizer)
+      return net.apply(params, f(atoms, pos, nbrs))[0, 0]
 
     nbrs = neighbor.allocate(pos)
     params = init_fn(random.PRNGKey(c.seed), atoms, pos, nbrs)
@@ -247,7 +245,7 @@ class NequIPTest(test_util.JAXMDTestCase):
     displacement, _ = space.periodic_general(box)
 
     # build network and initialize
-    net = nequip.nequip_model(c)
+    featurizer, net = nequip.model_from_config(c)
     neighbor = partition.neighbor_list(
         displacement,
         jnp.diag(box),
@@ -258,15 +256,13 @@ class NequIPTest(test_util.JAXMDTestCase):
 
     @jax.jit
     def init_fn(key, atoms, position, nbrs):
-      featurizer = nn_util.neighbor_list_featurizer(
-          displacement, *nequip.nequip_featurizer(c.sh_irreps))
-      return net.init(key, featurizer(atoms, pos, nbrs))
+      f = nn_util.neighbor_list_featurizer(displacement, *featurizer)
+      return net.init(key, f(atoms, pos, nbrs))
 
     @jax.jit
     def apply_fn(params, atoms, position, nbrs):
-      featurizer = nn_util.neighbor_list_featurizer(
-          displacement, *nequip.nequip_featurizer(c.sh_irreps))
-      return net.apply(params, featurizer(atoms, pos, nbrs))[0, 0]
+      f = nn_util.neighbor_list_featurizer(displacement, *featurizer)
+      return net.apply(params, f(atoms, pos, nbrs))[0, 0]
 
     nbrs = neighbor.allocate(pos)
     params = init_fn(random.PRNGKey(c.seed), atoms, pos, nbrs)
