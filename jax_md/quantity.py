@@ -323,7 +323,7 @@ def pair_correlation(displacement_or_metric: Union[DisplacementFn, MetricFn],
                      sigma: float,
                      species: Array = None,
                      eps: float = 1e-7,
-                     return_average: bool = False):
+                     compute_average: bool = False):
   """Computes the pair correlation function at a mesh of distances.
 
   The pair correlation function measures the number of particles at a given
@@ -379,7 +379,7 @@ def pair_correlation(displacement_or_metric: Union[DisplacementFn, MetricFn],
       mask = 1 - jnp.eye(R.shape[0], dtype=R.dtype)
       g_R = jnp.sum(mask[:, :, jnp.newaxis] *
                     pairwise(d(R, R), dim), axis=(1,))
-      if return_average:
+      if compute_average:
         g_R = average_pair_correlation_results(g_R, species)
       return g_R
   else:
@@ -394,7 +394,7 @@ def pair_correlation(displacement_or_metric: Union[DisplacementFn, MetricFn],
         Rs = R[species == s]
         mask_s = mask[:, species == s, jnp.newaxis]
         g_R += [jnp.sum(mask_s * pairwise(d(Rs, R), dim), axis=(1,))]
-      if return_average:
+      if compute_average:
         g_R = average_pair_correlation_results(g_R, species)
       return g_R
   return g_fn
@@ -410,7 +410,7 @@ def pair_correlation_neighbor_list(
     eps: float = 1e-7,
     fractional_coordinates: bool=False,
     format: partition.NeighborListFormat=partition.Dense,
-    return_average: bool = False):
+    compute_average: bool = False):
   """Computes the pair correlation function at a mesh of distances.
 
   The pair correlation function measures the number of particles at a given
@@ -480,7 +480,7 @@ def pair_correlation_neighbor_list(
         _pairwise = vmap(vmap(pairwise, (0, None)), (0, None))
         g_R = jnp.sum(mask[:, :, None] *
                       _pairwise(d(R, R_neigh), dim), axis=(1,))
-        if return_average:
+        if compute_average:
           g_R = average_pair_correlation_results(g_R, species)
         return g_R
       elif neighbor.format is partition.Sparse:
@@ -489,7 +489,7 @@ def pair_correlation_neighbor_list(
         g_R = ops.segment_sum(mask[:, None] * _pairwise(dr, dim),
                               neighbor.idx[0],
                               N)
-        if return_average:
+        if compute_average:
           g_R = average_pair_correlation_results(g_R, species)
         return g_R
       else:
@@ -525,7 +525,7 @@ def pair_correlation_neighbor_list(
         raise NotImplementedError('Pair correlation function does not support '
                                   'OrderedSparse neighbor lists.')
 
-      if return_average:
+      if compute_average:
         g_R = average_pair_correlation_results(g_R, species)
       return g_R
   return neighbor_fn, g_fn
