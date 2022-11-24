@@ -192,6 +192,15 @@ def setup_case():
 
 
 class NequIPTest(test_util.JAXMDTestCase):
+  def test_nequip_momentum_conversation(self):
+    """Test that the sum over all atomic forces is close to 0 in x, y, z."""
+    net, example, params = setup_case()
+
+    force = jax.grad(net, argnums=2)(params, *example)
+
+    f_sum = jnp.abs(jnp.sum(force, axis=0))
+    self.assertAllClose(f_sum, jnp.zeros_like(f_sum))
+
   def test_nequipcutoff_smoothness(self):
     """Test that the energy changes smoothly as an atom enters the nbh."""
     c = test_config()
