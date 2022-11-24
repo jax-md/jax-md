@@ -314,3 +314,4 @@ class NequIPTest(test_util.JAXMDTestCase):
 
 if __name__ == '__main__':
   absltest.main()
+
