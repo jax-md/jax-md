@@ -25,6 +25,8 @@ import numpy as onp
 
 from jax import jit, grad
 from jax_md import space, quantity, nn, dataclasses, partition
+from jax_md.nn import behler_parrinello as bp
+
 from jax_md.util import f32, f64
 from jax_md import test_util
 
@@ -54,7 +56,7 @@ class SymmetryFunctionTest(test_util.JAXMDTestCase):
   def test_radial_symmetry_functions(self, N_types, N_etas, dtype):
     displacement, shift = space.free()
     rs = np.linspace(1.0, 2.0, N_etas, dtype=dtype)
-    gr = nn.radial_symmetry_functions(displacement,
+    gr = bp.radial_symmetry_functions(displacement,
                                       np.array([1, 1, N_types]),
                                       rs,
                                       4)
@@ -94,8 +96,8 @@ class SymmetryFunctionTest(test_util.JAXMDTestCase):
     neighbor_fn = partition.neighbor_list(displacement, box_size, r_cutoff, 0.)
 
     rs = np.linspace(1.0, 2.0, N_etas, dtype=dtype)
-    gr = nn.radial_symmetry_functions(displacement, species, rs, r_cutoff)
-    gr_neigh = nn.radial_symmetry_functions_neighbor_list(
+    gr = bp.radial_symmetry_functions(displacement, species, rs, r_cutoff)
+    gr_neigh = bp.radial_symmetry_functions_neighbor_list(
       displacement,
       species,
       np.linspace(1.0, 2.0, N_etas, dtype=dtype),
@@ -139,14 +141,14 @@ class SymmetryFunctionTest(test_util.JAXMDTestCase):
 
     etas = np.linspace(1., 2., N_etas, dtype=dtype)
     lam = np.array([-1.0] * N_etas, dtype)
-    gr = nn.angular_symmetry_functions(displacement,
+    gr = bp.angular_symmetry_functions(displacement,
                                        species,
                                        etas=etas,
                                        lambdas=lam,
                                        zetas=np.array([1.0] * N_etas, dtype),
                                        cutoff_distance=r_cutoff)
 
-    gr_neigh = nn.angular_symmetry_functions_neighbor_list(
+    gr_neigh = bp.angular_symmetry_functions_neighbor_list(
       displacement,
       species,
       etas=etas,
@@ -175,7 +177,7 @@ class SymmetryFunctionTest(test_util.JAXMDTestCase):
     displacement, shift = space.free()
     etas = np.array([1e-4/(0.529177 ** 2)] * N_etas, dtype)
     lam = np.array([-1.0] * N_etas, dtype)
-    gr = nn.angular_symmetry_functions(displacement,np.array([1, 1, N_types]),
+    gr = bp.angular_symmetry_functions(displacement,np.array([1, 1, N_types]),
                                        etas=etas,
                                        lambdas=lam,
                                        zetas=np.array([1.0] * N_etas, dtype),
@@ -198,7 +200,7 @@ class SymmetryFunctionTest(test_util.JAXMDTestCase):
         for dtype in DTYPES))
   def test_behler_parrinello_symmetry_functions(self, N_types, N_etas, dtype):
     displacement, shift = space.free()
-    gr = nn.behler_parrinello_symmetry_functions(
+    gr = bp.symmetry_functions(
             displacement,np.array([1, 1, N_types]),
             radial_etas=np.array([1e-4/(0.529177 ** 2)] * N_etas, dtype),
             angular_etas=np.array([1e-4/(0.529177 ** 2)] * N_etas, dtype),
@@ -228,7 +230,7 @@ class SymmetryFunctionTest(test_util.JAXMDTestCase):
                                                               dtype):
     displacement, shift = space.free()
     neighbor_fn = partition.neighbor_list(displacement, 10.0, 8.0, 0.0)
-    gr = nn.behler_parrinello_symmetry_functions_neighbor_list(
+    gr = bp.symmetry_functions_neighbor_list(
             displacement,np.array([1, 1, N_types]),
             radial_etas=np.array([1e-4/(0.529177 ** 2)] * N_etas, dtype),
             angular_etas=np.array([1e-4/(0.529177 ** 2)] * N_etas, dtype),
