@@ -33,6 +33,7 @@ INSTALL_REQUIRES = [
     'ml_collections',
     'e3nn-jax',
     'dm-haiku',
+    'optax',
 ]
 
 setuptools.setup(
