@@ -976,7 +976,7 @@ class EnergyTest(test_util.JAXMDTestCase):
           'testcase_name': '_dtype={}'.format(dtype.__name__),
           'dtype': dtype,
       } for dtype in POSITION_DTYPE))
-  def disabled_test_nequip_silicon(self, dtype):
+  def test_nequip_silicon(self, dtype):
     position = jnp.array([[0.262703, 0.752304, 0.243743],
                           [0.018137, 0.002302, 0.491184],
                           [0.248363, 0.237012, 0.776354],

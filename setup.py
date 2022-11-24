@@ -32,6 +32,7 @@ INSTALL_REQUIRES = [
     'einops',
     'ml_collections',
     'e3nn-jax',
+    'dm-haiku',
 ]
 
 setuptools.setup(
