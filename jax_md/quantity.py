@@ -322,7 +322,8 @@ def pair_correlation(displacement_or_metric: Union[DisplacementFn, MetricFn],
                      radii: Array,
                      sigma: float,
                      species: Array = None,
-                     eps: float = 1e-7):
+                     eps: float = 1e-7,
+                     return_average: bool = False):
   """Computes the pair correlation function at a mesh of distances.
 
   The pair correlation function measures the number of particles at a given
@@ -376,8 +377,11 @@ def pair_correlation(displacement_or_metric: Union[DisplacementFn, MetricFn],
     def g_fn(R):
       dim = R.shape[-1]
       mask = 1 - jnp.eye(R.shape[0], dtype=R.dtype)
-      return jnp.sum(mask[:, :, jnp.newaxis] *
-                     pairwise(d(R, R), dim), axis=(1,))
+      g_R = jnp.sum(mask[:, :, jnp.newaxis] *
+                    pairwise(d(R, R), dim), axis=(1,))
+      if return_average:
+        g_R = average_pair_correlation_results(g_R, species)
+      return g_R
   else:
     if not (isinstance(species, jnp.ndarray) and is_integer(species)):
       raise TypeError('Malformed species; expecting array of integers.')
@@ -390,6 +394,8 @@ def pair_correlation(displacement_or_metric: Union[DisplacementFn, MetricFn],
         Rs = R[species == s]
         mask_s = mask[:, species == s, jnp.newaxis]
         g_R += [jnp.sum(mask_s * pairwise(d(Rs, R), dim), axis=(1,))]
+      if return_average:
+        g_R = average_pair_correlation_results(g_R, species)
       return g_R
   return g_fn
 
@@ -403,7 +409,8 @@ def pair_correlation_neighbor_list(
     dr_threshold: float = 0.5,
     eps: float = 1e-7,
     fractional_coordinates: bool=False,
-    format: partition.NeighborListFormat=partition.Dense):
+    format: partition.NeighborListFormat=partition.Dense,
+    return_average: bool = False):
   """Computes the pair correlation function at a mesh of distances.
 
   The pair correlation function measures the number of particles at a given
@@ -471,14 +478,20 @@ def pair_correlation_neighbor_list(
         R_neigh = R[neighbor.idx]
         d = space.map_neighbor(metric)
         _pairwise = vmap(vmap(pairwise, (0, None)), (0, None))
-        return jnp.sum(mask[:, :, None] *
-                       _pairwise(d(R, R_neigh), dim), axis=(1,))
+        g_R = jnp.sum(mask[:, :, None] *
+                      _pairwise(d(R, R_neigh), dim), axis=(1,))
+        if return_average:
+          g_R = average_pair_correlation_results(g_R, species)
+        return g_R
       elif neighbor.format is partition.Sparse:
         dr = space.map_bond(metric)(R[neighbor.idx[0]], R[neighbor.idx[1]])
         _pairwise = vmap(pairwise, (0, None))
-        return ops.segment_sum(mask[:, None] * _pairwise(dr, dim),
-                               neighbor.idx[0],
-                               N)
+        g_R = ops.segment_sum(mask[:, None] * _pairwise(dr, dim),
+                              neighbor.idx[0],
+                              N)
+        if return_average:
+          g_R = average_pair_correlation_results(g_R, species)
+        return g_R
       else:
         raise NotImplementedError('Pair correlation function does not support '
                                   'OrderedSparse neighbor lists.')
@@ -512,6 +525,8 @@ def pair_correlation_neighbor_list(
         raise NotImplementedError('Pair correlation function does not support '
                                   'OrderedSparse neighbor lists.')
 
+      if return_average:
+        g_R = average_pair_correlation_results(g_R, species)
       return g_R
   return neighbor_fn, g_fn
 
