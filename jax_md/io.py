@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import jax.numpy as np
-
+print('blah')
 def _xyz_vec2str(x):
   """Convert a vector to string.
   """
