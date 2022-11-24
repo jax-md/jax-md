@@ -88,7 +88,7 @@ def test_config() -> ConfigDict:
   config.hidden_irreps = '16x0e + 4x1e'
   config.sh_irreps = '1x0e + 1x1e'
   config.num_basis = 8
-  config.r_max = 5.
+  config.r_max = 3.
   config.radial_net_nonlinearity = 'raw_swish'
   config.radial_net_n_hidden = 8
   config.radial_net_n_layers = 2
@@ -162,7 +162,7 @@ def setup_case():
   box = jnp.eye(3) * 1
   pos = jnp.array([[0., 0., 0.], [0.239487, 0., 0.], [0.5234, 0.78234, 0.]])
 
-  pos, box, atoms = tile(pos, box, atoms, 10)
+  pos, box, atoms = tile(pos, box, atoms, 6)
 
   displacement, _ = space.periodic_general(box)
 
