@@ -29,6 +29,8 @@ import haiku as hk
 from jax.scipy.special import erfc  # error function
 from jax_md import space, smap, partition, nn, quantity, interpolate, util
 
+from ml_collections import ConfigDict
+
 bp = nn.behler_parrinello
 gnome = nn.gnome
 
@@ -1780,6 +1782,44 @@ def graph_network_neighbor_list(
   init_fn, apply_fn = model.init, model.apply
 
   return neighbor_fn, init_fn, apply_fn
+
+
+def nequip_neighbor_list(displacement_fn,
+                         box,
+                         cfg: ConfigDict=None,
+                         atoms=None,
+                         **nl_kwargs):
+  cfg = nequip.default_config() if cfg is None else cfg
+  featurizer = nequip.featurizer(cfg.sh_irreps)
+
+  model = nequip.model_from_config(cfg)
+
+  neighbor_fn = partition.neighbor_list(
+    displacement_fn,
+    box,
+    cfg.r_max,
+    format=partition.Sparse,
+    **nl_kwargs)
+
+  featurizer = nn.util.neighbor_list_featurizer(displacement_fn, *featurizer)
+
+  def init_fn(key, position, neighbor, **kwargs):
+    _atoms = kwargs.pop('atoms', atoms)
+    if _atoms is None:
+      raise ValueError('A one-hot encoding of the atoms is required.')
+    # TODO: It would be nicer to do this without computing flops
+    # since we really only need the shape of the graph for initialization.
+    graph = featurizer(_atoms, position, neighbor, **kwargs)
+    return model.init(key, graph)
+
+  def energy_fn(params, position, neighbor, **kwargs):
+    _atoms = kwargs.pop('atoms', atoms)
+    if _atoms is None:
+      raise ValueError('A one-hot encoding of the atoms is required.')
+    graph = featurizer(_atoms, position, neighbor, **kwargs)
+    return model.apply(params, graph)[0, 0]
+
+  return neighbor_fn, init_fn, energy_fn
 
 
 def load_gnome_model_neighbor_list(
