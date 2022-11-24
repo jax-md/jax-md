@@ -88,7 +88,7 @@ def test_config() -> ConfigDict:
   config.hidden_irreps = '16x0e + 4x1e'
   config.sh_irreps = '1x0e + 1x1e'
   config.num_basis = 8
-  config.r_max = 5.
+  config.r_max = 2.5
   config.radial_net_nonlinearity = 'raw_swish'
   config.radial_net_n_hidden = 8
   config.radial_net_n_layers = 2
@@ -164,7 +164,7 @@ class NequIPTest(test_util.JAXMDTestCase):
     box = jnp.eye(3) * 1
     pos = jnp.array([[0., 0., 0.], [0.239487, 0., 0.], [0.5234, 0.78234, 0.]])
 
-    pos, box, atoms = tile(pos, box, atoms, 10)
+    pos, box, atoms = tile(pos, box, atoms, 5)
 
     displacement, _ = space.periodic_general(box)
 
@@ -173,7 +173,7 @@ class NequIPTest(test_util.JAXMDTestCase):
     neighbor = partition.neighbor_list(
         displacement,
         jnp.diag(box),
-        r_cutoff=5.0,
+        r_cutoff=2.5,
         format=partition.Sparse,
         fractional_coordinates=True)
     params = None
@@ -225,7 +225,7 @@ class NequIPTest(test_util.JAXMDTestCase):
     force = jax.grad(net, argnums=2)(params, *example)
 
     f_sum = onp.abs(onp.sum(force, axis=0))
-    onp.testing.assert_allclose(f_sum, onp.zeros_like(f_sum), atol=1e-7)
+    self.assertAllClose(f_sum, onp.zeros_like(f_sum), atol=1e-7)
 
   def test_nequipcutoff_smoothness(self):
     """Test that the energy changes smoothly as an atom enters the nbh."""
@@ -281,7 +281,7 @@ class NequIPTest(test_util.JAXMDTestCase):
 
     es = jnp.array(es)
 
-    onp.testing.assert_allclose(es[0] * jnp.ones_like(es), es, atol=1e-7)
+    self.assertAllClose(es[0] * jnp.ones_like(es), es, atol=1e-7)
 
   def test_zero_outside_cutoff(self):
     """Test that basis + envelope give 0 if two atoms don't see each other."""
@@ -295,7 +295,7 @@ class NequIPTest(test_util.JAXMDTestCase):
 
     variables = bessel.init(random.PRNGKey(0), scalar_dr_edge)
     embedded_dr_edge = bessel.apply(variables, scalar_dr_edge)
-    onp.testing.assert_array_equal(embedded_dr_edge, jnp.zeros((1, 8)))
+    self.assertAllClose(embedded_dr_edge, jnp.zeros((1, 8)))
 
   def test_radial_net_zero_to_zero(self):
     """Test that the radial net gives f(0) = 0."""
