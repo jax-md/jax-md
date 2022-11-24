@@ -91,7 +91,7 @@ def canonicalize_force(energy_or_force_fn: Union[EnergyFn, ForceFn]) -> ForceFn:
         if not is_valid_force:
           raise ValueError('Provided function should be compatible with '
                            'either an energy or a force. Found a function '
-                           f'whose output has shape {out_shape}.')
+                           f'whose output has shape {out_shaped}.')
 
         _force_fn = energy_or_force_fn
     return _force_fn(R, **kwargs)
