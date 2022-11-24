@@ -1790,9 +1790,7 @@ def nequip_neighbor_list(displacement_fn,
                          atoms=None,
                          **nl_kwargs):
   cfg = nequip.default_config() if cfg is None else cfg
-  featurizer = nequip.featurizer(cfg.sh_irreps)
-
-  model = nequip.model_from_config(cfg)
+  featurizer, model = nequip.model_from_config(cfg)
 
   neighbor_fn = partition.neighbor_list(
     displacement_fn,
@@ -1823,12 +1821,11 @@ def nequip_neighbor_list(displacement_fn,
 
 
 def load_gnome_model_neighbor_list(
-        displacement_fn: DisplacementFn,
-        box: Array,
-        directory: str,
-        atoms: Optional[Array] = None,
-        **nl_kwargs) -> Tuple[NeighborFn,
-                              Callable[[Array, NeighborList], Array]]:
+        displacement_fn,
+        box,
+        directory,
+        atoms = None,
+        **nl_kwargs):
   """Load a gnome model from a checkpoint."""
   cfg, featurizer, model, params = gnome.load_model(directory)
 

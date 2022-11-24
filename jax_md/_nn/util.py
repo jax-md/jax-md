@@ -182,7 +182,7 @@ DATASET_SHIFT_SCALE = {
 
 def get_shift_and_scale(cfg: ConfigDict) -> Tuple[float, float]:
   if hasattr(cfg, 'scale') and hasattr(cfg, 'shift'):
-    return cfg.scale, cfg.shift
+    return cfg.shift, cfg.scale
   elif hasattr(cfg, 'train_dataset'):
     return DATASET_SHIFT_SCALE[cfg.train_dataset[0]]
   else:
