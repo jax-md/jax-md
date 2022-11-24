@@ -24,12 +24,15 @@ with io.open(os.path.join(this_directory, 'README.md'), encoding='utf-8') as f:
 INSTALL_REQUIRES = [
     'absl-py',
     'numpy',
-    'jax>=0.1.73',
-    'jaxlib>=0.1.52',
-    'dm-haiku>=0.0.2',
+    'jax',
+    'jaxlib',
+    'flax',
     'jraph',
     'dataclasses',
-    'einops'
+    'einops',
+    'ml_collections',
+    'e3nn-jax',
+    'optax'
 ]
 
 setuptools.setup(
