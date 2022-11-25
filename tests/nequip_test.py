@@ -295,7 +295,7 @@ class NequIPTest(test_util.JAXMDTestCase):
 
     variables = bessel.init(random.PRNGKey(0), scalar_dr_edge)
     embedded_dr_edge = bessel.apply(variables, scalar_dr_edge)
-    self.assertAllClose(embedded_dr_edge, jnp.zeros((1, 8)))
+    self.assertAllClose(embedded_dr_edge, jnp.zeros_like(embedded_dr_edge))
 
   def test_radial_net_zero_to_zero(self):
     """Test that the radial net gives f(0) = 0."""
