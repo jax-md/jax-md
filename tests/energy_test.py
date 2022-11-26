@@ -19,6 +19,7 @@ from absl.testing import parameterized
 
 from jax.config import config
 from jax import random
+import jax
 from jax import jit, vmap, grad
 import jax.numpy as np
 
@@ -35,6 +36,9 @@ from jax_md.interpolate import spline
 
 config.parse_flags_with_absl()
 FLAGS = config.FLAGS
+
+# TODO: Replace np by jnp everywhere.
+jnp = np
 
 PARTICLE_COUNT = 100
 STOCHASTIC_SAMPLES = 10
@@ -139,6 +143,27 @@ def lattice(R_unit_cell, copies, lattice_vectors):
     R = R_unit_cell + dR[onp.newaxis, :]
     Rs += [R]
   return np.array(onp.concatenate(Rs))
+
+
+def tile_silicon(tile_count, position, box, *extra_data):
+  tiles = jnp.arange(tile_count)
+  dx, dy, dz = jnp.meshgrid(tiles, tiles, tiles)
+  dR = jnp.stack((dx, dy, dz), axis=-1)
+  dR = jnp.reshape(dR, (-1, 3))
+
+  position = (position[:, None, :] + dR[None, :, :]) / tile_count
+  position = jnp.reshape(position, (-1, 3))
+  box *= tile_count
+
+  tiled_data = []
+  for ex in extra_data:
+    assert ex.ndim == 2
+    ex = jnp.broadcast_to(ex[:, None, :],
+                          (ex.shape[0], len(dR), ex.shape[1]))
+    ex = jnp.reshape(ex, (-1, ex.shape[-1]))
+    tiled_data += [ex]
+
+  return [position, box] + tiled_data
 
 
 class EnergyTest(test_util.JAXMDTestCase):
@@ -900,7 +925,6 @@ class EnergyTest(test_util.JAXMDTestCase):
       self.assertAllClose(energy_fn(params, R), nl_energy_fn(params, R, nbrs),
                           rtol=2e-4, atol=2e-4)
 
-
   @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
@@ -948,6 +972,63 @@ class EnergyTest(test_util.JAXMDTestCase):
 
     assert loss(params, R) < l0 * 0.95
 
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': '_dtype={}'.format(dtype.__name__),
+          'dtype': dtype,
+      } for dtype in POSITION_DTYPE))
+  def test_nequip_silicon(self, dtype):
+    position = jnp.array([[0.262703, 0.752304, 0.243743],
+                          [0.018137, 0.002302, 0.491184],
+                          [0.248363, 0.237012, 0.776354],
+                          [0.991889, 0.496844, 0.005244],
+                          [0.773055, 0.742292, 0.755667],
+                          [0.488418, 0.001649, 0.993714],
+                          [0.7502, 0.232352, 0.236175],
+                          [0.52915, 0.488468, 0.512127],], dtype=dtype)
+    n = len(position)
+
+    gt_forces = jnp.array(
+      [[ -6.2008705, -12.834937,    5.787031],
+       [  3.9308796,   8.419766,   -3.6275134],
+       [ -4.3150625,  -6.7310944,   2.2780294],
+       [  5.800577,  11.102457,   -3.3206246],
+       [ -4.4260826,  -8.080319,    3.398284],
+       [  6.7915206,  11.888205,   -5.344664],
+       [ -5.6801977, -10.894533,    3.8579397],
+       [  4.0992346,   7.1304564,  -3.0284817]], dtype=dtype)
+
+    box = jnp.array([[ 4.707482, -0.92776, 0],
+                     [ 0, 5.658054,  0.,],
+                     [ 2.14774, 1.224906, 6.006509]], dtype=dtype)
+
+    atoms = jnp.zeros((n, 94), dtype=dtype).at[:, 13].set(1)
+
+    position, box, atoms, gt_forces = tile_silicon(5, position, box, atoms,
+                                                   gt_forces)
+
+    displacement_fn, _ = space.periodic_general(box)
+
+    neighbor_fn, energy_fn = energy.load_gnome_model_neighbor_list(
+      displacement_fn,
+      box,
+      'tests/data/nequip_silicon_test/',
+      atoms,
+      fractional_coordinates=True,
+      disable_cell_list=True)
+
+    nbrs = neighbor_fn.allocate(position)
+
+    e, g = jax.value_and_grad(energy_fn)(position, nbrs)
+    etol = 5e-3
+    self.assertAllClose(e / len(position), dtype(14.0278845 / 8),
+                        rtol=etol, atol=etol)
+
+    fatol = 5e-2
+    frtol = 5e-3
+
+    self.assertAllClose(-g, gt_forces, rtol=frtol, atol=fatol)
+
+
 if __name__ == '__main__':
   absltest.main()
-

@@ -968,7 +968,7 @@ def to_jraph(neighbor: NeighborList,
 
   # Pad the nodes to add one fictitious node.
   def pad(x):
-    padding = jnp.zeros((1,) + x.shape[1:])
+    padding = jnp.zeros((1,) + x.shape[1:], dtype=x.dtype)
     return jnp.concatenate((x, padding), axis=0)
   nodes = tree_map(pad, nodes)
 
