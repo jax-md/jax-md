@@ -329,13 +329,13 @@ class NeighborListTest(test_util.JAXMDTestCase):
   def test_cell_list_overflow(self):
     displacement_fn, shift_fn = space.free()
 
-    box_size = 100.0
+    box = 100.0
     r_cutoff = 3.0
     dr_threshold = 0.0
 
     neighbor_list_fn = partition.neighbor_list(
       displacement_fn,
-      box_size=box_size,
+      box=box,
       r_cutoff=r_cutoff,
       dr_threshold=dr_threshold,
     )
@@ -369,7 +369,7 @@ class NeighborListTest(test_util.JAXMDTestCase):
   def test_custom_mask_function(self):
     displacement_fn, shift_fn = space.free()
 
-    box_size = 1.0
+    box = 1.0
     r_cutoff = 3.0
     dr_threshold = 0.0
     n_particles = 10
@@ -414,7 +414,7 @@ class NeighborListTest(test_util.JAXMDTestCase):
 
     neighbor_list_fn = partition.neighbor_list(
       displacement_fn,
-      box_size=box_size,
+      box=box,
       r_cutoff=r_cutoff,
       dr_threshold=dr_threshold,
       custom_mask_function=custom_mask_function,
@@ -441,14 +441,16 @@ class NeighborListTest(test_util.JAXMDTestCase):
                                           0.1 * r_cut,
                                           fractional_coordinates=True)
 
-    neighbor2_fn = partition.neighbor_list(displacement, box_vector[0], r_cut,
-                                          0.1 * r_cut,
-                                          fractional_coordinates=True,
-                                          disable_cell_list=True)
+    neighbor2_fn = partition.neighbor_list(displacement, box_vector[0],
+                                           r_cut,
+                                           0.1 * r_cut,
+                                           fractional_coordinates=True,
+                                           disable_cell_list=True)
 
     nbrs = neighbor_fn.allocate(positions)
     nbrs2 = neighbor2_fn.allocate(positions)
-    self.assertAllClose(nbrs, nbrs)
+    self.assertAllClose(jnp.sort(nbrs.idx, axis=-1),
+                        jnp.sort(nbrs2.idx, axis=-1))
 
   @parameterized.named_parameters(test_util.cases_from_list(
     {
@@ -492,7 +494,113 @@ class NeighborListTest(test_util.JAXMDTestCase):
     self.assertFalse(new_nbrs.did_buffer_overflow)
     self.assertEqual(new_nbrs.idx.shape, desired_shape)
 
+  def test_general_unit_cell(self):
+    N = 256
+    dim = 3
+    rho = 0.05
 
+    energy_form = lambda dr, **kwargs: jnp.where(dr < 2.5, 1.0, 0.0)
 
+    def cell(key, a, b, c, alpha, beta, gamma):
+      alpha = alpha * jnp.pi / 180
+      beta = beta * jnp.pi / 180
+      gamma = gamma * jnp.pi / 180
+      xx = a
+      yy = b * jnp.sin(gamma)
+      xy = b * jnp.cos(gamma)
+      xz = c * jnp.cos(beta)
+      yz = (b * c * jnp.cos(alpha) - xy * xz) / yy
+      zz = jnp.sqrt(c**2 - xz**2 - yz**2)
+      U = jnp.array([
+        [xx, xy, xz],
+        [0,  yy, yz],
+        [0,  0,  zz]
+      ])
+      return U
+    key = random.PRNGKey(0)
+
+    L = quantity.box_size_at_number_density(N, rho, dim)
+
+    for _ in range(10):
+      key, cell_key, pos_key, L_key, angle_key = random.split(key, 5)
+      Lx, Ly, Lz = random.uniform(L_key, (3,), minval=L * 0.5, maxval=L * 3)
+      alpha, beta, gamma = random.uniform(angle_key, (3,),
+                                          minval=45.0, maxval=125.0)
+      cl = cell(cell_key, Lx, Ly, Lz, alpha, beta, gamma)
+      if jnp.any(jnp.isnan(cl)):
+        continue
+      displacement, shift = space.periodic_general(cl)
+      metric = space.metric(displacement)
+
+      E_exact = smap.pair(energy_form, metric, reduce_axis=(-1,))
+      E = smap.pair_neighbor_list(energy_form, metric, reduce_axis=(-1,))
+      neighbor_fn = partition.neighbor_list(displacement, cl, 2.5,
+                                            capacity_multiplier=1.0,
+                                            fractional_coordinates=True)
+
+      R = random.uniform(key, (N, dim))
+      nbrs = neighbor_fn.allocate(R)
+      E_target = E_exact(R)
+      self.assertTrue(jnp.any(jnp.abs(E_target) > 0.25))
+      self.assertAllClose(E_target, E(R, neighbor=nbrs))
+
+  @parameterized.named_parameters(test_util.cases_from_list(
+    {
+      'testcase_name': f'_factor={int(10 * f)}',
+      'factor': f
+    } for f in [0.5, 2.0]))
+  def test_general_unit_cell_resize(self, factor):
+    N = 256
+    dim = 3
+    rho = 0.05
+
+    energy_form = lambda dr, **kwargs: jnp.where(dr < 2.5, 1.0, 0.0)
+
+    def cell(key, a, b, c, alpha, beta, gamma):
+      alpha = alpha * jnp.pi / 180
+      beta = beta * jnp.pi / 180
+      gamma = gamma * jnp.pi / 180
+      xx = a
+      yy = b * jnp.sin(gamma)
+      xy = b * jnp.cos(gamma)
+      xz = c * jnp.cos(beta)
+      yz = (b * c * jnp.cos(alpha) - xy * xz) / yy
+      zz = jnp.sqrt(c**2 - xz**2 - yz**2)
+      U = jnp.array([
+        [xx, xy, xz],
+        [0,  yy, yz],
+        [0,  0,  zz]
+      ])
+      return U
+    key = random.PRNGKey(0)
+
+    L = quantity.box_size_at_number_density(N, rho, dim)
+
+    for _ in range(10):
+      key, cell_key, pos_key, L_key, angle_key = random.split(key, 5)
+      Lx, Ly, Lz = random.uniform(L_key, (3,), minval=L * 0.5, maxval=L * 3)
+      alpha, beta, gamma = random.uniform(angle_key, (3,),
+                                          minval=45.0, maxval=125.0)
+      cl = cell(cell_key, Lx, Ly, Lz, alpha, beta, gamma)
+      if jnp.any(jnp.isnan(cl)):
+        continue
+      displacement, shift = space.periodic_general(cl)
+      metric = space.metric(displacement)
+
+      E_exact = smap.pair(energy_form, metric, reduce_axis=(-1,))
+      E = smap.pair_neighbor_list(energy_form, metric, reduce_axis=(-1,))
+      neighbor_fn = partition.neighbor_list(displacement, cl, 2.5,
+                                            capacity_multiplier=1.0,
+                                            fractional_coordinates=True)
+
+      R = random.uniform(key, (N, dim))
+      nbrs = neighbor_fn.allocate(R)
+      nbrs = nbrs.update(R, box=cl * factor)
+      E_target = E_exact(R, box=cl * factor)
+      if factor > 1:
+        self.assertTrue(jnp.any(jnp.abs(E_target) > 0.25))
+        self.assertAllClose(E_target, E(R, neighbor=nbrs, box=cl * factor))
+      else:
+        self.assertTrue(jnp.any(nbrs.cell_size_too_small))
 if __name__ == '__main__':
   absltest.main()
