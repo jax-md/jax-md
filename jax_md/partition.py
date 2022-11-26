@@ -141,7 +141,7 @@ def _cell_dimensions(spatial_dimension: int,
 
   if isinstance(box_size, (onp.ndarray, jnp.ndarray)):
     if box_size.ndim == 1 or box_size.ndim == 2:
-      assert box_size.shape[0] == spatial_dimension
+      assert box_size.size == spatial_dimension
       flat_cells_per_side = onp.reshape(cells_per_side, (-1,))
       for cells in flat_cells_per_side:
         if cells < 3:
@@ -416,34 +416,64 @@ def cell_list(box_size: Box,
 
 
 class PartitionErrorCode(IntEnum):
+  """An enum specifying different error codes.
+
+  Attributes:
+    NONE: Means that no error was encountered during simulation.
+    NEIGHBOR_LIST_OVERFLOW: Indicates that the neighbor list was not large
+      enough to contain all of the particles. This should indicate that it is
+      necessary to allocate a new neighbor list.
+    CELL_LIST_OVERFLOW: Indicates that the cell list was not large enough to
+      contain all of the particles. This should indicate that it is necessary
+      to allocate a new cell list.
+    CELL_SIZE_TOO_SMALL: Indicates that the size of cells in a cell list was
+      not large enough to properly capture particle interactions. This
+      indicates that it is necessary to allcoate a new cell list with larger
+      cells.
+    MALFORMED_BOX: Indicates that a box matrix was not properly upper
+      triangular.
+  """
   NONE = 0
   NEIGHBOR_LIST_OVERFLOW = 1 << 0
   CELL_LIST_OVERFLOW     = 1 << 1
   CELL_SIZE_TOO_SMALL    = 1 << 2
+  MALFORMED_BOX          = 1 << 3
 PEC = PartitionErrorCode
 
 
 @dataclasses.dataclass
 class PartitionError:
+  """A struct containing error codes while building / updating neighbor lists.
+
+  Attributes:
+    code: An array storing the error code. See `PartitionErrorCode` for
+      details.
+  """
   code: Array
 
-  def update(self, bit, pred):
+  def update(self, bit: bytes, pred: Array) -> Array:
+    """Possibly adds an error based on a predicate."""
     zero = jnp.zeros((), jnp.uint8)
     bit = jnp.array(bit, dtype=jnp.uint8)
     return PartitionError(self.code | jnp.where(pred, bit, zero))
 
-  def __str__(self):
+  def __str__(self) -> str:
+    """Produces a string representation of the error code."""
     if not jnp.any(self.code):
       return ''
 
     if jnp.any(self.code & PEC.NEIGHBOR_LIST_OVERFLOW):
-      return 'Partition Error: Neighbor List Buffer Overflow.'
+      return 'Partition Error: Neighbor list buffer overflow.'
 
     if jnp.any(self.code & PEC.CELL_LIST_OVERFLOW):
-      return 'Partition Error: Cell List Buffer Overflow'
+      return 'Partition Error: Cell list buffer overflow'
 
     if jnp.any(self.code & PEC.CELL_SIZE_TOO_SMALL):
-      return 'Partition Error: Cell Size Too Small'
+      return 'Partition Error: Cell size too small'
+
+    if jnp.any(self.code & PEC.MALFORMED_BOX):
+      return ('Partition Error: Incorrect box format. Expecting upper '
+              'triangular.')
 
     raise ValueError(f'Unexpected Error Code {self.code}.')
 
@@ -484,19 +514,40 @@ def _fractional_cell_size(box, cutoff):
   elif box.ndim == 1:
     return cutoff / jnp.min(box)
   elif box.ndim == 2:
-    # Let \vec r s.t. |r| == cutoff
-    # we can always write r = a_1 e_1 + a_2 e_2 + a_3 e_3
-    # such that $Ue_i = \lam_i e_i$
-    # 
-    # what is |U^{-1}r| = 
-    # _, r = jnp.linalg.qr(box)
-    #l = jnp.linalg.norm(box, axis=0)
-    #return cutoff / jnp.min(l - 0.01)
-    # _, r = jnp.linalg.qr(box)
-    #return cutoff / jnp.min(jnp.diag(box))
-    return cutoff * jnp.max(jnp.diag(jnp.linalg.inv(box))) #jnp.diag(box))
+    if box.shape[0] == 1:
+      return 1 / jnp.floor(box[0, 0] / cutoff)
+    elif box.shape[0] == 2:
+      xx = box[0, 0]
+      yy = box[1, 1]
+      xy = box[0, 1] / yy
+
+      nx = xx / jnp.sqrt(1 + xy**2)
+      ny = yy
+
+      nmin = jnp.floor(jnp.min(jnp.array([nx, ny])) / cutoff)
+      nmin = jnp.where(nmin == 0, 1, nmin)
+      return 1 / nmin
+    elif box.shape[0] == 3:
+      xx = box[0, 0]
+      yy = box[1, 1]
+      zz = box[2, 2]
+      xy = box[0, 1] / yy
+      xz = box[0, 2] / zz
+      yz = box[1, 2] / zz
+
+      nx = xx / jnp.sqrt(1 + xy**2 + (xy * yz - xz)**2)
+      ny = yy / jnp.sqrt(1 + yz**2)
+      nz = zz
+
+      nmin = jnp.floor(jnp.min(jnp.array([nx, ny, nz])) / cutoff)
+      nmin = jnp.where(nmin == 0, 1, nmin)
+      return 1 / nmin
+    else:
+      raise ValueError('Expected box to be either 1-, 2-, or 3-dimensional '
+                       f'found {box.shape[0]}')
   else:
-    raise ValueError()
+    raise ValueError('Expected box to be either a scalar, a vector, or a '
+                     f'matrix. Found {type(box)}.')
 
 
 class NeighborListFormat(Enum):
@@ -529,6 +580,14 @@ def is_format_valid(fmt: NeighborListFormat):
         f' found {fmt}.'))
 
 
+def is_box_valid(box: Array) -> bool:
+  if jnp.isscalar(box) or box.ndim == 0 or box.ndim == 1:
+    return True
+  if box.ndim == 2:
+    return jnp.triu(box) == box
+  return False
+
+
 @dataclasses.dataclass
 class NeighborList(object):
   """A struct containing the state of a Neighbor List.
@@ -539,19 +598,18 @@ class NeighborList(object):
     reference_position: The positions of particles when the neighbor list was
       constructed. This is used to decide whether the neighbor list ought to be
       updated.
-    did_buffer_overflow: A boolean that starts out False. If there are ever
-      more neighbors than max_neighbors this is set to true to indicate that
-      there was a buffer overflow. If this happens, it means that the results
-      of the simulation will be incorrect and the simulation needs to be rerun
-      using a larger buffer.
+    error: An error code that is used to identify errors that occured during
+      neighbor list construction. See `PartitionError` and `PartitionErrorCode`
+      for details.
     cell_list_capacity: An optional integer specifying the capacity of the cell
       list used as an intermediate step in the creation of the neighbor list.
     max_occupancy: A static integer specifying the maximum size of the
       neighbor list. Changing this will invoke a recompilation.
     format: A NeighborListFormat enum specifying the format of the neighbor
       list.
-    cell_size:
-    cell_list_fn:
+    cell_size: A float specifying the current minimum size of the cells used
+      in cell list construction.
+    cell_list_fn: The function used to construct the cell list.
     update_fn: A static python function used to update the neighbor list.
   """
   idx: Array
@@ -561,7 +619,7 @@ class NeighborList(object):
   max_occupancy: int = dataclasses.static_field()
 
   format: NeighborListFormat = dataclasses.static_field()
-  cell_size: float = dataclasses.static_field()
+  cell_size: Optional[float] = dataclasses.static_field()
   cell_list_fn: Callable[[Array, CellList],
                          CellList] = dataclasses.static_field()
   update_fn: Callable[[Array, 'NeighborList'],
@@ -571,13 +629,17 @@ class NeighborList(object):
     return self.update_fn(position, self, **kwargs)
 
   @property
-  def did_buffer_overflow(self):
+  def did_buffer_overflow(self) -> bool:
     return self.error.code & (PEC.NEIGHBOR_LIST_OVERFLOW |
                               PEC.CELL_LIST_OVERFLOW)
 
   @property
-  def cell_size_too_small(self):
+  def cell_size_too_small(self) -> bool:
     return self.error.code & PEC.CELL_SIZE_TOO_SMALL
+
+  @property
+  def malformed_box(self) -> bool:
+    return self.error.code & PEC.MALFORMED_BOX
 
 
 @dataclasses.dataclass
@@ -826,6 +888,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
           _box = kwargs.get('box', box)
           cell_size = cutoff
           if fractional_coordinates:
+            err = err.update(PEC.MALFORMED_BOX, is_box_valid(_box))
             cell_size = _fractional_cell_size(_box, cutoff)
             _box = 1.0
           if jnp.all(cell_size < _box / 3.):
@@ -890,7 +953,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
     neighbor_fn = partial(neighbor_fn, max_occupancy=nbrs.max_occupancy)
 
     # If the box has been updated, then check that fractional coordinates are
-    # enabled and that the cell list has big enough cells. 
+    # enabled and that the cell list has big enough cells.
     if 'box' in kwargs:
       if not fractional_coordinates:
         raise ValueError('Neighbor list cannot accept a box keyword argument '
@@ -901,6 +964,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                                  _fractional_cell_size(kwargs['box'], cutoff))
       err = nbrs.error.update(PEC.CELL_SIZE_TOO_SMALL,
                               new_cell_size > cur_cell_size)
+      err = err.update(PEC.MALFORMED_BOX, is_box_valid(kwargs['box']))
       nbrs = dataclasses.replace(nbrs, error=err)
 
     d = partial(metric_sq, **kwargs)
@@ -919,6 +983,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
     return neighbor_list_fn(position, neighbors, **kwargs)
 
   return NeighborListFns(allocate_fn, update_fn)  # pytype: disable=wrong-arg-count
+
 
 def neighbor_list_mask(neighbor: NeighborList, mask_self: bool = False
                        ) -> Array:
