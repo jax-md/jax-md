@@ -744,8 +744,10 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
   Args:
     displacement: A function `d(R_a, R_b)` that computes the displacement
       between pairs of points.
-    box: Either a float specifying the size of the box or an array of
-      shape `[spatial_dim]` specifying the box size in each spatial dimension.
+    box: Either a float specifying the size of the box, an array of
+      shape `[spatial_dim]` specifying the box size for a cubic box in each
+      spatial dimension, or a matrix of shape `[spatial_dim, spatial_dim]` that
+      is _upper triangular_ and specifies the lattice vectors of the box.
     r_cutoff: A scalar specifying the neighborhood radius.
     dr_threshold: A scalar specifying the maximum distance particles can move
       before rebuilding the neighbor list.
