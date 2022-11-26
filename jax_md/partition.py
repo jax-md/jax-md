@@ -541,6 +541,7 @@ def _fractional_cell_size(box, cutoff):
 
       nmin = jnp.floor(jnp.min(jnp.array([nx, ny, nz])) / cutoff)
       nmin = jnp.where(nmin == 0, 1, nmin)
+      print(nmin)
       return 1 / nmin
     else:
       raise ValueError('Expected box to be either 1-, 2-, or 3-dimensional '

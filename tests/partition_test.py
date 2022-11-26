@@ -495,7 +495,7 @@ class NeighborListTest(test_util.JAXMDTestCase):
     self.assertEqual(new_nbrs.idx.shape, desired_shape)
 
   def test_general_unit_cell(self):
-    N = 1024
+    N = 256
     dim = 3
     rho = 0.05
 
@@ -550,7 +550,7 @@ class NeighborListTest(test_util.JAXMDTestCase):
       'factor': f
     } for f in [0.5, 2.0]))
   def test_general_unit_cell_resize(self, factor):
-    N = 1024
+    N = 256
     dim = 3
     rho = 0.05
 
