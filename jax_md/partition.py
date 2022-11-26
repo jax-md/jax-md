@@ -20,6 +20,7 @@ from functools import reduce, partial
 from collections import namedtuple
 
 from enum import Enum
+from enum import IntEnum
 
 from typing import Any, Callable, Optional, Dict, Tuple, Generator, Union
 
@@ -59,6 +60,7 @@ DisplacementOrMetricFn = space.DisplacementOrMetricFn
 MetricFn = space.MetricFn
 MaskFn = Callable[[Array], Array]
 
+
 # Cell List
 
 
@@ -77,9 +79,9 @@ class CellList:
     position_buffer: An ndarray of floating point positions with shape
       `S + [spatial_dimension]`.
     id_buffer: An ndarray of int32 particle ids of shape `S`. Note that empty
-      slots are specified by `id = N` where `N` is the number of particles in the
-      system.
-    kwarg_buffers: A dictionary of ndarrays of shape `S + [...]`. This contains
+      slots are specified by `id = N` where `N` is the number of particles in
+      the system.
+    named_buffer: A dictionary of ndarrays of shape `S + [...]`. This contains
       side data placed into the cell list.
     did_buffer_overflow: A boolean specifying whether or not the cell list
       exceeded the maximum allocated capacity.
@@ -89,11 +91,12 @@ class CellList:
   """
   position_buffer: Array
   id_buffer: Array
-  kwarg_buffers: Dict[str, Array]
+  named_buffer: Dict[str, Array]
 
   did_buffer_overflow: Array
 
   cell_capacity: int = dataclasses.static_field()
+  cell_size: float = dataclasses.static_field()
 
   update_fn: Callable[..., 'CellList'] = \
       dataclasses.static_field()
@@ -101,6 +104,12 @@ class CellList:
   def update(self, position: Array, **kwargs) -> 'CellList':
     cl_data = (self.cell_capacity, self.did_buffer_overflow, self.update_fn)
     return self.update_fn(position, cl_data, **kwargs)
+
+  @property
+  def kwarg_buffers(self):
+    logging.warning('kwarg_buffers renamed to named_buffer. The name '
+                    'kwarg_buffers will be depricated.')
+    return self.named_buffer
 
 
 @dataclasses.dataclass
@@ -130,9 +139,9 @@ def _cell_dimensions(spatial_dimension: int,
   cell_size = box_size / cells_per_side
   cells_per_side = onp.array(cells_per_side, dtype=i32)
 
-  if isinstance(box_size, onp.ndarray):
+  if isinstance(box_size, (onp.ndarray, jnp.ndarray)):
     if box_size.ndim == 1 or box_size.ndim == 2:
-      assert box_size.size == spatial_dimension
+      assert box_size.shape[0] == spatial_dimension
       flat_cells_per_side = onp.reshape(cells_per_side, (-1,))
       for cells in flat_cells_per_side:
         if cells < 3:
@@ -243,10 +252,10 @@ def cell_list(box_size: Box,
               ) -> CellListFns:
   r"""Returns a function that partitions point data spatially.
 
-  Given a set of points :math:`\{x_i \in R^d\}` with associated data :math:`\{k_i \in R^m\}` 
-  it is often useful to partition the points / data spatially. A simple partitioning
-  that can be implemented efficiently within XLA is a dense partition into a
-  uniform grid called a cell list.
+  Given a set of points :math:`\{x_i \in R^d\}` with associated data
+  :math:`\{k_i \in R^m\}` it is often useful to partition the points / data
+  spatially. A simple partitioning that can be implemented efficiently within
+  XLA is a dense partition into a uniform grid called a cell list.
 
   Since XLA requires that shapes be statically specified inside of a JIT block,
   the cell list code can operate in two modes: allocation and update.
@@ -264,8 +273,8 @@ def cell_list(box_size: Box,
   will be set to True.
 
   Args:
-    box_size: A float or an ndarray of shape `[spatial_dimension]` specifying the
-      size of the system. Note, this code is written for the case where the
+    box_size: A float or an ndarray of shape `[spatial_dimension]` specifying
+      the size of the system. Note, this code is written for the case where the
       boundaries are periodic. If this is not the case, then the current code
       will be slightly less efficient.
     minimum_cell_size: A float specifying the minimum side length of each cell.
@@ -385,7 +394,7 @@ def cell_list(box_size: Box,
     overflow = overflow | (max_occupancy > cell_capacity)
 
     return CellList(cell_position, cell_id, cell_kwargs,
-                    overflow, cell_capacity, update_fn)  # pytype: disable=wrong-arg-count
+                    overflow, cell_capacity, cell_size, update_fn)  # pytype: disable=wrong-arg-count
 
   def allocate_fn(position: Array, extra_capacity: int = 0, **kwargs
                   ) -> CellList:
@@ -401,6 +410,45 @@ def cell_list(box_size: Box,
     return cell_list_fn(position, cl_data, **kwargs)
 
   return CellListFns(allocate_fn, update_fn)  # pytype: disable=wrong-arg-count
+
+
+# Neighbor Lists
+
+
+class PartitionErrorCode(IntEnum):
+  NONE = 0
+  NEIGHBOR_LIST_OVERFLOW = 1 << 0
+  CELL_LIST_OVERFLOW     = 1 << 1
+  CELL_SIZE_TOO_SMALL    = 1 << 2
+PEC = PartitionErrorCode
+
+
+@dataclasses.dataclass
+class PartitionError:
+  code: Array
+
+  def update(self, bit, pred):
+    zero = jnp.zeros((), jnp.uint8)
+    bit = jnp.array(bit, dtype=jnp.uint8)
+    return PartitionError(self.code | jnp.where(pred, bit, zero))
+
+  def __str__(self):
+    if not jnp.any(self.code):
+      return ''
+
+    if jnp.any(self.code & PEC.NEIGHBOR_LIST_OVERFLOW):
+      return 'Partition Error: Neighbor List Buffer Overflow.'
+
+    if jnp.any(self.code & PEC.CELL_LIST_OVERFLOW):
+      return 'Partition Error: Cell List Buffer Overflow'
+
+    if jnp.any(self.code & PEC.CELL_SIZE_TOO_SMALL):
+      return 'Partition Error: Cell Size Too Small'
+
+    raise ValueError(f'Unexpected Error Code {self.code}.')
+
+  __repr__ = __str__
+
 
 
 def _displacement_or_metric_to_metric_sq(
@@ -423,6 +471,32 @@ def _displacement_or_metric_to_metric_sq(
   raise ValueError(
     'Canonicalize displacement not implemented for spatial dimension larger'
     'than 4.')
+
+
+def _cell_size(box, minimum_cell_size) -> Array:
+  cells_per_side = jnp.floor(box / minimum_cell_size)
+  return box / cells_per_side
+
+
+def _fractional_cell_size(box, cutoff):
+  if jnp.isscalar(box) or box.ndim == 0:
+    return cutoff / box
+  elif box.ndim == 1:
+    return cutoff / jnp.min(box)
+  elif box.ndim == 2:
+    # Let \vec r s.t. |r| == cutoff
+    # we can always write r = a_1 e_1 + a_2 e_2 + a_3 e_3
+    # such that $Ue_i = \lam_i e_i$
+    # 
+    # what is |U^{-1}r| = 
+    # _, r = jnp.linalg.qr(box)
+    #l = jnp.linalg.norm(box, axis=0)
+    #return cutoff / jnp.min(l - 0.01)
+    # _, r = jnp.linalg.qr(box)
+    #return cutoff / jnp.min(jnp.diag(box))
+    return cutoff * jnp.max(jnp.diag(jnp.linalg.inv(box))) #jnp.diag(box))
+  else:
+    raise ValueError()
 
 
 class NeighborListFormat(Enum):
@@ -476,24 +550,34 @@ class NeighborList(object):
       neighbor list. Changing this will invoke a recompilation.
     format: A NeighborListFormat enum specifying the format of the neighbor
       list.
+    cell_size:
+    cell_list_fn:
     update_fn: A static python function used to update the neighbor list.
   """
   idx: Array
-
   reference_position: Array
-
-  did_buffer_overflow: Array
-
+  error: PartitionError
   cell_list_capacity: Optional[int] = dataclasses.static_field()
-
   max_occupancy: int = dataclasses.static_field()
 
   format: NeighborListFormat = dataclasses.static_field()
+  cell_size: float = dataclasses.static_field()
+  cell_list_fn: Callable[[Array, CellList],
+                         CellList] = dataclasses.static_field()
   update_fn: Callable[[Array, 'NeighborList'],
                       'NeighborList'] = dataclasses.static_field()
 
   def update(self, position: Array, **kwargs) -> 'NeighborList':
     return self.update_fn(position, self, **kwargs)
+
+  @property
+  def did_buffer_overflow(self):
+    return self.error.code & (PEC.NEIGHBOR_LIST_OVERFLOW |
+                              PEC.CELL_LIST_OVERFLOW)
+
+  @property
+  def cell_size_too_small(self):
+    return self.error.code & PEC.CELL_SIZE_TOO_SMALL
 
 
 @dataclasses.dataclass
@@ -543,7 +627,7 @@ NeighborFn = Callable[[Array, Optional[NeighborList], Optional[int]],
 
 
 def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
-                  box_size: Box,
+                  box: Box,
                   r_cutoff: float,
                   dr_threshold: float = 0.0,
                   capacity_multiplier: float = 1.25,
@@ -598,7 +682,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
   Args:
     displacement: A function `d(R_a, R_b)` that computes the displacement
       between pairs of points.
-    box_size: Either a float specifying the size of the box or an array of
+    box: Either a float specifying the size of the box or an array of
       shape `[spatial_dim]` specifying the box size in each spatial dimension.
     r_cutoff: A scalar specifying the neighborhood radius.
     dr_threshold: A scalar specifying the maximum distance particles can move
@@ -629,26 +713,16 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
     list and a method to update an existing neighbor list.
   """
   is_format_valid(format)
-  box_size = lax.stop_gradient(box_size)
+  box = lax.stop_gradient(box)
   r_cutoff = lax.stop_gradient(r_cutoff)
   dr_threshold = lax.stop_gradient(dr_threshold)
 
-  box_size = f32(box_size)
+  box = f32(box)
 
   cutoff = r_cutoff + dr_threshold
   cutoff_sq = cutoff ** 2
   threshold_sq = (dr_threshold / f32(2)) ** 2
   metric_sq = _displacement_or_metric_to_metric_sq(displacement_or_metric)
-
-  cell_size = cutoff
-  if fractional_coordinates:
-    cell_size = cutoff / box_size
-    box_size = (f32(box_size) if onp.isscalar(box_size)
-                else onp.ones_like(box_size, f32))
-
-  use_cell_list = jnp.all(cell_size < box_size / 3.) and not disable_cell_list
-  if use_cell_list:
-    cl_fn = cell_list(box_size, cell_size, capacity_multiplier)
 
   @jit
   def candidate_fn(position: Array) -> Array:
@@ -689,7 +763,8 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
     return jnp.where(self_mask, idx.shape[0], idx)
 
   @jit
-  def prune_neighbor_list_dense(position: Array, idx: Array, **kwargs) -> Array:
+  def prune_neighbor_list_dense(position: Array, idx: Array, **kwargs
+                                ) -> Array:
     d = partial(metric_sq, **kwargs)
     d = space.map_neighbor(d)
 
@@ -736,25 +811,39 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
     return jnp.stack((receiver_idx, sender_idx)), max_occupancy
 
   def neighbor_list_fn(position: Array,
-                       neighbors: Optional[NeighborList] = None,
+                       neighbors = None,
                        extra_capacity: int = 0,
                        **kwargs) -> NeighborList:
-    nbrs = neighbors
-    def neighbor_fn(position_and_overflow, max_occupancy=None):
-      position, overflow = position_and_overflow
+    def neighbor_fn(position_and_error, max_occupancy=None):
+      position, err = position_and_error
       N = position.shape[0]
 
-      if use_cell_list:
+      cl_fn = None
+      cl = None
+      cell_size = None
+      if not disable_cell_list:
         if neighbors is None:
-          cl = cl_fn.allocate(position, extra_capacity=extra_capacity)
+          _box = kwargs.get('box', box)
+          cell_size = cutoff
+          if fractional_coordinates:
+            cell_size = _fractional_cell_size(_box, cutoff)
+            _box = 1.0
+          if jnp.all(cell_size < _box / 3.):
+            cl_fn = cell_list(_box, cell_size, capacity_multiplier)
+            cl = cl_fn.allocate(position, extra_capacity=extra_capacity)
         else:
-          cl = cl_fn.update(position, neighbors.cell_list_capacity)
-        overflow = overflow | cl.did_buffer_overflow
-        idx = cell_list_candidate_fn(cl, position)
-        cl_capacity = cl.cell_capacity
-      else:
+          cell_size = neighbors.cell_size
+          cl_fn = neighbors.cell_list_fn
+          if cl_fn is not None:
+            cl = cl_fn.update(position, neighbors.cell_list_capacity)
+
+      if cl is None:
         cl_capacity = None
         idx = candidate_fn(position)
+      else:
+        err = err.update(PEC.CELL_LIST_OVERFLOW, cl.did_buffer_overflow)
+        idx = cell_list_candidate_fn(cl, position)
+        cl_capacity = cl.cell_capacity
 
       if mask_self:
         idx = mask_self_fn(idx)
@@ -786,34 +875,50 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
       return NeighborList(
           idx,
           position,
-          overflow | (occupancy > max_occupancy),
+          err.update(PEC.NEIGHBOR_LIST_OVERFLOW, occupancy > max_occupancy),
           cl_capacity,
           max_occupancy,
           format,
+          cell_size,
+          cl_fn,
           update_fn)  # pytype: disable=wrong-arg-count
 
+    nbrs = neighbors
     if nbrs is None:
-      return neighbor_fn((position, False))
+      return neighbor_fn((position, PartitionError(jnp.zeros((), jnp.uint8))))
 
     neighbor_fn = partial(neighbor_fn, max_occupancy=nbrs.max_occupancy)
+
+    # If the box has been updated, then check that fractional coordinates are
+    # enabled and that the cell list has big enough cells. 
+    if 'box' in kwargs:
+      if not fractional_coordinates:
+        raise ValueError('Neighbor list cannot accept a box keyword argument '
+                         'if fractional_coordinates is not enabled.')
+      # `cell_size` is really the minimum cell size.
+      cur_cell_size = _cell_size(1.0, nbrs.cell_size)
+      new_cell_size = _cell_size(1.0,
+                                 _fractional_cell_size(kwargs['box'], cutoff))
+      err = nbrs.error.update(PEC.CELL_SIZE_TOO_SMALL,
+                              new_cell_size > cur_cell_size)
+      nbrs = dataclasses.replace(nbrs, error=err)
 
     d = partial(metric_sq, **kwargs)
     d = vmap(d)
     return lax.cond(
         jnp.any(d(position, nbrs.reference_position) > threshold_sq),
-        (position, nbrs.did_buffer_overflow), neighbor_fn,
+        (position, nbrs.error), neighbor_fn,
         nbrs, lambda x: x)
 
   def allocate_fn(position: Array, extra_capacity: int = 0, **kwargs
-                  ) -> NeighborList:
+                  ):
     return neighbor_list_fn(position, extra_capacity=extra_capacity, **kwargs)
 
-  def update_fn(position: Array, neighbors: NeighborList, **kwargs
-                ) -> NeighborList:
+  def update_fn(position: Array, neighbors, **kwargs
+                ):
     return neighbor_list_fn(position, neighbors, **kwargs)
 
   return NeighborListFns(allocate_fn, update_fn)  # pytype: disable=wrong-arg-count
-
 
 def neighbor_list_mask(neighbor: NeighborList, mask_self: bool = False
                        ) -> Array:

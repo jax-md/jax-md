@@ -793,7 +793,8 @@ class EnergyTest(test_util.JAXMDTestCase):
     else:
       self.assertAllClose(E, dtype(-296.3463784635968))
 
-    self.assertAllClose(quantity.force(energy_fn)(atoms, nbrs), jnp.zeros_like(atoms))
+    self.assertAllClose(quantity.force(energy_fn)(atoms, nbrs),
+                        jnp.zeros_like(atoms))
 
 
   @parameterized.named_parameters(test_util.cases_from_list(

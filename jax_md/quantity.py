@@ -466,6 +466,22 @@ def box_size_at_number_density(particle_count: int,
   return jnp.power(particle_count / number_density, 1 / spatial_dimension)
 
 
+def box_from_parameters(a: float, b: float, c: float,
+                        alpha: float, beta: float, gamma: float) -> Box:
+  alpha = alpha * jnp.pi / 180
+  beta = beta * jnp.pi / 180
+  gamma = gamma * jnp.pi / 180
+  yy = b * jnp.sin(gamma)
+  xy = b * jnp.cos(gamma)
+  xz = c * jnp.cos(beta)
+  yz = (b * c * jnp.cos(alpha) - xy * xz) / yy
+  zz = jnp.sqrt(c**2 - xz**2 - yz**2)
+  return jnp.array([
+      [a, xy, xz],
+      [0, yy, yz],
+      [0, 0,  zz]
+  ])
+
 def bulk_modulus(elastic_tensor: Array) -> float:
   return jnp.einsum('iijj->', elastic_tensor) / elastic_tensor.shape[0] ** 2
 
