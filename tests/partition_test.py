@@ -495,9 +495,9 @@ class NeighborListTest(test_util.JAXMDTestCase):
     self.assertEqual(new_nbrs.idx.shape, desired_shape)
 
   def test_general_unit_cell(self):
-    N = 4096
+    N = 1024
     dim = 3
-    rho = 0.01
+    rho = 0.05
 
     energy_form = lambda dr, **kwargs: jnp.where(dr < 2.5, 1.0, 0.0)
 
@@ -550,9 +550,9 @@ class NeighborListTest(test_util.JAXMDTestCase):
       'factor': f
     } for f in [0.5, 2.0]))
   def test_general_unit_cell_resize(self, factor):
-    N = 4096
+    N = 1024
     dim = 3
-    rho = 0.01
+    rho = 0.05
 
     energy_form = lambda dr, **kwargs: jnp.where(dr < 2.5, 1.0, 0.0)
 
