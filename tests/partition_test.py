@@ -495,7 +495,7 @@ class NeighborListTest(test_util.JAXMDTestCase):
     self.assertEqual(new_nbrs.idx.shape, desired_shape)
 
   def test_general_unit_cell(self):
-    N = 256
+    N = 128
     dim = 3
     rho = 0.05
 
@@ -550,7 +550,7 @@ class NeighborListTest(test_util.JAXMDTestCase):
       'factor': f
     } for f in [0.5, 2.0]))
   def test_general_unit_cell_resize(self, factor):
-    N = 256
+    N = 128
     dim = 3
     rho = 0.05
 
@@ -602,5 +602,7 @@ class NeighborListTest(test_util.JAXMDTestCase):
         self.assertAllClose(E_target, E(R, neighbor=nbrs, box=cl * factor))
       else:
         self.assertTrue(jnp.any(nbrs.cell_size_too_small))
+
+
 if __name__ == '__main__':
   absltest.main()
