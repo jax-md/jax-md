@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [3.7]
+        python-version: [3.7, 3.8, 3.9]
     steps:
     - name: Cancel previous
       uses: styfle/cancel-workflow-action@0.8.0
@@ -39,11 +39,10 @@ jobs:
         pip install pytest
         pip install pytest-xdist
         pip install pytest-cov
-        pip install optax
         pip install netCDF4
     - name: Test with pytest and generate coverage report
       run: |
-        JAX_ENABLE_X64=1 pytest -n auto --cov=jax_md --cov-report=xml --cov-report=term --cov-config=setup.cfg
+        JAX_ENABLE_X64=1 pytest --cov=jax_md --cov-report=xml --cov-report=term --cov-config=setup.cfg
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v1
       with:
