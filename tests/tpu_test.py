@@ -233,8 +233,10 @@ class ConvolutionalMDTest(test_util.JAXMDTestCase):
     # compare outputs
     grid_positions, grid_aux = tpu.from_grid(new_state.position, new_state.velocity)
 
-    self.assertAllClose(grid_positions, new_jmd_state.position)
-    self.assertAllClose(grid_aux, new_jmd_state.velocity)
+    tol = 1e-5
+
+    self.assertAllClose(grid_positions, new_jmd_state.position, atol=tol, rtol=tol)
+    self.assertAllClose(grid_aux, new_jmd_state.velocity, atol=tol, rtol=tol)
 
 
 if __name__ == '__main__':
