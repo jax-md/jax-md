@@ -75,17 +75,17 @@ def test_config() -> ConfigDict:
   config.schedule = 'constant'
   config.max_lr_plateau_epochs = 200
 
-  config.train_batch_size = 8
-  config.test_batch_size = 8
+  config.train_batch_size = 2
+  config.test_batch_size = 2
 
   config.model_family = 'nequip'
 
   # network
-  config.graph_net_steps = 5
+  config.graph_net_steps = 2
   config.nonlinearities = {'e': 'raw_swish', 'o': 'tanh'}
   config.use_sc = True
   config.n_elements = 94
-  config.hidden_irreps = '16x0e + 4x1e'
+  config.hidden_irreps = '4x0e + 2x1e'
   config.sh_irreps = '1x0e + 1x1e'
   config.num_basis = 8
   config.r_max = 2.5
