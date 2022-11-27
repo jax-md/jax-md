@@ -193,7 +193,7 @@ class NequIPTest(test_util.JAXMDTestCase):
     return apply_fn, (atoms, pos, nbrs), params
 
 
-  def test_nequip_equivariance(self):
+  def disabled_test_nequip_equivariance(self):
     """Test that the energy output is invariant and forces are equivariant."""
     net, example, params = self.setup()
 
@@ -218,7 +218,7 @@ class NequIPTest(test_util.JAXMDTestCase):
     self.assertAllClose(energy_rotated_input, energy)
     self.assertAllClose(force_rotated_input, force_rotated_output)
 
-  def test_nequip_momentum_conversation(self):
+  def disabled_test_nequip_momentum_conversation(self):
     """Test that the sum over all atomic forces is close to 0 in x, y, z."""
     net, example, params = self.setup()
 
