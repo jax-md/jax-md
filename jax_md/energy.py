@@ -31,8 +31,11 @@ from jax_md import space, smap, partition, nn, quantity, interpolate, util
 
 from ml_collections import ConfigDict
 
+
+# Define aliases different neural network primitives.
 bp = nn.behler_parrinello
 gnome = nn.gnome
+nequip = nn.nequip
 
 maybe_downcast = util.maybe_downcast
 
