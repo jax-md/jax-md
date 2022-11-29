@@ -131,15 +131,15 @@ class AllegroLayer(nn.Module):
 
 
 class Allegro(nn.Module):
-    r_cut: float  # = 7.0,
-    p: int  # = 6,
-    features: int  # = 1024,
-    n: int  # = 128,
-    irreps: e3nn.Irreps  # = "0o + 1o + 1e + 2e + 2o + 3o + 3e",
-    num_layers: int  # = 3,
-    num_radial_basis: int  # = 8,
-    irreps_out: e3nn.Irreps  # = "0e",
-    num_neighbors: float  # = 1.0,
+    r_cut: float
+    num_neighbors: float
+    p: int = 6
+    features: int = 1024
+    n: int = 128
+    irreps: e3nn.Irreps = e3nn.Irreps("0o + 1o + 1e + 2e + 2o + 3o + 3e")
+    num_layers: int = 3
+    num_radial_basis: int = 8
+    irreps_out: e3nn.Irreps = e3nn.Irreps("0e")
 
     @nn.compact
     def __call__(
@@ -209,7 +209,36 @@ class Allegro(nn.Module):
 
 
 class AllegroEnergyModel(nn.Module):
+    r_cut: float
+    num_neighbors: float
+    p: int = 6
+    features: int = 1024
+    n: int = 128
+    irreps: e3nn.Irreps = e3nn.Irreps("0o + 1o + 1e + 2e + 2o + 3o + 3e")
+    num_layers: int = 3
+    num_radial_basis: int = 8
+
     @nn.compact
     def __call__(self, graph: jraph.GraphsTuple) -> jnp.ndarray:
-        # TODO
-        pass
+        node_attrs: e3nn.IrrepsArray = graph.nodes
+        edge_src: jnp.ndarray = graph.senders
+        edge_dst: jnp.ndarray = graph.receivers
+        edge_vectors: jnp.ndarray = graph.edges
+
+        output = Allegro(
+            r_cut=self.r_cut,
+            num_neighbors=self.num_neighbors,
+            p=self.p,
+            features=self.features,
+            n=self.n,
+            irreps=self.irreps,
+            num_layers=self.num_layers,
+            num_radial_basis=self.num_radial_basis,
+        )(
+            node_attrs,
+            edge_src,
+            edge_dst,
+            edge_vectors,
+        )
+
+        return output  # TODO sum over edges
