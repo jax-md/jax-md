@@ -14,5 +14,6 @@
 
 from . import behler_parrinello
 from . import nequip
+from . import allegro
 from . import gnome
 from . import util
