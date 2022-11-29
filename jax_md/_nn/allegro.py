@@ -39,24 +39,13 @@ class MLP(nn.Module):
         return x
 
 
-def bessel(d: jnp.ndarray, c: float, n: int) -> jnp.ndarray:
-    n = jnp.arange(1, n + 1)
-    d = d[..., None]
-    x = jnp.where(d == 0, 1, d)
-    return jnp.where(
-        d == 0,
-        jnp.sqrt(2 / c) * n * jnp.pi / c,
-        jnp.sqrt(2 / c) * jnp.sin(n * jnp.pi / c * x) / x,
-    )
-
-
 def normalized_bessel(d: jnp.ndarray, n: int) -> jnp.ndarray:
     with jax.ensure_compile_time_eval():
         r = jnp.linspace(0.0, 1.0, 1000)
-        b = bessel(r, 1.0, n)
+        b = e3nn.bessel(r, 1.0, n)
         mu = jnp.trapz(b, r, axis=0)
         sig = jnp.trapz((b - mu) ** 2, r, axis=0) ** 0.5
-    return (bessel(d, 1.0, n) - mu) / sig
+    return (e3nn.bessel(d, 1.0, n) - mu) / sig
 
 
 def u(d: jnp.ndarray, p: int) -> jnp.ndarray:
