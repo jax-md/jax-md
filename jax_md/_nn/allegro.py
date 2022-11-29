@@ -16,19 +16,25 @@ class MLP(nn.Module):
 
     @nn.compact
     def __call__(self, x):
+        assert len(self.features) >= 1
+
         dense = partial(
             nn.Dense, use_bias=False, kernel_init=jax.nn.initializers.normal(1.0)
         )
+
         if self.nonlinearity is None:
             phi = None
         else:
             phi = e3nn.normalize_function(self.nonlinearity)
 
-        for h in self.features:
+        for h in self.features[:-1]:
             x = dense(h)(x) / jnp.sqrt(x.shape[-1])
 
             if phi is not None:
                 x = phi(x)
+
+        h = self.features[-1]
+        x = dense(h)(x) / jnp.sqrt(x.shape[-1])
 
         return x
 
