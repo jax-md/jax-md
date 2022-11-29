@@ -1793,7 +1793,7 @@ def nequip_neighbor_list(displacement_fn,
                          atoms=None,
                          **nl_kwargs):
   cfg = nequip.default_config() if cfg is None else cfg
-  featurizer, model = nequip.model_from_config(cfg)
+  model = nequip.model_from_config(cfg)
 
   neighbor_fn = partition.neighbor_list(
     displacement_fn,
@@ -1802,7 +1802,7 @@ def nequip_neighbor_list(displacement_fn,
     format=partition.Sparse,
     **nl_kwargs)
 
-  featurizer = nn.util.neighbor_list_featurizer(displacement_fn, *featurizer)
+  featurizer = nn.util.neighbor_list_featurizer(displacement_fn)
 
   def init_fn(key, position, neighbor, **kwargs):
     _atoms = kwargs.pop('atoms', atoms)
@@ -1830,7 +1830,7 @@ def load_gnome_model_neighbor_list(
         atoms = None,
         **nl_kwargs):
   """Load a gnome model from a checkpoint."""
-  cfg, featurizer, model, params = gnome.load_model(directory)
+  cfg, model, params = gnome.load_model(directory)
 
   neighbor_fn = partition.neighbor_list(
     displacement_fn,
@@ -1839,7 +1839,7 @@ def load_gnome_model_neighbor_list(
     format=partition.Sparse,
     **nl_kwargs)
 
-  featurizer = nn.util.neighbor_list_featurizer(displacement_fn, *featurizer)
+  featurizer = nn.util.neighbor_list_featurizer(displacement_fn)
 
   def energy_fn(position, neighbor, **kwargs):
     _atoms = kwargs.pop('atoms', atoms)

@@ -115,10 +115,7 @@ def mlp(hidden_features: Union[int, Tuple[int, ...]],
 # Featurizers
 
 
-def neighbor_list_featurizer(displacement_fn,
-                             atom_feature_fn,
-                             edge_feature_fn,
-                             global_feature_fn):
+def neighbor_list_featurizer(displacement_fn):
   def featurize(atoms, position, neighbor, **kwargs):
     N = position.shape[0]
     graph = partition.to_jraph(neighbor, nodes=atoms)
@@ -131,8 +128,7 @@ def neighbor_list_featurizer(displacement_fn,
     dR = d(Ra, Rb)
     dR = jnp.where(mask[:, None], dR, 1)
 
-    return graph._replace(nodes=atom_feature_fn(graph),
-                          edges=edge_feature_fn(dR))
+    return graph._replace(edges=dR)
   return featurize
 
 
