@@ -25,6 +25,7 @@ import jax.numpy as jnp
 from jax import ops
 from jax import ShapeDtypeStruct
 from jax.tree_util import tree_map, tree_reduce
+import jax.scipy as jsp
 
 from jax_md import space, dataclasses, partition, util
 
