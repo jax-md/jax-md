@@ -220,12 +220,12 @@ class AllegroEnergyModel(nn.Module):
 
     @nn.compact
     def __call__(self, graph: jraph.GraphsTuple) -> jnp.ndarray:
-        node_attrs: e3nn.IrrepsArray = graph.nodes
-        edge_src: jnp.ndarray = graph.senders
-        edge_dst: jnp.ndarray = graph.receivers
-        edge_vectors: jnp.ndarray = graph.edges
+        node_attrs: e3nn.IrrepsArray = graph.nodes  # [n_atoms, irreps_attributes]
+        edge_src: jnp.ndarray = graph.senders  # [n_edges]
+        edge_dst: jnp.ndarray = graph.receivers  # [n_edges]
+        edge_vectors: jnp.ndarray = graph.edges  # [n_edges, 3]
 
-        output = Allegro(
+        edge_outputs = Allegro(
             r_cut=self.r_cut,
             num_neighbors=self.num_neighbors,
             p=self.p,
@@ -241,4 +241,13 @@ class AllegroEnergyModel(nn.Module):
             edge_vectors,
         )
 
-        return output  # TODO sum over edges
+        n_graphs = len(graph.n_edge)
+        segment_ids = jnp.repeat(
+            jnp.arange(n_graphs),
+            graph.n_edge,
+            axis=0,
+            total_repeat_length=edge_outputs.shape[0],
+        )
+        return jraph.segment_sum(
+            edge_outputs, segment_ids, n_graphs, indices_are_sorted=True
+        )
