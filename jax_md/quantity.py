@@ -25,7 +25,7 @@ import jax.numpy as jnp
 from jax import ops
 from jax import ShapeDtypeStruct
 from jax.tree_util import tree_map, tree_reduce
-import jax.scipy as jsp
+from jax.scipy.special import gammaln
 
 from jax_md import space, dataclasses, partition, util
 
@@ -464,7 +464,7 @@ def nball_unit_volume(spatial_dimension: int) -> float:
   """ Return the volume of a unit sphere in arbitrary dimensions
   """
   return jnp.power(jnp.pi, spatial_dimension / 2) / \
-    jnp.exp( jsp.special.gammaln(spatial_dimension / 2 + 1))
+    jnp.exp( gammaln(spatial_dimension / 2 + 1))
 
 def particle_volume(radii: Array, 
                     spatial_dimension: int, 
