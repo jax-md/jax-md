@@ -17,8 +17,8 @@
 Spaces are pairs of functions containing:
   `displacement_fn(Ra, Rb, **kwargs)`:
     Computes displacements between pairs of particles. `Ra` and `Rb` should
-    be ndarrays of shape `[spatial_dim]`. Returns an ndarray of shape `[spatial_dim]`. 
-    To compute the displacement over more than one particle at a time see the 
+    be ndarrays of shape `[spatial_dim]`. Returns an ndarray of shape `[spatial_dim]`.
+    To compute the displacement over more than one particle at a time see the
     :meth:`map_product`, :meth:`map_bond`, and :meth:`map_neighbor` functions.
   `shift_fn(R, dR, **kwargs)`:
     Moves points at position `R` by an amount `dR`.

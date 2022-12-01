@@ -88,8 +88,15 @@ def high_precision_sum(X: Array,
                        axis: Optional[Union[Iterable[int], int]]=None,
                        keepdims: bool=False):
   """Sums over axes at 64-bit precision then casts back to original dtype."""
+  if jnp.issubdtype(X.dtype, jnp.integer):
+    dtyp = jnp.int64
+  elif jnp.issubdtype(X.dtype, jnp.complexfloating):
+    dtyp = jnp.complex128
+  else:
+    dtyp = jnp.float64
+
   return jnp.array(
-      jnp.sum(X, axis=axis, dtype=f64, keepdims=keepdims), dtype=X.dtype)
+      jnp.sum(X, axis=axis, dtype=dtyp, keepdims=keepdims), dtype=X.dtype)
 
 
 def maybe_downcast(x):

@@ -160,8 +160,8 @@ def fire_descent(energy_or_force: Callable[..., Array],
     P = tree_map(lambda x: jnp.zeros_like(x), R)
     n_pos = jnp.zeros((), jnp.int32)
     F = force(R, **kwargs)
-    mass = simulate.canonicalize_mass(mass)
-    return FireDescentState(R, P, F, mass, dt_start, alpha_start, n_pos)  # pytype: disable=wrong-arg-count
+    state = FireDescentState(R, P, F, mass, dt_start, alpha_start, n_pos)  # pytype: disable=wrong-arg-count
+    return simulate.canonicalize_mass(state)
 
   def apply_fn(state: FireDescentState, **kwargs) -> FireDescentState:
     state = nve_step_fn(state, dt=state.dt, **kwargs)

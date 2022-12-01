@@ -25,6 +25,7 @@ import jax.numpy as jnp
 from jax import ops
 from jax import ShapeDtypeStruct
 from jax.tree_util import tree_map, tree_reduce
+from jax.scipy.special import gammaln
 
 from jax_md import space, dataclasses, partition, util
 
@@ -91,7 +92,7 @@ def canonicalize_force(energy_or_force_fn: Union[EnergyFn, ForceFn]) -> ForceFn:
         if not is_valid_force:
           raise ValueError('Provided function should be compatible with '
                            'either an energy or a force. Found a function '
-                           f'whose output has shape {out_shape}.')
+                           f'whose output has shape {out_shaped}.')
 
         _force_fn = energy_or_force_fn
     return _force_fn(R, **kwargs)
@@ -285,11 +286,45 @@ def is_integer(x: Array) -> bool:
   return x.dtype == jnp.int32 or x.dtype == jnp.int64
 
 
+def average_pair_correlation_results(gofr, species=None):
+  """ Calculate species-based averages of pair correlations.
+
+  Average the results of pair_correlation or pair_correlation_neighbor_list,
+  appropriately taking species information into account.
+
+  When species=None, gofr is expected to be an array of shape (N,nr), where N is
+  the number of species and nr is the number of radii to be considered. The
+  average is calculated over all particles, so an array of shape (nr,) is
+  returned.
+
+  When species is specified, gofr is expected to be a list of nspecies arrays,
+  each of shape (N,nr), where nspecies is the number of unique species types. 
+  Here, the average is carried out separately for every pair of species, so the
+  returned array has shape (nspecies, nspecies, nr). 
+
+  Args:
+    gofr: array of shape (N,nr) or a list of arrays of shape (N,nr), where nr is
+      the number of radii for which :math:`g(r)` is calculated.
+    species: Optional. Array of shape (N,) specifying the species of each 
+      particle.
+
+  Returns:
+    An array of shape (nr,) for species=None, otherwise an array of shape 
+      (nspecies, nspecies, nr), where nspecies is the number of unique species.
+  """
+  if species is None:
+    return jnp.mean(gofr, axis=0)
+  species_types = jnp.unique(species) #note: this returns in sorted order
+  return jnp.array([ [ jnp.mean(gofr[si][species==s], axis=0) \
+      for s in species_types] for si in range(species_types.size)])
+
+
 def pair_correlation(displacement_or_metric: Union[DisplacementFn, MetricFn],
                      radii: Array,
                      sigma: float,
                      species: Array = None,
-                     eps: float = 1e-7):
+                     eps: float = 1e-7,
+                     compute_average: bool = False):
   """Computes the pair correlation function at a mesh of distances.
 
   The pair correlation function measures the number of particles at a given
@@ -317,6 +352,18 @@ def pair_correlation(displacement_or_metric: Union[DisplacementFn, MetricFn],
   Returns:
     A function `g_fn` that computes the pair correlation function for a
     collection of particles.
+
+  :math:`g(r)` is calculated separately for each particle. For species=None, the
+  output of `g_fn` is an array of shape (N, nr), where N is the number of 
+  particles passed to `g_fn` and nr is the size of radii (the number of points 
+  at which we calculate :math:`g(r)`. When species is specified, the output is a
+  list of nspecies arrays, each of shape (N, nr), where nspecies is the number
+  of unique species. If `gofr` is the output of `g_fn`, then gofr[si][i] gives
+  the :math:`g(r)` for particle i considering only pair particles of species si.
+
+  Note: when species is specified, the returned list is in the order of the 
+  sorted unique species indices, not the order in which they appear. 
+  
   """
   d = space.canonicalize_displacement_or_metric(displacement_or_metric)
   d = space.map_product(d)
@@ -331,8 +378,11 @@ def pair_correlation(displacement_or_metric: Union[DisplacementFn, MetricFn],
     def g_fn(R):
       dim = R.shape[-1]
       mask = 1 - jnp.eye(R.shape[0], dtype=R.dtype)
-      return jnp.sum(mask[:, :, jnp.newaxis] *
-                     pairwise(d(R, R), dim), axis=(1,))
+      g_R = jnp.sum(mask[:, :, jnp.newaxis] *
+                    pairwise(d(R, R), dim), axis=(1,))
+      if compute_average:
+        g_R = average_pair_correlation_results(g_R, species)
+      return g_R
   else:
     if not (isinstance(species, jnp.ndarray) and is_integer(species)):
       raise TypeError('Malformed species; expecting array of integers.')
@@ -345,6 +395,8 @@ def pair_correlation(displacement_or_metric: Union[DisplacementFn, MetricFn],
         Rs = R[species == s]
         mask_s = mask[:, species == s, jnp.newaxis]
         g_R += [jnp.sum(mask_s * pairwise(d(Rs, R), dim), axis=(1,))]
+      if compute_average:
+        g_R = average_pair_correlation_results(g_R, species)
       return g_R
   return g_fn
 
@@ -358,7 +410,8 @@ def pair_correlation_neighbor_list(
     dr_threshold: float = 0.5,
     eps: float = 1e-7,
     fractional_coordinates: bool=False,
-    format: partition.NeighborListFormat=partition.Dense):
+    format: partition.NeighborListFormat=partition.Dense,
+    compute_average: bool = False):
   """Computes the pair correlation function at a mesh of distances.
 
   The pair correlation function measures the number of particles at a given
@@ -395,6 +448,17 @@ def pair_correlation_neighbor_list(
     `neighbor_list` in `partition.py` for details). `g_fn` that computes the
     pair correlation function for a collection of particles given their
     position and a neighbor list.
+
+  :math:`g(r)` is calculated separately for each particle. For species=None, the
+  output of `g_fn` is an array of shape (N, nr), where N is the number of 
+  particles passed to `g_fn` and nr is the size of radii (the number of points 
+  at which we calculate :math:`g(r)`. When species is specified, the output is a
+  list of nspecies arrays, each of shape (N, nr), where nspecies is the number
+  of unique species. If `gofr` is the output of `g_fn`, then gofr[si][i] gives
+  the :math:`g(r)` for particle i considering only pair particles of species si.
+
+  Note: when species is specified, the returned list is in the order of the
+  sorted unique species indices, not the order in which they appear. 
   """
   metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
   inv_rad = 1 / (radii + eps)
@@ -415,14 +479,20 @@ def pair_correlation_neighbor_list(
         R_neigh = R[neighbor.idx]
         d = space.map_neighbor(metric)
         _pairwise = vmap(vmap(pairwise, (0, None)), (0, None))
-        return jnp.sum(mask[:, :, None] *
-                       _pairwise(d(R, R_neigh), dim), axis=(1,))
+        g_R = jnp.sum(mask[:, :, None] *
+                      _pairwise(d(R, R_neigh), dim), axis=(1,))
+        if compute_average:
+          g_R = average_pair_correlation_results(g_R, species)
+        return g_R
       elif neighbor.format is partition.Sparse:
         dr = space.map_bond(metric)(R[neighbor.idx[0]], R[neighbor.idx[1]])
         _pairwise = vmap(pairwise, (0, None))
-        return ops.segment_sum(mask[:, None] * _pairwise(dr, dim),
-                               neighbor.idx[0],
-                               N)
+        g_R = ops.segment_sum(mask[:, None] * _pairwise(dr, dim),
+                              neighbor.idx[0],
+                              N)
+        if compute_average:
+          g_R = average_pair_correlation_results(g_R, species)
+        return g_R
       else:
         raise NotImplementedError('Pair correlation function does not support '
                                   'OrderedSparse neighbor lists.')
@@ -456,15 +526,87 @@ def pair_correlation_neighbor_list(
         raise NotImplementedError('Pair correlation function does not support '
                                   'OrderedSparse neighbor lists.')
 
+      if compute_average:
+        g_R = average_pair_correlation_results(g_R, species)
       return g_R
   return neighbor_fn, g_fn
 
+def nball_unit_volume(spatial_dimension: int) -> float:
+  """ Return the volume of a unit sphere in arbitrary dimensions
+  """
+  return jnp.power(jnp.pi, spatial_dimension / 2) / \
+    jnp.exp( gammaln(spatial_dimension / 2 + 1))
+
+def particle_volume(radii: Array, 
+                    spatial_dimension: int, 
+                    particle_count: Array = 1, 
+                    species: Array = None) -> float:
+  """ Calculate the volume of a collection of particles
+
+  Args:
+    radii: array of shape (n,) giving particle radii, where n can be 1, the
+      number of species, or the number of particles depending on the values of
+      particle_count and species. 
+    spatial_dimension: int giving the spatial dimension
+    particle_count: number of particles with each radii. Broadcastable to radii.
+    species: list of particle species. If provided, this overrides 
+      particle_count and radii is expected to give per-species radii
+  
+  Returns: the sum of the volume of all the particles
+  """
+  V_unit = nball_unit_volume(spatial_dimension)
+  V_particle = V_unit * radii**spatial_dimension
+
+  if species is not None:
+    particle_count = jnp.bincount(species)
+
+  return jnp.sum(particle_count * V_particle)
+
+def volume_fraction(box: Box, 
+                    radii: Array, 
+                    spatial_dimension: int, 
+                    particle_count: Array = 1, 
+                    species: Array = None) -> float:
+  """ Calculate the volume fraction
+
+  See documentation for particle_volume for explanation of parameters
+  """
+  Vparticle = particle_volume(radii, spatial_dimension, particle_count, species)
+  return Vparticle / quantity.volume(spatial_dimension, box)
+
+def box_size_at_volume_fraction(volume_fraction: float,
+                                radii: Array,
+                                spatial_dimension: int,
+                                particle_count: Array = 1,
+                                species: Array = None) -> float:
+  """ Calculate box_size to obtain a desired volume fraction
+
+  See documentation for particle_volume for explanation of parameters
+  """
+  Vparticle = particle_volume(radii, spatial_dimension, particle_count, species)
+  return jnp.power( Vparticle / volume_fraction, 1 / spatial_dimension)
 
 def box_size_at_number_density(particle_count: int,
                                number_density: float,
                                spatial_dimension: int) -> float:
   return jnp.power(particle_count / number_density, 1 / spatial_dimension)
 
+
+def box_from_parameters(a: float, b: float, c: float,
+                        alpha: float, beta: float, gamma: float) -> Box:
+  alpha = alpha * jnp.pi / 180
+  beta = beta * jnp.pi / 180
+  gamma = gamma * jnp.pi / 180
+  yy = b * jnp.sin(gamma)
+  xy = b * jnp.cos(gamma)
+  xz = c * jnp.cos(beta)
+  yz = (b * c * jnp.cos(alpha) - xy * xz) / yy
+  zz = jnp.sqrt(c**2 - xz**2 - yz**2)
+  return jnp.array([
+      [a, xy, xz],
+      [0, yy, yz],
+      [0, 0,  zz]
+  ])
 
 def bulk_modulus(elastic_tensor: Array) -> float:
   return jnp.einsum('iijj->', elastic_tensor) / elastic_tensor.shape[0] ** 2
