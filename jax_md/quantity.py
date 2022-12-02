@@ -572,7 +572,7 @@ def volume_fraction(box: Box,
   See documentation for particle_volume for explanation of parameters
   """
   Vparticle = particle_volume(radii, spatial_dimension, particle_count, species)
-  return Vparticle / quantity.volume(spatial_dimension, box)
+  return Vparticle / volume(spatial_dimension, box)
 
 def box_size_at_volume_fraction(volume_fraction: float,
                                 radii: Array,
