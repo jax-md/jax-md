@@ -211,7 +211,8 @@ def velocity_verlet(force_fn: Callable[..., Array],
 
   state = momentum_step(state, dt_2)
   state = position_step(state, shift_fn, dt, **kwargs)
-  state = state.set(force=force_fn(state.position, **kwargs))
+  force, aux = force_fn(state.position, **kwargs)
+  state = state.set(force=force, aux=aux)
   state = momentum_step(state, dt_2)
 
   return state
@@ -237,11 +238,13 @@ class NVEState:
       acting on particles from the previous step.
     mass: A float or an ndarray of shape `[n]` containing the masses of the
       particles.
+    aux: Auxiliary data (Ex. charge array).
   """
   position: Array
   momentum: Array
   force: Array
   mass: Array
+  aux: Any
 
   @property
   def velocity(self) -> Array:
@@ -271,8 +274,8 @@ def nve(energy_or_force_fn, shift_fn, dt=1e-3, **sim_kwargs):
 
   @jit
   def init_fn(key, R, kT, mass=f32(1.0), **kwargs):
-    force = force_fn(R, **kwargs)
-    state = NVEState(R, None, force, mass)
+    force, aux = force_fn(R, **kwargs)
+    state = NVEState(R, None, force, mass, aux)
     state = canonicalize_mass(state)
     return initialize_momenta(state, key, kT)
 
@@ -501,12 +504,14 @@ class NVTNoseHooverState:
     mass: The mass of the particles. Can either be a float or an ndarray
       of floats with shape `[n]`.
     chain: The variables describing the Nose-Hoover chain.
+    aux: Auxiliary data (Ex. charge array).
   """
   position: Array
   momentum: Array
   force: Array
   mass: Array
   chain: NoseHooverChain
+  aux: Any
 
   @property
   def velocity(self):
@@ -581,8 +586,8 @@ def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
     _kT = kT if 'kT' not in kwargs else kwargs['kT']
 
     dof = quantity.count_dof(R)
-
-    state = NVTNoseHooverState(R, None, force_fn(R, **kwargs), mass, None)
+    force, aux = force_fn(R, **kwargs)
+    state = NVTNoseHooverState(R, None, force, mass, None, aux)
     state = canonicalize_mass(state)
     state = initialize_momenta(state, key, _kT)
     KE = kinetic_energy(state)
@@ -665,6 +670,7 @@ class NPTNoseHooverState:
       barostat.
     thermostsat: The variables describing the Nose-Hoover chain coupled to the
       thermostat.
+    aux: Auxiliary data (Ex. charge array).
   """
   position: Array
   momentum: Array
@@ -679,6 +685,8 @@ class NPTNoseHooverState:
 
   barostat: NoseHooverChain
   thermostat: NoseHooverChain
+
+  aux: Any
 
   @property
   def velocity(self) -> Array:
@@ -782,12 +790,13 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
     if jnp.isscalar(box) or box.ndim == 0:
       # TODO(schsam): This is necessary because of JAX issue #5849.
       box = jnp.eye(R.shape[-1]) * box
-
+    force, aux = force_fn(R, box=box, **kwargs)
     state = NPTNoseHooverState(
-      R, None, force_fn(R, box=box, **kwargs),
+      R, None, force,
       mass, box, box_position, box_momentum, box_mass,
       barostat.initialize(1, KE_box, _kT),
-      None)  # pytype: disable=wrong-arg-count
+      None,
+      aux)  # pytype: disable=wrong-arg-count
     state = canonicalize_mass(state)
     state = initialize_momenta(state, key, _kT)
     KE = kinetic_energy(state)
@@ -853,14 +862,15 @@ def npt_nose_hoover(energy_fn: Callable[..., Array],
 
     box = box_fn(vol)
     R = exp_iL1(box, R, P / M, P_b / M_b)
-    F = force_fn(R, box=box, **kwargs)
+    F, aux = force_fn(R, box=box, **kwargs)
 
     P = exp_iL2(alpha, P, F, P_b / M_b)
     G_e = box_force(alpha, vol, box_fn, R, P, M, F, _pressure, **kwargs)
     P_b = P_b + dt_2 * G_e
 
     return state.set(position=R, momentum=P, mass=M, force=F,
-                     box_position=R_b, box_momentum=P_b, box_mass=M_b)
+                     box_position=R_b, box_momentum=P_b, box_mass=M_b,
+                     aux=aux)
 
   def apply_fn(state, **kwargs):
     S = state
@@ -967,12 +977,14 @@ class NVTLangevinState:
     mass: The mass of particles. Will either be a float or an ndarray of floats
       with shape `[n]`.
     rng: The current state of the random number generator.
+    aux: Auxiliary data (Ex. charge array).
   """
   position: Array
   momentum: Array
   force: Array
   mass: Array
   rng: Array
+  aux: Any
 
   @property
   def velocity(self) -> Array:
@@ -1038,8 +1050,8 @@ def nvt_langevin(energy_or_force_fn: Callable[..., Array],
   def init_fn(key, R, mass=f32(1.0), **kwargs):
     _kT = kwargs.pop('kT', kT)
     key, split = random.split(key)
-    force = force_fn(R, **kwargs)
-    state = NVTLangevinState(R, None, force, mass, key)
+    force, aux = force_fn(R, **kwargs)
+    state = NVTLangevinState(R, None, force, mass, key, aux)
     state = canonicalize_mass(state)
     return initialize_momenta(state, split, _kT)
 
@@ -1053,7 +1065,8 @@ def nvt_langevin(energy_or_force_fn: Callable[..., Array],
     state = position_step(state, shift_fn, dt_2, **kwargs)
     state = stochastic_step(state, _dt, _kT, gamma)
     state = position_step(state, shift_fn, dt_2, **kwargs)
-    state = state.set(force=force_fn(state.position, **kwargs))
+    force, aux = force_fn(state.position, **kwargs)
+    state = state.set(force=force, aux=aux)
     state = momentum_step(state, dt_2)
 
     return state
@@ -1071,10 +1084,12 @@ class BrownianState:
     mass: The mass of particles. Will either be a float or an ndarray of floats
       with shape `[n]`.
     rng: The current state of the random number generator.
+    aux: Auxiliary data (Ex. charge array).
   """
   position: Array
   mass: Array
   rng: Array
+  aux: Any
 
 
 def brownian(energy_or_force: Callable[..., Array],
@@ -1113,17 +1128,17 @@ def brownian(energy_or_force: Callable[..., Array],
   dt, gamma = static_cast(dt, gamma)
 
   def init_fn(key, R, mass=f32(1)):
-    state = BrownianState(R, mass, key)
+    state = BrownianState(R, mass, key, None)
     return canonicalize_mass(state)
 
   def apply_fn(state, **kwargs):
     _kT = kT if 'kT' not in kwargs else kwargs['kT']
 
-    R, mass, key = dataclasses.astuple(state)
+    R, mass, key, aux = dataclasses.astuple(state)
 
     key, split = random.split(key)
 
-    F = force_fn(R, **kwargs)
+    F, aux = force_fn(R, **kwargs)
     xi = random.normal(split, R.shape, R.dtype)
 
     nu = f32(1) / (mass * gamma)
@@ -1131,7 +1146,7 @@ def brownian(energy_or_force: Callable[..., Array],
     dR = F * dt * nu + jnp.sqrt(f32(2) * _kT * dt * nu) * xi
     R = shift(R, dR, **kwargs)
 
-    return BrownianState(R, mass, key)  # pytype: disable=wrong-arg-count
+    return BrownianState(R, mass, key, aux)  # pytype: disable=wrong-arg-count
 
   return init_fn, apply_fn
 
