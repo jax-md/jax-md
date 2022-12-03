@@ -516,6 +516,61 @@ class QuantityTest(test_util.JAXMDTestCase):
 
   @parameterized.named_parameters(test_util.cases_from_list(
       {
+        'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'),
+        'dim': dim,
+        'dtype': dtype
+      } for dim in SPATIAL_DIMENSION
+    for dtype in DTYPES))
+  def test_pair_correlation_average(self, dim, dtype):
+    if format is partition.OrderedSparse:
+      self.skipTest('OrderedSparse not supported for pair correlation '
+                    'function.')
+    N = 100
+    L = 10.
+    displacement, _ = space.periodic(L)
+    R = random.uniform(random.PRNGKey(0), (N, dim), dtype=dtype)
+    rs = np.linspace(0, 2, 60, dtype=dtype)
+    g = quantity.pair_correlation(displacement, rs, f32(0.1))
+    g_0 = g(R)
+    g_a = quantity.average_pair_correlation_results(g_0)
+    g_0 = np.mean(g_0, axis=0)
+    self.assertAllClose(g_0, g_a)
+
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+        'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'),
+        'dim': dim,
+        'dtype': dtype,
+      } for dim in SPATIAL_DIMENSION
+    for dtype in DTYPES))
+  def test_pair_correlation_agerage_species(self, dim, dtype):
+    if format is partition.OrderedSparse:
+      self.skipTest('OrderedSparse not supported for pair correlation '
+                    'function.')
+
+    N = 100
+    L = 10.
+    displacement, _ = space.periodic(L)
+    R = random.uniform(random.PRNGKey(0), (N, dim), dtype=dtype)
+    species = np.where(np.arange(N) < N // 2, 0, 1)
+    rs = np.linspace(0, 2, 60, dtype=dtype)
+    g = quantity.pair_correlation(displacement, rs, f32(0.1), species)
+
+    g_results = g(R)
+    g_average = quantity.average_pair_correlation_results(g_results, species)
+
+    gg = quantity.pair_correlation(displacement, rs, f32(0.1))
+    g_00 = gg(R[species==0])
+    g_11 = gg(R[species==1])
+
+    g_00 = np.mean(g_00, axis=0)
+    g_11 = np.mean(g_11, axis=0)
+
+    self.assertAllClose(g_00, g_average[0][0])
+    self.assertAllClose(g_11, g_average[1][1])
+
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
           'testcase_name': f'_dim={dim}_dtype={dtype.__name__}_window={window}',
           'spatial_dim': dim,
           'dtype': dtype,

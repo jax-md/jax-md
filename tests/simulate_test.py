@@ -466,7 +466,7 @@ class SimulateTest(test_util.JAXMDTestCase):
                                          (state, nbrs, buffers))
 
     kT_tol = 1e-2
-    P_tol = 1e-3 if dtype == np.float64 else 2e-3
+    P_tol = 2e-3 if dtype == np.float64 else 2e-3
 
     self.assertAllClose(np.mean(buffers['kT'][-DYNAMICS_STEPS//2:]), T_init,
                         atol=kT_tol, rtol=kT_tol)

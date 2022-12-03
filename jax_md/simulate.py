@@ -116,31 +116,41 @@ class dispatch_by_state:
 @dispatch_by_state
 def canonicalize_mass(state: T) -> T:
   """Reshape mass vector for broadcasting with positions."""
-  mass = state.mass
-  if isinstance(mass, float):
-    return state
-  if mass.ndim == 2 and mass.shape[1] == 1:
-    return state
-  elif mass.ndim == 1:
-    return state.set(mass=jnp.reshape(mass, (mass.shape[0], 1)))
-  elif mass.ndim == 0:
-    return state
-  msg = (
+  def canonicalize_fn(mass):
+    if isinstance(mass, float):
+      return mass
+    if mass.ndim == 2 and mass.shape[1] == 1:
+      return mass
+    elif mass.ndim == 1:
+      return jnp.reshape(mass, (mass.shape[0], 1))
+    elif mass.ndim == 0:
+      return mass
+    msg = (
       'Expected mass to be either a floating point number or a one-dimensional'
       'ndarray. Found {}.'.format(mass)
-      )
-  raise ValueError(msg)
-
+    )
+    raise ValueError(msg)
+  return state.set(mass=tree_map(canonicalize_fn, state.mass))
 
 @dispatch_by_state
 def initialize_momenta(state: T, key: Array, kT: float) -> T:
   """Initialize momenta with the Maxwell-Boltzmann distribution."""
   R, mass = state.position, state.mass
-  P = jnp.sqrt(mass * kT) * random.normal(key, R.shape, dtype=R.dtype)
-  # If simulating more than one particle, center the momentum.
-  if R.shape[0] > 1:
-    P = P - jnp.mean(P, axis=0, keepdims=True)
-  return state.set(momentum=P)
+
+  R, treedef = tree_flatten(R)
+  mass, _ = tree_flatten(mass)
+  keys = random.split(key, len(R))
+
+  def initialize_fn(k, r, m):
+    p = jnp.sqrt(m * kT) * random.normal(k, r.shape, dtype=r.dtype)
+    # If simulating more than one particle, center the momentum.
+    if r.shape[0] > 1:
+      p = p - jnp.mean(p, axis=0, keepdims=True)
+    return p
+
+  P = [initialize_fn(k, r, m) for k, r, m in zip(keys, R, mass)]
+
+  return state.set(momentum=tree_unflatten(treedef, P))
 
 
 @dispatch_by_state
@@ -156,6 +166,8 @@ def momentum_step(state: T, dt: float) -> T:
 @dispatch_by_state
 def position_step(state: T, shift_fn: Callable, dt: float, **kwargs) -> T:
   """Apply a single step of the time evolution operator for positions."""
+  if isinstance(shift_fn, Callable):
+    shift_fn = tree_map(lambda r: shift_fn, state.position)
   new_position = tree_map(lambda s_fn, r, p, m: s_fn(r, dt * p / m, **kwargs),
                           shift_fn,
                           state.position,
