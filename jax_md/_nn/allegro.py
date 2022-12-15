@@ -10,10 +10,10 @@ import jraph
 def normalized_bessel(d: jnp.ndarray, n: int) -> jnp.ndarray:
     with jax.ensure_compile_time_eval():
         r = jnp.linspace(0.0, 1.0, 1000, dtype=d.dtype)
-        b = e3nn.bessel(r, 1.0, n)
+        b = e3nn.bessel(r, n)
         mu = jnp.trapz(b, r, axis=0)
         sig = jnp.trapz((b - mu) ** 2, r, axis=0) ** 0.5
-    return (e3nn.bessel(d, 1.0, n) - mu) / sig
+    return (e3nn.bessel(d, n) - mu) / sig
 
 
 def u(d: jnp.ndarray, p: int) -> jnp.ndarray:
@@ -148,7 +148,7 @@ class Allegro(nn.Module):
         x = u(d, self.p)[:, None] * x  # (edge, features)
 
         Y = safe_spherical_harmonics(2 * irreps.lmax, dr)  # (edge, irreps)
-        V = Y.slice_by_mul[:irreps.lmax + 1]  # only up to lmax
+        V = Y.slice_by_mul[: irreps.lmax + 1]  # only up to lmax
 
         if edge_features is not None:
             V = e3nn.concatenate([V, edge_features])  # (edge, irreps)
