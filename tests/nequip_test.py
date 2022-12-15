@@ -169,7 +169,7 @@ class NequIPTest(test_util.JAXMDTestCase):
     displacement, _ = space.periodic_general(box)
 
     # build network and initialize
-    featurizer, net = nequip.model_from_config(c)
+    net = nequip.model_from_config(c)
     neighbor = partition.neighbor_list(
         displacement,
         jnp.diag(box),
@@ -180,12 +180,12 @@ class NequIPTest(test_util.JAXMDTestCase):
 
     @jax.jit
     def init_fn(key, atoms, position, nbrs):
-      f = nn_util.neighbor_list_featurizer(displacement, *featurizer)
+      f = nn_util.neighbor_list_featurizer(displacement)
       return net.init(key, f(atoms, pos, nbrs))
 
     @jax.jit
     def apply_fn(params, atoms, position, nbrs):
-      f = nn_util.neighbor_list_featurizer(displacement, *featurizer)
+      f = nn_util.neighbor_list_featurizer(displacement)
       return net.apply(params, f(atoms, pos, nbrs))[0, 0]
 
     nbrs = neighbor.allocate(pos)
@@ -244,7 +244,7 @@ class NequIPTest(test_util.JAXMDTestCase):
     displacement, _ = space.periodic_general(box)
 
     # build network and initialize
-    featurizer, net = nequip.model_from_config(c)
+    net = nequip.model_from_config(c)
     neighbor = partition.neighbor_list(
         displacement,
         jnp.diag(box),
@@ -255,12 +255,12 @@ class NequIPTest(test_util.JAXMDTestCase):
 
     @jax.jit
     def init_fn(key, atoms, position, nbrs):
-      f = nn_util.neighbor_list_featurizer(displacement, *featurizer)
+      f = nn_util.neighbor_list_featurizer(displacement)
       return net.init(key, f(atoms, pos, nbrs))
 
     @jax.jit
     def apply_fn(params, atoms, position, nbrs):
-      f = nn_util.neighbor_list_featurizer(displacement, *featurizer)
+      f = nn_util.neighbor_list_featurizer(displacement)
       return net.apply(params, f(atoms, pos, nbrs))[0, 0]
 
     nbrs = neighbor.allocate(pos)

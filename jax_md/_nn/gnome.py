@@ -137,19 +137,12 @@ def load_model(directory: str) -> Tuple[ConfigDict, nn.Module, PyTree]:
     c = ConfigDict(c)
 
   # Now initialize the model and the optimizer functions.
-  featurizer, model = model_from_config(c)
+  model = model_from_config(c)
   opt_init, _ = optimizer(c)
-
-  # Create a dummy example to use for abstract initialization since we only need
-  # the PyTree structure to deserialize.
-  def make_irreps(x):
-    return IrrepsArray('0e + 1e', x)
 
   graph = GraphsTuple(
     ShapedArray((1, NUM_ELEMENTS), f32),    # Nodes     (nodes, features)
-    (ShapedArray((1, 3), f32),   # dR        (edges, spatial)
-     ShapedArray((1,), f32),      # dr
-     eval_shape(make_irreps, ShapedArray((1, 4), f32))),  # Spherical Harmonics
+    ShapedArray((1, 3), f32),   # dR        (edges, spatial)
     ShapedArray((1,), i32),      # senders   (edges,)
     ShapedArray((1,), i32),      # receivers (edges,)
     ShapedArray((1, 1), f32),      # globals   (graphs,)
@@ -176,4 +169,5 @@ def load_model(directory: str) -> Tuple[ConfigDict, nn.Module, PyTree]:
     ckpt = serialization.from_bytes(ckpt_data, f.read())
 
   params = tree_map(lambda x: x.astype(f32), ckpt[1])
-  return c, featurizer, model, params
+  return c, model, params
+

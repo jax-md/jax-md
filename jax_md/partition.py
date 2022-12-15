@@ -956,7 +956,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
 
     # If the box has been updated, then check that fractional coordinates are
     # enabled and that the cell list has big enough cells.
-    if 'box' in kwargs:
+    if 'box' in kwargs and not disable_cell_list:
       if not fractional_coordinates:
         raise ValueError('Neighbor list cannot accept a box keyword argument '
                          'if fractional_coordinates is not enabled.')

@@ -25,6 +25,7 @@ import jax.numpy as jnp
 from jax import ops
 from jax import ShapeDtypeStruct
 from jax.tree_util import tree_map, tree_reduce
+from jax.scipy.special import gammaln
 
 from jax_md import space, dataclasses, partition, util
 
@@ -119,7 +120,7 @@ def volume(dimension: int, box: Box) -> float:
 def kinetic_energy(*unused_args,
                    momentum: Array=None,
                    velocity: Array=None,
-                   mass: Array=f32(1.0)
+                   mass: Array=1.0,
                    ) -> float:
   """Computes the kinetic energy of a system.
 
@@ -152,7 +153,7 @@ def kinetic_energy(*unused_args,
 def temperature(*unused_args,
                 momentum: Array=None,
                 velocity: Array=None,
-                mass: Array=f32(1.0)
+                mass: Array=1.0,
                 ) -> float:
   """Computes the temperature of a system.
 
@@ -297,18 +298,18 @@ def average_pair_correlation_results(gofr, species=None):
   returned.
 
   When species is specified, gofr is expected to be a list of nspecies arrays,
-  each of shape (N,nr), where nspecies is the number of unique species types. 
+  each of shape (N,nr), where nspecies is the number of unique species types.
   Here, the average is carried out separately for every pair of species, so the
-  returned array has shape (nspecies, nspecies, nr). 
+  returned array has shape (nspecies, nspecies, nr).
 
   Args:
     gofr: array of shape (N,nr) or a list of arrays of shape (N,nr), where nr is
       the number of radii for which :math:`g(r)` is calculated.
-    species: Optional. Array of shape (N,) specifying the species of each 
+    species: Optional. Array of shape (N,) specifying the species of each
       particle.
 
   Returns:
-    An array of shape (nr,) for species=None, otherwise an array of shape 
+    An array of shape (nr,) for species=None, otherwise an array of shape
       (nspecies, nspecies, nr), where nspecies is the number of unique species.
   """
   if species is None:
@@ -353,16 +354,16 @@ def pair_correlation(displacement_or_metric: Union[DisplacementFn, MetricFn],
     collection of particles.
 
   :math:`g(r)` is calculated separately for each particle. For species=None, the
-  output of `g_fn` is an array of shape (N, nr), where N is the number of 
-  particles passed to `g_fn` and nr is the size of radii (the number of points 
+  output of `g_fn` is an array of shape (N, nr), where N is the number of
+  particles passed to `g_fn` and nr is the size of radii (the number of points
   at which we calculate :math:`g(r)`. When species is specified, the output is a
   list of nspecies arrays, each of shape (N, nr), where nspecies is the number
   of unique species. If `gofr` is the output of `g_fn`, then gofr[si][i] gives
   the :math:`g(r)` for particle i considering only pair particles of species si.
 
-  Note: when species is specified, the returned list is in the order of the 
-  sorted unique species indices, not the order in which they appear. 
-  
+  Note: when species is specified, the returned list is in the order of the
+  sorted unique species indices, not the order in which they appear.
+
   """
   d = space.canonicalize_displacement_or_metric(displacement_or_metric)
   d = space.map_product(d)
@@ -414,11 +415,11 @@ def pair_correlation_neighbor_list(
   """Computes the pair correlation function at a mesh of distances.
 
   The pair correlation function measures the number of particles at a given
-  distance from a central particle. The pair correlation function is defined by 
-  
+  distance from a central particle. The pair correlation function is defined by
+
   .. math::
     g(r) = <\sum_{i \\neq j}\delta(r - |r_i - r_j|)>
-  
+
   We make the approximation,
 
   .. math::
@@ -449,15 +450,15 @@ def pair_correlation_neighbor_list(
     position and a neighbor list.
 
   :math:`g(r)` is calculated separately for each particle. For species=None, the
-  output of `g_fn` is an array of shape (N, nr), where N is the number of 
-  particles passed to `g_fn` and nr is the size of radii (the number of points 
+  output of `g_fn` is an array of shape (N, nr), where N is the number of
+  particles passed to `g_fn` and nr is the size of radii (the number of points
   at which we calculate :math:`g(r)`. When species is specified, the output is a
   list of nspecies arrays, each of shape (N, nr), where nspecies is the number
   of unique species. If `gofr` is the output of `g_fn`, then gofr[si][i] gives
   the :math:`g(r)` for particle i considering only pair particles of species si.
 
   Note: when species is specified, the returned list is in the order of the
-  sorted unique species indices, not the order in which they appear. 
+  sorted unique species indices, not the order in which they appear.
   """
   metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
   inv_rad = 1 / (radii + eps)
@@ -534,23 +535,23 @@ def nball_unit_volume(spatial_dimension: int) -> float:
   """ Return the volume of a unit sphere in arbitrary dimensions
   """
   return jnp.power(jnp.pi, spatial_dimension / 2) / \
-    jnp.exp( jsp.special.gammaln(spatial_dimension / 2 + 1))
+    jnp.exp( gammaln(spatial_dimension / 2 + 1))
 
-def particle_volume(radii: Array, 
-                    spatial_dimension: int, 
-                    particle_count: Array = 1, 
+def particle_volume(radii: Array,
+                    spatial_dimension: int,
+                    particle_count: Array = 1,
                     species: Array = None) -> float:
   """ Calculate the volume of a collection of particles
 
   Args:
     radii: array of shape (n,) giving particle radii, where n can be 1, the
       number of species, or the number of particles depending on the values of
-      particle_count and species. 
+      particle_count and species.
     spatial_dimension: int giving the spatial dimension
     particle_count: number of particles with each radii. Broadcastable to radii.
-    species: list of particle species. If provided, this overrides 
+    species: list of particle species. If provided, this overrides
       particle_count and radii is expected to give per-species radii
-  
+
   Returns: the sum of the volume of all the particles
   """
   V_unit = nball_unit_volume(spatial_dimension)
@@ -561,17 +562,17 @@ def particle_volume(radii: Array,
 
   return jnp.sum(particle_count * V_particle)
 
-def volume_fraction(box: Box, 
-                    radii: Array, 
-                    spatial_dimension: int, 
-                    particle_count: Array = 1, 
+def volume_fraction(box: Box,
+                    radii: Array,
+                    spatial_dimension: int,
+                    particle_count: Array = 1,
                     species: Array = None) -> float:
   """ Calculate the volume fraction
 
   See documentation for particle_volume for explanation of parameters
   """
   Vparticle = particle_volume(radii, spatial_dimension, particle_count, species)
-  return Vparticle / quantity.volume(spatial_dimension, box)
+  return Vparticle / volume(spatial_dimension, box)
 
 def box_size_at_volume_fraction(volume_fraction: float,
                                 radii: Array,
