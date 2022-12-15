@@ -1,5 +1,4 @@
-from functools import partial
-from typing import Callable, Optional, Tuple
+from typing import Optional
 
 import e3nn_jax as e3nn
 import flax.linen as nn
@@ -7,41 +6,10 @@ import jax
 import jax.numpy as jnp
 import jraph
 
-from .e3nn_layer import Linear
-
-
-class MLP(nn.Module):
-    features: Tuple[int, ...]
-    nonlinearity: Optional[Callable[[float], float]] = None
-
-    @nn.compact
-    def __call__(self, x):
-        assert len(self.features) >= 1
-
-        dense = partial(
-            nn.Dense, use_bias=False, kernel_init=jax.nn.initializers.normal(1.0)
-        )
-
-        if self.nonlinearity is None:
-            phi = None
-        else:
-            phi = e3nn.normalize_function(self.nonlinearity)
-
-        for h in self.features[:-1]:
-            x = dense(h)(x) / jnp.sqrt(x.shape[-1])
-
-            if phi is not None:
-                x = phi(x)
-
-        h = self.features[-1]
-        x = dense(h)(x) / jnp.sqrt(x.shape[-1])
-
-        return x
-
 
 def normalized_bessel(d: jnp.ndarray, n: int) -> jnp.ndarray:
     with jax.ensure_compile_time_eval():
-        r = jnp.linspace(0.0, 1.0, 1000)
+        r = jnp.linspace(0.0, 1.0, 1000, dtype=d.dtype)
         b = e3nn.bessel(r, 1.0, n)
         mu = jnp.trapz(b, r, axis=0)
         sig = jnp.trapz((b - mu) ** 2, r, axis=0) ** 0.5
@@ -104,7 +72,7 @@ class AllegroLayer(nn.Module):
         # lmax = V.irreps.lmax + irreps_out.lmax
         # Y = safe_spherical_harmonics(lmax, r)
 
-        w = MLP([n])(x)  # (edge, n)
+        w = e3nn.flax.MultiLayerPerceptron((n,))(x)  # (edge, n)
         wY = w[:, :, None] * Y[:, None, :]  # (edge, n, irreps)
         wY = e3nn.index_add(edge_src, wY, map_back=True) / jnp.sqrt(
             num_neighbors
@@ -118,13 +86,17 @@ class AllegroLayer(nn.Module):
             x = jnp.concatenate([x, V.filter(keep="0e").axis_to_mul().array], axis=1)
             V = V.filter(drop="0e")
 
-        x = MLP([features_out, features_out, features_out], jax.nn.silu)(
+        x = e3nn.flax.MultiLayerPerceptron(
+            (features_out, features_out, features_out),
+            jax.nn.silu,
+            output_activation=False,
+        )(
             x
         )  # (edge, features_out)
         x = u(d, p)[:, None] * x  # (edge, features_out)
 
         V = V.axis_to_mul()  # (edge, n * irreps)
-        V = Linear(n_out * irreps_out)(V)  # (edge, n_out * irreps_out)
+        V = e3nn.flax.Linear(n_out * irreps_out)(V)  # (edge, n_out * irreps_out)
         V = V.mul_to_axis(n_out)  # (edge, n_out, irreps_out)
 
         return (x, V)
@@ -166,21 +138,22 @@ class Allegro(nn.Module):
             ],
             axis=1,
         )
-        x = MLP(
-            [self.features // 8, self.features // 4, self.features // 2, self.features],
+        x = e3nn.flax.MultiLayerPerceptron(
+            (self.features // 8, self.features // 4, self.features // 2, self.features),
             jax.nn.silu,
+            output_activation=False,
         )(
             x
         )  # (edge, features)
         x = u(d, self.p)[:, None] * x  # (edge, features)
 
         Y = safe_spherical_harmonics(2 * irreps.lmax, dr)  # (edge, irreps)
-        V = Y[:, e3nn.Irreps.spherical_harmonics(irreps.lmax)]  # only up to lmax
+        V = Y.slice_by_mul[:irreps.lmax + 1]  # only up to lmax
 
         if edge_features is not None:
             V = e3nn.concatenate([V, edge_features])  # (edge, irreps)
 
-        w = MLP([self.n])(x)  # (edge, n)
+        w = e3nn.flax.MultiLayerPerceptron((self.n,))(x)  # (edge, n)
         V = w[:, :, None] * V[:, None, :]  # (edge, n, irreps)
 
         for _ in range(self.num_layers):
@@ -200,10 +173,10 @@ class Allegro(nn.Module):
             alpha = 1 / 2
             x = (x + alpha * y) / jnp.sqrt(1 + alpha**2)
 
-        x = MLP([128])(x)  # (edge, 128)
+        x = e3nn.flax.MultiLayerPerceptron((128,))(x)  # (edge, 128)
 
         xV = e3nn.concatenate([e3nn.IrrepsArray("128x0e", x), V.axis_to_mul()])
-        xV = Linear(irreps_out)(xV)  # (edge, irreps_out)
+        xV = e3nn.flax.Linear(irreps_out)(xV)  # (edge, irreps_out)
 
         return xV
 
@@ -241,13 +214,4 @@ class AllegroEnergyModel(nn.Module):
             edge_vectors,
         )
 
-        n_graphs = len(graph.n_edge)
-        segment_ids = jnp.repeat(
-            jnp.arange(n_graphs),
-            graph.n_edge,
-            axis=0,
-            total_repeat_length=edge_outputs.shape[0],
-        )
-        return jraph.segment_sum(
-            edge_outputs, segment_ids, n_graphs, indices_are_sorted=True
-        )
+        return e3nn.scatter_sum(edge_outputs, nel=graph.n_edge)
