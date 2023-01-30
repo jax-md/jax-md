@@ -913,7 +913,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
       if mask_self:
         idx = mask_self_fn(idx)
       if custom_mask_function is not None:
-        idx = custom_mask_function(idx)
+        idx = custom_mask_function(idx, **kwargs)
 
       if is_sparse(format):
         idx, occupancy = prune_neighbor_list_sparse(position, idx, **kwargs)

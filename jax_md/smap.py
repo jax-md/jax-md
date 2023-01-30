@@ -16,7 +16,7 @@
 
 from functools import reduce, partial
 
-from typing import Dict, Callable, List, Tuple, Union, Optional
+from typing import Dict, Callable, List, Tuple, Union, Optional, Any, Iterable
 
 import math
 import enum
@@ -84,7 +84,7 @@ class ParameterTree:
       mapped functions, these parameters are processed according to the
       mapping.
     mapping: A ParameterTreeMapping object that specifies how the parameters
-      are processed. 
+      are processed.
   """
   tree: PyTree
   mapping: ParameterTreeMapping = dataclasses.static_field()
@@ -125,7 +125,6 @@ def _get_bond_type_parameters(params: Array, bond_type: Array) -> Array:
     return params
   raise NotImplementedError
 
-
 def _kwargs_to_bond_parameters(bond_type: Array,
                                kwargs: Dict[str, Array]) -> Dict[str, Array]:
   """Extract parameters from keyword arguments."""
@@ -141,8 +140,12 @@ def bond(fn: Callable[..., Array],
          static_bonds: Optional[Array]=None,
          static_bond_types: Optional[Array]=None,
          ignore_unused_parameters: bool=False,
+         geometry_handler_fn: Optional[Callable[..., Tuple[Array]]]=None,
+         per_term: bool=False,
+         capture_geometry_kwargs: Iterable=None,
          **kwargs) -> Callable[..., Array]:
-  """Promotes a function that acts on a single pair to one on a set of bonds.
+  """Promotes a function that acts on a single tuple to one on a set of bonds.
+  This is a generalization to the previous `bond` fn since it
 
   TODO(schsam): It seems like bonds might potentially have poor memory access.
   Should think about this a bit and potentially optimize.
@@ -168,6 +171,12 @@ def bond(fn: Callable[..., Array],
       specified keyword arguments passed to the mapped function get ignored
       if they were not first specified as keyword arguments when calling
       `smap.bond(...)`.
+    geometry_handler_fn: A function that takes an ndarray of positions of shape `[n,d_in]`
+      and returns the first *args that are input to the `fn`. This fn should also handle
+      **dynamic_kwargs passed to the `metric` fn. If None, proceed with default behavior
+      of the `dr` array being passed to `fn`.
+    per_term: a boolean that denotes whether to return a `high_precision_sum`
+      or to return the vmapped result on a per-term basis.
     kwargs: Arguments providing parameters to the mapped function. In cases
       where no bond type information is provided these should be either
 
@@ -181,6 +190,8 @@ def bond(fn: Callable[..., Array],
         2. an ndarray of shape `[max_bond_type]`.
         3. a ParameterTree containing a PyTree of parameters and a mapping. See
            ParameterTree for details.
+    capture_geometry_kwargs: An Iterable of kwargs that should be popped and passed to
+      `geometry_handler_fn` without registering as other parameters.
   Returns:
     A function `fn_mapped`. Note that `fn_mapped` can take arguments bonds and
     `bond_types` which will be bonds that are specified dynamically. This will
@@ -197,19 +208,41 @@ def bond(fn: Callable[..., Array],
   merge_dicts = partial(util.merge_dicts,
                         ignore_unused_parameters=ignore_unused_parameters)
 
+  #
+
+  if geometry_handler_fn is None:
+      def _geometry_handler_fn(R: Array, bonds: Array, **_dynamic_kwargs):
+          Ra, Rb = R[bonds[:, 0]], R[bonds[:, 1]]
+          # NOTE(schsam): This pattern is needed due to JAX issue #912.
+          d = vmap(partial(
+          space.canonicalize_displacement_or_metric(displacement_or_metric),
+          **_dynamic_kwargs), 0, 0)
+          dr = d(Ra, Rb)
+          return (dr,)
+      geometry_handler_fn = _geometry_handler_fn
+
   def compute_fn(R, bonds, bond_types, static_kwargs, dynamic_kwargs):
-    Ra = R[bonds[:, 0]]
-    Rb = R[bonds[:, 1]]
+    if capture_geometry_kwargs is not None:
+      geometry_handler_kwargs = {key: dynamic_kwargs.pop(key, None) \
+            for key in capture_geometry_kwargs}
+    else:
+      geometry_handler_kwargs = {}
     _kwargs = merge_dicts(static_kwargs, dynamic_kwargs)
-    _kwargs = _kwargs_to_bond_parameters(bond_types, _kwargs)
-    # NOTE(schsam): This pattern is needed due to JAX issue #912.
-    d = vmap(partial(displacement_or_metric, **dynamic_kwargs), 0, 0)
-    dr = d(Ra, Rb)
-    return high_precision_sum(fn(dr, **_kwargs))
+    if util.is_array(bond_types):
+      _kwargs = _kwargs_to_bond_parameters(bond_types, _kwargs)
+    else:
+      _kwargs = merge_dicts(_kwargs, bond_types)
+
+    _args = geometry_handler_fn(R, bonds, **geometry_handler_kwargs)
+    outs = fn(*_args, **_kwargs)
+    if not per_term:
+      return high_precision_sum(outs)
+    else:
+      return outs
 
   def mapped_fn(R: Array,
                 bonds: Optional[Array]=None,
-                bond_types: Optional[Array]=None,
+                bond_types: Optional[Union[Array, Dict[str,Array]]]=None,
                 **dynamic_kwargs) -> Array:
     accum = f32(0)
 
@@ -302,17 +335,25 @@ def _kwargs_to_parameters(species: Array,
       s_kwargs[k] = _get_species_parameters(v, species)
   return s_kwargs
 
-
-def _diagonal_mask(X: Array) -> Array:
-  """Sets the diagonal of a matrix to zero."""
+def check_square_matrix(X: Array) -> None:
+  """ensure matrix is square"""
   if X.shape[0] != X.shape[1]:
     raise ValueError(
         'Diagonal mask can only mask square matrices. Found {}x{}.'.format(
             X.shape[0], X.shape[1]))
-  if len(X.shape) > 3:
+
+def check_tensor_dim(X: Array,
+                     dim_max_size: int) -> None:
+  """ensure that a tensor's dim is less than `dim_max_size`"""
+  if len(X.shape) > dim_max_size:
     raise ValueError(
-        ('Diagonal mask can only mask rank-2 or rank-3 tensors. '
-         'Found {}.'.format(len(X.shape))))
+        ('tensor last dimension rank must be less than {}. '
+         'Found {}.'.format(len(X.shape), dim_max_size+1)))
+
+def _diagonal_mask(X: Array) -> Array:
+  """Sets the diagonal of a matrix to zero."""
+  check_square_matrix(X)
+  check_tensor_dim(X, 3)
   N = X.shape[0]
   # NOTE(schsam): It seems potentially dangerous to set nans to 0 here.
   # However, masking nans also doesn't seem to work. So it also seems
@@ -323,6 +364,27 @@ def _diagonal_mask(X: Array) -> Array:
     mask = jnp.reshape(mask, (N, N, 1))
   return mask * X
 
+def get_default_custom_mask_function(default_mask_indices: Array,
+                                     **unused_kwargs) -> Callable:
+  """
+  default getter fn for a simple `custom_mask_function`
+  passable to `smap.pair`
+  """
+  def default_custom_mask_fn(X: Array,
+                             **dynamic_kwargs):
+    """Sets the entries of the [N,N] X array to 0 at
+    values specified by [N,2] mask_indices (with
+    symmetrization).
+    NOTE: this is just one example of a custom mask fn passable to
+    `smap.pair.`
+    """
+    _mask_indices = dynamic_kwargs.get('mask_indices', default_mask_indices)
+    check_square_matrix(X)
+    check_tensor_dim(X, 3)
+    out = X.at[tuple(jnp.hstack((jnp.transpose(_mask_indices), \
+    jnp.vstack((_mask_indices[:,1], _mask_indices[:,0])))))].set(0.)
+    return out
+  return default_custom_mask_fn
 
 def _check_species_dtype(species):
   if species.dtype == i32 or species.dtype == i64:
@@ -354,6 +416,8 @@ def pair(fn: Callable[..., Array],
          reduce_axis: Optional[Tuple[int, ...]]=None,
          keepdims: bool=False,
          ignore_unused_parameters: bool=False,
+         custom_mask_function: Optional[Callable]=None,
+         per_term: bool=False,
          **kwargs) -> Callable[..., Array]:
   """Promotes a function that acts on a pair of particles to one on a system.
 
@@ -383,6 +447,11 @@ def pair(fn: Callable[..., Array],
       specified keyword arguments passed to the mapped function get ignored
       if they were not first specified as keyword arguments when calling
       `smap.pair(...)`.
+    custom_mask_function: A function of identical or similar typing
+      scheme to `smap.custom_mask` that specified which indices to zero.
+      This is only supported for `species`=None at the moment.
+    per_term: A boolean that denotes whether to return the `high_precision_sum`
+      of the pairwise matrix or return the normalized matrix, itself
     kwargs: Arguments providing parameters to the mapped function. In cases
       where no species information is provided these should be either
 
@@ -418,6 +487,15 @@ def pair(fn: Callable[..., Array],
     The mapped function can also optionally take keyword arguments that get
     threaded through the metric.
   """
+  has_custom_mask_fn = custom_mask_function is not None
+  if species is not None and has_custom_mask_fn:
+    raise NotImplementedError(f"`use_custom_mask` is not currently supported if `species` is not `None`")
+  if has_custom_mask_fn:
+    def mask_fn(x, **dynamic_kwargs):
+      return custom_mask_function(_diagonal_mask(x), **dynamic_kwargs)
+  else:
+    def mask_fn(x, **unused_kwargs):
+      return _diagonal_mask(x)
 
   kwargs, param_combinators = _split_params_and_combinators(kwargs)
 
@@ -432,8 +510,16 @@ def pair(fn: Callable[..., Array],
       dr = d(R, R)
       # NOTE(schsam): Currently we place a diagonal mask no matter what function
       # we are mapping. Should this be an option?
-      return high_precision_sum(_diagonal_mask(fn(dr, **_kwargs)),
-                                axis=reduce_axis, keepdims=keepdims) * f32(0.5)
+      out_matrix = mask_fn(fn(dr, **_kwargs), **_kwargs)
+      if per_term:
+        out_final = out_matrix
+      else:
+        out_final = high_precision_sum(
+        out_matrix,
+        axis=reduce_axis,
+        keepdims=keepdims,
+        ) * f32(0.5)
+      return out_final
   elif util.is_array(species):
     species = onp.array(species)
     _check_species_dtype(species)
@@ -592,11 +678,14 @@ def _neighborhood_kwargs_to_params(format: partition.NeighborListFormat,
   out_dict = {}
   for k in kwargs:
     if species is None or (util.is_array(kwargs[k]) and kwargs[k].ndim == 1):
-      combinator = combinators.get(k, lambda x, y: 0.5 * (x + y))
-      out_dict[k] = _get_neighborhood_matrix_params(format,
+      if kwargs[k].shape[0] == idx.shape[0]:
+        combinator = combinators.get(k, lambda x, y: 0.5 * (x + y))
+        out_dict[k] = _get_neighborhood_matrix_params(format,
                                                     idx,
                                                     kwargs[k],
                                                     combinator)
+      else:
+        out_dict[k] = kwargs[k]
     else:
       if k in combinators:
         raise ValueError()
@@ -677,6 +766,7 @@ def pair_neighbor_list(fn: Callable[..., Array],
   def fn_mapped(R: Array, neighbor: partition.NeighborList, **dynamic_kwargs
                 ) -> Array:
     d = partial(displacement_or_metric, **dynamic_kwargs)
+    _ = dynamic_kwargs.pop('box', None) # necessary if using binary functions;
     _species = dynamic_kwargs.get('species', species)
 
     normalization = 2.0

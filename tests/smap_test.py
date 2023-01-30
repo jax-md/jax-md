@@ -49,6 +49,8 @@ if FLAGS.jax_enable_x64:
 else:
   POSITION_DTYPE = [f32]
 
+DYNAMIC_BONDTYPE_DICT_BOOL = [True, False] # whether to pass dynamic bondtypes as dict or array (default)
+
 class SMapTest(test_util.JAXMDTestCase):
 
   @parameterized.named_parameters(test_util.cases_from_list(
@@ -130,20 +132,21 @@ class SMapTest(test_util.JAXMDTestCase):
 
   @parameterized.named_parameters(test_util.cases_from_list(
       {
-          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'testcase_name': '_dim={}_dtype={}_bondtype_dict={}'.format(dim, dtype.__name__, bondtype_dict),
           'spatial_dimension': dim,
-          'dtype': dtype
-      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE))
-  def test_bond_type_dynamic(self, spatial_dimension, dtype):
+          'dtype': dtype,
+          'bondtype_dict': bondtype_dict
+      } for dim in SPATIAL_DIMENSION for dtype in POSITION_DTYPE for bondtype_dict in DYNAMIC_BONDTYPE_DICT_BOOL))
+  def test_bond_type_dynamic(self, spatial_dimension, dtype, bondtype_dict):
     harmonic = lambda dr, sigma, **kwargs: (dr - sigma) ** f32(2)
     disp, _ = space.free()
     metric = space.metric(disp)
 
     sigma = np.array([1.0, 2.0], f32)
 
-    mapped = smap.bond(harmonic, metric, sigma=sigma)
+    mapped = jit(smap.bond(harmonic, metric, sigma=sigma if not bondtype_dict else None)) # if `bondtype_dict`, pass `None` as placeholder.
     bonds = np.array([[0, 1], [0, 2]], i32)
-    bond_types = np.array([0, 1], i32)
+    bond_types = np.array([0, 1], i32) if not bondtype_dict else {'sigma': sigma}
 
     key = random.PRNGKey(0)
 
