@@ -424,10 +424,7 @@ def parse_and_save_force_field(old_ff_file, new_ff_file,force_field):
 
 def init_params_for_filler_atom_type(FF_field_dict):
   #TODO: make sure that index -1 doesnt belong to a real atom!!!
-  FF_field_dict['rat'][-1] = 1
-  FF_field_dict['rapt'][-1] = 1
-  FF_field_dict['vnq'][-1] = 1
-
+  
   FF_field_dict['rvdw'][-1] = 1
   FF_field_dict['eps'][-1] = 1
   FF_field_dict['alf'][-1] = 1
