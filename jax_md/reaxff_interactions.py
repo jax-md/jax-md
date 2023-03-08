@@ -538,7 +538,7 @@ def hbond_candidate_fn(donor_inds,
   return inds.reshape(-1,3), full_mask
 
 def reaxff_inter_list(displacement: DisplacementFn,
-                    box_size: Box,
+                    box: Box,
                     species: Array,
                     species_AN: Array,
                     force_field,
@@ -574,14 +574,14 @@ def reaxff_inter_list(displacement: DisplacementFn,
   '''
 
   neighbor_fn1 = partition.neighbor_list(displacement,
-                                  box_size=box_size,
+                                  box=box,
                                   r_cutoff=5.0,
                                   dr_threshold=0.5,
                                   capacity_multiplier=1.2,
                                   format=partition.Dense)
 
   neighbor_fn2 = partition.neighbor_list(displacement,
-                                  box_size=box_size,
+                                  box=box,
                                   r_cutoff=10.0,
                                   dr_threshold=0.5,
                                   capacity_multiplier=1.2,
