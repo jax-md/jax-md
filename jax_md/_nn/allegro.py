@@ -20,28 +20,13 @@ def u(d: jnp.ndarray, p: int) -> jnp.ndarray:
     return e3nn.poly_envelope(p - 1, 2)(d)
 
 
-def safe_norm(x: jnp.ndarray, axis: int = None) -> jnp.ndarray:
-    """nan-safe norm."""
-    x2 = jnp.sum(x**2, axis=axis)
-    return jnp.where(x2 == 0, 1, x2) ** 0.5
-
-
-def safe_spherical_harmonics(lmax, r):
-    """nan-safe spherical harmonics."""
-    return e3nn.spherical_harmonics(
-        e3nn.Irreps.spherical_harmonics(lmax),
-        r / safe_norm(r, axis=-1)[..., None],
-        False,
-    )
-
-
 class AllegroLayer(nn.Module):
     @nn.compact
     def __call__(
         self,
         x: jnp.ndarray,
         V: e3nn.IrrepsArray,
-        r: jnp.ndarray,
+        d: jnp.ndarray,
         *,
         edge_src: jnp.ndarray,
         features_out: int,
@@ -56,21 +41,16 @@ class AllegroLayer(nn.Module):
         Args:
             x (``jnp.ndarray``): scalars, array of shape ``(edge, features)``
             V (``e3nn.IrrepArray``): non-scalars, array of shape ``(edge, n, irreps)``
-            r (``jnp.ndarray``): relative vectors, array of shape ``(edge, 3)``
+            d (``jnp.ndarray``): relative distances, array of shape ``(edge,)``
             edge_src (``jnp.ndarray``): array of integers
             features_out (``int``): number of scalar features in output
             n_out (``int``): number of non-scalar irreps in output
             irreps_out (``e3nn.Irreps``): irreps of output
         """
-        assert x.shape[0] == V.shape[0] == r.shape[0]
-        assert (x.ndim, V.ndim, r.ndim) == (2, 3, 2)
+        assert x.shape[0] == V.shape[0] == d.shape[0]
+        assert (x.ndim, V.ndim, d.ndim) == (2, 3, 1)
         irreps_out = e3nn.Irreps(irreps_out)
         n = V.shape[1]
-
-        d = safe_norm(r, axis=1)  # (edge,)
-
-        # lmax = V.irreps.lmax + irreps_out.lmax
-        # Y = safe_spherical_harmonics(lmax, r)
 
         w = e3nn.flax.MultiLayerPerceptron((n,))(x)  # (edge, n)
         wY = w[:, :, None] * Y[:, None, :]  # (edge, n, irreps)
@@ -122,14 +102,14 @@ class Allegro(nn.Module):
         edge_vectors: jnp.ndarray,
         edge_features: Optional[e3nn.IrrepsArray] = None,
     ) -> e3nn.IrrepsArray:
-        dr = edge_vectors
+        dr = e3nn.IrrepsArray("1o", edge_vectors)
         irreps = e3nn.Irreps(self.irreps)
         irreps_out = e3nn.Irreps(self.irreps_out)
 
         assert dr.shape == edge_src.shape + (3,)
 
         dr /= self.r_cut
-        d = safe_norm(dr, axis=1)  # (edge,)
+        d = e3nn.norm(dr).array.squeeze(1)  # (edge,)
         x = jnp.concatenate(
             [
                 normalized_bessel(d, self.num_radial_basis),
@@ -138,6 +118,10 @@ class Allegro(nn.Module):
             ],
             axis=1,
         )
+
+        # Protect against exploding dummy edges
+        x = jnp.where(d[:, None] == 0.0, 0.0, x)  # (edge, features)
+
         x = e3nn.flax.MultiLayerPerceptron(
             (self.features // 8, self.features // 4, self.features // 2, self.features),
             jax.nn.silu,
@@ -147,7 +131,10 @@ class Allegro(nn.Module):
         )  # (edge, features)
         x = u(d, self.p)[:, None] * x  # (edge, features)
 
-        Y = safe_spherical_harmonics(2 * irreps.lmax, dr)  # (edge, irreps)
+        Y = e3nn.spherical_harmonics(
+            range(2 * irreps.lmax + 1), dr, True
+        )  # (edge, irreps)
+
         V = Y.slice_by_mul[: irreps.lmax + 1]  # only up to lmax
 
         if edge_features is not None:
@@ -160,7 +147,7 @@ class Allegro(nn.Module):
             y, V = AllegroLayer()(
                 x,
                 V,
-                dr,
+                d,
                 edge_src=edge_src,
                 features_out=self.features,
                 n_out=self.n,
