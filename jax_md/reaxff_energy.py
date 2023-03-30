@@ -435,7 +435,7 @@ def calculate_coulomb_pot(nbr_inds: Array,
   mask = (atom_mask.reshape(-1, 1) * atom_mask[nbr_inds]) * (nbr_inds != N)
   charge_mat = charges.reshape(-1, 1) * charges[nbr_inds]
   eph_mat = safe_mask(mask,
-                      lambda x: c1c * charge_mat / (x + 1e-30), hulp2_mat, 0.0)
+                      lambda x: c1c * charge_mat / (x + 1e-20), hulp2_mat, 0.0)
   ephtap_mat = eph_mat * tapered_dists * mask
   total_pot = high_precision_sum(ephtap_mat) / 2.0
 
@@ -620,8 +620,8 @@ def calculate_covbon_pot(nbr_inds: Array,
   de1h = symm * my_de1
   de2h = symm * my_de2
   de3h = symm * my_de3
-  # add 1e-30 so that ln(a) is not nan
-  bopo1 = safe_mask((bosia != 0), lambda x: (x + 1e-30) ** my_psp, bosia, 0)
+  # add 1e-20 so that ln(a) is not nan
+  bopo1 = safe_mask((bosia != 0), lambda x: (x + 1e-20) ** my_psp, bosia, 0)
   exphu1 = jnp.exp(my_psi * (1.0 - bopo1))
   ebh = -de1h * bosia * exphu1 - de2h * bopi - de3h * bopi2
   ebh = jnp.where(bo <= 0, 0.0, ebh)
@@ -970,13 +970,13 @@ def calculate_valency_pot(species: Array,
   # calculate for every atom
   sbo2 = sbo2 + (1 - vmbo) * (-exbo - force_field.val_par34 * vlpadj)
   sbo2 = jnp.clip(sbo2, 0, 2.0)
-  # add 1e-30 so that ln(a) is not nan
+  # add 1e-20 so that ln(a) is not nan
   sbo2 = vectorized_cond(sbo2 < 1,
-                         lambda x: (x  + 1e-30) ** force_field.val_par17,
+                         lambda x: (x  + 1e-20) ** force_field.val_par17,
                          lambda x: sbo2, sbo2)
 
   sbo2 = vectorized_cond(sbo2 >= 1,
-                         lambda x: 2.0-(2.0-x + 1e-30)**force_field.val_par17,
+                         lambda x: 2.0-(2.0-x + 1e-20)**force_field.val_par17,
                          lambda x: sbo2, sbo2)
 
   expsbo = jnp.exp(-force_field.val_par18*(2.0-sbo2))
@@ -998,9 +998,9 @@ def calculate_valency_pot(species: Array,
   exphu2 = jnp.where(my_vka < 0.0, exphu2 - my_vka, exphu2)
 
   my_vval2 = force_field.vval2[neigh1_types, cent_types, neigh2_types]
-  # add 1e-30 so that ln(a) is not nan
-  boap = (boa + 1e-30) ** my_vval2
-  bobp = (bob + 1e-30) ** my_vval2
+  # add 1e-20 so that ln(a) is not nan
+  boap = (boa + 1e-20) ** my_vval2
+  bobp = (bob + 1e-20) ** my_vval2
 
   my_vval1 = force_field.vval1[cent_types]
 
