@@ -943,7 +943,7 @@ def load_lammps_tersoff_parameters(file: TextIO) -> Array:
     else:
       skip = False
 
-    words[3:] = f32(words[3:])
+    words[3:] = f64(words[3:])
     params.append({
         'element1': words[0],
         'element2': words[1],
