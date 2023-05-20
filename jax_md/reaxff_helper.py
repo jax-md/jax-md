@@ -549,6 +549,7 @@ def read_force_field(force_field_file,
   num_atom_types = real_num_atom_types + 1 # 1 extra to store dummy atoms
   # self energies of the atoms
   FF_field_dict['self_energies'] = onp.zeros(num_atom_types,dtype=dtype)
+  FF_field_dict['shift'] = onp.zeros(1,dtype=dtype)
   FF_field_dict['num_atom_types'] = num_atom_types
   
   # skip 3 lines of comment

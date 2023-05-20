@@ -476,20 +476,16 @@ def calculate_vdw_pot(species: Array,
                       force_field: ForceField):
   N = len(species)
   neigh_types = species[nbr_inds]
-  my_vop = force_field.vop[species]
   vop = jnp.power(force_field.vop.reshape(-1, 1), force_field.vdw_shiedling/2.0)
   gamwh_mat = vop * vop.transpose()
   #gamwh_mat = (1.0 / gamwh_mat) ** force_field.vdw_shiedling
   gamwh_mat = 1.0 / gamwh_mat
-  gamwco_mat = gamwh_mat[neigh_types, species.reshape(-1, 1)]
   # select the required values
   p1_mat = force_field.p1co[neigh_types, species.reshape(-1, 1)]
   p2_mat = force_field.p2co[neigh_types, species.reshape(-1, 1)]
   p3_mat = force_field.p3co[neigh_types, species.reshape(-1, 1)]
-
-  hulpw_mat = jnp.power(dists, force_field.vdw_shiedling) + gamwco_mat
-  #rrw_mat = hulpw_mat ** (1.0 / force_field.vdw_shiedling)
-  rrw_mat = jnp.power(hulpw_mat,(1.0 / force_field.vdw_shiedling))
+  hulpw_mat = safe_mask(dists > 0, lambda x: x ** force_field.vdw_shiedling, dists, 0.0)
+  rrw_mat = jnp.power(hulpw_mat, (1.0 / force_field.vdw_shiedling))
   # if p = 0 -> gradient will be 0
   temp_val2 = p3_mat * ((1.0 - rrw_mat / p1_mat))
   # gradient nan issue fix
@@ -1300,5 +1296,6 @@ def taper_inc(dist, low_tap_rad=0, up_tap_rad=10):
   smoothly taper the value in between
   '''
   return 1 - taper(dist, low_tap_rad, up_tap_rad)
+
 
 
