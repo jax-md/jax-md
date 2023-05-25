@@ -704,7 +704,7 @@ class RigidPointUnion:
   point_count: Array
   point_offset: Array
   point_species: Optional[Array] = None
-  point_radius: float = f32(0.5)
+  point_radius: float = dataclasses.dataclasses.field(default_factory=lambda: f32(0.5))
 
   def dimension(self) -> int:
     """Returns the spatial dimension of the shape."""
