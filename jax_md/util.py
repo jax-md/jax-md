@@ -23,6 +23,8 @@ from jax import jit
 
 from functools import partial
 
+from jax_md import dataclasses
+
 import numpy as onp
 
 Array = jnp.ndarray
