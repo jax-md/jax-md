@@ -257,19 +257,22 @@ def calculate_angle(disp12, disp32):
   disp12 = pos1 - pos2
   disp32 = pos3 - pos2
   '''
+
   prev_dtype = disp12.dtype
-  disp12 = disp12.astype(jnp.float64)
+  if prev_dtype == jnp.float64:
+      EPS = 1E-10
+  else:
+      EPS = 1E-6
   d12_sq = jnp.sum(disp12 * disp12)
   d32_sq = jnp.sum(disp32 * disp32)
-  d12 = safe_mask(d12_sq > 1e-10, jnp.sqrt, d12_sq, 1e-10)
-  d32 = safe_mask(d32_sq > 1e-10, jnp.sqrt, d32_sq, 1e-10)
-  norm1 = d12
-  norm2 = d32
-  norm_mult = norm1 * norm2
-  dot_prod = jnp.dot(disp12, disp32)/norm_mult
-  cos_angle = safe_mask((dot_prod < 1.0) & (dot_prod > -1.0), lambda x: x, dot_prod)
-  #cos_angle = jnp.clip(dot_prod, -1.0, 1.0)
-  return cos_angle.astype(prev_dtype)
+  d12 = safe_mask(d12_sq > 0, jnp.sqrt, d12_sq)
+  d32 = safe_mask(d32_sq > 0, jnp.sqrt, d32_sq)
+  norm1 = d12 + EPS
+  norm2 = d32 + EPS
+  dot_prod = jnp.dot(disp12, disp32) / (norm1 * norm2)
+  #dot_prod = safe_mask((dot_prod < 1.0) & (dot_prod > -1.0), lambda x: x, dot_prod)
+  dot_prod = jnp.clip(dot_prod, -1.0 + EPS, 1.0 - EPS)
+  return dot_prod.astype(prev_dtype)
 
 def calculate_all_4_body_angles(body_4_inds, nbr_inds, nbr_disps):
   '''
@@ -293,7 +296,6 @@ def calculate_all_4_body_angles(body_4_inds, nbr_inds, nbr_disps):
   cos_angle_234 = jax.vmap(calculate_angle)(disp23,disp43)
   coshd = cos_angle_123
   coshe = cos_angle_234
-
   sinhd_sq = 1 - coshd**2
   sinhe_sq = 1 - coshe**2
   sinhd = safe_mask(sinhd_sq > 0, jnp.sqrt, sinhd_sq)
@@ -828,7 +830,7 @@ def reaxff_inter_list(displacement: DisplacementFn,
                                                       map_metric,
                                                       map_disp)
 
-    energy,charges = calculate_reaxff_energy(species,
+    energy = calculate_reaxff_energy(species,
                                             species_AN,
                                             nbr_lists,
                                             close_nbr_dist,
@@ -843,13 +845,15 @@ def reaxff_inter_list(displacement: DisplacementFn,
                                             max_solver_iter,
                                             backprop_solve,
                                             tors_2013,
-                                            solver_model=solver_model
+                                            solver_model=solver_model,
                                             )
 
 
-    return energy, charges
+    return energy
 
   return ReaxFFNeighborListFns(allocate, update), energy_fn
+
+
 
 
 

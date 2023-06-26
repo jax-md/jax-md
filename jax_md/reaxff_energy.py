@@ -480,11 +480,12 @@ def calculate_vdw_pot(species: Array,
   gamwh_mat = vop * vop.transpose()
   #gamwh_mat = (1.0 / gamwh_mat) ** force_field.vdw_shiedling
   gamwh_mat = 1.0 / gamwh_mat
+  gamwco_mat = gamwh_mat[neigh_types, species.reshape(-1, 1)]
   # select the required values
   p1_mat = force_field.p1co[neigh_types, species.reshape(-1, 1)]
   p2_mat = force_field.p2co[neigh_types, species.reshape(-1, 1)]
   p3_mat = force_field.p3co[neigh_types, species.reshape(-1, 1)]
-  hulpw_mat = safe_mask(dists > 0, lambda x: x ** force_field.vdw_shiedling, dists, 0.0)
+  hulpw_mat = safe_mask(dists > 0, lambda x: x ** force_field.vdw_shiedling, dists, 0.0) + gamwco_mat
   rrw_mat = jnp.power(hulpw_mat, (1.0 / force_field.vdw_shiedling))
   # if p = 0 -> gradient will be 0
   temp_val2 = p3_mat * ((1.0 - rrw_mat / p1_mat))
@@ -1125,7 +1126,6 @@ def calculate_torsion_pot(species: Array,
 
   bocor2 = jnp.exp(my_v4 * bo2p)
 
-
   arg2 = arg * arg
   ethhulp = (0.5 * my_v1 * (1.0 + arg) + my_v2 * bocor2 * (1.0 - arg2) +
              my_v3 * (0.5 + 2.0*arg2*arg - 1.5*arg))
@@ -1163,8 +1163,8 @@ def calculate_torsion_pot(species: Array,
     exphua = jnp.exp(-force_field.par_24 * boa)
     exphub = jnp.exp(-force_field.par_24 * bob)
     exphuc = jnp.exp(-force_field.par_24 * boc)
-
   bocor4 = (1.0 - exphua) * (1.0 - exphub) * (1.0 - exphuc)
+
   eth = hsin * ethhulp * bocor4
 
   eth = safe_mask(complete_mask, lambda x: x, eth, 0)
@@ -1296,6 +1296,4 @@ def taper_inc(dist, low_tap_rad=0, up_tap_rad=10):
   smoothly taper the value in between
   '''
   return 1 - taper(dist, low_tap_rad, up_tap_rad)
-
-
 
