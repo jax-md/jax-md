@@ -54,6 +54,7 @@ class ReaxFFEnergyTest(JAXMDTestCase):
                                              dtype=test["dtype"])
                     for test in TEST_DATA]
     cls.geos = [read(test["geo_path"]) for test in TEST_DATA]
+    cls.names = [test["name"] for test in TEST_DATA]
     cls.dtypes = [test["dtype"] for test in TEST_DATA]
     cls.nbr_lists = []
     cls.angles_and_dists = []
@@ -64,9 +65,8 @@ class ReaxFFEnergyTest(JAXMDTestCase):
       geo = cls.geos[i]
       ffield = cls.ffields[i]
       dtype = cls.dtypes[i]
-      cls.geos[i].positions = (cls.geos[i].positions
-                               - onp.min(cls.geos[i].positions,axis=0))
-      R = jnp.array(geo.positions, dtype=cls.dtypes[i])
+      positions = (geo.positions - onp.min(geo.positions,axis=0))
+      R = jnp.array(positions, dtype=cls.dtypes[i])
       types = geo.get_chemical_symbols()
       types_int = [ffield.name_to_index[t] for t in types]
       species = jnp.array(types_int)
@@ -90,7 +90,6 @@ class ReaxFFEnergyTest(JAXMDTestCase):
       metric = space.metric(displacement)
       map_metric = space.map_neighbor(metric)
       map_disp = space.map_neighbor(displacement)
-
       nbr_lists = reaxff_inter_fn.allocate(R)
 
       angles_and_dists = calculate_all_angles_and_distances(R,

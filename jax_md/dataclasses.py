@@ -59,12 +59,6 @@ def dataclass(clz):
     kwargs = dict(meta_args + data_args)
     return data_clz(**kwargs)
 
-  def replace(self, **updates):
-    """"Returns a new object replacing the specified fields with new values."""
-    return dataclasses.replace(self, **updates)
-
-  data_clz.replace = replace
-
   jax.tree_util.register_pytree_node(data_clz,
                                      iterate_clz,
                                      clz_from_iterable)

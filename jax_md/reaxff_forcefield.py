@@ -223,7 +223,7 @@ class ForceField(object):
       arr = arr.at[body_4_indices_dst].set(arr[body_4_indices_src])
       replace_dict[attr] = arr
 
-    force_field = force_field.replace(**replace_dict)
+    force_field = dataclasses.replace(force_field, **replace_dict)
 
     return force_field
 
@@ -274,10 +274,12 @@ class ForceField(object):
     rob3_temp = jnp.where(mat1 > 0.0, rob3_temp, 0.0)
     rob3_temp = jnp.where(mat1_tr > 0.0, rob3_temp, 0.0)
 
-    p1co_temp = util.safe_sqrt(4.0 * rvdw.reshape(-1,1).dot(rvdw.reshape(1,-1)))
-    p2co_temp = util.safe_sqrt(eps.reshape(-1,1).dot(eps.reshape(1,-1)))
-    p3co_temp = util.safe_sqrt(alf.reshape(-1,1).dot(alf.reshape(1,-1)))
-
+    p1co_temp = 4.0 * rvdw.reshape(-1,1).dot(rvdw.reshape(1,-1))
+    p1co_temp = util.safe_mask(p1co_temp > 0, jnp.sqrt, p1co_temp)
+    p2co_temp = eps.reshape(-1,1).dot(eps.reshape(1,-1))
+    p2co_temp = util.safe_mask(p2co_temp > 0, jnp.sqrt, p2co_temp)
+    p3co_temp = alf.reshape(-1,1).dot(alf.reshape(1,-1))
+    p3co_temp = util.safe_mask(p3co_temp > 0, jnp.sqrt, p3co_temp)
 
     rob1 = jnp.where(rob1_off_mask == 0, rob1_temp, rob1_off)
     rob2 = jnp.where(rob2_off_mask == 0, rob2_temp, rob2_off)
@@ -289,7 +291,8 @@ class ForceField(object):
 
     softcut_2d = 0.5 * (softcut.reshape(-1,1) + softcut.reshape(1,-1))
 
-    force_field = force_field.replace(rob1=rob1,
+    force_field = dataclasses.replace(force_field,
+                                      rob1=rob1,
                                       rob2=rob2,
                                       rob3=rob3,
                                       p1co=p1co,
@@ -297,6 +300,8 @@ class ForceField(object):
                                       p3co=p3co,
                                       softcut_2d=softcut_2d)
     return force_field
+
+
 
 
 

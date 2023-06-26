@@ -9,9 +9,9 @@ import jax.numpy as jnp
 import jax
 from jax.scipy.sparse import linalg
 from jax_md import util
-from jax_md.util import safe_mask, safe_sqrt
+from jax_md.util import safe_mask
 from jax_md.util import high_precision_sum
-from jax_md.reaxff_helper import vectorized_cond
+from jax_md.reaxff_helper import vectorized_cond, safe_sqrt
 from jax_md.reaxff_forcefield import ForceField
 # to resolve circular dependency
 from typing import TYPE_CHECKING

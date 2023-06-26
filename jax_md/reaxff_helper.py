@@ -10,6 +10,21 @@ import numpy as onp
 from jax_md.reaxff_forcefield import ForceField
 from dataclasses import fields
 from frozendict import frozendict
+from jax import custom_jvp
+
+@custom_jvp
+def safe_sqrt(x):
+  """Safe sqrt function (no nan gradients)."""
+  return jnp.sqrt(x)
+
+@safe_sqrt.defjvp
+def safe_sqrt_jvp(primals, tangents):
+  x = primals[0]
+  x_dot = tangents[0]
+  #print(x[0])
+  primal_out = safe_sqrt(x)
+  tangent_out = 0.5 * x_dot / jnp.where(x > 0, primal_out, jnp.inf)
+  return primal_out, tangent_out
 
 # it fixes nan values issue, from: https://github.com/google/jax/issues/1052
 def vectorized_cond(pred, true_fun, false_fun, operand):
