@@ -821,6 +821,73 @@ class EnergyTest(test_util.JAXMDTestCase):
     self.assertAllClose(quantity.force(energy_fn)(atoms, nbrs),
                         jnp.zeros_like(atoms))
 
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': '_dtype={}'.format(dtype.__name__),
+          'dtype': dtype
+      } for dtype in POSITION_DTYPE))
+  def test_edip(self, dtype):
+    lattice_vectors = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=dtype) * 5.430
+    atoms = np.array(
+        [[0.25, 0.75, 0.25],
+         [0.00, 0.00, 0.50],
+         [0.25, 0.25, 0.75],
+         [0.00, 0.50, 0.00],
+         [0.75, 0.75, 0.75],
+         [0.50, 0.00, 0.00],
+         [0.75, 0.25, 0.25],
+         [0.50, 0.50, 0.50]], dtype=dtype)
+    atoms = lattice(atoms, 2, lattice_vectors)
+    if dtype == f32:
+      atoms = f32(atoms)
+    lattice_vectors *= 2
+    displacement, _ = space.periodic_general(lattice_vectors,
+                                             fractional_coordinates=True)
+    box_size = np.linalg.det(lattice_vectors) ** (1 / 3)
+    energy_fn = energy.edip(displacement)
+    E = energy_fn(atoms)
+    print(quantity.force(energy_fn)(atoms))
+    if dtype is f64:
+      self.assertAllClose(E, dtype(-297.597013492761), atol=1e-5, rtol=2e-8)
+    else:
+      self.assertAllClose(E, dtype(-297.597013492761))
+
+    self.assertAllClose(quantity.force(energy_fn)(atoms), jnp.zeros_like(atoms))
+
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': '_dtype={}'.format(dtype.__name__),
+          'dtype': dtype
+      } for dtype in POSITION_DTYPE))
+  def test_edip_neighbor_list(self, dtype):
+    lattice_vectors = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]], dtype=dtype) * 5.430
+    atoms = np.array(
+        [[0.25, 0.75, 0.25],
+         [0.00, 0.00, 0.50],
+         [0.25, 0.25, 0.75],
+         [0.00, 0.50, 0.00],
+         [0.75, 0.75, 0.75],
+         [0.50, 0.00, 0.00],
+         [0.75, 0.25, 0.25],
+         [0.50, 0.50, 0.50]], dtype=dtype)
+    atoms = lattice(atoms, 2, lattice_vectors)
+    if dtype == f32:
+      atoms = f32(atoms)
+    lattice_vectors *= 2
+    displacement, _ = space.periodic_general(lattice_vectors,
+                                             fractional_coordinates=True)
+    box_size = np.linalg.det(lattice_vectors) ** (1 / 3)
+    neighbor_fn, energy_fn = energy.edip_neighbor_list(displacement,
+                                                          box_size)
+    nbrs = neighbor_fn.allocate(atoms)
+    E = energy_fn(atoms, nbrs)
+    if dtype is f64:
+      self.assertAllClose(E, dtype(-297.597013492761), atol=1e-5, rtol=2e-8)
+    else:
+      self.assertAllClose(E, dtype(-297.597013492761))
+
+    self.assertAllClose(quantity.force(energy_fn)(atoms, nbrs),
+                        jnp.zeros_like(atoms))
 
   @parameterized.named_parameters(test_util.cases_from_list(
       {
