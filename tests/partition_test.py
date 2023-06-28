@@ -469,7 +469,7 @@ class NeighborListTest(test_util.JAXMDTestCase):
     box = jnp.ones(3)
     if format is partition.Dense:
       desired_shape = (20, 19) if mask_self else (20, 20)
-      _positions = jnp.linspace(0.5, 0.7, 20)
+      _positions = jnp.ones((20,)) * 0.5
     elif format is partition.Sparse:
       desired_shape = (2, 20 * 19) if mask_self else (2, 20**2)
       _positions = jnp.ones((20,)) * 0.5
@@ -597,6 +597,7 @@ class NeighborListTest(test_util.JAXMDTestCase):
       nbrs = neighbor_fn.allocate(R)
       nbrs = nbrs.update(R, box=cl * factor)
       E_target = E_exact(R, box=cl * factor)
+
       if factor > 1:
         self.assertTrue(jnp.any(jnp.abs(E_target) > 0.25))
         self.assertAllClose(E_target, E(R, neighbor=nbrs, box=cl * factor))

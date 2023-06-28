@@ -21,6 +21,7 @@ from jax.config import config
 from jax import random
 import jax
 from jax import jit, vmap, grad
+from jax import tree_map
 import jax.numpy as np
 
 import numpy as onp
@@ -773,9 +774,10 @@ class EnergyTest(test_util.JAXMDTestCase):
     box_size = np.linalg.det(lattice_vectors) ** (1 / 3)
     with open('tests/data/Si.tersoff', 'r') as fh:
       tersoff_parameters = energy.load_lammps_tersoff_parameters(fh)
+    if dtype == f32:
+      tersoff_parameters = tree_map(lambda x: f32(x) if isinstance(x, Array) else x, tersoff_parameters)
     energy_fn = energy.tersoff(displacement, tersoff_parameters)
     E = energy_fn(atoms)
-    print(quantity.force(energy_fn)(atoms))
     if dtype is f64:
       self.assertAllClose(E, dtype(-296.3463784635968), atol=1e-5, rtol=2e-8)
     else:
@@ -808,6 +810,8 @@ class EnergyTest(test_util.JAXMDTestCase):
     box_size = np.linalg.det(lattice_vectors) ** (1 / 3)
     with open('tests/data/Si.tersoff', 'r') as fh:
       tersoff_parameters = energy.load_lammps_tersoff_parameters(fh)
+    if dtype == f32:
+      tersoff_parameters = tree_map(lambda x: f32(x) if isinstance(x, Array) else x, tersoff_parameters)
     neighbor_fn, energy_fn = energy.tersoff_neighbor_list(displacement,
                                                           box_size,
                                                           tersoff_parameters)
@@ -846,7 +850,7 @@ class EnergyTest(test_util.JAXMDTestCase):
     box_size = np.linalg.det(lattice_vectors) ** (1 / 3)
     energy_fn = energy.edip(displacement)
     E = energy_fn(atoms)
-    print(quantity.force(energy_fn)(atoms))
+    
     if dtype is f64:
       self.assertAllClose(E, dtype(-297.597013492761), atol=1e-5, rtol=2e-8)
     else:

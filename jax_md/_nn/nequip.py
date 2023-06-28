@@ -18,6 +18,7 @@ from typing import Dict, Union, Tuple
 import functools
 
 import e3nn_jax as e3nn
+from e3nn_jax.legacy import FunctionalTensorProduct
 
 import flax.linen as nn
 
@@ -226,7 +227,7 @@ class NequIPConvolution(nn.Module):
     # TP between spherical harmonics embedding of the edge vector
     # Y_ij(\hat{r}) and neighboring node h_j, weighted on a per-element basis
     # by the radial network R(r_ij)
-    tp = e3nn.FunctionalTensorProduct(
+    tp = FunctionalTensorProduct(
         irreps_in1=edge_features.irreps,
         irreps_in2=edge_sh.irreps,
         irreps_out=irreps_after_tp,

@@ -32,7 +32,7 @@ import numpy as onp
 from jax import lax
 from jax import ops
 from jax import jit, vmap, eval_shape
-from jax.abstract_arrays import ShapedArray
+from jax.core import ShapedArray
 from jax.interpreters import partial_eval as pe
 from jax import tree_map
 import jax.numpy as jnp
