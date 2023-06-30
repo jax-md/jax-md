@@ -211,7 +211,7 @@ from typing import Optional
 from e3nn_jax import Irreps
 from e3nn_jax import IrrepsArray
 from e3nn_jax import FunctionalLinear
-from e3nn_jax import FunctionalFullyConnectedTensorProduct
+from e3nn_jax.legacy import FunctionalFullyConnectedTensorProduct
 
 import flax.linen as nn
 
