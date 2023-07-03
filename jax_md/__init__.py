@@ -25,10 +25,10 @@ from jax_md import interpolate
 from jax_md import util
 from jax_md import io
 from jax_md import rigid_body
-from jax_md import reaxff_helper
-from jax_md import reaxff_interactions
-from jax_md import reaxff_energy
-from jax_md import reaxff_forcefield
+from ._reaxff import reaxff_energy
+from ._reaxff import reaxff_interactions
+from ._reaxff import reaxff_forcefield
+from ._reaxff import reaxff_helper
 try:
   # Attempt to load colab_tools if IPython is installed.
   from jax_md import colab_tools
