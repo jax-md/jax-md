@@ -230,7 +230,7 @@ import numpy as onp
 def naive_broadcast_decorator(func):
   def wrapper(*args):
       leading_shape = jnp.broadcast_shapes(*(arg.shape[:-1] for arg in args))
-      args = [jnp.broadcast_to(arg, leading_shape + (-1,)) for arg in args]
+      args = [arg.broadcast_to(leading_shape + (-1,)) for arg in args]
       f = func
       for _ in range(len(leading_shape)):
           f = jax.vmap(f)
