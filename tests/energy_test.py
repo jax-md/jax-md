@@ -846,11 +846,10 @@ class EnergyTest(test_util.JAXMDTestCase):
     box_size = np.linalg.det(lattice_vectors) ** (1 / 3)
     energy_fn = energy.edip(displacement)
     E = energy_fn(atoms)
-    print(quantity.force(energy_fn)(atoms))
     if dtype is f64:
-      self.assertAllClose(E, dtype(-297.597013492761), atol=1e-5, rtol=2e-8)
+      self.assertAllClose(E, -297.597013492761, atol=1e-5, rtol=2e-8)
     else:
-      self.assertAllClose(E, dtype(-297.597013492761))
+      self.assertAllClose(E, -297.597013492761)
 
     self.assertAllClose(quantity.force(energy_fn)(atoms), jnp.zeros_like(atoms))
 
