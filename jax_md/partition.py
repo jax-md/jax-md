@@ -794,7 +794,8 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
     return jnp.broadcast_to(candidates[None, :],
                             (position.shape[0], position.shape[0]))
 
-  @jit
+  # TODO: Find a way to reintrodice @jit? (was removed because of ValueError.)
+  # @jit
   def cell_list_candidate_fn(cl: CellList, position: Array) -> Array:
     N, dim = position.shape
 
