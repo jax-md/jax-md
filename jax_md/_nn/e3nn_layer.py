@@ -286,7 +286,7 @@ class FullyConnectedTensorProductE3nn(nn.Module):
     f = naive_broadcast_decorator(lambda x1, x2: tp.left_right(ws, x1, x2))
     output = f(x1, x2)
     output = tree_map(lambda x: x.astype(x1.dtype), output)
-    return output._convert(self.irreps_out)
+    return output.rechunk(irreps_out)
 
 
 class Linear(nn.Module):
