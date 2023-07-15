@@ -777,9 +777,9 @@ class EnergyTest(test_util.JAXMDTestCase):
     E = energy_fn(atoms)
     print(quantity.force(energy_fn)(atoms))
     if dtype is f64:
-      self.assertAllClose(E, dtype(-296.3463784635968), atol=1e-5, rtol=2e-8)
+      self.assertAllClose(E, -296.3463784635968, atol=1e-5, rtol=2e-8)
     else:
-      self.assertAllClose(E, dtype(-296.3463784635968))
+      self.assertAllClose(E, -296.3463784635968, atol=1e-5, rtol=2e-8)
 
     self.assertAllClose(quantity.force(energy_fn)(atoms), jnp.zeros_like(atoms))
 
@@ -814,9 +814,9 @@ class EnergyTest(test_util.JAXMDTestCase):
     nbrs = neighbor_fn.allocate(atoms)
     E = energy_fn(atoms, nbrs)
     if dtype is f64:
-      self.assertAllClose(E, dtype(-296.3463784635968), atol=1e-5, rtol=2e-8)
+      self.assertAllClose(E, -296.3463784635968, atol=1e-5, rtol=2e-8)
     else:
-      self.assertAllClose(E, dtype(-296.3463784635968))
+      self.assertAllClose(E, -296.3463784635968, atol=1e-5, rtol=2e-8)
 
     self.assertAllClose(quantity.force(energy_fn)(atoms, nbrs),
                         jnp.zeros_like(atoms))
@@ -849,7 +849,7 @@ class EnergyTest(test_util.JAXMDTestCase):
     if dtype is f64:
       self.assertAllClose(E, -297.597013492761, atol=1e-5, rtol=2e-8)
     else:
-      self.assertAllClose(E, -297.597013492761)
+      self.assertAllClose(E, -297.597013492761, atol=9e-7, rtol=3e-9)
 
     self.assertAllClose(quantity.force(energy_fn)(atoms), jnp.zeros_like(atoms))
 
