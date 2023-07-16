@@ -60,7 +60,7 @@ def get_test_grid(topology=None, num_dims=2, add_aux=False, rng_key=None):
     if num_dims == 1:
       box_size_in_cells = 512
     elif num_dims == 2:
-      box_size_in_cells = 160
+      box_size_in_cells = 80
     elif num_dims == 3:
       box_size_in_cells = 16
 
