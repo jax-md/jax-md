@@ -213,6 +213,7 @@ from e3nn_jax import Irreps
 from e3nn_jax import IrrepsArray
 from e3nn_jax.legacy import FunctionalFullyConnectedTensorProduct
 from e3nn_jax import FunctionalLinear 
+from e3nn_jax.utils import vmap
 
 import flax.linen as nn
 
@@ -222,7 +223,6 @@ import jax.numpy as jnp
 from jax.nn import initializers
 from jax import tree_util
 from jax import jit
-from jax import vmap
 from jax import tree_map
 
 import numpy as onp
@@ -262,8 +262,6 @@ class FullyConnectedTensorProductE3nn(nn.Module):
     tp = FunctionalFullyConnectedTensorProduct(
         x1.irreps, x2.irreps, irreps_out.simplify()
     )
-
-    print(tp.instructions)
 
     ws = [
         self.param(
@@ -326,7 +324,5 @@ class Linear(nn.Module):
     f = lambda x: lin(w, x)
     for _ in range(x.ndim - 1):
       f = vmap(f)
-    output = f(x)
-    output = tree_map(lambda y: y.astype(x.dtype), output)
-    return output
+    return f(x)
 

@@ -54,7 +54,7 @@ FeaturizerFn = nn_util.FeaturizerFn
 
 get_nonlinearity_by_name = nn_util.get_nonlinearity_by_name
 partial = functools.partial
-
+tree_map = partial(jax.tree_map, is_leaf=lambda x: isinstance(x, e3nn.IrrepsArray))
 
 # Code
 
@@ -180,8 +180,6 @@ class NequIPConvolution(nn.Module):
     if self.use_sc:
       self_connection = FullyConnectedTensorProductE3nn(
           h_out_irreps,
-          # node_features.irreps,
-          # node_attributes.irreps
           )(node_features, node_attributes)
 
     h = node_features
@@ -190,7 +188,7 @@ class NequIPConvolution(nn.Module):
     h = Linear(node_features.irreps)(h)
 
     # map node features onto edges for tp
-    edge_features = jax.tree_map(lambda x: x[edge_src], h)
+    edge_features = tree_map(lambda x: x[edge_src], h)
 
     # we gather the instructions for the tp as well as the tp output irreps
     mode = 'uvu'
@@ -261,16 +259,16 @@ class NequIPConvolution(nn.Module):
     edge_features = jax.vmap(tp.left_right)(weight, edge_features, edge_sh)
     # TODO: It's not great that e3nn_jax automatically upcasts internally,
     # but this would need to be fixed at the e3nn level.
-    edge_features = jax.tree_map(lambda x: x.astype(h.dtype), edge_features)
+    edge_features = tree_map(lambda x: x.astype(h.dtype), edge_features)
 
     # aggregate edges onto nodes after tp using e3nn-jax's index_add
     h_type = h.dtype
-    h = jax.tree_map(
+    h = tree_map(
         lambda x: e3nn.index_add(edge_dst, x, out_dim=h.shape[0]),
         edge_features
         )
     # TODO: Remove this once e3nn_jax doesn't upcast inputs.
-    h = jax.tree_map(lambda x: x.astype(h_type), h)
+    h = tree_map(lambda x: x.astype(h_type), h)
 
     # normalize by the average (not local) number of neighbors
     h = h / self.n_neighbors
@@ -298,7 +296,7 @@ class NequIPConvolution(nn.Module):
 
     h = gate_fn(h)
     # TODO: Remove this once e3nn_jax doesn't upcast inputs.
-    h = jax.tree_map(lambda x: x.astype(h_type), h)
+    h = tree_map(lambda x: x.astype(h_type), h)
 
     return h
 
@@ -425,7 +423,7 @@ class NequIPEnergyModel(nn.Module):
         total_repeat_length=sum_n_node
         )
 
-    global_output = tree_util.tree_map(
+    global_output = tree_map(
         lambda n: jraph.segment_sum(
             n,
             node_gr_idx,
