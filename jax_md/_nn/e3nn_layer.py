@@ -230,7 +230,7 @@ import numpy as onp
 def naive_broadcast_decorator(func):
   def wrapper(*args):
       leading_shape = jnp.broadcast_shapes(*(arg.shape[:-1] for arg in args))
-      args = [jnp.broadcast_to(arg, leading_shape + (-1,)) for arg in args]
+      args = [arg.broadcast_to(leading_shape + (-1,)) for arg in args]
       f = func
       for _ in range(len(leading_shape)):
           f = jax.vmap(f)
@@ -286,7 +286,7 @@ class FullyConnectedTensorProductE3nn(nn.Module):
     f = naive_broadcast_decorator(lambda x1, x2: tp.left_right(ws, x1, x2))
     output = f(x1, x2)
     output = tree_map(lambda x: x.astype(x1.dtype), output)
-    return output._convert(self.irreps_out)
+    return output.rechunk(irreps_out)
 
 
 class Linear(nn.Module):
