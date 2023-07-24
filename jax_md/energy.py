@@ -32,6 +32,18 @@ from jax_md import space, smap, partition, nn, quantity, interpolate, util
 from ml_collections import ConfigDict
 
 
+# Electrostatics
+
+
+from jax_md._energy.electrostatics import coulomb_direct_pair
+from jax_md._energy.electrostatics import coulomb_direct_neighbor_list
+from jax_md._energy.electrostatics import coulomb_recip_ewald
+from jax_md._energy.electrostatics import coulomb_recip_pme
+from jax_md._energy.electrostatics import coulomb_ewald_neighbor_list
+from jax_md._energy.electrostatics import coulomb
+from jax_md._energy.electrostatics import coulomb_neighbor_list
+
+
 # Define aliases different neural network primitives.
 bp = nn.behler_parrinello
 gnome = nn.gnome
