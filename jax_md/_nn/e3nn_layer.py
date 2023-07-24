@@ -227,7 +227,6 @@ from jax import tree_map
 
 import numpy as onp
 
-
 class FullyConnectedTensorProductE3nn(nn.Module):
   """Flax module of an equivariant Fully-Connected Tensor Product."""
   irreps_out: Irreps

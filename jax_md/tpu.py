@@ -46,8 +46,7 @@ from jax import lax
 from jax import random
 from jax.experimental import maps
 from jax.experimental import mesh_utils
-from jax.experimental import PartitionSpec as P
-from jax.experimental.global_device_array import GlobalDeviceArray
+from jax.sharding import PartitionSpec as P
 
 import jax.numpy as np
 from jax.tree_util import tree_map, tree_flatten, tree_unflatten
@@ -340,10 +339,8 @@ def random_grid(key: Array,
     return np.expand_dims(create_instance_by_key(key), range(len(topology)))
 
   mesh, axes = mesh_and_axes(topology)
-  cell_data = GlobalDeviceArray.from_callback(topology + arr_box_size + (num_dims + 1,),
-                                              mesh,
-                                              axes,
-                                              create_instance)
+  cell_data = jax.make_array_from_callback(topology + arr_box_size + (num_dims + 1,),
+                                           jax.sharding.NamedSharding(mesh, axes), create_instance)
 
   # Function to fold the grid on each device separately.
   inner_fold_fn = lambda grid: _fold_grid(grid, max_grid_distance, batch_size)
