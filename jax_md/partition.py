@@ -33,7 +33,7 @@ import numpy as onp
 from jax import lax
 from jax import ops
 from jax import jit, vmap, eval_shape
-from jax.abstract_arrays import ShapedArray
+from jax.core import ShapedArray
 from jax.interpreters import partial_eval as pe
 from jax import tree_map
 import jax.numpy as jnp
@@ -294,7 +294,7 @@ def cell_list(box_size: Box,
   if util.is_array(box_size):
     box_size = onp.array(box_size)
     if len(box_size.shape) == 1:
-      box_size = jnp.reshape(box_size, (1, -1))
+      box_size = onp.reshape(box_size, (1, -1))
 
   if util.is_array(minimum_cell_size):
     minimum_cell_size = onp.array(minimum_cell_size)
@@ -590,7 +590,7 @@ def is_box_valid(box: Array) -> bool:
 
 
 @dataclasses.dataclass
-class NeighborList(object):
+class NeighborList:
   """A struct containing the state of a Neighbor List.
 
   Attributes:
