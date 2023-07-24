@@ -147,7 +147,7 @@ from jax_md import partition
 cell_size = 5.0
 capacity = 10
 cell_list_fn = partition.cell_list(box_size, cell_size, capacity)
-cell_list_data = cell_list_fn(R)
+cell_list_data = cell_list_fn.allocate(R)
 ```
 
 Neighbor List Example:
