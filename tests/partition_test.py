@@ -464,9 +464,11 @@ class NeighborListTest(test_util.JAXMDTestCase):
       [(0.12, True, 1.5), (0.25, False, 1.5),
        (0.31, False, 1.5), (0.31, False, 1.0)]) for ms in [False, True]
       for fmt in [partition.Dense, partition.Sparse, partition.OrderedSparse]))
+
   def test_issue191_2(self, r_cut, disable_cell_list, capacity_multiplier,
                       mask_self, format):
-    box = jnp.ones(3)
+    box = onp.ones(3)
+    # box = 1.0
     if format is partition.Dense:
       desired_shape = (20, 19) if mask_self else (20, 20)
       _positions = jnp.ones((20,)) * 0.5
@@ -486,11 +488,13 @@ class NeighborListTest(test_util.JAXMDTestCase):
       disable_cell_list=disable_cell_list,
       mask_self=mask_self,
       format=format)
+    
     nbrs = neighbor_fn.allocate(positions)
 
     self.assertFalse(nbrs.did_buffer_overflow)
     self.assertEqual(nbrs.idx.shape, desired_shape)
-    new_nbrs = nbrs.update(positions)
+    
+    new_nbrs = nbrs.update(positions + 0.1)
     self.assertFalse(new_nbrs.did_buffer_overflow)
     self.assertEqual(new_nbrs.idx.shape, desired_shape)
 

@@ -256,19 +256,17 @@ class NequIPConvolution(nn.Module):
 
     # tp between node features that have been mapped onto edges and edge RSH
     # weighted by FC weight, we vmap over the dimension of the edges
-    edge_features = jax.vmap(tp.left_right)(weight, edge_features, edge_sh)
+    edge_features = e3nn.utils.vmap(tp.left_right)(weight, edge_features, edge_sh)
     # TODO: It's not great that e3nn_jax automatically upcasts internally,
     # but this would need to be fixed at the e3nn level.
     edge_features = tree_map(lambda x: x.astype(h.dtype), edge_features)
 
     # aggregate edges onto nodes after tp using e3nn-jax's index_add
     h_type = h.dtype
-    h = tree_map(
-        lambda x: e3nn.index_add(edge_dst, x, out_dim=h.shape[0]),
-        edge_features
-        )
-    # TODO: Remove this once e3nn_jax doesn't upcast inputs.
-    h = tree_map(lambda x: x.astype(h_type), h)
+
+    e = edge_features.remove_zero_chunks().simplify()
+    h = e3nn.index_add(edge_dst, e, out_dim=h.shape[0])
+    h = h.astype(h_type)
 
     # normalize by the average (not local) number of neighbors
     h = h / self.n_neighbors
@@ -415,7 +413,7 @@ class NequIPEnergyModel(nn.Module):
     # this aggregation follows jraph/_src/models.py
     n_graph = graph.n_node.shape[0]
     graph_idx = jnp.arange(n_graph)
-    sum_n_node = tree_util.tree_leaves(graph.nodes)[0].shape[0]
+    sum_n_node = tree_util.tree_leaves(graph.nodes, is_leaf=lambda x: isinstance(x, e3nn.IrrepsArray))[0].shape[0]
     node_gr_idx = jnp.repeat(
         graph_idx,
         graph.n_node,

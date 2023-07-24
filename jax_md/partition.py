@@ -293,7 +293,7 @@ def cell_list(box_size: Box,
   if util.is_array(box_size):
     box_size = onp.array(box_size)
     if len(box_size.shape) == 1:
-      box_size = jnp.reshape(box_size, (1, -1))
+      box_size = onp.reshape(box_size, (1, -1))
 
   if util.is_array(minimum_cell_size):
     minimum_cell_size = onp.array(minimum_cell_size)
@@ -589,7 +589,7 @@ def is_box_valid(box: Array) -> bool:
 
 
 @dataclasses.dataclass
-class NeighborList(object):
+class NeighborList:
   """A struct containing the state of a Neighbor List.
 
   Attributes:
