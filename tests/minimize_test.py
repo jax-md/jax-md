@@ -142,7 +142,7 @@ class DynamicsTest(test_util.JAXMDTestCase):
       Consider three particles with masses [inf, inf, 1.0] and two springs connecting them with rest length 1.0.
       (inf) -- (inf) -- (1.0)
       The initial positions are [0.0, 0.5, 1.0]. After optimization, the positions should be [0.0, 0.5, 1.5].
-      In two dimensions, the y coordinates are set to 0.
+      In other dimensions, the coordinates are set to 0 and should remain so.
       '''
       N = 3
       bond = jnp.array([[0, 1], [1, 2]])
