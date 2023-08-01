@@ -34,6 +34,7 @@ how the BP-NN works.
 
 .. [#nongnuch13] Artrith, Nongnuch, Björn Hiller, and Jörg Behler. "Neural network potentials for metals and oxides–First applications to copper clusters at zinc oxide." Physica Status Solidi (b) 250.6 (2013): 1191-1203.
 
+.. currentmodule:: jax_md._nn.behler_parrinello
 .. autofunction:: radial_symmetry_functions
 .. autofunction:: radial_symmetry_functions_neighbor_list
 
@@ -42,6 +43,7 @@ how the BP-NN works.
 
 Graph Neural Networks
 ----------------------
+.. currentmodule:: jax_md.nn
 
 JAX MD also contains primitives for constructing graph neural networks. These 
 primitives are based on (and are one-to-one with) the excellent Jraph library

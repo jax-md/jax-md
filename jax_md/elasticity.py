@@ -354,25 +354,32 @@ def tensor_to_mandel(T: Array) -> Array:
 
   If mandel_index(i,j) performs the above index mapping, then the input T and
   output M satisfy
+
     M[mandel_index(i,j)] = T[i,j] * w
+
   or
+
     M[mandel_index(i,j), mandel_index(k,l)] = T[i,j,k,l] * w(i,j) * w(k,l)
+
   where
+
     w(i,j) = 1       if i==j
            = sqrt(2) if i!=j
+
   is a weight that is used to ensure proper contraction rules. Here (and only
   here) we do not assume major symmetries in fourth-rank tensors.
 
   Args:
     T: Array with 4 possible shapes:
-      1. T.shape == (2,2)
+
+      #. T.shape == (2,2)
          Convert a symmetric array of shape (2,2) to an array of shape (3,)
-      2. T.shape == (3,3)
+      #. T.shape == (3,3)
          Convert a symmetric array of shape (3,3) to an array of shape (6,)
-      3. T.shape == (2,2,2,2)
+      #. T.shape == (2,2,2,2)
          Convert a tensor of shape (2,2,2,2) with minor symmetries to an array
          of shape (3,3)
-      4. T.shape == (3,3,3,3)
+      #. T.shape == (3,3,3,3)
          Convert a tensor of shape (3,3,3,3) with minor symmetries to an array
          of shape (6,6)
 
@@ -531,23 +538,28 @@ def extract_isotropic_moduli(C: Array) -> Dict:
 
   Bulk modulus, B:
   This is the response to the rotationally invariant strain tensor:
+
       e = (1/2) * ( 1 0 )     or      e = (1/3) * ( 1 0 0 )
                   ( 0 1 )                         ( 0 1 0 )
                                                   ( 0 0 1 )
 
   Shear modulus, G:
   This is the response to the strain tensor:
+
       e = (1/2) * ( 0 1 )     or      e = (1/2) * ( 0 1 0 )
                   ( 1 0 )                         ( 1 0 0 )
                                                   ( 0 0 0 )
+
   averaged over all possible orientations. For perfectly isotropic
   systems, it should be equal to C[0,1,0,1].
 
   Longitudinal modulus, M:
   This is the response to the strain tensor:
+
       e = ( 1 0 )     or      e = ( 1 0 0 )
           ( 0 0 )                 ( 0 0 0 )
                                   ( 0 0 0 )
+
   averaged over all possible orientations. For perfectly isotropic
   systems, it should be equal to C[0,0,0,0].
 
