@@ -16,7 +16,7 @@ from typing import NamedTuple, Tuple
 
 import os
 
-from jax import ShapedArray
+from jax.core import ShapedArray
 from jax import eval_shape
 from jax import random
 from jax import tree_map
