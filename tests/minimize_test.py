@@ -30,6 +30,7 @@ from jax_md import minimize
 from jax_md import quantity
 from jax_md.util import *
 from jax_md import test_util
+from jax_md.energy import simple_spring_bond
 
 jax_config.parse_flags_with_absl()
 FLAGS = jax_config.FLAGS
@@ -129,6 +130,43 @@ class DynamicsTest(test_util.JAXMDTestCase):
         assert dr_new.dtype == dtype
         E_current = E_new
         dr_current = dr_new
+
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in DTYPE))
+  def test_fire_descent_with_unmoving_masses(self, spatial_dimension, dtype):
+      """
+      Consider three particles with masses [inf, inf, 1.0] and two springs connecting them with rest length 1.0.
+      (inf) -- (inf) -- (1.0)
+      The initial x-coordinates are [0.0, 0.5, 1.0]. After optimization, the x-coordinates should be [0.0, 0.5, 1.5].
+      In other dimensions, the coordinates are set to be all zeros and should not change.
+      """
+      N = 3
+      bond = jnp.array([[0, 1], [1, 2]])
+      R_init = jnp.zeros(shape=(N, spatial_dimension), dtype=dtype)
+      R_init = R_init.at[1, 0].set(0.5)
+      R_init = R_init.at[2, 0].set(1.0)
+      mass = jnp.array([jnp.inf, jnp.inf, 1.0], dtype=dtype)
+      iterations = 10000
+
+      displacement_fn, shift_fn = space.free()
+      energy_fn = simple_spring_bond(displacement_fn, bond=bond, length=1.0)
+      init_fn, apply_fn = minimize.fire_descent(energy_fn, shift_fn=shift_fn, dt_start=0.001, dt_max=0.1)
+
+      state = init_fn(R_init, mass=mass)
+      body_fun = lambda i, state: apply_fn(state)
+      state = lax.fori_loop(0, iterations, body_fun, state)
+      R = state.position
+
+      # Check x-coordinates: should be (0, 0.5, 1.5)
+      self.assertAllClose(R[:, 0], np.array([0.0, 0.5, 1.5], dtype=dtype))
+
+      # Check other coordinates: should be all zeros
+      self.assertAllClose(R[:, 1:], np.zeros(shape=(N, spatial_dimension-1), dtype=dtype))
+
 
 if __name__ == '__main__':
   absltest.main()

@@ -109,6 +109,14 @@ class FireDescentState:
   alpha: float
   n_pos: int
 
+  @property
+  def velocity(self):
+      return self.momentum / self.mass
+
+  @property
+  def acceleration(self):
+      return self.force / self.mass
+
 
 def fire_descent(energy_or_force: Callable[..., Array],
                  shift_fn: ShiftFn,
@@ -166,6 +174,7 @@ def fire_descent(energy_or_force: Callable[..., Array],
   def apply_fn(state: FireDescentState, **kwargs) -> FireDescentState:
     state = nve_step_fn(state, dt=state.dt, **kwargs)
     R, P, F, M, dt, alpha, n_pos = dataclasses.unpack(state)
+    V = state.velocity
 
     # NOTE(schsam): This will be wrong if F_norm ~< 1e-8.
     # TODO(schsam): We should check for forces below 1e-6. @ErrorChecking
@@ -174,33 +183,27 @@ def fire_descent(energy_or_force: Callable[..., Array],
     P_norm = jnp.sqrt(tree_reduce(lambda accum, p:
                                   accum + jnp.sum(p ** 2), P, 0.0))
 
-    # NOTE: In the original FIRE algorithm, the quantity that determines when
-    # to reset the momenta is F.V rather than F.P. However, all of the JAX MD
-    # simulations are in momentum space for easier agreement with prior work /
-    # rigid body physics. We only use the sign of F.P here, which shouldn't
-    # differ from F.V, however if there are regressions then we should
-    # reconsider this choice.
-    F_dot_P = tree_reduce(
-        lambda accum, f_dot_p: accum + f_dot_p,
-        tree_map(lambda f, p: jnp.sum(f * p), F, P))
+    F_dot_V = tree_reduce(
+        lambda accum, f_dot_v: accum + f_dot_v,
+        tree_map(lambda f, v: jnp.sum(f * v), F, V))
     P = tree_map(lambda p, f: p + alpha * (f * P_norm / F_norm - p), P, F)
 
     # NOTE(schsam): Can we clean this up at all?
-    n_pos = jnp.where(F_dot_P >= 0, n_pos + 1, 0)
+    n_pos = jnp.where(F_dot_V >= 0, n_pos + 1, 0)
     dt_choice = jnp.array([dt * f_inc, dt_max])
-    dt = jnp.where(F_dot_P > 0,
+    dt = jnp.where(F_dot_V > 0,
                    jnp.where(n_pos > n_min,
                              jnp.min(dt_choice),
                              dt),
                    dt)
-    dt = jnp.where(F_dot_P < 0, dt * f_dec, dt)
-    alpha = jnp.where(F_dot_P > 0,
+    dt = jnp.where(F_dot_V < 0, dt * f_dec, dt)
+    alpha = jnp.where(F_dot_V > 0,
                       jnp.where(n_pos > n_min,
                                 alpha * f_alpha,
                                 alpha),
                       alpha)
-    alpha = jnp.where(F_dot_P < 0, alpha_start, alpha)
-    P = tree_map(lambda p: (F_dot_P >= 0) * p, P)
+    alpha = jnp.where(F_dot_V < 0, alpha_start, alpha)
+    P = tree_map(lambda p: (F_dot_V >= 0) * p, P)
 
     return FireDescentState(R, P, F, M, dt, alpha, n_pos)  # pytype: disable=wrong-arg-count
   return init_fn, apply_fn
