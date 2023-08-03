@@ -27,7 +27,7 @@ from jax_md import io
 from jax_md import rigid_body
 
 try:
-  # Attempt to load colab_tools if IPython is installed.
-  from jax_md import colab_tools
+    # Attempt to load colab_tools if IPython is installed.
+    from jax_md import colab_tools
 except:
-  pass
+    pass
