@@ -1418,3 +1418,97 @@ def temp_berendsen(energy_or_force_fn: Callable[..., Array],
     state = velocity_verlet(force_fn, shift_fn, dt, state, **kwargs)
     return state
   return init_fn, apply_fn
+
+
+def nvk(energy_or_force_fn: Callable[..., Array],
+        shift_fn: ShiftFn,
+        dt: float,
+        kT: float,
+        **sim_kwargs) -> Simulator:
+  """Simulation in the NVK (isokinetic) ensemble using the Gaussian thermostat.
+
+  Samples from the isokinetic ensemble in which the number of particles (N),
+  the system volume (V), and the kinetic energy (K) are held constant. A 
+  Gaussian thermostat is used for the integration and the kinetic energy is 
+  held constant during the simulation. The implementation follows the steps 
+  described in [#minary2003]_ and [#zhang97]_. See section 4(B) equation 
+  4.12-4.17 in [#minary2003]_ for detailed description.     
+
+  Args:
+    energy_or_force: A function that produces either an energy or a force from
+      a set of particle positions specified as an ndarray of shape
+      `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`.
+      Both `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
+    dt: Floating point number specifying the timescale (step size) of the
+      simulation.
+    kT: Floating point number specifying the temperature in units of Boltzmann
+      constant. To update the temperature dynamically during a simulation one
+      should pass `kT` as a keyword argument to the step function.
+  Returns:
+    See above.
+
+  .. rubric:: References
+  .. [#minary2003] Minary, Peter and Martyna, Glenn J. and Tuckerman, Mark E.
+    "Algorithms and novel applications based on the isokinetic ensemble. I. 
+    Biophysical and path integral molecular dynamics"
+    J. Chem. Phys., Vol. 118, No. 6, 8 February 2003.
+  .. [#zhang97] Zhang, Fei.
+    "Operator-splitting integrators for constant-temperature molecular dynamics"
+    J. Chem. Phys. 106, 6102–6106 (1997).
+  """
+  force_fn = quantity.canonicalize_force(energy_or_force_fn)
+  dt = f32(dt)
+  dt_2 = f32(dt / 2)
+
+  def momentum_update(state, KE):
+    # eps to avoid edge cases when forces are zero
+    eps = 1e-16
+
+    # Equation 4.13 to compute a and b
+    update_fn = (lambda f, p, m: f * p / m)
+    a = util.high_precision_sum(update_fn(state.force, state.momentum, state.mass)) + eps
+    b = util.high_precision_sum(update_fn(state.force, state.force, state.mass)) + eps
+    a /= (2.0 * KE)
+    b /= (2.0 * KE)
+
+    # Equation 4.12 to compute s(t) and s_dot(t)
+    b_sqrt = jnp.sqrt(b)
+    s_t = ((a / b) * (jnp.cosh(dt_2 * b_sqrt) - 1.0)) + jnp.sinh(dt_2 * b_sqrt) / b_sqrt
+    s_dot_t = (b_sqrt * (a / b) * jnp.sinh(dt_2 * b_sqrt)) + jnp.cosh(dt_2 * b_sqrt)
+
+    # Get the new momentum using Equation 4.15  
+    new_momentum = tree_map(lambda p, f, s, sdot: (p + f * s) / sdot,
+                            state.momentum,
+                            state.force,
+                            s_t,
+                            s_dot_t)
+    return state.set(momentum=new_momentum)
+
+  def position_update(state, shift_fn, **kwargs):
+    if isinstance(shift_fn, Callable):
+      shift_fn = tree_map(lambda r: shift_fn, state.position)
+    # Get the new positions using Equation 4.16 (Should read r = r + dt * p / m)
+    new_position = tree_map(lambda s_fn, r, v: s_fn(r, dt * v, **kwargs),
+                            shift_fn,
+                            state.position,
+                            state.velocity)
+    return state.set(position=new_position)
+
+  def init_fn(key, R, mass=f32(1.0), **kwargs):
+    _kT = kwargs.pop('kT', kT)
+    key, split = random.split(key)
+    # Reuse the NVEState dataclass
+    state = NVEState(R, None, force_fn(R, **kwargs), mass)
+    state = canonicalize_mass(state)
+    return initialize_momenta(state, split, _kT)
+
+  def apply_fn(state, **kwargs):
+    _kT = kwargs.pop('kT', kT)
+    _KE = kinetic_energy(state)
+    state = momentum_update(state, _KE)
+    state = position_update(state, shift_fn)
+    state = state.set(force=force_fn(state.position, **kwargs))
+    state = momentum_update(state, _KE)
+    return state
+  return init_fn, apply_fn
