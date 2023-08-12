@@ -1300,3 +1300,60 @@ def hybrid_swap_mc(space_fns: space.Space,
   return init_fn, block_fn
 # pytype: enable=wrong-arg-count
 # pytype: enable=wrong-keyword-args
+
+
+def temp_berendsen(energy_or_force_fn: Callable[..., Array],
+                   shift_fn: ShiftFn,
+                   dt: float,
+                   kT: float,
+                   tau: float,
+                   **sim_kwargs) -> Simulator:
+  """Simulation using the Berendsen thermostat.
+
+  Berendsen (weak coupling) thermostat rescales the velocities of atoms such
+  that the desired temperature is reached. This rescaling is performed at each
+  timestep (dt) and the rescaling factor is calculated using
+  Eq.10 Berendsen et al. [#berendsen84]_.
+
+  Args:
+    energy_or_force: A function that produces either an energy or a force from
+      a set of particle positions specified as an ndarray of shape
+      `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`.
+      Both `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
+    dt: Floating point number specifying the timescale (step size) of the
+      simulation.
+    kT: Floating point number specifying the temperature in units of Boltzmann
+      constant. To update the temperature dynamically during a simulation one
+      should pass `kT` as a keyword argument to the step function.
+    tau: A floating point number determining how fast the temperature
+      is relaxed during the simulation. Measured in units of `dt`.
+  Returns:
+    See above.
+
+  .. rubric:: References
+  .. [#berendsen84] H. J. C. Berendsen, J. P. M. Postma, W. F. van Gunsteren, A. DiNola, J. R. Haak.
+    "Molecular dynamics with coupling to an external bath."
+    J. Chem. Phys. 15 October 1984; 81 (8): 3684-3690.
+  """
+  force_fn = quantity.canonicalize_force(energy_or_force_fn)
+  dt = f32(dt)
+
+  def berendsen_update(state, tau, kT, dt):
+    """Rescaling the momentum of the particle by the factor lam."""
+    _kT = temperature(state)
+    lam = jnp.sqrt(1 + ((dt/tau) * ((kT/_kT) - 1)))
+    new_momentum = tree_map(lambda p: p * lam, state.momentum)
+    return state.set(momentum=new_momentum)
+
+  def init_fn(key, R, mass=f32(1.0), **kwargs):
+    # Reuse the NVEState dataclass
+    state = NVEState(R, None, force_fn(R, **kwargs), mass)
+    state = canonicalize_mass(state)
+    return initialize_momenta(state, key, kT)
+
+  def apply_fn(state, **kwargs):
+    state = berendsen_update(state, tau, kT, dt)
+    state = velocity_verlet(force_fn, shift_fn, dt, state, **kwargs)
+    return state
+  return init_fn, apply_fn
