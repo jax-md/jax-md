@@ -1302,6 +1302,67 @@ def hybrid_swap_mc(space_fns: space.Space,
 # pytype: enable=wrong-keyword-args
 
 
+def temp_rescale(energy_or_force_fn: Callable[..., Array],
+                 shift_fn: ShiftFn,
+                 dt: float,
+                 kT: float,
+                 window: float,
+                 fraction: float,
+                 **sim_kwargs) -> Simulator:
+  """Simulation using explicit velocity rescaling.
+
+  Rescale the velocities of atoms explicitly so that the desired temperature is
+  reached.
+
+  Args:
+    energy_or_force: A function that produces either an energy or a force from
+      a set of particle positions specified as an ndarray of shape
+      `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`.
+      Both `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
+    dt: Floating point number specifying the timescale (step size) of the
+      simulation.
+    kT: Floating point number specifying the temperature in units of Boltzmann
+      constant. To update the temperature dynamically during a simulation one
+      should pass `kT` as a keyword argument to the step function.
+    window: Floating point number specifying the temperature window outside which 
+      rescaling is performed. Measured in units of `kT`.
+    fraction: Floating point number which determines the amount of rescaling 
+      applied to the velocities. Takes values from 0.0-1.0.
+  Returns:
+    See above.
+
+  .. rubric:: References
+  .. [#berendsen84] Woodcock, L. V.
+    "ISOTHERMAL MOLECULAR DYNAMICS CALCULATIONS FOR LIQUID SALTS."
+    Chem. Phys. Lett. 1971, 10, 257–261.
+  """
+  force_fn = quantity.canonicalize_force(energy_or_force_fn)
+  dt = f32(dt)
+
+  def velocity_rescale(state, window, fraction, kT):
+    """Rescale the momentum if the the difference between current and target
+    temperature is less than the window"""
+    kT_current = temperature(state)
+    cond = jnp.abs(kT_current - kT) > window
+    kT_target = kT_current - fraction*(kT_current - kT)
+    lam = jnp.where(cond, jnp.sqrt(kT_target / kT_current), 1)
+    new_momentum = tree_map(lambda p: p * lam, state.momentum)
+    return state.set(momentum = new_momentum)
+
+  def init_fn(key, R, mass=f32(1.0), **kwargs):
+    # Reuse the NVEState dataclass
+    state = NVEState(R, None, force_fn(R, **kwargs), mass)
+    state = canonicalize_mass(state)
+    return initialize_momenta(state, key, kT)
+
+  def apply_fn(state, **kwargs):
+    state = velocity_rescale(state, window, fraction, kT)
+    state = velocity_verlet(force_fn, shift_fn, dt, state, **kwargs)
+    return state
+  return init_fn, apply_fn
+
+
 def temp_berendsen(energy_or_force_fn: Callable[..., Array],
                    shift_fn: ShiftFn,
                    dt: float,
