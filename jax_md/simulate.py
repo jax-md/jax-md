@@ -1512,3 +1512,114 @@ def nvk(energy_or_force_fn: Callable[..., Array],
     state = momentum_update(state, _KE)
     return state
   return init_fn, apply_fn
+
+
+def temp_csvr(energy_or_force_fn: Callable[..., Array],
+              shift_fn: ShiftFn,
+              dt: float,
+              kT: float,
+              tau: float,
+              **sim_kwargs) -> Simulator:
+  """Simulation using the canonical sampling through velocity rescaling (CSVR) thermostat.
+
+  Samples from the canonical ensemble in which the number of particles (N),
+  the system volume (V), and the temperature (T) are held constant. CSVR
+  algorithmn samples the canonical distribution by rescaling the velocities
+  by a appropritely chosen random factor. At each timestep (dt) the rescaling
+  takes place and the rescaling factor is calculated using
+  A7 Bussi et al. [#bussi2007]_. CSVR updates to the velocity are stochastic in
+  nature and unlike the Berendsen thermostat it samples the true canonical
+  distribution [#Braun2018]_.
+
+  Args:
+    energy_or_force: A function that produces either an energy or a force from
+      a set of particle positions specified as an ndarray of shape
+      `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`.
+      Both `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
+    dt: Floating point number specifying the timescale (step size) of the
+      simulation.
+    kT: Floating point number specifying the temperature in units of Boltzmann
+      constant. To update the temperature dynamically during a simulation one
+      should pass `kT` as a keyword argument to the step function.
+    tau: A floating point number determining how fast the temperature
+      is relaxed during the simulation. Measured in units of `dt`.
+  Returns:
+    See above.
+
+  .. rubric:: References
+  .. [#bussi2007] Bussi G, Donadio D, Parrinello M.
+    "Canonical sampling through velocity rescaling."
+    The Journal of chemical physics, 126(1), 014101.
+  .. [#Braun2018] Efrem Braun, Seyed Mohamad Moosavi, and Berend Smit.
+    "Anomalous Effects of Velocity Rescaling Algorithms: The Flying Ice Cube Effect Revisited."
+    Journal of Chemical Theory and Computation 2018 14 (10), 5262-5272.
+  """
+  force_fn = quantity.canonicalize_force(energy_or_force_fn)
+  dt = f32(dt)
+
+  def sum_noises(state, key):
+    """Sum of N independent gaussian noises squared.
+    Adapted from https://github.com/GiovanniBussi/StochasticVelocityRescaling
+    For more details see Eq.A7 Bussi et al. [#bussi2007]_"""
+    dof = quantity.count_dof(state.position) - 1
+    _dtype = state.position.dtype
+
+    if dof == 0:
+      """If there are no terms return zero."""
+      return 0
+
+    elif dof == 1:
+      """For a single noise term, directly calculate the square of the Gaussian
+      noise value."""
+      rr = random.normal(key, dtype=_dtype)
+      return rr * rr
+
+    elif dof % 2 == 0:
+      """For an even number of noise terms, use the gamma-distributed random
+      number generator"""
+      return 2.0 * random.gamma(key, dof // 2, dtype=_dtype)
+
+    else:
+      """For an odd number of noise terms, sum two terms: one from the
+      gamma-distributed generator and another from the square of a
+      Gaussian-distributed random number."""
+      rr = random.normal(key, dtype=_dtype)
+      return 2.0 * random.gamma(key, (dof - 1) // 2, dtype=_dtype) + (rr * rr)
+
+  def csvr_update(state, tau, kT, dt):
+    """Update the momentum by an scaling factor as described by
+    Eq.A7 Bussi et al. [#bussi2007]_"""
+    key, split = random.split(state.rng)
+    dof = quantity.count_dof(state.position)
+
+    _kT = temperature(state)
+
+    KE_old = dof * _kT / 2
+    KE_new = dof * kT / 2
+
+    r1 = random.normal(key, dtype=state.position.dtype)
+    r2 = sum_noises(state, key)
+
+    c1 = jnp.exp(-dt / tau)
+    c2 = (1 - c1) * KE_new / KE_old / dof
+
+    scale = c1 + (c2*((r1 * r1) + r2)) + (2 * r1 * jnp.sqrt(c1 * c2))
+    lam = jnp.sqrt(scale)
+
+    new_momentum = tree_map(lambda p: p * lam, state.momentum)
+    return state.set(momentum=new_momentum, rng=key)
+
+  def init_fn(key, R, mass=f32(1.0), **kwargs):
+    _kT = kwargs.pop('kT', kT)
+    key, split = random.split(key)
+    # Reuse the NVTLangevinState dataclass
+    state = NVTLangevinState(R, None, force_fn(R, **kwargs), mass, key)
+    state = canonicalize_mass(state)
+    return initialize_momenta(state, split, _kT)
+
+  def apply_fn(state, **kwargs):
+    state = csvr_update(state, tau, kT, dt)
+    state = velocity_verlet(force_fn, shift_fn, dt, state, **kwargs)
+    return state
+  return init_fn, apply_fn
