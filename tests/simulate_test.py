@@ -700,6 +700,47 @@ class SimulateTest(test_util.JAXMDTestCase):
       tol = 5e-4 if dtype is f32 else 1e-6
       self.assertAllClose(invariant(state.momentum, state.mass), initial, rtol=tol)
       self.assertEqual(state.position.dtype, dtype)
-      
+  
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+          'spatial_dimension': dim,
+          'dtype': dtype
+      } for dim in SPATIAL_DIMENSION for dtype in DTYPE))
+  def test_temp_csvr(self, spatial_dimension, dtype):
+    key = random.PRNGKey(0)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, R_key, R0_key, T_key, masses_key = random.split(key, 5)
+
+      R = random.normal(
+        R_key, (LANGEVIN_PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+      R0 = random.normal(
+        R0_key, (LANGEVIN_PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+      _, shift = space.free()
+
+      E = functools.partial(
+          lambda R, R0, **kwargs: np.sum((R - R0) ** 2), R0=R0)
+
+      T = random.uniform(T_key, (), minval=0.3, maxval=1.4, dtype=dtype)
+      mass = random.uniform(
+        masses_key, (LANGEVIN_PARTICLE_COUNT,),
+        minval=0.1, maxval=10.0, dtype=dtype)
+      init_fn, apply_fn = simulate.temp_csvr(
+        E, shift, f32(1e-2), T, tau= 100 * f32(1e-2))
+      apply_fn = jit(apply_fn)
+
+      state = init_fn(key, R, mass=mass, T_initial=dtype(1.0))
+
+      T_list = []
+      for step in range(LANGEVIN_DYNAMICS_STEPS):
+        state = apply_fn(state)
+        if step > 4000 and step % 100 == 0:
+          T_list += [kT_fn(state.momentum, state.mass)]
+
+      T_emp = np.mean(np.array(T_list))
+      assert np.abs(T_emp - T) < 0.1
+      assert state.position.dtype == dtype
+
 if __name__ == '__main__':
   absltest.main()
