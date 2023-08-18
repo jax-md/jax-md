@@ -1342,7 +1342,7 @@ def temp_rescale(energy_or_force_fn: Callable[..., Array],
 
   def velocity_rescale(state, window, fraction, kT):
     """Rescale the momentum if the the difference between current and target
-    temperature is less than the window"""
+    temperature is more than the window"""
     kT_current = temperature(state)
     cond = jnp.abs(kT_current - kT) > window
     kT_target = kT_current - fraction*(kT_current - kT)
@@ -1504,7 +1504,6 @@ def nvk(energy_or_force_fn: Callable[..., Array],
     return initialize_momenta(state, split, _kT)
 
   def apply_fn(state, **kwargs):
-    _kT = kwargs.pop('kT', kT)
     _KE = kinetic_energy(state)
     state = momentum_update(state, _KE)
     state = position_update(state, shift_fn)
