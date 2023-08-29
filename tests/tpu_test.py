@@ -43,7 +43,7 @@ update_test_tolerance(5e-5, 1e-7)
 FLAGS = jax_config.FLAGS
 
 
-def get_test_grid(topology=None, num_dims=2, add_aux=False, rng_key=None):
+def get_test_grid(rng_key, topology=None, num_dims=2, add_aux=False, ):
   # magic numbers to make the gird fold evenly, after splitting
   # across devices and padding see propose_tpu_box_size.
   cell_size = 1./4.
@@ -90,12 +90,11 @@ def get_test_grid(topology=None, num_dims=2, add_aux=False, rng_key=None):
   elif num_dims == 1:
     R = points[0].reshape((-1, 1)) + 0.1
 
-  R += onp.random.randn(*R.shape) * 0.1
+  R += random.normal(rng_key, R.shape) * 0.1
   R = onp.array(R, onp.float64)
   if add_aux:
-    if rng_key is None:
-      rng_key = random.PRNGKey(1)
     # these are used as velocities
+    rng_key = random.split(rng_key)[0]
     V = random.normal(rng_key, R.shape)
     R_grid, V_grid  = tpu.to_grid(R, box_size_in_cells, cell_size, interaction_distance, topology, aux=V, strategy='linear')
     print(f"R.shape {R.shape}, aux.shape {V.shape}, grid shape {V_grid.shape}, occupancy {R.shape[0]/float(onp.prod(V_grid.shape[:-1]))}")
@@ -124,7 +123,8 @@ class ConvolutionalMDTest(test_util.JAXMDTestCase):
         self.skipTest('Skipping non-trivial topology; only one device detected.')
       topology = topology + (1,) * (num_dims - 1)
 
-    sim_tpu, sim_cpu = get_test_grid(topology, num_dims)
+    key = random.PRNGKey(0)
+    sim_tpu, sim_cpu = get_test_grid(key, topology, num_dims)
 
     (R_grid, tpu_energy_fn, tpu_force_fn) = sim_tpu
     (R, energy_fn, shift_fn) = sim_cpu
@@ -147,7 +147,8 @@ class ConvolutionalMDTest(test_util.JAXMDTestCase):
         self.skipTest('Skipping non-trivial topology; only one device detected.')
       topology = topology + (1,) * (num_dims - 1)
 
-    sim_tpu, sim_cpu = get_test_grid(topology, num_dims, True)
+    key = random.PRNGKey(0)
+    sim_tpu, sim_cpu = get_test_grid(key, topology, num_dims, True)
 
     ((R_grid, V_grid), tpu_energy_fn, tpu_force_fn) = sim_tpu
     ((R, V), energy_fn, shift_fn) = sim_cpu
@@ -171,9 +172,9 @@ class ConvolutionalMDTest(test_util.JAXMDTestCase):
       if jax.device_count() == 1:
         self.skipTest('Skipping non-trivial topology; only one device detected.')
       topology = topology + (1,) * (num_dims - 1)
-    key = random.PRNGKey(0)
 
-    sim_tpu, sim_cpu = get_test_grid(topology, num_dims)
+    key = random.PRNGKey(0)
+    sim_tpu, sim_cpu = get_test_grid(key, topology, num_dims)
 
     (R_grid, tpu_energy_fn, tpu_force_fn) = sim_tpu
     (R, energy_fn, shift_fn) = sim_cpu
@@ -199,8 +200,8 @@ class ConvolutionalMDTest(test_util.JAXMDTestCase):
       topology = topology + (1,) * (num_dims - 1)
 
     key = random.PRNGKey(0)
+    sim_tpu, sim_cpu = get_test_grid(key, topology, num_dims, True)
 
-    sim_tpu, sim_cpu = get_test_grid(topology, num_dims, True, rng_key=key)
     ((R_grid, V_grid), tpu_energy_fn, tpu_force_fn) = sim_tpu
     ((R, V), energy_fn, shift_fn) = sim_cpu
 
