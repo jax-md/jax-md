@@ -1200,8 +1200,8 @@ class EnergyTest(test_util.JAXMDTestCase):
     R_frac = jnp.mod(R_frac, 1.0)
 
     neighbor_fn, energy_fn = energy.coulomb_direct_neighbor_list(
-      displacement, box, jnp.array(Q), 96, alpha=0.3488,
-      fractional_coordinates=False)
+      displacement, box, jnp.array(Q), alpha=0.3488,
+      fractional_coordinates=True)
     energy_fn = jit(energy_fn)
 
     nbrs = neighbor_fn.allocate(R_frac)
