@@ -41,6 +41,10 @@ jobs:
         pip install pytest-xdist
         pip install pytest-cov
         pip install netCDF4
+    - name: Set Swap Space
+      uses: pierotofy/set-swap-space@master
+      with:
+       swap-size-gb: 10
     - name: Test with pytest and generate coverage report
       run: |
         JAX_ENABLE_X64=1 pytest --cov=jax_md --cov-report=xml --cov-report=term --cov-config=setup.cfg
