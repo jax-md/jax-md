@@ -32,7 +32,6 @@ from unittest import SkipTest
 test_util.update_test_tolerance(5e-5, 5e-13)
 
 jax_config.parse_flags_with_absl()
-FLAGS = jax_config.FLAGS
 
 PARTICLE_COUNT = 10
 STOCHASTIC_SAMPLES = 10
@@ -40,7 +39,7 @@ SHIFT_STEPS = 10
 SPATIAL_DIMENSION = [2, 3]
 BOX_FORMATS = ['scalar', 'vector', 'matrix']
 
-if FLAGS.jax_enable_x64:
+if jax_config.jax_enable_x64:
   POSITION_DTYPE = [f32, f64]
 else:
   POSITION_DTYPE = [f32]

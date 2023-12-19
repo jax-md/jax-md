@@ -37,7 +37,6 @@ from jax_md import partition
 from jax_md.interpolate import spline
 
 config.parse_flags_with_absl()
-FLAGS = config.FLAGS
 
 # TODO: Replace np by jnp everywhere.
 jnp = np
