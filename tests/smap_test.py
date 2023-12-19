@@ -31,7 +31,6 @@ from jax_md.util import *
 from jax_md import test_util
 
 jax_config.parse_flags_with_absl()
-FLAGS = jax_config.FLAGS
 
 test_util.update_test_tolerance(f32_tol=5e-6, f64_tol=1e-14)
 
@@ -44,7 +43,7 @@ NEIGHBOR_LIST_FORMAT = [partition.Dense,
 
 NEIGHBOR_LIST_PARTICLE_COUNT = 100
 
-if FLAGS.jax_enable_x64:
+if jax_config.jax_enable_x64:
   POSITION_DTYPE = [f32, f64]
 else:
   POSITION_DTYPE = [f32]

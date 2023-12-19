@@ -35,14 +35,13 @@ from jax_md import test_util
 from jax_md.util import *
 
 jax_config.parse_flags_with_absl()
-FLAGS = jax_config.FLAGS
 
 PARTICLE_COUNT = 64
 NUM_SAMPLES = 2
 SPATIAL_DIMENSION = [2, 3]
 LOWPRESSURE = [True, False]
 
-if FLAGS.jax_enable_x64:
+if jax_config.jax_enable_x64:
   DTYPE = [f32, f64]
 else:
   DTYPE = [f32]

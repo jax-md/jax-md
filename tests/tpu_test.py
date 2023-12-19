@@ -40,8 +40,6 @@ jax_config.parse_flags_with_absl()
 
 update_test_tolerance(5e-5, 1e-7)
 
-FLAGS = jax_config.FLAGS
-
 
 def get_test_grid(rng_key, topology=None, num_dims=2, add_aux=False, ):
   # magic numbers to make the gird fold evenly, after splitting

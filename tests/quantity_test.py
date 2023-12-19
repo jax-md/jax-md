@@ -32,7 +32,6 @@ from jax_md.util import *
 
 
 jax_config.parse_flags_with_absl()
-FLAGS = jax_config.FLAGS
 
 PARTICLE_COUNT = 10
 STOCHASTIC_SAMPLES = 10
@@ -42,7 +41,7 @@ NEIGHBOR_LIST_FORMAT = [partition.Dense,
                         partition.Sparse,
                         partition.OrderedSparse]
 
-DTYPES = [f32, f64] if FLAGS.jax_enable_x64 else [f32]
+DTYPES = [f32, f64] if jax_config.jax_enable_x64 else [f32]
 COORDS = ['fractional', 'real']
 
 
@@ -603,7 +602,7 @@ class QuantityTest(test_util.JAXMDTestCase):
 
 
   def test_maybe_downcast(self):
-    if not FLAGS.jax_enable_x64:
+    if not jax_config.jax_enable_x64:
       self.skipTest('Maybe downcast only works for float32 mode.')
 
     x = np.array([1, 2, 3], np.float64)

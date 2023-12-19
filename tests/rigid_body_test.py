@@ -45,7 +45,6 @@ from functools import partial
 
 jax_config.parse_flags_with_absl()
 
-FLAGS = jax_config.FLAGS
 
 
 f32 = util.f32
@@ -64,7 +63,7 @@ BROWNIAN_PARTICLE_COUNT = 8000
 BROWNIAN_DYNAMICS_STEPS = 8000
 
 DTYPE = [f32]
-if FLAGS.jax_enable_x64:
+if jax_config.jax_enable_x64:
   DTYPE += [f64]
 
 
