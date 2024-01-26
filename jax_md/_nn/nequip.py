@@ -18,6 +18,7 @@ from typing import Dict, Union, Tuple
 import functools
 
 import e3nn_jax as e3nn
+from e3nn_jax.legacy import FunctionalTensorProduct
 
 import flax.linen as nn
 
@@ -53,7 +54,7 @@ FeaturizerFn = nn_util.FeaturizerFn
 
 get_nonlinearity_by_name = nn_util.get_nonlinearity_by_name
 partial = functools.partial
-
+tree_map = partial(jax.tree_map, is_leaf=lambda x: isinstance(x, e3nn.IrrepsArray))
 
 # Code
 
@@ -179,8 +180,6 @@ class NequIPConvolution(nn.Module):
     if self.use_sc:
       self_connection = FullyConnectedTensorProductE3nn(
           h_out_irreps,
-          # node_features.irreps,
-          # node_attributes.irreps
           )(node_features, node_attributes)
 
     h = node_features
@@ -189,7 +188,7 @@ class NequIPConvolution(nn.Module):
     h = Linear(node_features.irreps)(h)
 
     # map node features onto edges for tp
-    edge_features = jax.tree_map(lambda x: x[edge_src], h)
+    edge_features = tree_map(lambda x: x[edge_src], h)
 
     # we gather the instructions for the tp as well as the tp output irreps
     mode = 'uvu'
@@ -226,7 +225,7 @@ class NequIPConvolution(nn.Module):
     # TP between spherical harmonics embedding of the edge vector
     # Y_ij(\hat{r}) and neighboring node h_j, weighted on a per-element basis
     # by the radial network R(r_ij)
-    tp = e3nn.FunctionalTensorProduct(
+    tp = FunctionalTensorProduct(
         irreps_in1=edge_features.irreps,
         irreps_in2=edge_sh.irreps,
         irreps_out=irreps_after_tp,
@@ -257,19 +256,17 @@ class NequIPConvolution(nn.Module):
 
     # tp between node features that have been mapped onto edges and edge RSH
     # weighted by FC weight, we vmap over the dimension of the edges
-    edge_features = jax.vmap(tp.left_right)(weight, edge_features, edge_sh)
+    edge_features = e3nn.utils.vmap(tp.left_right)(weight, edge_features, edge_sh)
     # TODO: It's not great that e3nn_jax automatically upcasts internally,
     # but this would need to be fixed at the e3nn level.
-    edge_features = jax.tree_map(lambda x: x.astype(h.dtype), edge_features)
+    edge_features = tree_map(lambda x: x.astype(h.dtype), edge_features)
 
     # aggregate edges onto nodes after tp using e3nn-jax's index_add
     h_type = h.dtype
-    h = jax.tree_map(
-        lambda x: e3nn.index_add(edge_dst, x, out_dim=h.shape[0]),
-        edge_features
-        )
-    # TODO: Remove this once e3nn_jax doesn't upcast inputs.
-    h = jax.tree_map(lambda x: x.astype(h_type), h)
+
+    e = edge_features.remove_zero_chunks().simplify()
+    h = e3nn.index_add(edge_dst, e, out_dim=h.shape[0])
+    h = h.astype(h_type)
 
     # normalize by the average (not local) number of neighbors
     h = h / self.n_neighbors
@@ -297,7 +294,7 @@ class NequIPConvolution(nn.Module):
 
     h = gate_fn(h)
     # TODO: Remove this once e3nn_jax doesn't upcast inputs.
-    h = jax.tree_map(lambda x: x.astype(h_type), h)
+    h = tree_map(lambda x: x.astype(h_type), h)
 
     return h
 
@@ -416,7 +413,7 @@ class NequIPEnergyModel(nn.Module):
     # this aggregation follows jraph/_src/models.py
     n_graph = graph.n_node.shape[0]
     graph_idx = jnp.arange(n_graph)
-    sum_n_node = tree_util.tree_leaves(graph.nodes)[0].shape[0]
+    sum_n_node = tree_util.tree_leaves(graph.nodes, is_leaf=lambda x: isinstance(x, e3nn.IrrepsArray))[0].shape[0]
     node_gr_idx = jnp.repeat(
         graph_idx,
         graph.n_node,
@@ -424,7 +421,7 @@ class NequIPEnergyModel(nn.Module):
         total_repeat_length=sum_n_node
         )
 
-    global_output = tree_util.tree_map(
+    global_output = tree_map(
         lambda n: jraph.segment_sum(
             n,
             node_gr_idx,

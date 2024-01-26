@@ -32,6 +32,18 @@ from jax_md import space, smap, partition, nn, quantity, interpolate, util
 from ml_collections import ConfigDict
 
 
+# Electrostatics
+
+
+from jax_md._energy.electrostatics import coulomb_direct_pair
+from jax_md._energy.electrostatics import coulomb_direct_neighbor_list
+from jax_md._energy.electrostatics import coulomb_recip_ewald
+from jax_md._energy.electrostatics import coulomb_recip_pme
+from jax_md._energy.electrostatics import coulomb_ewald_neighbor_list
+from jax_md._energy.electrostatics import coulomb
+from jax_md._energy.electrostatics import coulomb_neighbor_list
+
+
 # Define aliases different neural network primitives.
 bp = nn.behler_parrinello
 gnome = nn.gnome
@@ -1018,12 +1030,12 @@ def _ters_bij(R, D, c, d, h, lam3, beta, n, m,
   drij = space.distance(dRij)
   drik = space.distance(dRik)
 
-  mask_ijk *= (1 - jnp.eye(mask_ijk.shape[-1]))[None, :, :]
+  mask_ijk *= (1 - jnp.eye(mask_ijk.shape[-1], dtype=dRij.dtype))[None, :, :]
 
   # compute g_ijk - angle penalty value
   costheta = quantity.cosine_angles(dRij)
   gijk = 1.0 + (c**2 / d**2) - (c**2 / (d**2 + (h - costheta)**2))
-
+  
   # compute exponential term - distance penalty value
   dr_diff = drij[:, None, :] - drik[:, :, None]
   dr_diff = jnp.where(mask_ijk, dr_diff, 0)
@@ -1146,7 +1158,9 @@ def tersoff(displacement: DisplacementFn,
     dR = space.map_product(d)(R, R)
     dr = space.distance(dR)
     N = R.shape[0]
-    mask = jnp.where(1 - jnp.eye(N), dr < params['R'] + params['D'], 0)
+    mask = jnp.where(1 - jnp.eye(N), 
+                     dr < params['R'] + params['D'], 0)
+    mask = mask.astype(R.dtype)
     mask_ijk = mask[:, None, :] * mask[:, :, None]
     repulsive = util.safe_mask(mask, repulsive_fn, dr)
     attractive = attractive_fn(dR, dR, mask_ijk) * mask
@@ -1314,23 +1328,23 @@ def _edip_angle_interaction(lam: f64, gamma: f64, Q_0: f64, cutoff: f64,
   return jnp.where(within_cutoff, lam * term1 * term2, 0)
 
 def edip(displacement: DisplacementFn,
-           u1: f64 = -0.165799,
-           u2: f64 = 32.557,
-           u3: f64 = 0.286198,
-           u4: f64 = 0.66,
-           rho: f64 = 1.2085196,
-           eta: f64 = 0.2523244,
-           Q_0: f64 = 312.1341346,
-           mu: f64 = 0.6966326,
-           beta: f64 = 0.0070975,
-           alpha: f64 = 3.1083847,
-           A: f64 = 7.9821730,
-           lam: f64 = 1.4533108,
-           B: f64 = 1.5075463,
-           gamma: f64 = 1.1247945,
-           sigma: f64 = 0.5774108,
-           c: f64 = 2.5609104,
-           cutoff: f64 = 3.1213820) -> Callable[[Array], Array]:
+         u1: f64 = -0.165799,
+         u2: f64 = 32.557,
+         u3: f64 = 0.286198,
+         u4: f64 = 0.66,
+         rho: f64 = 1.2085196,
+         eta: f64 = 0.2523244,
+         Q_0: f64 = 312.1341346,
+         mu: f64 = 0.6966326,
+         beta: f64 = 0.0070975,
+         alpha: f64 = 3.1083847,
+         A: f64 = 7.9821730,
+         lam: f64 = 1.4533108,
+         B: f64 = 1.5075463,
+         gamma: f64 = 1.1247945,
+         sigma: f64 = 0.5774108,
+         c: f64 = 2.5609104,
+         cutoff: f64 = 3.1213820) -> Callable[[Array], Array]:
     """
     Computes the the Environment-dependent interatomic potential (EDIP).
     The parameter values are for bulk Silicon [1,2]. The EDIP potential is a bond
@@ -1375,7 +1389,7 @@ def edip(displacement: DisplacementFn,
       dR = space.map_product(d)(R, R)
       dr = space.distance(dR)
       N = R.shape[0]
-      mask = (1 - jnp.eye(N)) * (dr < cutoff)
+      mask = (1 - jnp.eye(N, dtype=R.dtype)) * (dr < cutoff)
       first_term = util.high_precision_sum(two_body_fn(mask, dr))
       second_term = util.high_precision_sum(_three_body_fn(mask, dR, dR)) / 2.0
       return first_term + second_term

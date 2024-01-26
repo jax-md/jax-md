@@ -47,7 +47,7 @@ in a vectorized fashion. To do this we provide three functions: `map_product`,
 
 from typing import Callable, Union, Tuple, Any, Optional
 
-from jax.abstract_arrays import ShapedArray
+from jax.core import ShapedArray
 
 from jax import eval_shape
 from jax import vmap

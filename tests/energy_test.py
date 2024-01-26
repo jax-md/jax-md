@@ -21,7 +21,9 @@ from jax.config import config
 from jax import random
 import jax
 from jax import jit, vmap, grad
+from jax import tree_map
 import jax.numpy as np
+from scipy.io import loadmat
 
 import numpy as onp
 
@@ -35,7 +37,6 @@ from jax_md import partition
 from jax_md.interpolate import spline
 
 config.parse_flags_with_absl()
-FLAGS = config.FLAGS
 
 # TODO: Replace np by jnp everywhere.
 jnp = np
@@ -164,6 +165,23 @@ def tile_silicon(tile_count, position, box, *extra_data):
     tiled_data += [ex]
 
   return [position, box] + tiled_data
+
+
+def cell(a, b, c, alpha, beta, gamma):
+  alpha = alpha * jnp.pi / 180
+  beta = beta * jnp.pi / 180
+  gamma = gamma * jnp.pi / 180
+  xx = a
+  yy = b * jnp.sin(gamma)
+  xy = b * jnp.cos(gamma)
+  xz = c * jnp.cos(beta)
+  yz = (b * c * jnp.cos(alpha) - xy * xz) / yy
+  zz = jnp.sqrt(c**2 - xz**2 - yz**2)
+  return jnp.array([
+      [xx, xy, xz],
+      [0,  yy, yz],
+      [0,  0,  zz]
+  ])
 
 
 class EnergyTest(test_util.JAXMDTestCase):
@@ -773,9 +791,10 @@ class EnergyTest(test_util.JAXMDTestCase):
     box_size = np.linalg.det(lattice_vectors) ** (1 / 3)
     with open('tests/data/Si.tersoff', 'r') as fh:
       tersoff_parameters = energy.load_lammps_tersoff_parameters(fh)
+    if dtype == f32:
+      tersoff_parameters = tree_map(lambda x: f32(x) if isinstance(x, Array) else x, tersoff_parameters)
     energy_fn = energy.tersoff(displacement, tersoff_parameters)
     E = energy_fn(atoms)
-    print(quantity.force(energy_fn)(atoms))
     if dtype is f64:
       self.assertAllClose(E, dtype(-296.3463784635968), atol=1e-5, rtol=2e-8)
     else:
@@ -808,6 +827,8 @@ class EnergyTest(test_util.JAXMDTestCase):
     box_size = np.linalg.det(lattice_vectors) ** (1 / 3)
     with open('tests/data/Si.tersoff', 'r') as fh:
       tersoff_parameters = energy.load_lammps_tersoff_parameters(fh)
+    if dtype == f32:
+      tersoff_parameters = tree_map(lambda x: f32(x) if isinstance(x, Array) else x, tersoff_parameters)
     neighbor_fn, energy_fn = energy.tersoff_neighbor_list(displacement,
                                                           box_size,
                                                           tersoff_parameters)
@@ -846,7 +867,7 @@ class EnergyTest(test_util.JAXMDTestCase):
     box_size = np.linalg.det(lattice_vectors) ** (1 / 3)
     energy_fn = energy.edip(displacement)
     E = energy_fn(atoms)
-    print(quantity.force(energy_fn)(atoms))
+    
     if dtype is f64:
       self.assertAllClose(E, dtype(-297.597013492761), atol=1e-5, rtol=2e-8)
     else:
@@ -1095,6 +1116,134 @@ class EnergyTest(test_util.JAXMDTestCase):
     frtol = 5e-3
 
     self.assertAllClose(-g, gt_forces, rtol=frtol, atol=fatol)
+
+  def test_coulomb_cubeions(self):
+    dat = loadmat('tests/data/pme/cubeions.mat')
+    xyzq = dat['crdq']
+    gdim = dat['gdim']
+
+    L = gdim # Angstroms
+
+    displacement, shift = space.periodic(L[0, 0])
+
+    R = xyzq[:, :3]
+    Q = xyzq[:, -1]
+
+    Q /= 0.05487686461
+
+    R = jnp.mod(R, L[0, 0])
+
+    energy_fn = energy.coulomb(displacement, L[0, 0], Q, 96, alpha=0.3488)
+    F = quantity.force(energy_fn)(R)
+
+    tol = 1e-2
+    self.assertAllClose(F.reshape((-1,)),
+                        (dat['fdirAMB'] + dat['frecAMB']).reshape((-1,)),
+                        atol=tol, rtol=tol)
+
+
+  def test_coulomb_octions(self):
+    dat = loadmat('tests/data/pme/octions.mat')
+    xyzq = dat['crdq']
+    gdim = dat['gdim']
+
+    box = cell(*gdim[0]) # Angstroms
+
+    displacement, shift = space.periodic_general(box)
+
+    R = xyzq[:, :3]
+    Q = xyzq[:, -1]
+
+    Q /= 0.05487686461
+
+    ibox = space.inverse(box)
+    R_frac = space.transform(ibox, R)
+    R_frac = jnp.mod(R_frac, 1.0)
+
+    neighbor_fn, energy_fn = energy.coulomb_neighbor_list(
+      displacement, box, jnp.array(Q), 96, alpha=0.3488,
+      fractional_coordinates=True)
+    energy_fn = jit(energy_fn)
+
+    nbrs = neighbor_fn.allocate(R_frac)
+    F = quantity.force(energy_fn)(R_frac, nbrs)
+
+    tol = 1e-2
+    # NOTE: This test case has some very large forces O(20000) which is a bit
+    # unphysical and numerical errors can lead to large absolute differences
+    # which nonetheless represent a 1e-2 fractional difference. There are also
+    # some very small forces which lead to large fractional differences but
+    # very small absolute differences. Here we ensure that the relative
+    # difference is small for points whose forces are sufficiently large.
+    self.assertAllClose(F.reshape((-1,)) + 0.1,
+                        (dat['fdirAMB'] + dat['frecAMB']).reshape((-1,)) + 0.1,
+                        atol=10, rtol=tol)
+
+
+  def test_coulomb_direct_octions(self):
+    dat = loadmat('tests/data/pme/octions.mat')
+    xyzq = dat['crdq']
+    gdim = dat['gdim']
+
+    box = cell(*gdim[0]) # Angstroms
+
+    displacement, shift = space.periodic_general(box)
+
+    R = xyzq[:, :3]
+    Q = xyzq[:, -1]
+
+    Q /= 0.05487686461
+
+    ibox = space.inverse(box)
+    R_frac = space.transform(ibox, R)
+    R_frac = jnp.mod(R_frac, 1.0)
+
+    neighbor_fn, energy_fn = energy.coulomb_direct_neighbor_list(
+      displacement, box, jnp.array(Q), alpha=0.3488,
+      fractional_coordinates=True)
+    energy_fn = jit(energy_fn)
+
+    nbrs = neighbor_fn.allocate(R_frac)
+    F = quantity.force(energy_fn)(R_frac, nbrs)
+
+    tol = 1e-2
+    self.assertAllClose(F.reshape((-1,)) + 0.1,
+                        dat['fdirAMB'].reshape((-1,)) + 0.1,
+                        atol=10.0, rtol=tol)
+
+
+  def test_coulomb_recip_octions(self):
+    dat = loadmat('tests/data/pme/octions.mat')
+    xyzq = dat['crdq']
+    gdim = dat['gdim']
+
+    box = cell(*gdim[0]) # Angstroms
+
+    displacement, shift = space.periodic_general(box)
+
+    R = xyzq[:, :3]
+    Q = xyzq[:, -1]
+
+    Q /= 0.05487686461
+
+    ibox = space.inverse(box)
+    R_frac = space.transform(ibox, R)
+    R_frac = jnp.mod(R_frac, 1.0)
+
+    energy_fn = energy.coulomb_recip_pme(
+      jnp.array(Q),
+      box,
+      96,
+      alpha=0.3488,
+      fractional_coordinates=True)
+    energy_fn = jit(energy_fn)
+
+    F = quantity.force(energy_fn)(R_frac)
+
+    tol = 1e-2
+    self.assertAllClose(F.reshape((-1,)) + 0.1,
+                        dat['frecAMB'].reshape((-1,)) + 0.1,
+                        atol=10, rtol=tol)
 
 
 if __name__ == '__main__':

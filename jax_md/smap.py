@@ -25,7 +25,7 @@ from operator import mul
 import numpy as onp
 
 from jax import lax, ops, vmap, eval_shape, tree_map
-from jax.abstract_arrays import ShapedArray
+from jax.core import ShapedArray
 from jax.interpreters import partial_eval as pe
 import jax.numpy as jnp
 

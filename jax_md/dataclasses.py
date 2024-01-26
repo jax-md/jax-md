@@ -74,5 +74,6 @@ asdict = dataclasses.asdict
 astuple = dataclasses.astuple
 is_dataclass = dataclasses.is_dataclass
 fields = dataclasses.fields
+field = dataclasses.field
 def unpack(dc) -> tuple:
     return tuple(getattr(dc, field.name) for field in dataclasses.fields(dc))

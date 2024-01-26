@@ -1300,3 +1300,325 @@ def hybrid_swap_mc(space_fns: space.Space,
   return init_fn, block_fn
 # pytype: enable=wrong-arg-count
 # pytype: enable=wrong-keyword-args
+
+
+def temp_rescale(energy_or_force_fn: Callable[..., Array],
+                 shift_fn: ShiftFn,
+                 dt: float,
+                 kT: float,
+                 window: float,
+                 fraction: float,
+                 **sim_kwargs) -> Simulator:
+  """Simulation using explicit velocity rescaling.
+
+  Rescale the velocities of atoms explicitly so that the desired temperature is
+  reached.
+
+  Args:
+    energy_or_force: A function that produces either an energy or a force from
+      a set of particle positions specified as an ndarray of shape
+      `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`.
+      Both `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
+    dt: Floating point number specifying the timescale (step size) of the
+      simulation.
+    kT: Floating point number specifying the temperature in units of Boltzmann
+      constant. To update the temperature dynamically during a simulation one
+      should pass `kT` as a keyword argument to the step function.
+    window: Floating point number specifying the temperature window outside which 
+      rescaling is performed. Measured in units of `kT`.
+    fraction: Floating point number which determines the amount of rescaling 
+      applied to the velocities. Takes values from 0.0-1.0.
+  Returns:
+    See above.
+
+  .. rubric:: References
+  .. [#berendsen84] Woodcock, L. V.
+    "ISOTHERMAL MOLECULAR DYNAMICS CALCULATIONS FOR LIQUID SALTS."
+    Chem. Phys. Lett. 1971, 10, 257–261.
+  """
+  force_fn = quantity.canonicalize_force(energy_or_force_fn)
+  dt = f32(dt)
+
+  def velocity_rescale(state, window, fraction, kT):
+    """Rescale the momentum if the the difference between current and target
+    temperature is more than the window"""
+    kT_current = temperature(state)
+    cond = jnp.abs(kT_current - kT) > window
+    kT_target = kT_current - fraction*(kT_current - kT)
+    lam = jnp.where(cond, jnp.sqrt(kT_target / kT_current), 1)
+    new_momentum = tree_map(lambda p: p * lam, state.momentum)
+    return state.set(momentum = new_momentum)
+
+  def init_fn(key, R, mass=f32(1.0), **kwargs):
+    # Reuse the NVEState dataclass
+    state = NVEState(R, None, force_fn(R, **kwargs), mass)
+    state = canonicalize_mass(state)
+    return initialize_momenta(state, key, kT)
+
+  def apply_fn(state, **kwargs):
+    state = velocity_rescale(state, window, fraction, kT)
+    state = velocity_verlet(force_fn, shift_fn, dt, state, **kwargs)
+    return state
+  return init_fn, apply_fn
+
+
+def temp_berendsen(energy_or_force_fn: Callable[..., Array],
+                   shift_fn: ShiftFn,
+                   dt: float,
+                   kT: float,
+                   tau: float,
+                   **sim_kwargs) -> Simulator:
+  """Simulation using the Berendsen thermostat.
+
+  Berendsen (weak coupling) thermostat rescales the velocities of atoms such
+  that the desired temperature is reached. This rescaling is performed at each
+  timestep (dt) and the rescaling factor is calculated using
+  Eq.10 Berendsen et al. [#berendsen84]_.
+
+  Args:
+    energy_or_force: A function that produces either an energy or a force from
+      a set of particle positions specified as an ndarray of shape
+      `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`.
+      Both `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
+    dt: Floating point number specifying the timescale (step size) of the
+      simulation.
+    kT: Floating point number specifying the temperature in units of Boltzmann
+      constant. To update the temperature dynamically during a simulation one
+      should pass `kT` as a keyword argument to the step function.
+    tau: A floating point number determining how fast the temperature
+      is relaxed during the simulation. Measured in units of `dt`.
+  Returns:
+    See above.
+
+  .. rubric:: References
+  .. [#berendsen84] H. J. C. Berendsen, J. P. M. Postma, W. F. van Gunsteren, A. DiNola, J. R. Haak.
+    "Molecular dynamics with coupling to an external bath."
+    J. Chem. Phys. 15 October 1984; 81 (8): 3684-3690.
+  """
+  force_fn = quantity.canonicalize_force(energy_or_force_fn)
+  dt = f32(dt)
+
+  def berendsen_update(state, tau, kT, dt):
+    """Rescaling the momentum of the particle by the factor lam."""
+    _kT = temperature(state)
+    lam = jnp.sqrt(1 + ((dt/tau) * ((kT/_kT) - 1)))
+    new_momentum = tree_map(lambda p: p * lam, state.momentum)
+    return state.set(momentum=new_momentum)
+
+  def init_fn(key, R, mass=f32(1.0), **kwargs):
+    # Reuse the NVEState dataclass
+    state = NVEState(R, None, force_fn(R, **kwargs), mass)
+    state = canonicalize_mass(state)
+    return initialize_momenta(state, key, kT)
+
+  def apply_fn(state, **kwargs):
+    state = berendsen_update(state, tau, kT, dt)
+    state = velocity_verlet(force_fn, shift_fn, dt, state, **kwargs)
+    return state
+  return init_fn, apply_fn
+
+
+def nvk(energy_or_force_fn: Callable[..., Array],
+        shift_fn: ShiftFn,
+        dt: float,
+        kT: float,
+        **sim_kwargs) -> Simulator:
+  """Simulation in the NVK (isokinetic) ensemble using the Gaussian thermostat.
+
+  Samples from the isokinetic ensemble in which the number of particles (N),
+  the system volume (V), and the kinetic energy (K) are held constant. A 
+  Gaussian thermostat is used for the integration and the kinetic energy is 
+  held constant during the simulation. The implementation follows the steps 
+  described in [#minary2003]_ and [#zhang97]_. See section 4(B) equation 
+  4.12-4.17 in [#minary2003]_ for detailed description.     
+
+  Args:
+    energy_or_force: A function that produces either an energy or a force from
+      a set of particle positions specified as an ndarray of shape
+      `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`.
+      Both `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
+    dt: Floating point number specifying the timescale (step size) of the
+      simulation.
+    kT: Floating point number specifying the temperature in units of Boltzmann
+      constant. To update the temperature dynamically during a simulation one
+      should pass `kT` as a keyword argument to the step function.
+  Returns:
+    See above.
+
+  .. rubric:: References
+  .. [#minary2003] Minary, Peter and Martyna, Glenn J. and Tuckerman, Mark E.
+    "Algorithms and novel applications based on the isokinetic ensemble. I. 
+    Biophysical and path integral molecular dynamics"
+    J. Chem. Phys., Vol. 118, No. 6, 8 February 2003.
+  .. [#zhang97] Zhang, Fei.
+    "Operator-splitting integrators for constant-temperature molecular dynamics"
+    J. Chem. Phys. 106, 6102–6106 (1997).
+  """
+  force_fn = quantity.canonicalize_force(energy_or_force_fn)
+  dt = f32(dt)
+  dt_2 = f32(dt / 2)
+
+  def momentum_update(state, KE):
+    # eps to avoid edge cases when forces are zero
+    eps = 1e-16
+
+    # Equation 4.13 to compute a and b
+    update_fn = (lambda f, p, m: f * p / m)
+    a = util.high_precision_sum(update_fn(state.force, state.momentum, state.mass)) + eps
+    b = util.high_precision_sum(update_fn(state.force, state.force, state.mass)) + eps
+    a /= (2.0 * KE)
+    b /= (2.0 * KE)
+
+    # Equation 4.12 to compute s(t) and s_dot(t)
+    b_sqrt = jnp.sqrt(b)
+    s_t = ((a / b) * (jnp.cosh(dt_2 * b_sqrt) - 1.0)) + jnp.sinh(dt_2 * b_sqrt) / b_sqrt
+    s_dot_t = (b_sqrt * (a / b) * jnp.sinh(dt_2 * b_sqrt)) + jnp.cosh(dt_2 * b_sqrt)
+
+    # Get the new momentum using Equation 4.15  
+    new_momentum = tree_map(lambda p, f, s, sdot: (p + f * s) / sdot,
+                            state.momentum,
+                            state.force,
+                            s_t,
+                            s_dot_t)
+    return state.set(momentum=new_momentum)
+
+  def position_update(state, shift_fn, **kwargs):
+    if isinstance(shift_fn, Callable):
+      shift_fn = tree_map(lambda r: shift_fn, state.position)
+    # Get the new positions using Equation 4.16 (Should read r = r + dt * p / m)
+    new_position = tree_map(lambda s_fn, r, v: s_fn(r, dt * v, **kwargs),
+                            shift_fn,
+                            state.position,
+                            state.velocity)
+    return state.set(position=new_position)
+
+  def init_fn(key, R, mass=f32(1.0), **kwargs):
+    _kT = kwargs.pop('kT', kT)
+    key, split = random.split(key)
+    # Reuse the NVEState dataclass
+    state = NVEState(R, None, force_fn(R, **kwargs), mass)
+    state = canonicalize_mass(state)
+    return initialize_momenta(state, split, _kT)
+
+  def apply_fn(state, **kwargs):
+    _KE = kinetic_energy(state)
+    state = momentum_update(state, _KE)
+    state = position_update(state, shift_fn)
+    state = state.set(force=force_fn(state.position, **kwargs))
+    state = momentum_update(state, _KE)
+    return state
+  return init_fn, apply_fn
+
+
+def temp_csvr(energy_or_force_fn: Callable[..., Array],
+              shift_fn: ShiftFn,
+              dt: float,
+              kT: float,
+              tau: float,
+              **sim_kwargs) -> Simulator:
+  """Simulation using the canonical sampling through velocity rescaling (CSVR) thermostat.
+
+  Samples from the canonical ensemble in which the number of particles (N),
+  the system volume (V), and the temperature (T) are held constant. CSVR
+  algorithmn samples the canonical distribution by rescaling the velocities
+  by a appropritely chosen random factor. At each timestep (dt) the rescaling
+  takes place and the rescaling factor is calculated using
+  A7 Bussi et al. [#bussi2007]_. CSVR updates to the velocity are stochastic in
+  nature and unlike the Berendsen thermostat it samples the true canonical
+  distribution [#Braun2018]_.
+
+  Args:
+    energy_or_force: A function that produces either an energy or a force from
+      a set of particle positions specified as an ndarray of shape
+      `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`.
+      Both `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
+    dt: Floating point number specifying the timescale (step size) of the
+      simulation.
+    kT: Floating point number specifying the temperature in units of Boltzmann
+      constant. To update the temperature dynamically during a simulation one
+      should pass `kT` as a keyword argument to the step function.
+    tau: A floating point number determining how fast the temperature
+      is relaxed during the simulation. Measured in units of `dt`.
+  Returns:
+    See above.
+
+  .. rubric:: References
+  .. [#bussi2007] Bussi G, Donadio D, Parrinello M.
+    "Canonical sampling through velocity rescaling."
+    The Journal of chemical physics, 126(1), 014101.
+  .. [#Braun2018] Efrem Braun, Seyed Mohamad Moosavi, and Berend Smit.
+    "Anomalous Effects of Velocity Rescaling Algorithms: The Flying Ice Cube Effect Revisited."
+    Journal of Chemical Theory and Computation 2018 14 (10), 5262-5272.
+  """
+  force_fn = quantity.canonicalize_force(energy_or_force_fn)
+  dt = f32(dt)
+
+  def sum_noises(state, key):
+    """Sum of N independent gaussian noises squared.
+    Adapted from https://github.com/GiovanniBussi/StochasticVelocityRescaling
+    For more details see Eq.A7 Bussi et al. [#bussi2007]_"""
+    dof = quantity.count_dof(state.position) - 1
+    _dtype = state.position.dtype
+
+    if dof == 0:
+      """If there are no terms return zero."""
+      return 0
+
+    elif dof == 1:
+      """For a single noise term, directly calculate the square of the Gaussian
+      noise value."""
+      rr = random.normal(key, dtype=_dtype)
+      return rr * rr
+
+    elif dof % 2 == 0:
+      """For an even number of noise terms, use the gamma-distributed random
+      number generator"""
+      return 2.0 * random.gamma(key, dof // 2, dtype=_dtype)
+
+    else:
+      """For an odd number of noise terms, sum two terms: one from the
+      gamma-distributed generator and another from the square of a
+      Gaussian-distributed random number."""
+      rr = random.normal(key, dtype=_dtype)
+      return 2.0 * random.gamma(key, (dof - 1) // 2, dtype=_dtype) + (rr * rr)
+
+  def csvr_update(state, tau, kT, dt):
+    """Update the momentum by an scaling factor as described by
+    Eq.A7 Bussi et al. [#bussi2007]_"""
+    key, split = random.split(state.rng)
+    dof = quantity.count_dof(state.position)
+
+    _kT = temperature(state)
+
+    KE_old = dof * _kT / 2
+    KE_new = dof * kT / 2
+
+    r1 = random.normal(key, dtype=state.position.dtype)
+    r2 = sum_noises(state, key)
+
+    c1 = jnp.exp(-dt / tau)
+    c2 = (1 - c1) * KE_new / KE_old / dof
+
+    scale = c1 + (c2*((r1 * r1) + r2)) + (2 * r1 * jnp.sqrt(c1 * c2))
+    lam = jnp.sqrt(scale)
+
+    new_momentum = tree_map(lambda p: p * lam, state.momentum)
+    return state.set(momentum=new_momentum, rng=key)
+
+  def init_fn(key, R, mass=f32(1.0), **kwargs):
+    _kT = kwargs.pop('kT', kT)
+    key, split = random.split(key)
+    # Reuse the NVTLangevinState dataclass
+    state = NVTLangevinState(R, None, force_fn(R, **kwargs), mass, key)
+    state = canonicalize_mass(state)
+    return initialize_momenta(state, split, _kT)
+
+  def apply_fn(state, **kwargs):
+    state = csvr_update(state, tau, kT, dt)
+    state = velocity_verlet(force_fn, shift_fn, dt, state, **kwargs)
+    return state
+  return init_fn, apply_fn

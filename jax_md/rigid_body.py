@@ -334,7 +334,10 @@ def conjugate_momentum_to_angular_momentum(orientation: Quaternion,
 
   Simulations involving quaternions typically proceed by integrating Hamilton's
   equations with an extended Hamiltonian,
+
+  .. math::
     H(p, q) = 1/8 p^T S(q) D S(q)^T p + \phi(q)
+
   where q is the orientation and p is the conjugate momentum variable.
   Note (!!) unlike in problems involving only positional degrees of freedom, it
   is not the case here that dq/dt = p / m. The conjugate momentum is defined
@@ -704,7 +707,7 @@ class RigidPointUnion:
   point_count: Array
   point_offset: Array
   point_species: Optional[Array] = None
-  point_radius: float = f32(0.5)
+  point_radius: float = dataclasses.field(default_factory=lambda: f32(0.5))
 
   def dimension(self) -> int:
     """Returns the spatial dimension of the shape."""

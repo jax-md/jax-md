@@ -208,10 +208,12 @@ We include the license of the original code below:
 
 from typing import Optional
 
+import e3nn_jax as e3nn
 from e3nn_jax import Irreps
 from e3nn_jax import IrrepsArray
-from e3nn_jax import FunctionalLinear
-from e3nn_jax import FunctionalFullyConnectedTensorProduct
+from e3nn_jax.legacy import FunctionalFullyConnectedTensorProduct
+from e3nn_jax import FunctionalLinear 
+from e3nn_jax.utils import vmap
 
 import flax.linen as nn
 
@@ -221,23 +223,9 @@ import jax.numpy as jnp
 from jax.nn import initializers
 from jax import tree_util
 from jax import jit
-from jax import vmap
 from jax import tree_map
 
 import numpy as onp
-
-
-def naive_broadcast_decorator(func):
-  def wrapper(*args):
-      leading_shape = jnp.broadcast_shapes(*(arg.shape[:-1] for arg in args))
-      args = [jnp.broadcast_to(arg, leading_shape + (-1,)) for arg in args]
-      f = func
-      for _ in range(len(leading_shape)):
-          f = jax.vmap(f)
-      return f(*args)
-
-  return wrapper
-
 
 class FullyConnectedTensorProductE3nn(nn.Module):
   """Flax module of an equivariant Fully-Connected Tensor Product."""
@@ -246,8 +234,7 @@ class FullyConnectedTensorProductE3nn(nn.Module):
   irreps_in2: Optional[Irreps] = None
 
   @nn.compact
-  def __call__(self, x1: IrrepsArray, x2: IrrepsArray) -> IrrepsArray:
-
+  def __call__(self, x1: IrrepsArray, x2: IrrepsArray, **kwargs) -> IrrepsArray:
     irreps_out = Irreps(self.irreps_out)
     irreps_in1 = Irreps(
         self.irreps_in1
@@ -256,19 +243,24 @@ class FullyConnectedTensorProductE3nn(nn.Module):
         self.irreps_in2
         ) if self.irreps_in2 is not None else None
 
-    if irreps_in1 is not None:
-      x1 = IrrepsArray(irreps_in1, x1)
-    if irreps_in2 is not None:
-      x2 = IrrepsArray(irreps_in2, x2)
+    x1 = e3nn.as_irreps_array(x1)
+    x2 = e3nn.as_irreps_array(x2)
 
-    x1 = x1.remove_nones().simplify()
-    x2 = x2.remove_nones().simplify()
+    leading_shape = jnp.broadcast_shapes(x1.shape[:-1], x2.shape[:-1])
+    x1 = x1.broadcast_to(leading_shape + (-1,))
+    x2 = x2.broadcast_to(leading_shape + (-1,))
+
+    if irreps_in1 is not None:
+        x1 = x1.rechunk(irreps_in1)
+    if irreps_in2 is not None:
+        x2 = x2.rechunk(irreps_in2)
+
+    x1 = x1.remove_zero_chunks().simplify()
+    x2 = x2.remove_zero_chunks().simplify()
 
     tp = FunctionalFullyConnectedTensorProduct(
-        x1.irreps,
-        x2.irreps,
-        irreps_out.simplify()
-        )
+        x1.irreps, x2.irreps, irreps_out.simplify()
+    )
 
     ws = [
         self.param(
@@ -283,14 +275,16 @@ class FullyConnectedTensorProductE3nn(nn.Module):
         for ins in tp.instructions
     ]
 
-    f = naive_broadcast_decorator(lambda x1, x2: tp.left_right(ws, x1, x2))
+    f = lambda x1, x2: tp.left_right(ws, x1, x2, **kwargs)
+
+    for _ in range(len(leading_shape)):
+        f = e3nn.utils.vmap(f)
+
     output = f(x1, x2)
-    output = tree_map(lambda x: x.astype(x1.dtype), output)
-    return output._convert(self.irreps_out)
+    return output.rechunk(irreps_out)
 
 
 class Linear(nn.Module):
-  """Flax module of an equivariant Linear."""
   irreps_out: Irreps
   irreps_in: Optional[Irreps] = None
 
@@ -329,7 +323,5 @@ class Linear(nn.Module):
     f = lambda x: lin(w, x)
     for _ in range(x.ndim - 1):
       f = vmap(f)
-    output = f(x)
-    output = tree_map(lambda y: y.astype(x.dtype), output)
-    return output
+    return f(x)
 

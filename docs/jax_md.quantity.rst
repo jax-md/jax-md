@@ -29,4 +29,4 @@ Physical Properties
 Data Types
 -----------
 
-.. autoclass:: PhopState
+.. autoclass:: PHopState
