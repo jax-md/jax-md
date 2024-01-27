@@ -11,12 +11,12 @@ from jax.scipy.sparse import linalg
 from jax_md import util
 from jax_md.util import safe_mask
 from jax_md.util import high_precision_sum
-from jax_md.reaxff_helper import vectorized_cond, safe_sqrt
-from jax_md.reaxff_forcefield import ForceField
+from jax_md.reaxff.reaxff_helper import vectorized_cond, safe_sqrt
+from jax_md.reaxff.reaxff_forcefield import ForceField
 # to resolve circular dependency
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from jax_md.reaxff_interactions import ReaxFFNeighborLists
+    from jax_md.reaxff.reaxff_interactions import ReaxFFNeighborLists
 from jax import custom_jvp
 
 # Types
@@ -64,6 +64,7 @@ def calculate_reaxff_energy(species: Array,
     total_charge: Total charge of the system (float)
     tol: Tolarence for the charge solver
     max_solver_iter: Maximum number of solver iterations
+      If set to -1, use direct solve
     backprop_solve: Control variable to decide whether to do a solve to
       calculate the gradients of the charges wrt positions. By definition,
       the gradients should be 0 but if the solver tolerance is high,
@@ -214,7 +215,6 @@ def calculate_reaxff_energy(species: Array,
                                                          species,
                                                          triple_bond,
                                                          force_field)
-
   result_dict['E_covalent'] = cov_pot
 
   [lone_pot, vlp] = calculate_lonpar_pot(species,
@@ -298,6 +298,7 @@ def calculate_eem_charges(species: Array,
                           max_solver_iter: int = 500):
   '''
   EEM charge solver
+  If max_solver_iter is set to -1, use direct solve
   Returns:
     an array of shape [n+1,] where first n entries are the charges and
     last entry is the electronegativity equalization value
@@ -343,9 +344,10 @@ def calculate_eem_charges(species: Array,
   b = jnp.zeros(shape=(N+1,), dtype=jnp.float64)
   b = b.at[:N].set(-1 * my_elect)
   b = b.at[N].set(total_charge)
-
-  #charges = jnp.linalg.solve(to_dense(), b)
-  charges, conv_info = linalg.cg(SPMV_dense, b, x0=init_charges, tol=tol, maxiter=max_solver_iter)
+  if max_solver_iter == -1:
+    charges = jnp.linalg.solve(to_dense(), b)
+  else:
+    charges, conv_info = linalg.cg(SPMV_dense, b, x0=init_charges, tol=tol, maxiter=max_solver_iter)
   charges = charges.astype(prev_dtype)
   charges = charges.at[:-1].multiply(atom_mask)
   return charges
@@ -418,10 +420,10 @@ def calculate_acks2_charges(species: Array,
   b = b.at[N:2*N].set(total_charge / N)
   b = b.at[2*N].set(0.0)
   b = b.at[2*N+1].set(total_charge)
-  matrix = to_dense()
+  #matrix = to_dense()
   #print(matrix)
-  charges = jnp.linalg.solve(matrix, b)
-  #charges, conv_info = linalg.cg(SPMV_dense, b, tol=tol, maxiter=15)
+  #charges = jnp.linalg.solve(matrix, b)
+  charges, conv_info = linalg.cg(SPMV_dense, b, tol=tol, maxiter=9999)
   charges = charges.astype(prev_dtype)
   return charges[:N] * atom_mask, charges[N:2*N] * atom_mask
 
@@ -573,7 +575,6 @@ def calculate_covbon_pot(nbr_inds: Array,
   rhulp = safe_mask(my_rob1 > 0, lambda x: nbr_dist / (x+1e-10), my_rob1, 1e-7)
   rhulp2 = safe_mask(my_rob2 > 0, lambda x: nbr_dist / (x+1e-10), my_rob2, 1e-7)
   rhulp3 = safe_mask(my_rob3 > 0, lambda x: nbr_dist / (x+1e-10), my_rob3, 1e-7)
-
   rh2p = rhulp2 ** my_ptp
   ehulpp = jnp.exp(my_pdp * rh2p)
 
@@ -655,6 +656,13 @@ def calculate_covbon_pot(nbr_inds: Array,
   #bopi = bopi.astype(dtype)
   #bopi2 = bopi2.astype(dtype)
   #abo = abo.astype(dtype)
+
+  symm = (atom_inds == nbr_inds).astype(dtype) + 1
+  symm = 1.0 / symm
+  # to correct for self bonds, multiply by 0.5
+  #bo = bo * symm
+  #bopi = bopi * symm
+  #bopi2 = bopi2 * symm
 
   return [cov_pot, bo, bopi, bopi2, abo]
 
@@ -930,6 +938,7 @@ def calculate_valency_pot(species: Array,
     complete_mask = mask * body_3_mask
     boa = boa - force_field.cutoff2
     bob = bob - force_field.cutoff2
+    complete_mask = complete_mask & (boa > 0) & (bob > 0)
 
   # thresholding
   boa = jnp.clip(boa, a_min=0)
