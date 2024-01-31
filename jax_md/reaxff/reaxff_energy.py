@@ -831,10 +831,12 @@ def calculate_ovcor_pot(species: Array,
   #  Calculate overcoordination energy
   #  Valency is corrected for lone pairs
   voptlp = 0.50*(my_stlp-my_aval)
-  diffvlph = dfvl*(voptlp-vlptemp)
+  vlph = (voptlp-vlptemp)
+  diffvlph = dfvl*vlph
+  diffvlp2 = dfvl.reshape(-1,1) * vlph[nbr_inds]
   # Determine coordination neighboring atoms
   part_1 = bopi + bopi2
-  part_2 = abo[nbr_inds] - force_field.aval[neigh_types] - diffvlph[nbr_inds]
+  part_2 = abo[nbr_inds] - force_field.aval[neigh_types] - diffvlp2
   sumov = jnp.sum(part_1 * part_2, axis=1)
   mult_vov_de1 = force_field.vover * force_field.de1
   my_mult_vov_de1 = mult_vov_de1[species.reshape(-1, 1), neigh_types]
