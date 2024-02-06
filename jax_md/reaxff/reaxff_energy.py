@@ -852,7 +852,7 @@ def calculate_ovcor_pot(species: Array,
   exphuo = jnp.exp(my_vovun*vov1)
   hulpo = 1.0/(1.0+exphuo)
 
-  hulpp = (1.0/(vov1+my_aval+1e-10))
+  hulpp = (1.0/(vov1+my_aval+1e-08))
 
   eah = sumov2*hulpp*hulpo*vov1
 
@@ -980,11 +980,11 @@ def calculate_valency_pot(species: Array,
   sbo2 = jnp.clip(sbo2, 0, 2.0)
   # add 1e-20 so that ln(a) is not nan
   sbo2 = vectorized_cond(sbo2 < 1,
-                         lambda x: (x  + 1e-20) ** force_field.val_par17,
+                         lambda x: (x  + 1e-15) ** force_field.val_par17,
                          lambda x: sbo2, sbo2)
 
   sbo2 = vectorized_cond(sbo2 >= 1,
-                         lambda x: 2.0-(2.0-x + 1e-20)**force_field.val_par17,
+                         lambda x: 2.0-(2.0-x + 1e-15)**force_field.val_par17,
                          lambda x: sbo2, sbo2)
 
   expsbo = jnp.exp(-force_field.val_par18*(2.0-sbo2))
