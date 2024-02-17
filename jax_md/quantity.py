@@ -57,19 +57,34 @@ Simulator = Tuple[InitFn, ApplyFn]
 # Functions
 
 
-def force(energy_fn: EnergyFn) -> ForceFn:
+def force(energy_fn: EnergyFn, has_aux: bool = False) -> ForceFn:
   """Computes the force as the negative gradient of an energy."""
-  return grad(lambda R, *args, **kwargs: -energy_fn(R, *args, **kwargs))
+  def energy_fn_w_aux(R, *args, **kwargs):
+    '''
+    Returns negative energy and auxiliary data
+    '''
+    energy, aux = energy_fn(R, *args, **kwargs)
+    return -energy, aux
+
+  def energy_fn_wo_aux(R, *args, **kwargs):
+    '''
+    Returns negative energy and None as auxiliary data
+    '''
+    return -energy_fn(R, *args, **kwargs), None
+
+  updated_energy_fn = energy_fn_w_aux if has_aux else energy_fn_wo_aux
+  return grad(lambda R, *args, **kwargs: updated_energy_fn(R, *args, **kwargs),
+              has_aux=True)
 
 
 def clipped_force(energy_fn: EnergyFn, max_force: float) -> ForceFn:
   force_fn = force(energy_fn)
   def wrapped_force_fn(R, *args, **kwargs):
-    force = force_fn(R, *args, **kwargs)
+    force, aux = force_fn(R, *args, **kwargs)
     force_norm = jnp.linalg.norm(force, axis=-1, keepdims=True)
     return jnp.where(force_norm > max_force,
                      force / force_norm * max_force,
-                     force)
+                     force), aux
 
   return wrapped_force_fn
 
@@ -80,8 +95,12 @@ def canonicalize_force(energy_or_force_fn: Union[EnergyFn, ForceFn]) -> ForceFn:
     nonlocal _force_fn
     if _force_fn is None:
       out_shaped = eval_shape(energy_or_force_fn, R, **kwargs)
+      has_aux = False
+      if isinstance(out_shaped, ShapeDtypeStruct) == False:
+        has_aux = True
+        out_shaped = out_shaped[0]
       if isinstance(out_shaped, ShapeDtypeStruct) and out_shaped.shape == ():
-        _force_fn = force(energy_or_force_fn)
+        _force_fn = force(energy_or_force_fn, has_aux)
       else:
         # Check that the output has the right shape to be a force.
         is_valid_force = tree_reduce(
@@ -93,8 +112,11 @@ def canonicalize_force(energy_or_force_fn: Union[EnergyFn, ForceFn]) -> ForceFn:
           raise ValueError('Provided function should be compatible with '
                            'either an energy or a force. Found a function '
                            f'whose output has shape {out_shaped}.')
-
-        _force_fn = energy_or_force_fn
+          if has_aux == False:
+            _force_fn = lambda R, *args, **kwargs: \
+              energy_or_force_fn(R, *args, **kwargs), None
+          else:
+            _force_fn = energy_or_force_fn
     return _force_fn(R, **kwargs)
 
   return force_fn
