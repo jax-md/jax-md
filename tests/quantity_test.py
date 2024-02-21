@@ -616,7 +616,7 @@ class QuantityTest(test_util.JAXMDTestCase):
       return np.sum(1 / np.linalg.norm(r, axis=-1) ** 2)
     force_fn = quantity.clipped_force(U, 1.5)
     R = random.normal(random.PRNGKey(0), (N, dim))
-    self.assertTrue(np.all(np.linalg.norm(force_fn(R)[0], axis=-1) <= 1.5))
+    self.assertTrue(np.all(np.linalg.norm(force_fn(R), axis=-1) <= 1.5))
 
 if __name__ == '__main__':
   absltest.main()
