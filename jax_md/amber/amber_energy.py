@@ -16,6 +16,7 @@
 # create elegant combined energy functions for restrained and unrestrained cases
 # integrate jax_md unit testing
 # standardize single/double precision switching if jax is configured
+# adopt jax_md style of creating potential generators that create neighbor lists and return nb/nrg function
 
 import numpy as np
 import jax.numpy as jnp
@@ -169,7 +170,8 @@ def bond_get_energy(positions, box, prms):
     kprm = k[param_index]
     lprm = l[param_index]
     dist = distance(p1, p2, box)
-    return jnp.sum(0.5 * kprm * jnp.power((dist - lprm), 2))
+
+    return jnp.sum(jnp.nan_to_num(0.5 * kprm * jnp.power((dist - lprm), 2)))
 
 
 def angle_init(prmtop):
@@ -196,7 +198,8 @@ def angle_get_energy(positions, box, prms):
     kprm = k[param_index]
     thetaprm = eqangle[param_index]
     theta = angle(p1, p2, p3, box)
-    return jnp.sum(0.5 * kprm * jnp.power((theta - thetaprm), 2))
+    #print("Angle Components", jnp.nan_to_num(0.5 * kprm * jnp.power((theta - thetaprm), 2)))
+    return jnp.sum(jnp.nan_to_num(0.5 * kprm * jnp.power((theta - thetaprm), 2)))
 
 def torsion_init(prmtop):
     k = jnp.array([4.184 * jnp.float32(kval) for kval in prmtop._raw_data['DIHEDRAL_FORCE_CONSTANT']])
@@ -237,7 +240,8 @@ def torsion_get_energy(positions, box, prms):
     phaseprm = phase[param_index]
     period = periodicity[param_index]
     theta = torsion(p1, p2, p3, p4, box)
-    return jnp.sum(kprm * (1.0 + jnp.cos(period * theta) * phaseprm))
+    #print("Torsion Components", jnp.nan_to_num(kprm * (1.0 + jnp.cos(period * theta) * phaseprm)))
+    return jnp.sum(jnp.nan_to_num(kprm * (1.0 + jnp.cos(period * theta) * phaseprm)))
 
 
 def lj_init(prmtop):
@@ -266,7 +270,8 @@ def lj_get_energy_nb(positions, box, prms):
     idr6 = idr2*idr2*idr2
     idr12 = idr6*idr6
 
-    return jnp.sum(jnp.float32(4)*eps_ab*(idr12-idr6))
+    #print("LJ Components", jnp.nan_to_num(jnp.float32(4)*eps_ab*(idr12-idr6)))
+    return jnp.sum(jnp.nan_to_num(jnp.float32(4)*eps_ab*(idr12-idr6)))
 
 def lj_get_energy_14(positions, box, prms):
     pairs, pairs14, atom_type, sigma, epsilon, scnb = prms
@@ -286,7 +291,8 @@ def lj_get_energy_14(positions, box, prms):
     idr6 = idr2*idr2*idr2
     idr12 = idr6*idr6
 
-    return jnp.sum(1.0/scnb[parm_idx] * jnp.float32(4)*eps_ab*(idr12-idr6))
+    #print("LJ 14 Components", jnp.nan_to_num(1.0/scnb[parm_idx] * jnp.float32(4)*eps_ab*(idr12-idr6)))
+    return jnp.sum(jnp.nan_to_num(1.0/scnb[parm_idx] * jnp.float32(4)*eps_ab*(idr12-idr6)))
 
 def lj_get_energy(positions, box, prms):
     return lj_get_energy_nb(positions, box, prms) + lj_get_energy_14(positions, box, prms)
@@ -311,7 +317,8 @@ def coul_get_energy_nb(positions, box, prms):
     dist = distance(p1, p2, box)
 
     # constant for 1 / 4 * pi * epsilon
-    return jnp.sum(jnp.float32(138.935456) * chg1 * chg2 / dist)
+    #print("Coul Components", jnp.nan_to_num(jnp.float32(138.935456) * chg1 * chg2 / dist, posinf=0.0))
+    return jnp.sum(jnp.nan_to_num(jnp.float32(138.935456) * chg1 * chg2 / dist, posinf=0.0))
 
 def coul_get_energy_nb_pme(positions, box, prms):
     # currently returning erroneous values, not ready for general use
@@ -331,7 +338,8 @@ def coul_get_energy_14(positions, box, prms):
     dist = distance(p1, p2, box)
 
     # constant for 1 / 4 * pi * epsilon
-    return jnp.sum(1.0/scee[parm_idx] * jnp.float32(138.935456) * chg1 * chg2 / dist)
+    #print("Coul14 Components", jnp.nan_to_num(1.0/scee[parm_idx] * jnp.float32(138.935456) * chg1 * chg2 / dist, posinf=0.0))
+    return jnp.sum(jnp.nan_to_num(1.0/scee[parm_idx] * jnp.float32(138.935456) * chg1 * chg2 / dist, posinf=0.0))
 
 def coul_get_energy(positions, box, prms):
     return coul_get_energy_nb(positions, box, prms) + coul_get_energy_14(positions, box, prms)
