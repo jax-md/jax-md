@@ -23,6 +23,8 @@ import jax.numpy as jnp
 import jax
 import jax_md
 
+from jax_md.reaxff.reaxff_helper import safe_sqrt
+
 def prm_get_nonbond_pairs (prm_raw_data):
     num_excl_atoms = prm_raw_data._raw_data['NUMBER_EXCLUDED_ATOMS']
     excl_atoms_list = prm_raw_data._raw_data['EXCLUDED_ATOMS_LIST']
@@ -97,7 +99,7 @@ def prm_get_nonbond14_pairs (prm_raw_data):
 def distance(p1v, p2v=None, box=None):
     dR = p1v-p2v
     dv = jnp.mod(dR + box * jnp.float32(0.5), box) - jnp.float32(0.5) * box
-    return jnp.sqrt(jnp.sum(jnp.power(dv, 2), axis=1))
+    return safe_sqrt(jnp.sum(jnp.power(dv, 2), axis=1))
 
 def angle(p1v, p2v, p3v, box):
     d12 = p2v-p1v
@@ -106,8 +108,14 @@ def angle(p1v, p2v, p3v, box):
     d23 = p2v-p3v
     d23 = jnp.where(d23 > 0.5 * box, d23-box, d23)
     d23 = jnp.where(d23 < -0.5 * box, d23+box, d23)
-    v1 = (d12) / jnp.reshape(distance(p1v, p2v, box), (-1, 1))
-    v2 = (d23) / jnp.reshape(distance(p2v, p3v, box), (-1, 1))
+    #print(jnp.reshape(distance(p1v, p2v, box), (-1, 1)))
+    #jnp.where(x == 0, 1.0, jnp.sin(x) / x)
+    d1v = jnp.reshape(distance(p1v, p2v, box), (-1, 1))
+    d2v = jnp.reshape(distance(p2v, p3v, box), (-1, 1))
+
+    #v1 = (d12) / safe_mask(d1v > 0, lambda x: x, d1v, 1)
+    v1 = (d12) / jnp.where(d1v > 0, d1v, 1)
+    v2 = (d23) / jnp.where(d2v > 0, d2v, 1)
     vxx = v1[:, 0] * v2[:, 0]
     vyy = v1[:, 1] * v2[:, 1]
     vzz = v1[:, 2] * v2[:, 2]
@@ -123,8 +131,15 @@ def torsion(p1v, p2v, p3v, p4v, box):
     c2 = jax.vmap(jnp.cross, (0, 0))(b1, b2)
 
     p1 = (b1 * c1).sum(-1)
-    p1 = p1 * jnp.sqrt((b2 * b2).sum(-1))
+    p1 = p1 * safe_sqrt((b2 * b2).sum(-1))
     p2 = (c1 * c2).sum(-1)
+    #print("p1", p1)
+    #print("p2", p2)
+    #p1 = jnp.where(p1 <= 0, 1, p1)
+    #p2 = jnp.where(p2 <= 0, 1, p2)
+    #TODO: This may not be a robust approach to fixing this issue
+    p2 = jnp.where(jnp.isclose(p2, 0.), 1, p2)
+    #print("p2 post filter", p2)
 
     r = jax.vmap(jnp.arctan2, (0, 0))(p1, p2)
     return r
@@ -139,8 +154,14 @@ def torsion_single(p1v, p2v, p3v, p4v, box):
     c2 = jnp.cross(b1, b2)
 
     p1 = (b1 * c1).sum(-1)
-    p1 = p1 * jnp.sqrt((b2 * b2).sum(-1))
+    p1 = p1 * safe_sqrt((b2 * b2).sum(-1))
     p2 = (c1 * c2).sum(-1)
+    #print("p1", p1)
+    #print("p2", p2)
+    #p1 = jnp.where(p1 <= 0, 1, p1)
+    #p2 = jnp.where(p2 <= 0, 1, p2)
+    p2 = jnp.where(jnp.isclose(p2, 0.), 1, p2)
+    #print("p2 post filter", p2)
 
     r = jnp.arctan2(p1, p2)
     return r
@@ -164,6 +185,8 @@ def bond_init(prmtop):
 
 def bond_get_energy(positions, box, prms):
     k, l, b1_idx, b2_idx, param_index = prms
+
+    mask = param_index >= 0
     
     p1 = positions[b1_idx]
     p2 = positions[b2_idx]
@@ -171,7 +194,28 @@ def bond_get_energy(positions, box, prms):
     lprm = l[param_index]
     dist = distance(p1, p2, box)
 
-    return jnp.sum(jnp.nan_to_num(0.5 * kprm * jnp.power((dist - lprm), 2)))
+    # energies = jnp.nan_to_num(0.5 * kprm * jnp.power((dist - lprm), 2))
+
+    # filtered_energies = jnp.where(param_index < 0, 0, energies)
+    #print("Bond Energies Unfiltered", 0.5 * kprm * jnp.power((dist - lprm), 2))
+    # print("Bond Energies", energies)
+    # print("Bond Filtered Energies", filtered_energies)
+    #print("Bond prm Idx", param_index)
+    #print("Bond 1 Idx", b1_idx)
+    #print("Bond 2 Idx", b2_idx)
+    # print("Bond Distances", dist)
+    #print("kprm", kprm)
+    #print("lprm", lprm)
+    # print("dist-lprm", dist - lprm)
+    # print("pwr dist-lprm", jnp.power((dist - lprm), 2))
+
+    #print("B Mask", mask)
+    #energies = 0.5 * kprm * jnp.power((dist - lprm), 2)
+    #msk_nrg = jax.lax.select(mask, energies, jnp.zeros(mask.shape))
+    #return jnp.sum(msk_nrg)
+    #return jnp.sum(filtered_energies)
+    return jnp.sum(0.5 * kprm * jnp.power((dist - lprm), 2))
+    #return jnp.sum(jnp.nan_to_num(0.5 * kprm * jnp.power((dist - lprm), 2)))
 
 
 def angle_init(prmtop):
@@ -197,9 +241,9 @@ def angle_get_energy(positions, box, prms):
     p3 = positions[a3_idx]
     kprm = k[param_index]
     thetaprm = eqangle[param_index]
-    theta = angle(p1, p2, p3, box)
+    theta = jnp.where(param_index < 0, 0, angle(p1, p2, p3, box))
     #print("Angle Components", jnp.nan_to_num(0.5 * kprm * jnp.power((theta - thetaprm), 2)))
-    return jnp.sum(jnp.nan_to_num(0.5 * kprm * jnp.power((theta - thetaprm), 2)))
+    return jnp.sum(0.5 * kprm * jnp.power((theta - thetaprm), 2))
 
 def torsion_init(prmtop):
     k = jnp.array([4.184 * jnp.float32(kval) for kval in prmtop._raw_data['DIHEDRAL_FORCE_CONSTANT']])
@@ -232,6 +276,8 @@ def torsion_init(prmtop):
 def torsion_get_energy(positions, box, prms):
     k, phase, periodicity, t1_idx, t2_idx, t3_idx, t4_idx, param_index = prms
 
+    mask = param_index >= 0
+
     p1 = positions[t1_idx]
     p2 = positions[t2_idx]
     p3 = positions[t3_idx]
@@ -239,9 +285,14 @@ def torsion_get_energy(positions, box, prms):
     kprm = k[param_index]
     phaseprm = phase[param_index]
     period = periodicity[param_index]
+    #theta = jnp.where(param_index < 0, 0, torsion(p1, p2, p3, p4, box))
     theta = torsion(p1, p2, p3, p4, box)
-    #print("Torsion Components", jnp.nan_to_num(kprm * (1.0 + jnp.cos(period * theta) * phaseprm)))
-    return jnp.sum(jnp.nan_to_num(kprm * (1.0 + jnp.cos(period * theta) * phaseprm)))
+    # print("Torsion Components", kprm * (1.0 + jnp.cos(period * theta) * phaseprm))
+    # print("Torsion Components Mask", mask * kprm * (1.0 + jnp.cos(period * theta) * phaseprm))
+    # print("Torsion Sum", jnp.sum(mask * kprm * (1.0 + jnp.cos(period * theta) * phaseprm)))
+    # print("Torsion Sum mask", jnp.sum(kprm * (1.0 + jnp.cos(period * theta) * phaseprm)))
+
+    return jnp.sum(kprm * (1.0 + jnp.cos(period * theta) * phaseprm))
 
 
 def lj_init(prmtop):
@@ -263,15 +314,24 @@ def lj_get_energy_nb(positions, box, prms):
     at_type_a = atom_type[pairs[:,0]]
     at_type_b = atom_type[pairs[:,1]]
     sig_ab = 0.5*(sigma[at_type_a]+sigma[at_type_b])
-    eps_ab = jnp.sqrt (epsilon[at_type_a]*epsilon[at_type_b])
+    eps_ab = safe_sqrt (epsilon[at_type_a]*epsilon[at_type_b])
 
-    idr = (sig_ab/dist)
+    #idrd = jnp.where(dist <= 0, 1, dist)
+    idrd = jnp.where(jnp.isclose(dist, 0.), 1, dist)
+    idr = (sig_ab/idrd)
     idr2 = idr*idr
     idr6 = idr2*idr2*idr2
     idr12 = idr6*idr6
 
-    #print("LJ Components", jnp.nan_to_num(jnp.float32(4)*eps_ab*(idr12-idr6)))
-    return jnp.sum(jnp.nan_to_num(jnp.float32(4)*eps_ab*(idr12-idr6)))
+    #print("LJ Components", jnp.float32(4)*eps_ab*(idr12-idr6))
+    # energies = jnp.float32(4)*eps_ab*(idr12-idr6)
+    # print("LJ Energies", energies)
+
+    # filtered_energies = jnp.where(pairs[:,0] < 0, 0, energies)
+
+    # #return jnp.sum(filtered_energies)
+    # print("LJ Total E", jnp.sum(jnp.nan_to_num(jnp.float32(4)*eps_ab*(idr12-idr6))))
+    return jnp.sum(jnp.float32(4)*eps_ab*(idr12-idr6))
 
 def lj_get_energy_14(positions, box, prms):
     pairs, pairs14, atom_type, sigma, epsilon, scnb = prms
@@ -284,15 +344,24 @@ def lj_get_energy_14(positions, box, prms):
     at_type_a = atom_type[pairs14[:,0]]
     at_type_b = atom_type[pairs14[:,1]]
     sig_ab = 0.5*(sigma[at_type_a]+sigma[at_type_b])
-    eps_ab = jnp.sqrt (epsilon[at_type_a]*epsilon[at_type_b])
+    eps_ab = safe_sqrt (epsilon[at_type_a]*epsilon[at_type_b])
 
-    idr = (sig_ab/dist)
+    idrd = jnp.where(jnp.isclose(dist, 0.), 1, dist)
+    idr = (sig_ab/idrd)
     idr2 = idr*idr
     idr6 = idr2*idr2*idr2
     idr12 = idr6*idr6
 
-    #print("LJ 14 Components", jnp.nan_to_num(1.0/scnb[parm_idx] * jnp.float32(4)*eps_ab*(idr12-idr6)))
-    return jnp.sum(jnp.nan_to_num(1.0/scnb[parm_idx] * jnp.float32(4)*eps_ab*(idr12-idr6)))
+    #print("LJ 14 Components", 1.0/scnb[parm_idx] * jnp.float32(4)*eps_ab*(idr12-idr6))
+
+    # energies = jnp.nan_to_num(1.0/scnb[parm_idx] * jnp.float32(4)*eps_ab*(idr12-idr6))
+    # print("LJ 14 Energies", energies)
+
+    # filtered_energies = jnp.where(parm_idx < 0, 0, energies)
+
+    # #return jnp.sum(filtered_energies)
+    # print("LJ 14 Total E", jnp.sum(jnp.nan_to_num(1.0/scnb[parm_idx] * jnp.float32(4)*eps_ab*(idr12-idr6))))
+    return jnp.sum(1.0/scnb[parm_idx] * jnp.float32(4)*eps_ab*(idr12-idr6))
 
 def lj_get_energy(positions, box, prms):
     return lj_get_energy_nb(positions, box, prms) + lj_get_energy_14(positions, box, prms)
@@ -315,10 +384,14 @@ def coul_get_energy_nb(positions, box, prms):
     chg1 = charges[pairs[:, 0]]
     chg2 = charges[pairs[:, 1]]
     dist = distance(p1, p2, box)
+    dist = jnp.where(jnp.isclose(dist, 0.), 1, dist)
 
     # constant for 1 / 4 * pi * epsilon
-    #print("Coul Components", jnp.nan_to_num(jnp.float32(138.935456) * chg1 * chg2 / dist, posinf=0.0))
-    return jnp.sum(jnp.nan_to_num(jnp.float32(138.935456) * chg1 * chg2 / dist, posinf=0.0))
+    # print("Charges", charges)
+    # print("pairs", pairs)
+    # print("Coul Components", jnp.float32(138.935456) * chg1 * chg2 / dist)
+    # print("Coul Total E", jnp.sum(jnp.float32(138.935456) * chg1 * chg2 / dist))
+    return jnp.sum(jnp.float32(138.935456) * chg1 * chg2 / dist)
 
 def coul_get_energy_nb_pme(positions, box, prms):
     # currently returning erroneous values, not ready for general use
@@ -336,10 +409,14 @@ def coul_get_energy_14(positions, box, prms):
     chg1 = charges[pairs14[:, 0]]
     chg2 = charges[pairs14[:, 1]]
     dist = distance(p1, p2, box)
+    dist = jnp.where(jnp.isclose(dist, 0.), 1, dist)
 
     # constant for 1 / 4 * pi * epsilon
-    #print("Coul14 Components", jnp.nan_to_num(1.0/scee[parm_idx] * jnp.float32(138.935456) * chg1 * chg2 / dist, posinf=0.0))
-    return jnp.sum(jnp.nan_to_num(1.0/scee[parm_idx] * jnp.float32(138.935456) * chg1 * chg2 / dist, posinf=0.0))
+    # print("pairs14", pairs14)
+    # print("Coul14 Components", 1.0/scee[parm_idx] * jnp.float32(138.935456) * chg1 * chg2 / dist)
+    # print("Coul14 Total E", jnp.sum(1.0/scee[parm_idx] * jnp.float32(138.935456) * chg1 * chg2 / dist))
+    #TODO: Remove nan to num references, these may cover up errors that cause gradient instability
+    return jnp.sum(1.0/scee[parm_idx] * jnp.float32(138.935456) * chg1 * chg2 / dist)
 
 def coul_get_energy(positions, box, prms):
     return coul_get_energy_nb(positions, box, prms) + coul_get_energy_14(positions, box, prms)
