@@ -551,6 +551,8 @@ def reaxff_inter_list(displacement: DisplacementFn,
                     backprop_solve: bool = False,
                     tors_2013: bool = False,
                     solver_model: str = "EEM",
+                    short_inters_capacity_multiplier: int = 1.2,
+                    long_inters_capacity_multiplier: int = 1.2
                     ) -> Tuple[ReaxFFNeighborListFns,
                                                 Callable]:
   '''
@@ -580,14 +582,14 @@ def reaxff_inter_list(displacement: DisplacementFn,
                                   box=box,
                                   r_cutoff=5.0,
                                   dr_threshold=0.5,
-                                  capacity_multiplier=1.2,
+                                  capacity_multiplier=long_inters_capacity_multiplier,
                                   format=partition.Dense)
 
   neighbor_fn2 = partition.neighbor_list(displacement,
                                   box=box,
                                   r_cutoff=10.0,
                                   dr_threshold=0.5,
-                                  capacity_multiplier=1.2,
+                                  capacity_multiplier=short_inters_capacity_multiplier,
                                   format=partition.Dense)
   cutoff2 = force_field.cutoff2
   cutoff = force_field.cutoff
@@ -743,7 +745,7 @@ def reaxff_inter_list(displacement: DisplacementFn,
                     force_field)
 
     filter2 = filter2_fn.allocate(candidate_args=(close_nbrs.idx,bo),
-                                  capacity_multiplier=1.2)
+                                  capacity_multiplier=short_inters_capacity_multiplier)
     atom_inds = jnp.arange(N, dtype=jnp.int32).reshape(-1,1)
 
     filtered_close_idx = close_nbrs.idx[atom_inds,filter2.idx]
@@ -763,7 +765,7 @@ def reaxff_inter_list(displacement: DisplacementFn,
                                              species,
                                              force_field.cutoff2,
                                              new_body3_mask),
-                                  capacity_multiplier=1.2)
+                                  capacity_multiplier=short_inters_capacity_multiplier)
 
     filter34 = filter34_fn.allocate(candidate_args=(filter3.idx,
                                              filtered_close_idx,
@@ -771,7 +773,7 @@ def reaxff_inter_list(displacement: DisplacementFn,
                                              species,
                                              force_field.cutoff2,
                                              force_field.body34_params_mask),
-                                  capacity_multiplier=1.2)
+                                  capacity_multiplier=short_inters_capacity_multiplier)
 
     filter4 = filter4_fn.allocate(candidate_args=(filter34.idx,
                                              filtered_close_idx,
@@ -780,7 +782,7 @@ def reaxff_inter_list(displacement: DisplacementFn,
                                              species,
                                              force_field.cutoff2,
                                              force_field.body4_params_mask),
-                                  capacity_multiplier=1.2)
+                                  capacity_multiplier=short_inters_capacity_multiplier)
     if hbond_flag:
       dnr_nbr_inds = filtered_close_idx[hb_donor_inds]
       dnr_nbr_pots = neigh_bo2[hb_donor_inds]
@@ -790,12 +792,12 @@ def reaxff_inter_list(displacement: DisplacementFn,
                                             candidate_args=(dnr_nbr_inds,
                                                             dnr_nbr_pots,
                                                             hb_acceptor_mask),
-                                            capacity_multiplier=1.2)
+                                            capacity_multiplier=short_inters_capacity_multiplier)
       filter_hb_far = filter_hb_far_fn.allocate(
                                             candidate_args=(dnr_long_nbr_inds,
                                                             dnr_long_nbr_dists,
                                                             hb_acceptor_mask),
-                                            capacity_multiplier=1.2)
+                                            capacity_multiplier=short_inters_capacity_multiplier)
       filter_hb = filter_hb_fn.allocate(candidate_args=(hb_donor_inds,
                                                filtered_close_idx,
                                                filter_hb_close.idx,
@@ -803,7 +805,7 @@ def reaxff_inter_list(displacement: DisplacementFn,
                                                filter_hb_far.idx,
                                                species,
                                                force_field.hb_params_mask),
-                                        capacity_multiplier=1.1)
+                                        capacity_multiplier=short_inters_capacity_multiplier)
     else:
       filter_hb_close = None
       filter_hb_far = None
@@ -831,7 +833,7 @@ def reaxff_inter_list(displacement: DisplacementFn,
                                                       map_metric,
                                                       map_disp)
 
-    energy = calculate_reaxff_energy(species,
+    energy, charges = calculate_reaxff_energy(species,
                                             species_AN,
                                             nbr_lists,
                                             close_nbr_dist,
