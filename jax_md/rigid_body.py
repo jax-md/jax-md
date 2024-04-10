@@ -73,7 +73,6 @@ Array = util.Array
 PyTree = Any
 f64 = util.f64
 f32 = util.f32
-KeyArray = random.KeyArray
 NeighborListFns = partition.NeighborListFns
 ShiftFn = space.ShiftFn
 
@@ -152,7 +151,7 @@ def _quaternion_rotate_bwd(res, g: Array) -> Tuple[Array, Array]:
 _quaternion_rotate.defvjp(_quaternion_rotate_fwd, _quaternion_rotate_bwd)
 
 
-def _random_quaternion(key: KeyArray, dtype: DType) -> Array:
+def _random_quaternion(key: Array, dtype: DType) -> Array:
   """Generate a random quaternion of a given dtype."""
   rnd = random.uniform(key, (3,), minval=0.0, maxval=1.0, dtype=dtype)
 
@@ -214,7 +213,7 @@ def quaternion_rotate(q: Quaternion, v: Array) -> Array:
   return jnp.vectorize(_quaternion_rotate, signature='(q),(d)->(d)')(q.vec, v)
 
 
-def random_quaternion(key: KeyArray, dtype: DType) -> Quaternion:
+def random_quaternion(key: Array, dtype: DType) -> Quaternion:
   """Generate a random quaternion of a given dtype."""
   rand_quat = partial(_random_quaternion, dtype=dtype)
   rand_quat = jnp.vectorize(rand_quat, signature='(k)->(q)')

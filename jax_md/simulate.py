@@ -40,7 +40,6 @@ from typing import Any, Callable, TypeVar, Union, Tuple, Dict, Optional
 import functools
 
 from jax import grad
-from jax import jit
 from jax import random
 import jax.numpy as jnp
 from jax import lax
@@ -281,14 +280,12 @@ def nve(energy_or_force_fn, shift_fn, dt=1e-3, **sim_kwargs):
   """
   force_fn = quantity.canonicalize_force(energy_or_force_fn)
 
-  @jit
   def init_fn(key, R, kT, mass=f32(1.0), **kwargs):
     force = force_fn(R, **kwargs)
     state = NVEState(R, None, force, mass)
     state = canonicalize_mass(state)
     return initialize_momenta(state, key, kT)
 
-  @jit
   def step_fn(state, **kwargs):
     _dt = kwargs.pop('dt', dt)
     return velocity_verlet(force_fn, shift_fn, _dt, state, **kwargs)
@@ -588,7 +585,6 @@ def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
 
   thermostat = nose_hoover_chain(dt, chain_length, chain_steps, sy_steps, tau)
 
-  @jit
   def init_fn(key, R, mass=f32(1.0), **kwargs):
     _kT = kT if 'kT' not in kwargs else kwargs['kT']
 
@@ -600,7 +596,6 @@ def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
     KE = kinetic_energy(state)
     return state.set(chain=thermostat.initialize(dof, KE, _kT))
 
-  @jit
   def apply_fn(state, **kwargs):
     _kT = kT if 'kT' not in kwargs else kwargs['kT']
 
@@ -1046,7 +1041,6 @@ def nvt_langevin(energy_or_force_fn: Callable[..., Array],
   """
   force_fn = quantity.canonicalize_force(energy_or_force_fn)
 
-  @jit
   def init_fn(key, R, mass=f32(1.0), **kwargs):
     _kT = kwargs.pop('kT', kT)
     key, split = random.split(key)
@@ -1055,7 +1049,6 @@ def nvt_langevin(energy_or_force_fn: Callable[..., Array],
     state = canonicalize_mass(state)
     return initialize_momenta(state, split, _kT)
 
-  @jit
   def step_fn(state, **kwargs):
     _dt = kwargs.pop('dt', dt)
     _kT = kwargs.pop('kT', kT)
