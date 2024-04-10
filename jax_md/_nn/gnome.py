@@ -51,6 +51,8 @@ NUM_ELEMENTS = 94
 
 PyTree = util.PyTree
 
+Array = util.Array
+
 
 def model_from_config(cfg: ConfigDict) -> nn.Module:
   model_family = cfg.get('model_family', 'nequip')
@@ -69,11 +71,11 @@ def minimum_batch_size(cfg: ConfigDict) -> int:
 
 
 class ScaleLROnPlateau(NamedTuple):
-  step_size: jnp.ndarray
-  minimum_loss: jnp.ndarray
-  steps_without_reduction: jnp.ndarray
-  max_steps_without_reduction: jnp.ndarray
-  reduction_factor: jnp.ndarray
+  step_size: Array
+  minimum_loss: Array
+  steps_without_reduction: Array
+  max_steps_without_reduction: Array
+  reduction_factor: Array
 
 
 def scale_lr_on_plateau(initial_step_size: float,

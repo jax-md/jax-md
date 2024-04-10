@@ -129,7 +129,7 @@ def coulomb_recip_ewald(charge: Array,
     S2 = jnp.abs(structure_factor(g, position, charge))**2
     fn = lambda g2: jnp.exp(-g2 / (4*alpha**2)) / g2 * S2
 
-    return Z * util.high_precision_sum(safe_mask(mask, fn, g2, 1))
+    return Z * util.high_precision_sum(util.safe_mask(mask, fn, g2, 1))
   return energy_fn
 
 

@@ -192,7 +192,7 @@ class NequIPConvolution(nn.Module):
 
     # we gather the instructions for the tp as well as the tp output irreps
     mode = 'uvu'
-    trainable = 'True'
+    trainable = True
     irreps_after_tp = []
     instructions = []
 
