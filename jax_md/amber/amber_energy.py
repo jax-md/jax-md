@@ -68,12 +68,30 @@ def prm_get_nonbond_terms (prm_raw_data):
         acoef = jnp.float32(LJ_ACOEF[index])
         bcoef = jnp.float32(LJ_BCOEF[index])
 
-        try:
-            sig = (acoef/bcoef)**(1.0/6.0)
-            eps = 0.25*bcoef*bcoef/acoef
-        except ZeroDivisionError:
+        if jnp.isclose(acoef, 0.) or jnp.isclose(bcoef, 0.):
             sig = 1.0
             eps = 0.0
+        else:
+            sig = (acoef/bcoef)**(1.0/6.0)
+            eps = 0.25*bcoef*bcoef/acoef
+
+        # print("get terms")    
+        # print("acoef", acoef)
+        # print("bcoef", bcoef)
+        # print("index", index)
+        # print("sig", sig)
+
+        # try:
+        #     print("get terms")
+        #     print("acoef", acoef)
+        #     print("bcoef", bcoef)
+        #     print("index", index)
+        #     sig = (acoef/bcoef)**(1.0/6.0)
+        #     print("sig", sig)
+        #     eps = 0.25*bcoef*bcoef/acoef
+        # except ZeroDivisionError:
+        #     sig = 1.0
+        #     eps = 0.0
 
         sigma[i] = sig*lengthConversionFactor
         epsilon[i] = eps*energyConversionFactor
@@ -323,14 +341,25 @@ def lj_get_energy_nb(positions, box, prms):
     idr6 = idr2*idr2*idr2
     idr12 = idr6*idr6
 
-    #print("LJ Components", jnp.float32(4)*eps_ab*(idr12-idr6))
+    # print("Pairs", pairs)
+    # print("eps", epsilon)
+    # print("epsab comp", eps_ab)
+    # print("sigab comp", sig_ab)
+
+    # print("typeasum", jnp.sum(at_type_a))
+    # print("epssuma", jnp.sum(epsilon[at_type_a]))
+    # print("sigab", jnp.sum(sig_ab))
+    # print("epsab", jnp.sum(eps_ab))
+    # print("LJ Components", jnp.float32(4)*eps_ab*(idr12-idr6))
     # energies = jnp.float32(4)*eps_ab*(idr12-idr6)
     # print("LJ Energies", energies)
 
     # filtered_energies = jnp.where(pairs[:,0] < 0, 0, energies)
 
     # #return jnp.sum(filtered_energies)
-    # print("LJ Total E", jnp.sum(jnp.nan_to_num(jnp.float32(4)*eps_ab*(idr12-idr6))))
+    # print("LJ Total E internal", jnp.sum(jnp.float32(4)*eps_ab*(idr12-idr6)))
+    #print("epsab", jnp.sum(eps_ab))
+    #print("idr12", jnp.sum(idr12))
     return jnp.sum(jnp.float32(4)*eps_ab*(idr12-idr6))
 
 def lj_get_energy_14(positions, box, prms):
@@ -352,7 +381,11 @@ def lj_get_energy_14(positions, box, prms):
     idr6 = idr2*idr2*idr2
     idr12 = idr6*idr6
 
+    scnb_filtered = jnp.where(jnp.isclose(scnb, 0.), 0., 1.0/scnb)
+
     #print("LJ 14 Components", 1.0/scnb[parm_idx] * jnp.float32(4)*eps_ab*(idr12-idr6))
+    # print("LJ 14 Components", 1.0/scnb[parm_idx] * jnp.float32(4)*eps_ab*(idr12-idr6))
+    # print("LJ 14 Components Filtered", scnb_filtered[parm_idx] * jnp.float32(4)*eps_ab*(idr12-idr6))
 
     # energies = jnp.nan_to_num(1.0/scnb[parm_idx] * jnp.float32(4)*eps_ab*(idr12-idr6))
     # print("LJ 14 Energies", energies)
@@ -360,8 +393,9 @@ def lj_get_energy_14(positions, box, prms):
     # filtered_energies = jnp.where(parm_idx < 0, 0, energies)
 
     # #return jnp.sum(filtered_energies)
-    # print("LJ 14 Total E", jnp.sum(jnp.nan_to_num(1.0/scnb[parm_idx] * jnp.float32(4)*eps_ab*(idr12-idr6))))
-    return jnp.sum(1.0/scnb[parm_idx] * jnp.float32(4)*eps_ab*(idr12-idr6))
+    # print("LJ 14 Total E", jnp.sum(1.0/scnb[parm_idx] * jnp.float32(4)*eps_ab*(idr12-idr6)))
+
+    return jnp.sum(scnb_filtered[parm_idx] * jnp.float32(4)*eps_ab*(idr12-idr6))
 
 def lj_get_energy(positions, box, prms):
     return lj_get_energy_nb(positions, box, prms) + lj_get_energy_14(positions, box, prms)
@@ -375,6 +409,34 @@ def coul_init(prmtop):
     scee = jnp.array([jnp.float32(x) for x in prmtop._raw_data['SCEE_SCALE_FACTOR']])
 
     return (charges, pairs, pairs14, scee)
+
+def coul_init_pme(prmtop, boxVectors, cutoff=0.8, grid_points=96, ewald_error=1e-5):
+    # E (kcal/mol) =  332 * q1*q2/r
+    # hence 18.2 division
+    charges = jnp.array([jnp.float32(x)/18.2223 for x in prmtop._raw_data['CHARGE']])
+    pairs = prm_get_nonbond_pairs(prmtop)
+    pairs14 = prm_get_nonbond14_pairs(prmtop)
+    scee = jnp.array([jnp.float32(x) for x in prmtop._raw_data['SCEE_SCALE_FACTOR']])
+
+    displacement, shift = jax_md.space.periodic(boxVectors)
+
+    # alpha = jnp.sqrt(-jnp.log(2 * ewald_error))/cutoff
+    alpha = .34
+
+    # assuming in this case box vectors needs to be shape (3,1)
+    # n_mesh = (2 * alpha * boxVectors)/((3 * boxVectors)**.2)
+
+    neighbor_fn, nrg_fn = jax_md.energy.coulomb_neighbor_list(
+        displacement,
+        boxVectors,
+        charges*18.2223,
+        grid_points,
+        None,
+        alpha,
+        cutoff,
+        False)
+
+    return (charges, pairs, pairs14, scee), neighbor_fn, nrg_fn
 
 def coul_get_energy_nb(positions, box, prms):
     charges, pairs, pairs14, scee = prms
@@ -395,10 +457,11 @@ def coul_get_energy_nb(positions, box, prms):
 
 def coul_get_energy_nb_pme(positions, box, prms):
     # currently returning erroneous values, not ready for general use
-    charges, pairs, pairs14, scee = prms
-    displacement, shift = jax_md.space.periodic(box)
-    energy_fn = jax_md.energy.coulomb(displacement, box[0], charges, 96, alpha=0.34)
-    return energy_fn(positions)
+    charges, pairs, pairs14, scee, neighbor_fn, nrg_fn = prms
+    nbList = neighbor_fn.allocate(positions)
+    direct_and_recip_nrg = nrg_fn(positions, nbList, charge=charges)
+    self_nrg = self_nrg = (-.34/jnp.sqrt(jnp.pi)) * jnp.sum(charges**2)
+    return direct_and_recip_nrg + self_nrg
 
 def coul_get_energy_14(positions, box, prms):
     charges, pairs, pairs14, scee = prms
@@ -411,15 +474,25 @@ def coul_get_energy_14(positions, box, prms):
     dist = distance(p1, p2, box)
     dist = jnp.where(jnp.isclose(dist, 0.), 1, dist)
 
+    scee_filtered = jnp.where(jnp.isclose(scee, 0.), 0., 1.0/scee)
+
     # constant for 1 / 4 * pi * epsilon
     # print("pairs14", pairs14)
     # print("Coul14 Components", 1.0/scee[parm_idx] * jnp.float32(138.935456) * chg1 * chg2 / dist)
     # print("Coul14 Total E", jnp.sum(1.0/scee[parm_idx] * jnp.float32(138.935456) * chg1 * chg2 / dist))
     #TODO: Remove nan to num references, these may cover up errors that cause gradient instability
-    return jnp.sum(1.0/scee[parm_idx] * jnp.float32(138.935456) * chg1 * chg2 / dist)
+    return jnp.sum(scee_filtered[parm_idx] * jnp.float32(138.935456) * chg1 * chg2 / dist)
 
 def coul_get_energy(positions, box, prms):
     return coul_get_energy_nb(positions, box, prms) + coul_get_energy_14(positions, box, prms)
+
+def coul_get_energy_pme(positions, box, prms):
+    #TODO: add matching LJ with neighbor list/cutoff, wrap into overall nb function and add lj dispersion correction
+    #TODO: also add exclusion policy for 1-2/1-3/1-4, might be able to take exclusion list and mask neighbor list
+    #return coul_get_energy_nb_pme(positions, box, prms) + coul_get_energy_14(positions, box, prms)
+    #let exclusions be captured in pme sum (d+r+self) and then subtract off at end with
+    #one4pieps * chgi * chgj * 1/dist * erf(alpha * dist)
+    return coul_get_energy_nb_pme(positions, box, prms)
 
 def bond_rest_get_energy(positions, box, restraint=None):
     return
