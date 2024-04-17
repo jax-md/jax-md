@@ -73,7 +73,7 @@ Array = util.Array
 PyTree = Any
 f64 = util.f64
 f32 = util.f32
-KeyArray = random.KeyArray
+KeyArray = jax.Array
 NeighborListFns = partition.NeighborListFns
 ShiftFn = space.ShiftFn
 
