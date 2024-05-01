@@ -119,6 +119,8 @@ def distance(p1v, p2v=None, box=None):
     dv = jnp.mod(dR + box * jnp.float32(0.5), box) - jnp.float32(0.5) * box
     return safe_sqrt(jnp.sum(jnp.power(dv, 2), axis=1))
 
+#a dot b = len(a) * len(b) * cos theta
+#theta = arccos((a dot b)/(len(a) * len(b)))
 def angle(p1v, p2v, p3v, box):
     d12 = p2v-p1v
     d12 = jnp.where(d12 > 0.5 * box, d12-box, d12)
@@ -137,7 +139,19 @@ def angle(p1v, p2v, p3v, box):
     vxx = v1[:, 0] * v2[:, 0]
     vyy = v1[:, 1] * v2[:, 1]
     vzz = v1[:, 2] * v2[:, 2]
-    return jnp.arccos(vxx + vyy + vzz)
+    #print("vxx", vxx)
+    #print("vyy", vyy)
+    #print("vzz", vzz)
+    #print("f32 xx", jnp.float32(vxx))
+
+    #TODO: figure out a better way of doing this
+    #for some examples, components can work out to just under -1
+    #this is likely due to position in f16 to math in f32
+    component_sum = vxx + vyy + vzz
+    component_sum = jnp.where(component_sum > 1., 1., component_sum)
+    component_sum = jnp.where(component_sum < -1., -1., component_sum)
+
+    return jnp.arccos(component_sum)
 
 def torsion(p1v, p2v, p3v, p4v, box):
     b1, b2, b3 = p2v - p1v, p3v - p2v, p4v - p3v
@@ -260,7 +274,12 @@ def angle_get_energy(positions, box, prms):
     kprm = k[param_index]
     thetaprm = eqangle[param_index]
     theta = jnp.where(param_index < 0, 0, angle(p1, p2, p3, box))
-    #print("Angle Components", jnp.nan_to_num(0.5 * kprm * jnp.power((theta - thetaprm), 2)))
+    #print('p1', p1)
+    #print('p2', p2)
+    #print('p3', p3)
+    #print('theta', theta)
+    #print('kprm')
+    #print("Angle Components", 0.5 * kprm * jnp.power((theta - thetaprm), 2))
     return jnp.sum(0.5 * kprm * jnp.power((theta - thetaprm), 2))
 
 def torsion_init(prmtop):
