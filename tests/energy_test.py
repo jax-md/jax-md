@@ -17,7 +17,6 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 
-from jax.config import config
 from jax import random
 import jax
 from jax import jit, vmap, grad
@@ -36,7 +35,7 @@ from jax_md import energy
 from jax_md import partition
 from jax_md.interpolate import spline
 
-config.parse_flags_with_absl()
+jax.config.parse_flags_with_absl()
 
 # TODO: Replace np by jnp everywhere.
 jnp = np
@@ -49,7 +48,7 @@ UNIT_CELL_SIZE = [7, 8]
 SOFT_SPHERE_ALPHA = [2.0, 2.5, 3.0]
 N_TYPES_TO_TEST = [1, 2]
 
-if config.x64_enabled:
+if jax.config.x64_enabled:
   POSITION_DTYPE = [f32, f64]
 else:
   POSITION_DTYPE = [f32]
@@ -867,7 +866,7 @@ class EnergyTest(test_util.JAXMDTestCase):
     box_size = np.linalg.det(lattice_vectors) ** (1 / 3)
     energy_fn = energy.edip(displacement)
     E = energy_fn(atoms)
-    
+
     if dtype is f64:
       self.assertAllClose(E, dtype(-297.597013492761), atol=1e-5, rtol=2e-8)
     else:
