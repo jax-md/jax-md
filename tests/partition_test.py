@@ -21,7 +21,7 @@ from absl.testing import parameterized
 
 from functools import partial
 
-from jax.config import config as jax_config
+import jax
 
 from jax import random
 import jax.numpy as np
@@ -34,14 +34,14 @@ from jax_md import smap, partition, space, energy, quantity
 from jax_md.util import *
 from jax_md import test_util
 
-jax_config.parse_flags_with_absl()
+jax.config.parse_flags_with_absl()
 
 
 PARTICLE_COUNT = 1000
 STOCHASTIC_SAMPLES = 10
 SPATIAL_DIMENSION = [2, 3]
 
-if jax_config.jax_enable_x64:
+if jax.config.jax_enable_x64:
   POSITION_DTYPE = [f32, f64]
 else:
   POSITION_DTYPE = [f32]
@@ -486,12 +486,12 @@ class NeighborListTest(test_util.JAXMDTestCase):
       disable_cell_list=disable_cell_list,
       mask_self=mask_self,
       format=format)
-    
+
     nbrs = neighbor_fn.allocate(positions)
 
     self.assertFalse(nbrs.did_buffer_overflow)
     self.assertEqual(nbrs.idx.shape, desired_shape)
-    
+
     new_nbrs = nbrs.update(positions + 0.1)
     self.assertFalse(new_nbrs.did_buffer_overflow)
     self.assertEqual(new_nbrs.idx.shape, desired_shape)
