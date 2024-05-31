@@ -54,7 +54,7 @@ FeaturizerFn = nn_util.FeaturizerFn
 
 get_nonlinearity_by_name = nn_util.get_nonlinearity_by_name
 partial = functools.partial
-tree_map = partial(jax.tree_map, is_leaf=lambda x: isinstance(x, e3nn.IrrepsArray))
+tree_map = partial(jax.tree_util.tree_map, is_leaf=lambda x: isinstance(x, e3nn.IrrepsArray))
 
 # Code
 

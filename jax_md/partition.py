@@ -35,7 +35,7 @@ from jax import ops
 from jax import jit, vmap, eval_shape
 from jax.core import ShapedArray
 from jax.interpreters import partial_eval as pe
-from jax import tree_map
+from jax.tree_util import tree_map
 import jax.numpy as jnp
 
 from jax_md import space

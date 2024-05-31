@@ -24,7 +24,7 @@ from jax import vmap
 from jax import random
 from jax import lax
 
-from jax.config import config as jax_config
+import jax
 import jax.numpy as np
 
 from jax_md import quantity
@@ -40,7 +40,7 @@ from jax_md.util import *
 
 from functools import partial
 
-jax_config.parse_flags_with_absl()
+jax.config.parse_flags_with_absl()
 
 
 PARTICLE_COUNT = 1000
@@ -57,7 +57,7 @@ BROWNIAN_PARTICLE_COUNT = 8000
 BROWNIAN_DYNAMICS_STEPS = 8000
 
 DTYPE = [f32]
-if jax_config.jax_enable_x64:
+if jax.config.jax_enable_x64:
   DTYPE += [f64]
 
 
@@ -699,7 +699,7 @@ class SimulateTest(test_util.JAXMDTestCase):
       tol = 5e-4 if dtype is f32 else 1e-6
       self.assertAllClose(invariant(state.momentum, state.mass), initial, rtol=tol)
       self.assertEqual(state.position.dtype, dtype)
-  
+
   @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),

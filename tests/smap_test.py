@@ -17,7 +17,7 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 
-from jax.config import config as jax_config
+import jax
 
 from jax import random
 import jax.numpy as np
@@ -30,7 +30,7 @@ from jax_md import smap, space, energy, quantity, partition, dataclasses
 from jax_md.util import *
 from jax_md import test_util
 
-jax_config.parse_flags_with_absl()
+jax.config.parse_flags_with_absl()
 
 test_util.update_test_tolerance(f32_tol=5e-6, f64_tol=1e-14)
 
@@ -43,7 +43,7 @@ NEIGHBOR_LIST_FORMAT = [partition.Dense,
 
 NEIGHBOR_LIST_PARTICLE_COUNT = 100
 
-if jax_config.jax_enable_x64:
+if jax.config.jax_enable_x64:
   POSITION_DTYPE = [f32, f64]
 else:
   POSITION_DTYPE = [f32]

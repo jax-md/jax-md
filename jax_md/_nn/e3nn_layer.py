@@ -212,7 +212,7 @@ import e3nn_jax as e3nn
 from e3nn_jax import Irreps
 from e3nn_jax import IrrepsArray
 from e3nn_jax.legacy import FunctionalFullyConnectedTensorProduct
-from e3nn_jax import FunctionalLinear 
+from e3nn_jax import FunctionalLinear
 from e3nn_jax.utils import vmap
 
 import flax.linen as nn
@@ -223,7 +223,7 @@ import jax.numpy as jnp
 from jax.nn import initializers
 from jax import tree_util
 from jax import jit
-from jax import tree_map
+from jax.tree_util import tree_map
 
 import numpy as onp
 

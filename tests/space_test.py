@@ -17,7 +17,7 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 
-from jax.config import config as jax_config
+import jax
 from jax import random
 import jax.numpy as jnp
 
@@ -31,7 +31,7 @@ from unittest import SkipTest
 
 test_util.update_test_tolerance(5e-5, 5e-13)
 
-jax_config.parse_flags_with_absl()
+jax.config.parse_flags_with_absl()
 
 PARTICLE_COUNT = 10
 STOCHASTIC_SAMPLES = 10
@@ -39,7 +39,7 @@ SHIFT_STEPS = 10
 SPATIAL_DIMENSION = [2, 3]
 BOX_FORMATS = ['scalar', 'vector', 'matrix']
 
-if jax_config.jax_enable_x64:
+if jax.config.jax_enable_x64:
   POSITION_DTYPE = [f32, f64]
 else:
   POSITION_DTYPE = [f32]

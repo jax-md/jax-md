@@ -28,7 +28,6 @@ from jax import random
 from jax import lax
 from jax import test_util as jtu
 
-from jax.config import config as jax_config
 import jax.numpy as jnp
 
 from jax_md import quantity
@@ -43,7 +42,7 @@ from jax_md import minimize
 
 from functools import partial
 
-jax_config.parse_flags_with_absl()
+jax.config.parse_flags_with_absl()
 
 
 
@@ -63,7 +62,7 @@ BROWNIAN_PARTICLE_COUNT = 8000
 BROWNIAN_DYNAMICS_STEPS = 8000
 
 DTYPE = [f32]
-if jax_config.jax_enable_x64:
+if jax.config.jax_enable_x64:
   DTYPE += [f64]
 
 

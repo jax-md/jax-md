@@ -19,7 +19,7 @@ import os
 from jax.core import ShapedArray
 from jax import eval_shape
 from jax import random
-from jax import tree_map
+from jax.tree_util import tree_map
 
 import jax.numpy as jnp
 
@@ -92,7 +92,7 @@ def scale_lr_on_plateau(initial_step_size: float,
 
   def update_fn(updates, state, params=None):
     del params
-    updates = jax.tree_map(lambda g: g * state.step_size, updates)
+    updates = jax.tree_util.tree_map(lambda g: g * state.step_size, updates)
     return updates, state
 
   return optax.GradientTransformation(init_fn, update_fn)

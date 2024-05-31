@@ -16,6 +16,7 @@
 
 from typing import Iterable, Union, Optional, Any
 
+import jax
 from jax.tree_util import register_pytree_node
 from jax.lib import xla_bridge
 import jax.numpy as jnp
@@ -25,7 +26,7 @@ from functools import partial
 
 import numpy as onp
 
-Array = Any
+Array = jnp.ndarray
 PyTree = Any
 
 i16 = jnp.int16
