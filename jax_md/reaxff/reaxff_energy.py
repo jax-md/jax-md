@@ -614,7 +614,7 @@ def calculate_covbon_pot(nbr_inds: Array,
   abo = jnp.sum(bo * nbr_mask, axis=1)
 
   bosia = bo - bopi - bopi2
-  bosia = jnp.clip(bosia, a_min=0)
+  bosia = jnp.clip(bosia, 0, float('inf'))
   de1h = symm * my_de1
   de2h = symm * my_de2
   de3h = symm * my_de3
@@ -943,8 +943,8 @@ def calculate_valency_pot(species: Array,
     complete_mask = complete_mask & (boa > 0) & (bob > 0)
 
   # thresholding
-  boa = jnp.clip(boa, a_min=0)
-  bob = jnp.clip(bob, a_min=0)
+  boa = jnp.clip(boa, 0, float('inf'))
+  bob = jnp.clip(bob, 0, float('inf'))
   # calculate SBO term
   # calculate sbo2 and vmbo for every atom in the sim.sys.
   sbo2 = jnp.sum(bopi, axis=1) + jnp.sum(bopi2, axis=1)
