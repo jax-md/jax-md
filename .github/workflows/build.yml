@@ -44,6 +44,7 @@ jobs:
         pip install pytest-xdist
         pip install pytest-cov
         pip install netCDF4
+        pip install ase
     - name: Set Swap Space
       uses: pierotofy/set-swap-space@master
       with:

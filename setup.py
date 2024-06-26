@@ -34,6 +34,7 @@ INSTALL_REQUIRES = [
     'e3nn-jax',
     'dm-haiku',
     'optax',
+    'frozendict',
 ]
 
 setuptools.setup(

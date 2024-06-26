@@ -25,7 +25,6 @@ import netCDF4 as nc
 
 import jax.numpy as jnp
 import numpy as onp
-from jax.config import config
 
 import jax
 from jax import dtypes as _dtypes
@@ -168,7 +167,7 @@ class JAXMDTestCase(parameterized.TestCase):
       self.assertDtypesMatch(x, y)
 
   def assertDtypesMatch(self, x, y, *, canonicalize_dtypes=True):
-    if not config.x64_enabled and canonicalize_dtypes:
+    if not jax.config.x64_enabled and canonicalize_dtypes:
       self.assertEqual(_dtypes.canonicalize_dtype(_dtype(x)),
                        _dtypes.canonicalize_dtype(_dtype(y)))
     else:
