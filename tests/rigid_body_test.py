@@ -18,6 +18,7 @@ import functools
 
 from absl.testing import absltest
 from absl.testing import parameterized
+import pytest
 
 import numpy as onp
 
@@ -71,6 +72,12 @@ if jax_config.jax_enable_x64:
 def rand_quat(key, dtype):
   return rigid_body.random_quaternion(key, dtype)
 
+@pytest.fixture(autouse=True)
+def run_before_and_after_tests(tmpdir):
+  # This is a fixture that runs before and after each test.
+  # This fixes issue 227 (https://github.com/jax-md/jax-md/issues/277)
+  yield # this is where the testing happens
+  jax.clear_caches()
 
 # pylint: disable=invalid-name
 class RigidBodyTest(test_util.JAXMDTestCase):
