@@ -694,6 +694,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                   r_cutoff: float,
                   dr_threshold: float = 0.0,
                   capacity_multiplier: float = 1.25,
+                  buffer_size_multiplier: float = 1.25,
                   disable_cell_list: bool = False,
                   mask_self: bool = True,
                   custom_mask_function: Optional[MaskFn] = None,
@@ -895,7 +896,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
             cell_size = _fractional_cell_size(_box, cutoff)
             _box = 1.0
           if jnp.all(cell_size < _box / 3.):
-            cl_fn = cell_list(_box, cell_size, capacity_multiplier)
+            cl_fn = cell_list(_box, cell_size, buffer_size_multiplier = buffer_size_multiplier)
             cl = cl_fn.allocate(position, extra_capacity=extra_capacity)
         else:
           cell_size = neighbors.cell_size
