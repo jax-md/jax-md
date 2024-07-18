@@ -583,10 +583,10 @@ def is_format_valid(fmt: NeighborListFormat):
 
 def is_box_valid(box: Array) -> bool:
   if jnp.isscalar(box) or box.ndim == 0 or box.ndim == 1:
-    return True
-  if box.ndim == 2:
-    return jnp.triu(box) == box
-  return False
+    return False
+  if box.ndim == 2 and jnp.all(jnp.triu(box) == box) == True:
+    return False
+  return True
 
 
 @dataclasses.dataclass
