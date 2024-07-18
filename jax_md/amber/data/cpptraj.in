@@ -1,0 +1,5 @@
+parm benzene2.prmtop
+trajin benzene2.inpcrd
+energy benzene2 out ene_pme.agr etype pme
+run
+quit

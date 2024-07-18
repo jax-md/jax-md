@@ -54,7 +54,7 @@ NeighborListFormat = partition.NeighborListFormat
 # Direct space code
 
 
-def coulomb_direct(dr: Array, charge_sq: Array, alpha: float) -> Array:
+def coulomb_direct(dr: Array, charge_sq: Array, alpha: float, **kwargs) -> Array:
   return charge_sq * erfc(alpha * dr) / dr
 
 
@@ -81,6 +81,9 @@ def coulomb_direct_neighbor_list(
         cutoff: float=9.0,
         **neighbor_kwargs) -> Tuple[NeighborFn,
                                     Callable[[Array, NeighborList], Array]]:
+  #print("nb kw arg", neighbor_kwargs)
+  #print("custom_mask_function", custom_mask_function)
+  #sys.exit()
   neighbor_fn = partition.neighbor_list(
       space.canonicalize_displacement_or_metric(displacement_or_metric),
       box,
@@ -88,6 +91,7 @@ def coulomb_direct_neighbor_list(
       **neighbor_kwargs
   )
 
+  #print("cutoff being used in nb fn", cutoff)
   masked_energy_fn = lambda dr, **kwargs: jnp.where(
       dr < cutoff,
       coulomb_direct(dr, **kwargs),
@@ -116,6 +120,10 @@ def coulomb_recip_ewald(charge: Array,
     V = side_length**dim
 
     dg = 2 * onp.pi / side_length
+
+    #print("side len", side_length)
+    #print("dg, gmax", dg, g_max)
+
     # Just to make the sum inclusive.
     g_range = onp.arange(0, g_max + dg/2, dg)
     g_range = onp.concatenate((-g_range[::-1], g_range[1:]))
@@ -129,7 +137,7 @@ def coulomb_recip_ewald(charge: Array,
     S2 = jnp.abs(structure_factor(g, position, charge))**2
     fn = lambda g2: jnp.exp(-g2 / (4*alpha**2)) / g2 * S2
 
-    return Z * util.high_precision_sum(safe_mask(mask, fn, g2, 1))
+    return Z * util.high_precision_sum(util.safe_mask(mask, fn, g2, 1))
   return energy_fn
 
 
@@ -181,14 +189,32 @@ def coulomb_ewald_neighbor_list(
         charge: Array,
         species: Array=None,
         alpha: float=0.34,
-        g_max: float=5.0
+        g_max: float=5.0,
+        cutoff: float=9.0,
+        fractional_coordinates: bool=False,
+        custom_mask_function: Callable=None,
+        dr_threshold=0.0
 ) -> Tuple[NeighborFn,
            Callable[[Array, NeighborList], Array]]:
+  
+  nbr_box = jnp.diag(box) if (isinstance(box, jnp.ndarray) and box.ndim == 2) else box
+
+  box = jnp.diag(box) if (isinstance(box, jnp.ndarray) and box.ndim == 1) else box
+  #print("Box shape", box)
   neighbor_fn, direct_fn = coulomb_direct_neighbor_list(
-      displacement_fn, box, charge, species=species, alpha=alpha)
+      displacement_fn, nbr_box, charge, species=species, alpha=alpha, 
+      fractional_coordinates=fractional_coordinates, cutoff=cutoff, 
+      disable_cell_list=False, format=NeighborListFormat.OrderedSparse, 
+      custom_mask_function=custom_mask_function, dr_threshold=dr_threshold)
+  #neighbor_fn, direct_fn = coulomb_direct_neighbor_list(
+  #    displacement_fn, box, charge, species=species, alpha=alpha)
   recip_fn = coulomb_recip_ewald(charge, box, alpha, g_max)
   def total_energy(R, neighbor, **kwargs):
-    return direct_fn(R, neighbor=neighbor, **kwargs) + recip_fn(R, **kwargs)
+    direct_nrg = direct_fn(R, neighbor=neighbor, **kwargs)
+    #print("Direct Energy: ", direct_nrg)
+    recip_nrg = recip_fn(R, **kwargs)
+    #print("Recip Energy: ", recip_nrg)
+    return direct_nrg + recip_nrg
   return neighbor_fn, total_energy
 
 
@@ -218,16 +244,30 @@ def coulomb_neighbor_list(
         species: Array=None,
         alpha: float=0.34,
         cutoff: float=9.0,
-        fractional_coordinates: bool=False
+        fractional_coordinates: bool=False,
+        custom_mask_function: Callable=None,
+        dr_threshold=0.0
 ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
+  # print("custom mask fun", custom_mask_function)
+  # sys.exit()
   nbr_box = jnp.diag(box) if (isinstance(box, jnp.ndarray) and box.ndim == 2) else box
+
+  box = jnp.diag(box) if (isinstance(box, jnp.ndarray) and box.ndim == 1) else box
+  #print("Box shape", box)
   neighbor_fn, direct_fn = coulomb_direct_neighbor_list(
       displacement_fn, nbr_box, charge, species=species, alpha=alpha, 
-      fractional_coordinates=fractional_coordinates, cutoff=cutoff)
+      fractional_coordinates=fractional_coordinates, cutoff=cutoff, 
+      disable_cell_list=False, format=NeighborListFormat.OrderedSparse, 
+      custom_mask_function=custom_mask_function, dr_threshold=dr_threshold)
   recip_fn = coulomb_recip_pme(
       charge, box, grid_points, fractional_coordinates, alpha)
   def total_energy(R, neighbor, **kwargs):
-    return direct_fn(R, neighbor=neighbor, **kwargs) + recip_fn(R, **kwargs)
+    direct_nrg = direct_fn(R, neighbor=neighbor, **kwargs)
+    #print("direct_nrg", direct_nrg)
+    recip_nrg = recip_fn(R, **kwargs)
+    #print(kwargs)
+    #print("recip_nrg", recip_nrg)
+    return direct_nrg + recip_nrg
   return neighbor_fn, total_energy
 
 

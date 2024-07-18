@@ -24,6 +24,96 @@ import jax
 import jax_md
 
 from jax_md.reaxff.reaxff_helper import safe_sqrt
+from jax_md.reaxff.reaxff_helper import safe_sqrt
+
+from jax.scipy.sparse import linalg
+from jax.scipy.special import erf, erfc
+
+# Types
+f32 = jax_md.util.f32
+f64 = jax_md.util.f64
+Array = jax_md.util.Array
+
+def calculate_eem_charges_amber(species: Array,
+                                atom_mask: Array,
+                                nbr_inds: Array,
+#                                hulp2_mat: Array,
+                                far_nbr_dists: Array,
+                                idempotential: Array,
+                                electronegativity: Array,
+                                init_charges: Array = None,
+                                total_charge: float = 0.0,
+                                backprop_solve: bool = False,
+                                tol: float = 1e-06,
+                                max_solver_iter: int = 500):
+    '''
+    EEM charge solver
+    If max_solver_iter is set to -1, use direct solve
+    Returns:
+    an array of shape [n+1,] where first n entries are the charges and
+    last entry is the electronegativity equalization value
+    '''
+
+    # if backprop_solve == False:
+    #     tapered_dists = jax.lax.stop_gradient(tapered_dists)
+    #     hulp2_mat = jax.lax.stop_gradient(hulp2_mat)
+    # prev_dtype = tapered_dists.dtype
+    # N = len(species)
+    # # might cause nan issues if 0s not handled well
+    # A = safe_mask(hulp2_mat != 0, lambda x: tapered_dists * 14.4 / x, hulp2_mat, 0.0)
+
+    if backprop_solve == False:
+        far_nbr_dists = jax.lax.stop_gradient(far_nbr_dists)
+        #hulp2_mat = jax.lax.stop_gradient(hulp2_mat)
+    prev_dtype = far_nbr_dists.dtype
+    N = len(species)
+    # might cause nan issues if 0s not handled well
+    # A = jax_md.util.safe_mask(hulp2_mat != 0, lambda x: far_nbr_dists, hulp2_mat, 0.0)
+    A = far_nbr_dists
+
+
+    my_idemp = idempotential[species]
+    my_elect = electronegativity[species] * atom_mask
+
+    def to_dense():
+        '''
+        Create a dense matrix
+        '''
+        A_ = jax.vmap(lambda j: jax.vmap(lambda i: jnp.sum(A[i] * (nbr_inds[i] == j)))(jnp.arange(N)))(jnp.arange(N))
+        A_ =  A_.at[jnp.diag_indices(N)].add(2.0 * my_idemp)
+        matrix = jnp.zeros(shape=(N+1,N+1),dtype=prev_dtype)
+        matrix = matrix.at[:N,:N].set(A_)
+        matrix = matrix.at[N,:N].set(atom_mask)
+        matrix = matrix.at[:N,N].set(atom_mask)
+        matrix = matrix.at[N,N].set(0.0)
+        return matrix
+
+    mask = (nbr_inds != N)
+
+    def SPMV_dense(vec):
+        '''
+        Matrix-free mat-vec
+        '''
+        res = jnp.zeros(shape=(N+1,), dtype=jnp.float64)
+        s_vec = vec.astype(prev_dtype)[nbr_inds] * mask
+        vals = jax.vmap(jnp.dot)(A, s_vec) + \
+            (my_idemp * 2.0) * vec[:N] + vec[N]
+        res = res.at[:N].set(vals * atom_mask)
+        res = res.at[N].set(jnp.sum(vec[:N] * atom_mask))  # sum of charges
+        return res
+
+    b = jnp.zeros(shape=(N+1,), dtype=jnp.float64)
+    b = b.at[:N].set(-1 * my_elect)
+    b = b.at[N].set(total_charge)
+    if max_solver_iter == -1:
+        charges = jnp.linalg.solve(to_dense(), b)
+    else:
+        charges, conv_info = linalg.cg(SPMV_dense, b, x0=init_charges, tol=tol, maxiter=max_solver_iter)
+        #jax.debug.print("Convergence Information {conv_info}", conv_info=conv_info)
+        #print("Convergence Information EEM", conv_info)
+    charges = charges.astype(prev_dtype)
+    charges = charges.at[:-1].multiply(atom_mask)
+    return charges
 
 def prm_get_nonbond_pairs (prm_raw_data):
     num_excl_atoms = prm_raw_data._raw_data['NUMBER_EXCLUDED_ATOMS']
@@ -65,8 +155,8 @@ def prm_get_nonbond_terms (prm_raw_data):
     for i in range(numTypes):
 
         index = int (prm_raw_data._raw_data['NONBONDED_PARM_INDEX'][numTypes*i+i]) - 1    
-        acoef = jnp.float32(LJ_ACOEF[index])
-        bcoef = jnp.float32(LJ_BCOEF[index])
+        acoef = jnp.float64(LJ_ACOEF[index])
+        bcoef = jnp.float64(LJ_BCOEF[index])
 
         if jnp.isclose(acoef, 0.) or jnp.isclose(bcoef, 0.):
             sig = 1.0
@@ -116,7 +206,7 @@ def prm_get_nonbond14_pairs (prm_raw_data):
 
 def distance(p1v, p2v=None, box=None):
     dR = p1v-p2v
-    dv = jnp.mod(dR + box * jnp.float32(0.5), box) - jnp.float32(0.5) * box
+    dv = jnp.mod(dR + box * jnp.float64(0.5), box) - jnp.float64(0.5) * box
     return safe_sqrt(jnp.sum(jnp.power(dv, 2), axis=1))
 
 #a dot b = len(a) * len(b) * cos theta
@@ -142,7 +232,7 @@ def angle(p1v, p2v, p3v, box):
     #print("vxx", vxx)
     #print("vyy", vyy)
     #print("vzz", vzz)
-    #print("f32 xx", jnp.float32(vxx))
+    #print("f32 xx", jnp.float64(vxx))
 
     #TODO: figure out a better way of doing this
     #for some examples, components can work out to just under -1
@@ -155,9 +245,9 @@ def angle(p1v, p2v, p3v, box):
 
 def torsion(p1v, p2v, p3v, p4v, box):
     b1, b2, b3 = p2v - p1v, p3v - p2v, p4v - p3v
-    b1 = jnp.mod(b1 + box * jnp.float32(0.5), box) - jnp.float32(0.5) * box
-    b2 = jnp.mod(b2 + box * jnp.float32(0.5), box) - jnp.float32(0.5) * box
-    b3 = jnp.mod(b3 + box * jnp.float32(0.5), box) - jnp.float32(0.5) * box
+    b1 = jnp.mod(b1 + box * jnp.float64(0.5), box) - jnp.float64(0.5) * box
+    b2 = jnp.mod(b2 + box * jnp.float64(0.5), box) - jnp.float64(0.5) * box
+    b3 = jnp.mod(b3 + box * jnp.float64(0.5), box) - jnp.float64(0.5) * box
 
     c1 = jax.vmap(jnp.cross, (0, 0))(b2, b3)
     c2 = jax.vmap(jnp.cross, (0, 0))(b1, b2)
@@ -178,9 +268,9 @@ def torsion(p1v, p2v, p3v, p4v, box):
 
 def torsion_single(p1v, p2v, p3v, p4v, box):
     b1, b2, b3 = p2v - p1v, p3v - p2v, p4v - p3v
-    b1 = jnp.mod(b1 + box * jnp.float32(0.5), box) - jnp.float32(0.5) * box
-    b2 = jnp.mod(b2 + box * jnp.float32(0.5), box) - jnp.float32(0.5) * box
-    b3 = jnp.mod(b3 + box * jnp.float32(0.5), box) - jnp.float32(0.5) * box
+    b1 = jnp.mod(b1 + box * jnp.float64(0.5), box) - jnp.float64(0.5) * box
+    b2 = jnp.mod(b2 + box * jnp.float64(0.5), box) - jnp.float64(0.5) * box
+    b3 = jnp.mod(b3 + box * jnp.float64(0.5), box) - jnp.float64(0.5) * box
 
     c1 = jnp.cross(b2, b3)
     c2 = jnp.cross(b1, b2)
@@ -203,9 +293,9 @@ def bond_init(prmtop):
     #multiply by 2 for openmm standard 0.5 * k(r-r0)^2
     #see http://docs.openmm.org/6.2.0/userguide/theory.html
     #kcal/mol/A -> kJ/mol/nm
-    k = jnp.array([2.0 * 418.4 * jnp.float32(kval) for kval in prmtop._raw_data['BOND_FORCE_CONSTANT']])
+    k = jnp.array([2.0 * 418.4 * jnp.float64(kval) for kval in prmtop._raw_data['BOND_FORCE_CONSTANT']])
     #A -> NM
-    l = jnp.array([0.1 * jnp.float32(lval) for lval in prmtop._raw_data['BOND_EQUIL_VALUE']])
+    l = jnp.array([0.1 * jnp.float64(lval) for lval in prmtop._raw_data['BOND_EQUIL_VALUE']])
 
     bondidx = prmtop._raw_data["BONDS_INC_HYDROGEN"] + prmtop._raw_data["BONDS_WITHOUT_HYDROGEN"]
     bondidx = jnp.array([int(index) for index in bondidx]).reshape((-1,3))
@@ -252,8 +342,8 @@ def bond_get_energy(positions, box, prms):
 
 def angle_init(prmtop):
     #kcal/mol/rad -> kJ/mol/rad
-    k = jnp.array([2.0 * 4.184 * jnp.float32(kval) for kval in prmtop._raw_data['ANGLE_FORCE_CONSTANT']])
-    eqangle = jnp.array([jnp.float32(aval) for aval in prmtop._raw_data['ANGLE_EQUIL_VALUE']])
+    k = jnp.array([2.0 * 4.184 * jnp.float64(kval) for kval in prmtop._raw_data['ANGLE_FORCE_CONSTANT']])
+    eqangle = jnp.array([jnp.float64(aval) for aval in prmtop._raw_data['ANGLE_EQUIL_VALUE']])
 
     angleidx = prmtop._raw_data["ANGLES_INC_HYDROGEN"] + prmtop._raw_data["ANGLES_WITHOUT_HYDROGEN"]
     angleidx = jnp.array([int(index) for index in angleidx]).reshape((-1,4))
@@ -283,11 +373,11 @@ def angle_get_energy(positions, box, prms):
     return jnp.sum(0.5 * kprm * jnp.power((theta - thetaprm), 2))
 
 def torsion_init(prmtop):
-    k = jnp.array([4.184 * jnp.float32(kval) for kval in prmtop._raw_data['DIHEDRAL_FORCE_CONSTANT']])
+    k = jnp.array([4.184 * jnp.float64(kval) for kval in prmtop._raw_data['DIHEDRAL_FORCE_CONSTANT']])
 
     cos_phase0 = []
     for ph0 in prmtop._raw_data['DIHEDRAL_PHASE']:
-        val = jnp.cos (jnp.float32(ph0))
+        val = jnp.cos (jnp.float64(ph0))
         if val < 0:
             cos_phase0.append (-1.0)
         else:
@@ -296,7 +386,7 @@ def torsion_init(prmtop):
 
     periodicity = []
     for n0 in prmtop._raw_data['DIHEDRAL_PERIODICITY']:
-        periodicity.append (int(0.5 + jnp.float32(n0)))
+        periodicity.append (int(0.5 + jnp.float64(n0)))
 
     periodicity = jnp.array(periodicity)
 
@@ -337,12 +427,25 @@ def lj_init(prmtop):
     sigma, epsilon = prm_get_nonbond_terms(prmtop)
     pairs = prm_get_nonbond_pairs(prmtop)
     pairs14 = prm_get_nonbond14_pairs(prmtop)
-    scnb = jnp.array([jnp.float32(x) for x in prmtop._raw_data['SCNB_SCALE_FACTOR']])
+    scnb = jnp.array([jnp.float64(x) for x in prmtop._raw_data['SCNB_SCALE_FACTOR']])
 
     return (pairs, pairs14, atom_type, sigma, epsilon, scnb)
 
-def lj_get_energy_nb(positions, box, prms):
+def lj_get_energy_nb(positions, box, prms, nbList=None):
     pairs, pairs14, atom_type, sigma, epsilon, scnb = prms
+
+    # TODO: this only works for ordered sparse neighbor lists i.e. (-1,2) shape
+    # it should also work for dense neighbors i.e. (-1, max_occupancy)
+    # it would probably be smart to move as many of these functions as possible onto map_neighbor
+    
+    mask = 1
+
+    if nbList != None:
+        pairs = nbList.idx.T
+        mask = pairs[:,0] < pairs[:,1] # corrects for Sparse instead of OrderedSparse
+
+    #print("nb dims", nbList.idx.shape)
+    #print("pairs dims", pairs.shape)
 
     p1 = positions[pairs[:,0]]
     p2 = positions[pairs[:,1]]
@@ -369,17 +472,18 @@ def lj_get_energy_nb(positions, box, prms):
     # print("epssuma", jnp.sum(epsilon[at_type_a]))
     # print("sigab", jnp.sum(sig_ab))
     # print("epsab", jnp.sum(eps_ab))
-    # print("LJ Components", jnp.float32(4)*eps_ab*(idr12-idr6))
-    # energies = jnp.float32(4)*eps_ab*(idr12-idr6)
+    #print("LJ Components", jnp.float64(4)*eps_ab*(idr12-idr6))
+    #jax.debug.print("LJ Components {lj_components}", lj_components=(jnp.float64(4)*eps_ab*(idr12-idr6)))
+    # energies = jnp.float64(4)*eps_ab*(idr12-idr6)
     # print("LJ Energies", energies)
 
     # filtered_energies = jnp.where(pairs[:,0] < 0, 0, energies)
 
     # #return jnp.sum(filtered_energies)
-    # print("LJ Total E internal", jnp.sum(jnp.float32(4)*eps_ab*(idr12-idr6)))
+    # print("LJ Total E internal", jnp.sum(jnp.float64(4)*eps_ab*(idr12-idr6)))
     #print("epsab", jnp.sum(eps_ab))
     #print("idr12", jnp.sum(idr12))
-    return jnp.sum(jnp.float32(4)*eps_ab*(idr12-idr6))
+    return jnp.sum(mask*jnp.float64(4)*eps_ab*(idr12-idr6))
 
 def lj_get_energy_14(positions, box, prms):
     pairs, pairs14, atom_type, sigma, epsilon, scnb = prms
@@ -402,60 +506,435 @@ def lj_get_energy_14(positions, box, prms):
 
     scnb_filtered = jnp.where(jnp.isclose(scnb, 0.), 0., 1.0/scnb)
 
-    #print("LJ 14 Components", 1.0/scnb[parm_idx] * jnp.float32(4)*eps_ab*(idr12-idr6))
-    # print("LJ 14 Components", 1.0/scnb[parm_idx] * jnp.float32(4)*eps_ab*(idr12-idr6))
-    # print("LJ 14 Components Filtered", scnb_filtered[parm_idx] * jnp.float32(4)*eps_ab*(idr12-idr6))
+    #print("LJ 14 Components", 1.0/scnb[parm_idx] * jnp.float64(4)*eps_ab*(idr12-idr6))
+    # print("LJ 14 Components", 1.0/scnb[parm_idx] * jnp.float64(4)*eps_ab*(idr12-idr6))
+    # print("LJ 14 Components Filtered", scnb_filtered[parm_idx] * jnp.float64(4)*eps_ab*(idr12-idr6))
 
-    # energies = jnp.nan_to_num(1.0/scnb[parm_idx] * jnp.float32(4)*eps_ab*(idr12-idr6))
+    # energies = jnp.nan_to_num(1.0/scnb[parm_idx] * jnp.float64(4)*eps_ab*(idr12-idr6))
     # print("LJ 14 Energies", energies)
 
     # filtered_energies = jnp.where(parm_idx < 0, 0, energies)
 
     # #return jnp.sum(filtered_energies)
-    # print("LJ 14 Total E", jnp.sum(1.0/scnb[parm_idx] * jnp.float32(4)*eps_ab*(idr12-idr6)))
+    # print("LJ 14 Total E", jnp.sum(1.0/scnb[parm_idx] * jnp.float64(4)*eps_ab*(idr12-idr6)))
 
-    return jnp.sum(scnb_filtered[parm_idx] * jnp.float32(4)*eps_ab*(idr12-idr6))
+    return jnp.sum(scnb_filtered[parm_idx] * jnp.float64(4)*eps_ab*(idr12-idr6))
 
-def lj_get_energy(positions, box, prms):
-    return lj_get_energy_nb(positions, box, prms) + lj_get_energy_14(positions, box, prms)
+def lj_get_energy(positions, box, prms, nbList=None):
+    lj_nrg = lj_get_energy_nb(positions, box, prms, nbList)
+    lj14_nrg = lj_get_energy_14(positions, box, prms)
+    #print("lj nrg", lj_nrg)
+    #print("lj14 nrg", lj14_nrg)
+    #jax.debug.print("LJ Energy (main pairs) {lj_nrg}", lj_nrg=lj_nrg)
+    #jax.debug.print("LJ 14 Energy {lj14_nrg}", lj14_nrg=lj14_nrg)
+    return lj_nrg + lj14_nrg
+    #return lj_get_energy_nb(positions, box, prms, nbList) + lj_get_energy_14(positions, box, prms)
+
+# Convenience wrapper to calculate LJ energy over JAX MD neighbor list
+def lj_get_energy_nbr(positions, box, prms, nbList, displacement_fn):
+    #have to map neighbor list and pass sigma and epsilon as params
+    #params must have form sigma=tuple(combinator, params)
+    #it looks like _get_neighborhood_matrix_params may have a bug that needs to be checked
+    #e.g. double return about 10 lines in
+
+    pairs, pairs14, atom_type, sigma, epsilon, scnb = prms
+
+    #print("nb list", nbList.idx)
+
+    #print("atom type", atom_type)
+
+    # pairs = nbList.idx.T
+    # at_type_a = atom_type[pairs[:,0]]
+    # at_type_b = atom_type[pairs[:,1]]
+
+    # p1 = positions[pairs[:,0]]
+    # p2 = positions[pairs[:,1]]
+    # dist = distance(p1,p2, box)
+
+    #print("dists", dist)
+
+    #print("atom type [:, 0]", at_type_a)
+    #print("atom type [:, 1]", at_type_b)
+    #print("sigma atm a", sigma[at_type_a])
+    #print("sigma atm b", sigma[at_type_b])
+    #print("eps atm a", epsilon[at_type_a])
+    #print("eps atm b", epsilon[at_type_b])
+
+    def lorentz_combine(idxa, idxb):
+        #print("idx a b", idxa, idxb)
+        #print("lorentz sig", 0.5*(sigma[idxa] + sigma[idxb]))
+        return 0.5*(sigma[idxa] + sigma[idxb])
+
+    def berthelot_combine(idxa, idxb):
+        #print("berth eps", safe_sqrt(epsilon[idxa] * epsilon[idxb]))
+        return safe_sqrt(epsilon[idxa] * epsilon[idxb])
+
+    def lennard_jones(dr, sigma, epsilon):
+        #print("lj dr", dr)
+        #print("lj sig", sigma)
+        #print("lj eps", epsilon)
+        dr = jnp.where(jnp.isclose(dr, 0.), 1, dr)
+        idr = (sigma / dr)
+        idr = idr * idr
+        idr6 = idr * idr * idr
+        idr12 = idr6 * idr6
+        #print("lj components", jnp.float64(4) * epsilon * (idr12 - idr6))
+        #print("lj components shape", (jnp.float64(4) * epsilon * (idr12 - idr6)).shape)
+        return jnp.float64(4) * epsilon * (idr12 - idr6)
+
+    # eventually move this to the init function for efficiency
+
+    # energy_fn = smap.pair_neighbor_list(
+    # multiplicative_isotropic_cutoff(lennard_jones, r_onset, r_cutoff),
+    # space.canonicalize_displacement_or_metric(displacement_or_metric),
+    # ignore_unused_parameters=True,
+    # species=species,
+    # sigma=sigma,
+    # epsilon=epsilon,
+    # reduce_axis=(1,) if per_particle else None)
+    N = jnp.arange(len(positions))
+
+    energy_fn = jax_md.smap.pair_neighbor_list(
+        lennard_jones,
+        jax_md.space.canonicalize_displacement_or_metric(displacement_fn),
+        ignore_unused_parameters=False,
+        # could also do this and then directly access
+        # sigma=(lorentz_combine, atom_type[N]),
+        # epsilon=(berthelot_combine, atom_type[N])
+        sigma=(lorentz_combine, atom_type),
+        epsilon=(berthelot_combine, atom_type)
+    )
+
+    lj_nrg = energy_fn(positions, neighbor=nbList)
+    lj14_nrg = lj_get_energy_14(positions, box, prms)
+
+    #jax.debug.print("LJ Energy NBlist {lj_nrg}", lj_nrg=lj_nrg)
+    #jax.debug.print("LJ 14 Energy NBlist {lj14_nrg}", lj14_nrg=lj14_nrg)
+
+    return lj_nrg + lj14_nrg
 
 def coul_init(prmtop):
     # E (kcal/mol) =  332 * q1*q2/r
     # hence 18.2 division
-    charges = jnp.array([jnp.float32(x)/18.2223 for x in prmtop._raw_data['CHARGE']])
+    charges = jnp.array([jnp.float64(x)/18.2223 for x in prmtop._raw_data['CHARGE']])
     pairs = prm_get_nonbond_pairs(prmtop)
     pairs14 = prm_get_nonbond14_pairs(prmtop)
-    scee = jnp.array([jnp.float32(x) for x in prmtop._raw_data['SCEE_SCALE_FACTOR']])
+    scee = jnp.array([jnp.float64(x) for x in prmtop._raw_data['SCEE_SCALE_FACTOR']])
 
     return (charges, pairs, pairs14, scee)
 
-def coul_init_pme(prmtop, boxVectors, cutoff=0.8, grid_points=96, ewald_error=1e-5):
+def coul_init_pme(prmtop, boxVectors, cutoff=0.8, grid_points=96, ewald_error=5e-4, custom_mask_function=None, dr_threshold=0.0):
     # E (kcal/mol) =  332 * q1*q2/r
     # hence 18.2 division
-    charges = jnp.array([jnp.float32(x)/18.2223 for x in prmtop._raw_data['CHARGE']])
+    
+    #nm -> A internally
+    boxVectors = boxVectors
+    cutoff = cutoff
+    dr_threshold = dr_threshold
+
+    charges = jnp.array([jnp.float64(x)/18.2223 for x in prmtop._raw_data['CHARGE']])
     pairs = prm_get_nonbond_pairs(prmtop)
     pairs14 = prm_get_nonbond14_pairs(prmtop)
-    scee = jnp.array([jnp.float32(x) for x in prmtop._raw_data['SCEE_SCALE_FACTOR']])
+    scee = jnp.array([jnp.float64(x) for x in prmtop._raw_data['SCEE_SCALE_FACTOR']])
 
-    displacement, shift = jax_md.space.periodic(boxVectors)
+    #displacement, shift = jax_md.space.periodic_general(boxVectors, fractional_coordinates=False)
+    displacement, shift = jax_md.space.periodic(boxVectors, wrapped=True)
 
-    # alpha = jnp.sqrt(-jnp.log(2 * ewald_error))/cutoff
-    alpha = .34
+    alpha = jnp.sqrt(-jnp.log(2 * ewald_error))/(cutoff)
+    #alpha = .34
+    #alpha = .41
 
     # assuming in this case box vectors needs to be shape (3,1)
-    # n_mesh = (2 * alpha * boxVectors)/((3 * boxVectors)**.2)
+    #grid_points = (2 * alpha * boxVectors)/((3 * boxVectors)**.2)
+
+    #scee = None
+    #scnb = None
+    exceptions = []
+    exceptions14 = []
+    excludedAtomPairs = set()
+    #sigmaScale = 2**(-1./6.)
+    #_scee, _scnb = scee, scnb
+    for (iAtom, lAtom, chargeProd, rMin, epsilon, iScee, iScnb) in prmtop.get14Interactions():
+        #if scee is None: _scee = iScee
+        #if scnb is None: _scnb = iScnb
+        #print("SCNB", _scnb)
+        #chargeProd /= _scee
+        #epsilon /= _scnb
+        #sigma = rMin * sigmaScale
+        exceptions14.append((iAtom, lAtom))
+        excludedAtomPairs.add(min((iAtom, lAtom), (lAtom, iAtom)))
+    
+    # Add 1-2 and 1-3 Interactions
+    excludedAtoms = prmtop.getExcludedAtoms()
+    #excludeParams = (0.0, 0.1, 0.0)
+    for iAtom in range(prmtop.getNumAtoms()):
+        for jAtom in excludedAtoms[iAtom]:
+            if min((iAtom, jAtom), (jAtom, iAtom)) in excludedAtomPairs: continue
+            exceptions.append((iAtom, jAtom))
+
+    exceptions = jnp.array(exceptions)
+    exceptions14 = jnp.array(exceptions14)
+
+    # def getExcludedAtoms(prmtop):
+    #     excludedAtoms=[]
+    #     numExcludedAtomsList = prmtop._raw_data["NUMBER_EXCLUDED_ATOMS"]
+    #     excludedAtomsList = prmtop._raw_data["EXCLUDED_ATOMS_LIST"]
+    #     total=0
+    #     for iAtom in range(int(prmtop._raw_data['POINTERS'][0])):
+    #         index0=total
+    #         n=int(numExcludedAtomsList[iAtom])
+    #         total+=n
+    #         index1=total
+    #         atomList=[]
+    #         for jAtom in excludedAtomsList[index0:index1]:
+    #             j=int(jAtom)
+    #             if j>0:
+    #                 excludedAtoms.append([iAtom, j-1])
+    #     return excludedAtoms
+
+    #from functools import partial
+    #@partial(jax.jit, static_argnums=(2))
+    #def mask_generator(nAtoms, exclusions, exclusionSize):
+        # this should cover 1-2 and 1-3 exclusions
+        #exceptions = jnp.array(exceptions)
+        #exceptions14 = jnp.array(exceptions14)
+        # exclusions = jnp.array(getExcludedAtoms(prmtop))
+        #print("excl shape", exclusions.shape)
+        #nAtoms = int(prmtop._raw_data['POINTERS'][0])
+
+        #TODO: figure out if there's a better way to parallelize this either via vmap
+        # or at least a lax loop
+
+    exclusions = jnp.concatenate((exceptions, exceptions14))
+    exclusionSize = len(exclusions)
+    nAtoms = int(prmtop._raw_data['POINTERS'][0])
+
+    def mask_function(idx):
+        #ends up being (n,2) shape but only [:,1] matters
+        #exclusion[:,0] ends up still being the main axis into idx
+        #print("exclusions shape", exclusions.shape)
+        e_idx = jnp.argwhere(idx[exclusions[:, 0]] == exclusions[:, 1].reshape(-1,1), size=len(exclusions))
+        #print("eidx shape", e_idx.shape)
+        idx = idx.at[exclusions[:, 0], e_idx[:, 1]].set(nAtoms)
+
+        e_idx = jnp.argwhere(idx[exclusions[:, 1]] == exclusions[:, 0].reshape(-1,1), size=len(exclusions))
+        idx = idx.at[exclusions[:, 1], e_idx[:, 1]].set(nAtoms)
+
+        # print("exlusions shape", exclusions.shape)
+        # for exclusion in exclusions:
+        #     e_idx = jnp.argwhere(idx[exclusion[0]] == exclusion[1], size=exclusionSize)
+        #     idx = idx.at[exclusion[0], e_idx].set(nAtoms)
+
+        #     e_idx = jnp.argwhere(idx[exclusion[1]] == exclusion[0], size=exclusionSize)
+        #     idx = idx.at[exclusion[1], e_idx].set(nAtoms)
+
+        return idx
+
+    #custom_mask_function = mask_generator(nAtoms, exclusions, exclusionSize)
 
     neighbor_fn, nrg_fn = jax_md.energy.coulomb_neighbor_list(
         displacement,
         boxVectors,
-        charges*18.2223,
+        charges,
         grid_points,
         None,
         alpha,
         cutoff,
-        False)
+        False,
+        mask_function,
+        dr_threshold)
 
-    return (charges, pairs, pairs14, scee), neighbor_fn, nrg_fn
+    #exclusions = jnp.array(getExcludedAtoms(prmtop))
+
+    return charges, pairs, pairs14, scee, neighbor_fn, nrg_fn, exceptions, exceptions14, alpha
+
+def coul_init_ewald(prmtop, boxVectors, cutoff=0.8, grid_points=96, ewald_error=5e-4, custom_mask_function=None, dr_threshold=0.0):
+    # def coulomb_ewald_neighbor_list(
+    #     displacement_fn: Array,
+    #     box: Array,
+    #     charge: Array,
+    #     species: Array=None,
+    #     alpha: float=0.34,
+    #     g_max: float=5.0,
+    #     cutoff: float=9.0,
+    #     fractional_coordinates: bool=False,
+    #     custom_mask_function: Callable=None,
+    #     dr_threshold=0.0
+    boxVectors = boxVectors*10
+    cutoff = cutoff*10
+    dr_threshold = dr_threshold*10
+
+    charges = jnp.array([jnp.float64(x)/18.2223 for x in prmtop._raw_data['CHARGE']])
+    pairs = prm_get_nonbond_pairs(prmtop)
+    pairs14 = prm_get_nonbond14_pairs(prmtop)
+    scee = jnp.array([jnp.float64(x) for x in prmtop._raw_data['SCEE_SCALE_FACTOR']])
+
+    #displacement, shift = jax_md.space.periodic_general(boxVectors, fractional_coordinates=False)
+    displacement, shift = jax_md.space.periodic(boxVectors, wrapped=True)
+
+    alpha = jnp.sqrt(-jnp.log(2 * ewald_error))/(cutoff)
+    #alpha = .34
+    #alpha = .41
+
+    # assuming in this case box vectors needs to be shape (3,1)
+    #grid_points = (2 * alpha * boxVectors)/((3 * boxVectors)**.2)
+
+    #scee = None
+    #scnb = None
+    exceptions = []
+    exceptions14 = []
+    excludedAtomPairs = set()
+    #sigmaScale = 2**(-1./6.)
+    #_scee, _scnb = scee, scnb
+    for (iAtom, lAtom, chargeProd, rMin, epsilon, iScee, iScnb) in prmtop.get14Interactions():
+        #if scee is None: _scee = iScee
+        #if scnb is None: _scnb = iScnb
+        #print("SCNB", _scnb)
+        #chargeProd /= _scee
+        #epsilon /= _scnb
+        #sigma = rMin * sigmaScale
+        exceptions14.append((iAtom, lAtom))
+        excludedAtomPairs.add(min((iAtom, lAtom), (lAtom, iAtom)))
+    
+    # Add 1-2 and 1-3 Interactions
+    excludedAtoms = prmtop.getExcludedAtoms()
+    #excludeParams = (0.0, 0.1, 0.0)
+    for iAtom in range(prmtop.getNumAtoms()):
+        for jAtom in excludedAtoms[iAtom]:
+            if min((iAtom, jAtom), (jAtom, iAtom)) in excludedAtomPairs: continue
+            exceptions.append((iAtom, jAtom))
+
+    exceptions = jnp.array(exceptions)
+    exceptions14 = jnp.array(exceptions14)
+
+    # def getExcludedAtoms(prmtop):
+    #     excludedAtoms=[]
+    #     numExcludedAtomsList = prmtop._raw_data["NUMBER_EXCLUDED_ATOMS"]
+    #     excludedAtomsList = prmtop._raw_data["EXCLUDED_ATOMS_LIST"]
+    #     total=0
+    #     for iAtom in range(int(prmtop._raw_data['POINTERS'][0])):
+    #         index0=total
+    #         n=int(numExcludedAtomsList[iAtom])
+    #         total+=n
+    #         index1=total
+    #         atomList=[]
+    #         for jAtom in excludedAtomsList[index0:index1]:
+    #             j=int(jAtom)
+    #             if j>0:
+    #                 excludedAtoms.append([iAtom, j-1])
+    #     return excludedAtoms
+
+    #from functools import partial
+    #@partial(jax.jit, static_argnums=(2))
+    #def mask_generator(nAtoms, exclusions, exclusionSize):
+        # this should cover 1-2 and 1-3 exclusions
+        #exceptions = jnp.array(exceptions)
+        #exceptions14 = jnp.array(exceptions14)
+        # exclusions = jnp.array(getExcludedAtoms(prmtop))
+        #print("excl shape", exclusions.shape)
+        #nAtoms = int(prmtop._raw_data['POINTERS'][0])
+
+        #TODO: figure out if there's a better way to parallelize this either via vmap
+        # or at least a lax loop
+
+    exclusions = jnp.concatenate((exceptions, exceptions14))
+    exclusionSize = len(exclusions)
+    nAtoms = int(prmtop._raw_data['POINTERS'][0])
+
+    def mask_function(idx):
+        #ends up being (n,2) shape but only [:,1] matters
+        #exclusion[:,0] ends up still being the main axis into idx
+        #print("exclusions shape", exclusions.shape)
+        e_idx = jnp.argwhere(idx[exclusions[:, 0]] == exclusions[:, 1].reshape(-1,1), size=len(exclusions))
+        #print("eidx shape", e_idx.shape)
+        idx = idx.at[exclusions[:, 0], e_idx[:, 1]].set(nAtoms)
+
+        e_idx = jnp.argwhere(idx[exclusions[:, 1]] == exclusions[:, 0].reshape(-1,1), size=len(exclusions))
+        idx = idx.at[exclusions[:, 1], e_idx[:, 1]].set(nAtoms)
+
+        # print("exlusions shape", exclusions.shape)
+        # for exclusion in exclusions:
+        #     e_idx = jnp.argwhere(idx[exclusion[0]] == exclusion[1], size=exclusionSize)
+        #     idx = idx.at[exclusion[0], e_idx].set(nAtoms)
+
+        #     e_idx = jnp.argwhere(idx[exclusion[1]] == exclusion[0], size=exclusionSize)
+        #     idx = idx.at[exclusion[1], e_idx].set(nAtoms)
+
+        return idx
+    
+    # def coulomb_ewald_neighbor_list(
+    #     displacement_fn: Array,
+    #     box: Array,
+    #     charge: Array,
+    #     species: Array=None,
+    #     alpha: float=0.34,
+    #     g_max: float=5.0,
+    #     cutoff: float=9.0,
+    #     fractional_coordinates: bool=False,
+    #     custom_mask_function: Callable=None,
+    #     dr_threshold=0.0
+
+    neighbor_fn, nrg_fn = jax_md.energy.coulomb_ewald_neighbor_list(
+        displacement,
+        #boxVectors,
+        #TODO this is just a fix for testing
+        32.0,
+        charges*jnp.float64(18.2223),
+        None,
+        alpha,
+        5.0,
+        cutoff,
+        False,
+        mask_function,
+        dr_threshold)
+
+    return charges, pairs, pairs14, scee, neighbor_fn, nrg_fn, exceptions, exceptions14, alpha
+
+
+def coul_get_energy_ewald(positions, box, prms, nbList):
+    charges, pairs, pairs14, scee, neighbor_fn, nrg_fn, exceptions, exceptions14, alpha = prms
+
+    ewald_energy = coul_get_energy_nb_ewald(positions, box, prms, nbList)
+    nrg_14 = coul_get_energy_14(positions, box, (charges, pairs, pairs14, scee))
+
+    #print("Coul Energy 14", nrg_14)
+
+    return ewald_energy + nrg_14
+
+def coul_get_energy_nb_ewald(positions, box, prms, nbList):
+    #NM -> A
+    positions = positions * 10
+    box = box * 10
+
+    #TODO pass these back through
+    #ewald_error = 5e-4
+    #cutoff = .8
+    #alpha = jnp.sqrt(-jnp.log(2 * ewald_error))/(cutoff*10)
+    #alpha = .34
+
+    charges, pairs, pairs14, scee, neighbor_fn, nrg_fn, exceptions, exceptions14, alpha = prms
+    charges = charges * jnp.float64(18.2223)
+    #nbList = neighbor_fn.allocate(positions)
+    direct_and_recip_nrg = nrg_fn(positions, nbList, charge=charges)
+    self_nrg = (-alpha/jnp.sqrt(jnp.pi)) * jnp.sum(charges**2)
+    #print("Self Energy:", self_nrg)
+
+    exclusions = jnp.concatenate((exceptions, exceptions14))
+
+    p1 = positions[jnp.int32(exclusions[:,0])]
+    p2 = positions[jnp.int32(exclusions[:,1])]
+    #chgProd = exclusions[:,2]
+    chg1 = charges[jnp.int32(exclusions[:,0])]
+    chg2 = charges[jnp.int32(exclusions[:,1])]
+    #nm -> A
+    dist = distance(p1, p2, box)
+    dist = jnp.where(jnp.isclose(dist, 0.), 1, dist)
+    correction_factor = -jnp.sum(chg1 * chg2 * (1.0/dist) * erf(alpha * dist))
+    
+    #print("Correction Factor:", correction_factor * 4.184)
+    #print("Self Energy:", self_nrg * 4.184)
+
+    return (direct_and_recip_nrg + self_nrg + correction_factor)*4.184
 
 def coul_get_energy_nb(positions, box, prms):
     charges, pairs, pairs14, scee = prms
@@ -470,17 +949,75 @@ def coul_get_energy_nb(positions, box, prms):
     # constant for 1 / 4 * pi * epsilon
     # print("Charges", charges)
     # print("pairs", pairs)
-    # print("Coul Components", jnp.float32(138.935456) * chg1 * chg2 / dist)
-    # print("Coul Total E", jnp.sum(jnp.float32(138.935456) * chg1 * chg2 / dist))
-    return jnp.sum(jnp.float32(138.935456) * chg1 * chg2 / dist)
+    # print("Coul Components", jnp.float64(138.935456) * chg1 * chg2 / dist)
+    # print("Coul Total E", jnp.sum(jnp.float64(138.935456) * chg1 * chg2 / dist))
+    return jnp.sum(jnp.float64(138.935456) * chg1 * chg2 / dist)
 
-def coul_get_energy_nb_pme(positions, box, prms):
+def coul_get_energy_pme(positions, box, prms, nbList):
+    charges, pairs, pairs14, scee, neighbor_fn, nrg_fn, exceptions, exceptions14, alpha = prms
+
+    pme_energy = coul_get_energy_nb_pme(positions, box, prms, nbList)
+    nrg_14 = coul_get_energy_14(positions, box, (charges, pairs, pairs14, scee))
+
+    #print("Coul Energy 14", nrg_14)
+
+    return pme_energy + nrg_14
+
+def coul_get_energy_nb_pme(positions, box, prms, nbList):
     # currently returning erroneous values, not ready for general use
-    charges, pairs, pairs14, scee, neighbor_fn, nrg_fn = prms
-    nbList = neighbor_fn.allocate(positions)
-    direct_and_recip_nrg = nrg_fn(positions, nbList, charge=charges)
-    self_nrg = self_nrg = (-.34/jnp.sqrt(jnp.pi)) * jnp.sum(charges**2)
-    return direct_and_recip_nrg + self_nrg
+
+    #need to fix exclusions, current version considers all interactions
+    #either need to subtract all 1-2 and 1-3 pairs by accessing excluded atoms list and then subtract scaled 1/4 interactions from direct
+    #as well as from reciprocal using the corrected factor in OMM code
+
+    #or rewrite to only calculate direct sum properly and then subtract corrected OMM factor from reciprocal space
+    #also need to implement lj cutoff by passing neighbor list to lj function
+    #same neighbor list can be used for lj/coulomb direct and direct 1-4
+
+    #write filtering function for neighbor list to filter out 1-2 and 1-3
+
+    #Therefore, NB sum should be
+    # PME direct term with an 8A cutoff excluding 1-2/1-3/1-4 interactions
+    # PME reciprocal term based on the charge meshgrid
+    # An Ewald self energy term
+    # A negative corrective factor to remove the 1-2/1-3/1-4 interactions from the reciprocal sum
+    # A Lennard-Jones term with an 8A cutoff excluding 1-2/1-3/1-4 interactions
+    # And a Lennard-Jones / Coulomb term that computes all scaled 1-4 interactions (regardless of cutoff)
+
+    #NM -> A
+    positions = positions
+    box = box
+
+    #TODO pass these back through
+    #ewald_error = 5e-4
+    #cutoff = .8
+    #alpha = jnp.sqrt(-jnp.log(2 * ewald_error))/(cutoff*10)
+    #alpha = .34
+
+    charges, pairs, pairs14, scee, neighbor_fn, nrg_fn, exceptions, exceptions14, alpha = prms
+    charges = charges
+    #nbList = neighbor_fn.allocate(positions)
+    direct_and_recip_nrg = jnp.float64(138.935456) * nrg_fn(positions, nbList, charge=charges)
+
+    #print("Direct and recip", direct_and_recip_nrg)
+
+    self_nrg = jnp.float64(138.935456) * jnp.sum(charges**2) * (-alpha/jnp.sqrt(jnp.pi))
+    #print("Self Energy:", self_nrg)
+
+    exclusions = jnp.concatenate((exceptions, exceptions14))
+
+    p1 = positions[jnp.int32(exclusions[:,0])]
+    p2 = positions[jnp.int32(exclusions[:,1])]
+    #chgProd = exclusions[:,2]
+    chg1 = charges[jnp.int32(exclusions[:,0])]
+    chg2 = charges[jnp.int32(exclusions[:,1])]
+    #nm -> A
+    dist = distance(p1, p2, box)
+    dist = jnp.where(jnp.isclose(dist, 0.), 1, dist)
+    correction_factor = jnp.float64(138.935456) * -jnp.sum(chg1 * chg2 * (1.0/dist) * erf(alpha * dist))
+    #print("Correction Factor:", correction_factor)
+
+    return (direct_and_recip_nrg + self_nrg + correction_factor)
 
 def coul_get_energy_14(positions, box, prms):
     charges, pairs, pairs14, scee = prms
@@ -497,21 +1034,13 @@ def coul_get_energy_14(positions, box, prms):
 
     # constant for 1 / 4 * pi * epsilon
     # print("pairs14", pairs14)
-    # print("Coul14 Components", 1.0/scee[parm_idx] * jnp.float32(138.935456) * chg1 * chg2 / dist)
-    # print("Coul14 Total E", jnp.sum(1.0/scee[parm_idx] * jnp.float32(138.935456) * chg1 * chg2 / dist))
+    # print("Coul14 Components", 1.0/scee[parm_idx] * jnp.float64(138.935456) * chg1 * chg2 / dist)
+    # print("Coul14 Total E", jnp.sum(1.0/scee[parm_idx] * jnp.float64(138.935456) * chg1 * chg2 / dist))
     #TODO: Remove nan to num references, these may cover up errors that cause gradient instability
-    return jnp.sum(scee_filtered[parm_idx] * jnp.float32(138.935456) * chg1 * chg2 / dist)
+    return jnp.sum(scee_filtered[parm_idx] * jnp.float64(138.935456) * chg1 * chg2 / dist)
 
 def coul_get_energy(positions, box, prms):
     return coul_get_energy_nb(positions, box, prms) + coul_get_energy_14(positions, box, prms)
-
-def coul_get_energy_pme(positions, box, prms):
-    #TODO: add matching LJ with neighbor list/cutoff, wrap into overall nb function and add lj dispersion correction
-    #TODO: also add exclusion policy for 1-2/1-3/1-4, might be able to take exclusion list and mask neighbor list
-    #return coul_get_energy_nb_pme(positions, box, prms) + coul_get_energy_14(positions, box, prms)
-    #let exclusions be captured in pme sum (d+r+self) and then subtract off at end with
-    #one4pieps * chgi * chgj * 1/dist * erf(alpha * dist)
-    return coul_get_energy_nb_pme(positions, box, prms)
 
 def bond_rest_get_energy(positions, box, restraint=None):
     return
