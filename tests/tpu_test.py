@@ -34,9 +34,8 @@ import numpy as onp
 
 from jax_md import tpu
 
-from jax.config import config as jax_config
 
-jax_config.parse_flags_with_absl()
+jax.config.parse_flags_with_absl()
 
 update_test_tolerance(5e-5, 1e-7)
 
@@ -225,9 +224,9 @@ class ConvolutionalMDTest(test_util.JAXMDTestCase):
     jmd_state = simulate.NVEState(R, V, force_fn(R), mass)
     def jmd_step_fn(state, i):
       return jmd_apply_fn(state), i
-    jax_config.update('jax_numpy_rank_promotion', 'warn')
+    jax.config.update('jax_numpy_rank_promotion', 'warn')
     new_jmd_state, _ = lax.scan(jmd_step_fn, jmd_state, np.arange(steps))
-    jax_config.update('jax_numpy_rank_promotion', 'raise')
+    jax.config.update('jax_numpy_rank_promotion', 'raise')
 
     # compare outputs
     grid_positions, grid_aux = tpu.from_grid(new_state.position, new_state.velocity)
