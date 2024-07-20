@@ -573,7 +573,10 @@ def reaxff_inter_list(displacement: DisplacementFn,
       version of the torsion interactions
     solver_model: Control variable for the solver model
       ("EEM" or "ACKS")
-
+    short_inters_capacity_multiplier: capacity multiplier for all short range
+      interactions
+    long_inters_capacity_multiplier: capacity multiplier for all long range
+      interactions
   Returns:
     System energy in kcal/mol
   '''
