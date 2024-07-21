@@ -156,7 +156,7 @@ def coulomb_recip_pme(charge: Array,
     mx, my, mz = jnp.meshgrid(*[jnp.fft.fftfreq(g) for g in grid_dimensions])
     if jnp.isscalar(_box):
       m_2 = (mx**2 + my**2 + mz**2) * (grid_dimensions[0] * ibox)**2
-      V = _box**dim
+      V = (1.0 * _box)**dim
     else:
       m = (ibox[None, None, None, 0] * mx[:, :, :, None] * grid_dimensions[0] +
            ibox[None, None, None, 1] * my[:, :, :, None] * grid_dimensions[1] +

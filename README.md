@@ -43,6 +43,10 @@ If you want to build the latest version then you can grab the most recent versio
 git clone https://github.com/google/jax-md
 pip install -e jax-md
 ```
+Or by using the following command,
+```
+pip install https://github.com/jax-md/jax-md/archive/main.zip
+```
 
 # Overview
 
