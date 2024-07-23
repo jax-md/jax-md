@@ -19,7 +19,7 @@ import numpy as onp
 from absl.testing import absltest
 from absl.testing import parameterized
 
-from jax.config import config as jax_config
+import jax
 from jax import random
 from jax import jit
 from jax import lax
@@ -31,14 +31,14 @@ from jax_md import quantity
 from jax_md.util import *
 from jax_md import test_util
 
-jax_config.parse_flags_with_absl()
+jax.config.parse_flags_with_absl()
 
 PARTICLE_COUNT = 10
 OPTIMIZATION_STEPS = 10
 STOCHASTIC_SAMPLES = 10
 SPATIAL_DIMENSION = [2, 3]
 
-if jax_config.jax_enable_x64:
+if jax.config.jax_enable_x64:
   DTYPE = [f32, f64]
 else:
   DTYPE = [f32]

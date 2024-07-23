@@ -19,7 +19,7 @@ import os
 from jax.core import ShapedArray
 from jax import eval_shape
 from jax import random
-from jax import tree_map
+from jax.tree_util import tree_map
 
 import jax.numpy as jnp
 
@@ -51,6 +51,8 @@ NUM_ELEMENTS = 94
 
 PyTree = util.PyTree
 
+Array = util.Array
+
 
 def model_from_config(cfg: ConfigDict) -> nn.Module:
   model_family = cfg.get('model_family', 'nequip')
@@ -69,11 +71,11 @@ def minimum_batch_size(cfg: ConfigDict) -> int:
 
 
 class ScaleLROnPlateau(NamedTuple):
-  step_size: jnp.ndarray
-  minimum_loss: jnp.ndarray
-  steps_without_reduction: jnp.ndarray
-  max_steps_without_reduction: jnp.ndarray
-  reduction_factor: jnp.ndarray
+  step_size: Array
+  minimum_loss: Array
+  steps_without_reduction: Array
+  max_steps_without_reduction: Array
+  reduction_factor: Array
 
 
 def scale_lr_on_plateau(initial_step_size: float,
@@ -90,7 +92,7 @@ def scale_lr_on_plateau(initial_step_size: float,
 
   def update_fn(updates, state, params=None):
     del params
-    updates = jax.tree_map(lambda g: g * state.step_size, updates)
+    updates = jax.tree_util.tree_map(lambda g: g * state.step_size, updates)
     return updates, state
 
   return optax.GradientTransformation(init_fn, update_fn)

@@ -17,7 +17,7 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 
-from jax.config import config as jax_config
+import jax
 from jax import random
 import jax.numpy as np
 
@@ -31,7 +31,7 @@ from jax_md import smap
 from jax_md.util import *
 
 
-jax_config.parse_flags_with_absl()
+jax.config.parse_flags_with_absl()
 
 PARTICLE_COUNT = 10
 STOCHASTIC_SAMPLES = 10
@@ -41,7 +41,7 @@ NEIGHBOR_LIST_FORMAT = [partition.Dense,
                         partition.Sparse,
                         partition.OrderedSparse]
 
-DTYPES = [f32, f64] if jax_config.jax_enable_x64 else [f32]
+DTYPES = [f32, f64] if jax.config.jax_enable_x64 else [f32]
 COORDS = ['fractional', 'real']
 
 
@@ -602,7 +602,7 @@ class QuantityTest(test_util.JAXMDTestCase):
 
 
   def test_maybe_downcast(self):
-    if not jax_config.jax_enable_x64:
+    if not jax.config.jax_enable_x64:
       self.skipTest('Maybe downcast only works for float32 mode.')
 
     x = np.array([1, 2, 3], np.float64)

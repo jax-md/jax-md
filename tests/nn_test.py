@@ -17,7 +17,7 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 
-from jax.config import config as jax_config
+import jax
 from jax import random
 import jax.numpy as np
 
@@ -30,9 +30,9 @@ from jax_md.nn import behler_parrinello as bp
 from jax_md.util import f32, f64
 from jax_md import test_util
 
-jax_config.parse_flags_with_absl()
+jax.config.parse_flags_with_absl()
 
-if jax_config.jax_enable_x64:
+if jax.config.jax_enable_x64:
   DTYPES = [f32, f64]
 else:
   DTYPES = [f32]
@@ -105,7 +105,7 @@ class SymmetryFunctionTest(test_util.JAXMDTestCase):
     gr_exact = gr(R)
     gr_nbrs = gr_neigh(R, neighbor=nbrs)
 
-    tol = 1e-13 if jax_config.jax_enable_x64 else 1e-6
+    tol = 1e-13 if jax.config.jax_enable_x64 else 1e-6
     self.assertAllClose(gr_exact, gr_nbrs, atol=tol, rtol=tol)
 
   @parameterized.named_parameters(test_util.cases_from_list(
@@ -159,7 +159,7 @@ class SymmetryFunctionTest(test_util.JAXMDTestCase):
     gr_exact = gr(R)
     gr_nbrs = gr_neigh(R, neighbor=nbrs)
 
-    tol = 1e-13 if jax_config.jax_enable_x64 else 1e-6
+    tol = 1e-13 if jax.config.jax_enable_x64 else 1e-6
     self.assertAllClose(gr_exact, gr_nbrs, atol=tol, rtol=tol)
 
   @parameterized.named_parameters(test_util.cases_from_list(

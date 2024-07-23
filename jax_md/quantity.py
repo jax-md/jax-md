@@ -106,7 +106,7 @@ def count_dof(position: Array) -> int:
   return tree_reduce(lambda accum, x: accum + x.size, position, 0)
 
 
-def volume(dimension: int, box: Box) -> float:
+def volume(dimension: int, box: Box) -> Array:
   if jnp.isscalar(box) or not box.ndim:
     return box ** dimension
   elif box.ndim == 1:

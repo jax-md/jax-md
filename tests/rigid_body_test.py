@@ -18,6 +18,7 @@ import functools
 
 from absl.testing import absltest
 from absl.testing import parameterized
+import pytest
 
 import numpy as onp
 
@@ -28,7 +29,6 @@ from jax import random
 from jax import lax
 from jax import test_util as jtu
 
-from jax.config import config as jax_config
 import jax.numpy as jnp
 
 from jax_md import quantity
@@ -43,7 +43,7 @@ from jax_md import minimize
 
 from functools import partial
 
-jax_config.parse_flags_with_absl()
+jax.config.parse_flags_with_absl()
 
 
 
@@ -63,7 +63,7 @@ BROWNIAN_PARTICLE_COUNT = 8000
 BROWNIAN_DYNAMICS_STEPS = 8000
 
 DTYPE = [f32]
-if jax_config.jax_enable_x64:
+if jax.config.jax_enable_x64:
   DTYPE += [f64]
 
 
@@ -71,6 +71,12 @@ if jax_config.jax_enable_x64:
 def rand_quat(key, dtype):
   return rigid_body.random_quaternion(key, dtype)
 
+@pytest.fixture(autouse=True)
+def run_before_and_after_tests(tmpdir):
+  # This is a fixture that runs before and after each test.
+  # This fixes issue 227 (https://github.com/jax-md/jax-md/issues/277)
+  yield # this is where the testing happens
+  jax.clear_caches()
 
 # pylint: disable=invalid-name
 class RigidBodyTest(test_util.JAXMDTestCase):
@@ -306,15 +312,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
       nbrs = nbrs.update(state.position)
       state = step_fn(state, neighbor=nbrs)
       return state, nbrs
-    try:
-      state, nbrs = lax.fori_loop(0, DYNAMICS_STEPS, step, (state, nbrs))
-    except jax.errors.ConcretizationTypeError:
-      # NOTE: for some weird reason, this test fails if it is run after test_nve_2d_neighbor_list.
-      # However, this test does not fail if it is run by itself.
-      # This is probably due to some weird JIT interaction between the two tests.
-      # The same happens to test_nve_2d_neighbor_list if this test is run first.
-      # TODO: figure out why this happens.
-      self.skipTest('Skipping test due to concretization error.')
+    state, nbrs = lax.fori_loop(0, DYNAMICS_STEPS, step, (state, nbrs))
     E_final = total_energy(state, nbrs)
 
     tol = 5e-8 if dtype == f64 else 5e-5
