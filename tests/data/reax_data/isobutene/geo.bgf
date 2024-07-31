@@ -1,0 +1,45 @@
+BIOGRF 200
+DESCRP /tmp/K12Y3DG
+FORCEFIELD DREIDING  
+CRYSTX    80.59800    80.59800    80.59800    90.00000    90.00000    90.00000
+FORMAT ATOM   (a6,1x,i5,1x,a5,1x,a3,1x,a1,1x,a5,3f10.5,1x,a5,i3,i2,1x,f8.5)
+HETATM     1 C1    RES A   444   3.00000   3.00000   4.45900 C_2    3 0 -0.09997
+HETATM     2 C2    RES A   444   3.00000   3.00000   3.12000 C_2    3 0 -0.08278
+HETATM     3 H3    RES A   444   3.00000   3.92400   5.02800 H_     1 0  0.05342
+HETATM     4 H4    RES A   444   3.00000   2.07600   5.02800 H_     1 0  0.05342
+HETATM     5 C5    RES A   444   3.00000   4.27300   2.32100 C_3    4 0 -0.04430
+HETATM     6 H6    RES A   444   3.00000   5.15300   2.96800 H_     1 0  0.02742
+HETATM     7 H7    RES A   444   3.88000   4.32400   1.67000 H_     1 0  0.02742
+HETATM     8 H8    RES A   444   2.12000   4.32400   1.67000 H_     1 0  0.02742
+HETATM     9 C9    RES A   444   3.00000   1.72700   2.32100 C_3    4 0 -0.04430
+HETATM    10 H10   RES A   444   3.00000   0.84700   2.96800 H_     1 0  0.02742
+HETATM    11 H11   RES A   444   2.12000   1.67600   1.67000 H_     1 0  0.02742
+HETATM    12 H12   RES A   444   3.88000   1.67600   1.67000 H_     1 0  0.02742
+FORMAT CONECT (a6,12i6)
+
+CONECT     1     2     3     4
+ORDER      1     2     1     1
+CONECT     2     5     9     1
+ORDER      2     1     1     2
+CONECT     3     1
+ORDER      3     1
+CONECT     4     1
+ORDER      4     1
+CONECT     5     7     8     6     2
+ORDER      5     1     1     1     1
+CONECT     6     5
+ORDER      6     1
+CONECT     7     5
+ORDER      7     1
+CONECT     8     5
+ORDER      8     1
+CONECT     9    11    12    10     2
+ORDER      9     1     1     1     1
+CONECT    10     9
+ORDER     10     1
+CONECT    11     9
+ORDER     11     1
+CONECT    12     9
+ORDER     12     1
+END
+
