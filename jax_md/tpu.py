@@ -44,9 +44,8 @@ import jax
 from jax import jit, vmap, grad, pmap
 from jax import lax
 from jax import random
-from jax.experimental import maps
-from jax.experimental import mesh_utils
-from jax.sharding import PartitionSpec as P
+from jax.experimental import mesh_utils, shard_map
+from jax.sharding import PartitionSpec as P, Mesh
 
 import jax.numpy as np
 from jax.tree_util import tree_map, tree_flatten, tree_unflatten
@@ -448,7 +447,7 @@ def mesh_and_axes(topology):
   labels = labels[:n]
 
   devs = mesh_utils.create_device_mesh(topology)
-  mesh = maps.Mesh(devs, labels)
+  mesh = Mesh(devs, labels)
   return mesh, P(*labels)
 
 
@@ -463,9 +462,9 @@ def parallelize(f: Callable, topology: Tuple[int]) -> Callable:
   labels = labels[:n]
 
   devs = mesh_utils.create_device_mesh(topology)
-  mesh = maps.Mesh(devs, labels)
+  mesh = Mesh(devs, labels)
 
-  return mesh(maps.xmap(
+  return mesh(shard_map(
       f,
       in_axes=labels + [...],
       out_axes=labels + [...],
