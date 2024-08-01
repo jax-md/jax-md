@@ -40,7 +40,7 @@ pip install jax-md --upgrade
 ```
 If you want to build the latest version then you can grab the most recent version from head,
 ```
-git clone https://github.com/google/jax-md
+git clone https://github.com/jax-md/jax-md
 pip install -e jax-md
 ```
 Or by using the following command,
