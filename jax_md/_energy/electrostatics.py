@@ -92,6 +92,7 @@ def coulomb_direct_neighbor_list(
   )
 
   #print("cutoff being used in nb fn", cutoff)
+  #sys.exit()
   masked_energy_fn = lambda dr, **kwargs: jnp.where(
       dr < cutoff,
       coulomb_direct(dr, **kwargs),
@@ -181,8 +182,6 @@ def coulomb_recip_pme(charge: Array,
 
 # Coulomb energy functions.
 
-
-
 def coulomb_ewald_neighbor_list(
         displacement_fn: Array,
         box: Array,
@@ -197,9 +196,10 @@ def coulomb_ewald_neighbor_list(
 ) -> Tuple[NeighborFn,
            Callable[[Array, NeighborList], Array]]:
   
+
   nbr_box = jnp.diag(box) if (isinstance(box, jnp.ndarray) and box.ndim == 2) else box
 
-  box = jnp.diag(box) if (isinstance(box, jnp.ndarray) and box.ndim == 1) else box
+  #box = jnp.diag(box) if (isinstance(box, jnp.ndarray) and box.ndim == 1) else box
   #print("Box shape", box)
   neighbor_fn, direct_fn = coulomb_direct_neighbor_list(
       displacement_fn, nbr_box, charge, species=species, alpha=alpha, 
@@ -208,12 +208,18 @@ def coulomb_ewald_neighbor_list(
       custom_mask_function=custom_mask_function, dr_threshold=dr_threshold)
   #neighbor_fn, direct_fn = coulomb_direct_neighbor_list(
   #    displacement_fn, box, charge, species=species, alpha=alpha)
-  recip_fn = coulomb_recip_ewald(charge, box, alpha, g_max)
+  #recip_fn = coulomb_recip_ewald(charge, box, alpha, g_max)
+
+  # print("box", box)
+
+  recip_fn = get_ewald_fun(box, charge, eps_ewald=jnp.float32(5.0e-4), r_cut=jnp.float32(.8))
+
   def total_energy(R, neighbor, **kwargs):
-    direct_nrg = direct_fn(R, neighbor=neighbor, **kwargs)
-    #print("Direct Energy: ", direct_nrg)
-    recip_nrg = recip_fn(R, **kwargs)
-    #print("Recip Energy: ", recip_nrg)
+    direct_nrg = direct_fn(R, neighbor=neighbor, **kwargs) * jnp.float64(138.935456)
+    #jax.debug.print("Ewald Direct Energy {direct_nrg}", direct_nrg=direct_nrg)
+    #recip_nrg = recip_fn(R, **kwargs)
+    recip_nrg = recip_fn(R)
+    #jax.debug.print("Ewald Reciprocal Energy {recip_nrg}", recip_nrg=recip_nrg)
     return direct_nrg + recip_nrg
   return neighbor_fn, total_energy
 
@@ -263,10 +269,11 @@ def coulomb_neighbor_list(
       charge, box, grid_points, fractional_coordinates, alpha)
   def total_energy(R, neighbor, **kwargs):
     direct_nrg = direct_fn(R, neighbor=neighbor, **kwargs)
-    #print("direct_nrg", direct_nrg)
+    print("PME direct_nrg", direct_nrg * jnp.float64(138.935456))
     recip_nrg = recip_fn(R, **kwargs)
     #print(kwargs)
-    #print("recip_nrg", recip_nrg)
+    print("PME recip_nrg", recip_nrg * jnp.float64(138.935456))
+    #sys.exit()
     return direct_nrg + recip_nrg
   return neighbor_fn, total_energy
 
