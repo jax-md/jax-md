@@ -35,6 +35,10 @@ f32 = jax_md.util.f32
 f64 = jax_md.util.f64
 Array = jax_md.util.Array
 
+#return an energy fn and a nb function just like normal jax md
+def amber_energy_fn():
+    return
+
 def calculate_eem_charges_amber(species: Array,
                                 atom_mask: Array,
                                 nbr_inds: Array,
@@ -536,8 +540,8 @@ def lj_get_energy(positions, box, prms, nbList=None):
     lj14_nrg = lj_get_energy_14(positions, box, prms)
     #print("lj nrg", lj_nrg)
     #print("lj14 nrg", lj14_nrg)
-    jax.debug.print("LJ Energy (main pairs) {lj_nrg}", lj_nrg=lj_nrg)
-    jax.debug.print("LJ 14 Energy {lj14_nrg}", lj14_nrg=lj14_nrg)
+    #jax.debug.print("LJ Energy (main pairs) {lj_nrg}", lj_nrg=lj_nrg)
+    #jax.debug.print("LJ 14 Energy {lj14_nrg}", lj14_nrg=lj14_nrg)
     return lj_nrg + lj14_nrg
     #return lj_get_energy_nb(positions, box, prms, nbList) + lj_get_energy_14(positions, box, prms)
 
@@ -1158,7 +1162,7 @@ def coul_get_energy_pme(positions, box, prms, nbList):
     pme_energy = coul_get_energy_nb_pme(positions, box, prms, nbList)
     nrg_14 = coul_get_energy_14(positions, box, (charges, pairs, pairs14, scee))
 
-    print("PME Coul Energy 14", nrg_14)
+    #print("PME Coul Energy 14", nrg_14)
 
     return pme_energy + nrg_14
 
@@ -1201,7 +1205,7 @@ def coul_get_energy_nb_pme(positions, box, prms, nbList):
     #print("PME Direct and reciprocal", direct_and_recip_nrg)
 
     self_nrg = jnp.float64(138.935456) * jnp.sum(charges**2) * (-alpha/jnp.sqrt(jnp.pi))
-    print("PME Self Energy:", self_nrg)
+    #print("PME Self Energy:", self_nrg)
 
     exclusions = jnp.concatenate((exceptions, exceptions14))
 
@@ -1214,7 +1218,7 @@ def coul_get_energy_nb_pme(positions, box, prms, nbList):
     dist = distance(p1, p2, box)
     dist = jnp.where(jnp.isclose(dist, 0.), 1, dist)
     correction_factor = jnp.float64(138.935456) * -jnp.sum(chg1 * chg2 * (1.0/dist) * erf(alpha * dist))
-    print("PME Correction Factor:", correction_factor)
+    #print("PME Correction Factor:", correction_factor)
 
     return (direct_and_recip_nrg + self_nrg + correction_factor)
 

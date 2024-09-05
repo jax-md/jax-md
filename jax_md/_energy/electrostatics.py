@@ -269,10 +269,10 @@ def coulomb_neighbor_list(
       charge, box, grid_points, fractional_coordinates, alpha)
   def total_energy(R, neighbor, **kwargs):
     direct_nrg = direct_fn(R, neighbor=neighbor, **kwargs)
-    print("PME direct_nrg", direct_nrg * jnp.float64(138.935456))
+    #print("PME direct_nrg", direct_nrg * jnp.float64(138.935456))
     recip_nrg = recip_fn(R, **kwargs)
     #print(kwargs)
-    print("PME recip_nrg", recip_nrg * jnp.float64(138.935456))
+    #print("PME recip_nrg", recip_nrg * jnp.float64(138.935456))
     #sys.exit()
     return direct_nrg + recip_nrg
   return neighbor_fn, total_energy
