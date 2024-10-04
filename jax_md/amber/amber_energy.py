@@ -126,7 +126,7 @@ def prm_get_nonbond_pairs (prm_raw_data):
     total = 0
     numAtoms = int(prm_raw_data._raw_data['POINTERS'][0])
     nonbond_pairs = []
-        
+
     for iatom in range(numAtoms):
         index0 = total
         n = int (num_excl_atoms[iatom])
@@ -141,7 +141,7 @@ def prm_get_nonbond_pairs (prm_raw_data):
             if jatom in excl_list:
                 continue
             nonbond_pairs.append ( [iatom, jatom] )
-        
+
     return jnp.array(nonbond_pairs)
 
 def prm_get_nonbond_terms (prm_raw_data):
@@ -159,7 +159,7 @@ def prm_get_nonbond_terms (prm_raw_data):
 
     for i in range(numTypes):
 
-        index = int (prm_raw_data._raw_data['NONBONDED_PARM_INDEX'][numTypes*i+i]) - 1    
+        index = int (prm_raw_data._raw_data['NONBONDED_PARM_INDEX'][numTypes*i+i]) - 1
         acoef = jnp.float64(LJ_ACOEF[index])
         bcoef = jnp.float64(LJ_BCOEF[index])
 
@@ -170,7 +170,7 @@ def prm_get_nonbond_terms (prm_raw_data):
             sig = (acoef/bcoef)**(1.0/6.0)
             eps = 0.25*bcoef*bcoef/acoef
 
-        # print("get terms")    
+        # print("get terms")
         # print("acoef", acoef)
         # print("bcoef", bcoef)
         # print("index", index)
@@ -195,16 +195,16 @@ def prm_get_nonbond_terms (prm_raw_data):
 
 def prm_get_nonbond14_pairs (prm_raw_data):
     dihedralPointers = prm_raw_data._raw_data["DIHEDRALS_WITHOUT_HYDROGEN"] + \
-                            prm_raw_data._raw_data["DIHEDRALS_INC_HYDROGEN"] 
+                            prm_raw_data._raw_data["DIHEDRALS_INC_HYDROGEN"]
 
     nonbond14_pairs = []
-    
+
     for ii in range (0, len(dihedralPointers), 5):
         if int(dihedralPointers[ii+2])>0 and int(dihedralPointers[ii+3])>0:
             iAtom = int(dihedralPointers[ii])//3
             lAtom = int(dihedralPointers[ii+3])//3
             parm_idx = int(dihedralPointers[ii+4]) - 1
-            
+
             nonbond14_pairs.append ((iAtom, lAtom, parm_idx))
 
     return jnp.array(nonbond14_pairs)
@@ -314,7 +314,7 @@ def bond_get_energy(positions, box, prms):
     k, l, b1_idx, b2_idx, param_index = prms
 
     mask = param_index >= 0
-    
+
     p1 = positions[b1_idx]
     p2 = positions[b2_idx]
     kprm = k[param_index]
@@ -430,9 +430,9 @@ def torsion_get_energy(positions, box, prms):
 def lj_init(prmtop):
     atom_type = jnp.array([ int(x) - 1 for x in prmtop._raw_data['ATOM_TYPE_INDEX']])
     sigma, epsilon = prm_get_nonbond_terms(prmtop)
-    #pairs = prm_get_nonbond_pairs(prmtop)
+    pairs = prm_get_nonbond_pairs(prmtop)
     pairs14 = prm_get_nonbond14_pairs(prmtop)
-    pairs = []
+    #pairs = []
     #pairs14 = []
     scnb = jnp.array([jnp.float64(x) for x in prmtop._raw_data['SCNB_SCALE_FACTOR']])
 
@@ -444,7 +444,7 @@ def lj_get_energy_nb(positions, box, prms, nbList=None):
     # TODO: this only works for ordered sparse neighbor lists i.e. (-1,2) shape
     # it should also work for dense neighbors i.e. (-1, max_occupancy)
     # it would probably be smart to move as many of these functions as possible onto map_neighbor
-    
+
     mask = 1
 
     if nbList != None:
@@ -648,7 +648,7 @@ def coul_init(prmtop):
 def coul_init_pme(prmtop, boxVectors, cutoff=0.8, grid_points=96, ewald_error=5e-4, custom_mask_function=None, dr_threshold=0.0):
     # E (kcal/mol) =  332 * q1*q2/r
     # hence 18.2 division
-    
+
     #nm -> A internally
     boxVectors = boxVectors
     cutoff = cutoff
@@ -690,7 +690,7 @@ def coul_init_pme(prmtop, boxVectors, cutoff=0.8, grid_points=96, ewald_error=5e
         #sigma = rMin * sigmaScale
         exceptions14.append((iAtom, lAtom))
         excludedAtomPairs.add(min((iAtom, lAtom), (lAtom, iAtom)))
-    
+
     # Add 1-2 and 1-3 Interactions
     excludedAtoms = prmtop.getExcludedAtoms()
     #excludeParams = (0.0, 0.1, 0.0)
@@ -766,13 +766,13 @@ def coul_init_pme(prmtop, boxVectors, cutoff=0.8, grid_points=96, ewald_error=5e
 
 # def get_ewald_fun (box_init,
 #                    chgs,
-#                    eps_ewald=jnp.float32(1.0e-6), 
+#                    eps_ewald=jnp.float32(1.0e-6),
 #                    r_cut=jnp.float32(1.0)):
 
 #     #box = jnp.array ([100., 80., 60.])
 #     box = box_init
 #     boxi = 1.0/box_init
-    
+
 #     twopi = jnp.float32(2.0)*jnp.pi
 #     ###
 #     pp = -jnp.log (2 * eps_ewald)
@@ -789,7 +789,7 @@ def coul_init_pme(prmtop, boxVectors, cutoff=0.8, grid_points=96, ewald_error=5e
 #     print ('hkl', hmax, kmax, lmax)
 #     kmax2 = 2*kmax + 1
 #     lmax2 = 2*lmax + 1
-    
+
 #     factor = 2.0
 #     k_hkl = jnp.zeros ( (hmax*kmax2*lmax2,3), dtype=jnp.int64)
 
@@ -808,14 +808,14 @@ def coul_init_pme(prmtop, boxVectors, cutoff=0.8, grid_points=96, ewald_error=5e
 #     print (k_hkl.shape)
 #     print (k_hkl[:3])
 #     #kv_hkl = kv_hkl[select]
-    
+
 #     #chgs = jnp.array ([1,2,3])
 
 #     def eir_setup (R, box0=None):
 #         if box0 is None:
 #             boxi = 1.0/box
 #         else:
-#             boxi = 1.0/box0 
+#             boxi = 1.0/box0
 
 #         nAtoms = R.shape[0]
 #         # (nAtoms, 3)
@@ -823,7 +823,7 @@ def coul_init_pme(prmtop, boxVectors, cutoff=0.8, grid_points=96, ewald_error=5e
 #         eir_x = jnp.ones ( (hmax, nAtoms), dtype=jnp.cdouble)
 #         eir_y = jnp.ones ( (kmax, nAtoms), dtype=jnp.cdouble)
 #         eir_z = jnp.ones ( (lmax, nAtoms), dtype=jnp.cdouble)
-    
+
 #         eir1_x = jax.lax.complex (jnp.cos(ang_val[:,0]), jnp.sin(ang_val[:,0]))
 #         eir1_y = jax.lax.complex (jnp.cos(ang_val[:,1]), jnp.sin(ang_val[:,1]))
 #         eir1_z = jax.lax.complex (jnp.cos(ang_val[:,2]), jnp.sin(ang_val[:,2]))
@@ -831,54 +831,54 @@ def coul_init_pme(prmtop, boxVectors, cutoff=0.8, grid_points=96, ewald_error=5e
 #         eir_x = eir_x.at[1].set (eir1_x)
 #         eir_y = eir_y.at[1].set (eir1_y)
 #         eir_z = eir_z.at[1].set (eir1_z)
-    
+
 #         for kx in range (2, hmax):
 #             eir_x = eir_x.at[kx].set (eir_x[kx-1]*eir1_x)
 #         for ky in range (2, kmax):
 #             eir_y = eir_y.at[ky].set (eir_y[ky-1]*eir1_y)
 #         for kz in range (2, lmax):
 #             eir_z = eir_z.at[kz].set (eir_z[kz-1]*eir1_z)
-    
+
 #         return eir_x, eir_y, eir_z
 
 #     def compute_fun (R, box0=None):
 
 #         if box0 is None:
-#             boxi = 1.0/box 
+#             boxi = 1.0/box
 #             Vol = box[0]*box[1]*box[2]
 #         else:
 #             boxi = 1.0/box0
 #             Vol = box0[0]*box0[1]*box0[2]
 
 #         eir_x, eir_y, eir_z = eir_setup(R)
-        
-#         @jax.jit 
+
+#         @jax.jit
 #         def ewald_std_qq_kvec (k_hkl0):
 #             kx, ky, kz = k_hkl0
-            
+
 #             kvec0 = twopi*boxi*k_hkl0
 #             kv2 = jnp.einsum('i,i->', kvec0, kvec0)
-#             Ak0 = factor*jnp.exp(fac_ew2*kv2)/kv2 
-            
+#             Ak0 = factor*jnp.exp(fac_ew2*kv2)/kv2
+
 #             p4vAkk = 2.0*twopi*Ak0/Vol
-            
+
 #             tmp_ky = jnp.where (ky<0, eir_y[-ky].conjugate(), eir_y[ky])
 #             tmp_kz = jnp.where (kz<0, eir_z[-kz].conjugate(), eir_z[kz])
-            
+
 #             tab_kxky = eir_x[kx]*tmp_ky
-#             tab_kr = tab_kxky*   tmp_kz 
-            
+#             tab_kr = tab_kxky*   tmp_kz
+
 #             rQqk = jnp.sum(chgs*jnp.real(tab_kr))
 #             iQqk = jnp.sum(chgs*jnp.imag(tab_kr))
-            
+
 #             tmp = p4vAkk*(jnp.real(tab_kr)*iQqk - jnp.imag(tab_kr)*rQqk)
 #             Efq = jnp.einsum('i,j->ij',tmp,kvec0)
-            
+
 #             phi = p4vAkk*(jnp.real(tab_kr)*rQqk + jnp.imag(tab_kr)*iQqk)
 #             #phi = phi.at[:nWat].set(0.0)
 #             return Efq, phi
 
-#         # Self Energy 
+#         # Self Energy
 #         U_self = - jnp.float32(138.935456)*aewald/jnp.sqrt(jnp.pi)*jnp.einsum('i,i->', chgs, chgs)
 #         print("U Self", U_self)
 #         # Reciprocal Space
@@ -887,12 +887,12 @@ def coul_init_pme(prmtop, boxVectors, cutoff=0.8, grid_points=96, ewald_error=5e
 
 #         Efq = Efq.sum(axis=0)
 #         phi = phi.sum(axis=0)
-        
+
 #         Uelec = jnp.float32(0.5)*jnp.float32(138.935456)*jnp.einsum('i,i->', chgs, phi)
 #         print("U Elec", Uelec)
 #         grad = -jnp.float32(138.935456)*jnp.einsum('i,ij->ij',chgs,Efq)
-#         return Uelec+U_self #,grad 
-    
+#         return Uelec+U_self #,grad
+
 #     return compute_fun
 
 def coul_init_ewald(prmtop, boxVectors, cutoff=0.8, grid_points=96, ewald_error=5e-4, custom_mask_function=None, dr_threshold=0.0):
@@ -942,7 +942,7 @@ def coul_init_ewald(prmtop, boxVectors, cutoff=0.8, grid_points=96, ewald_error=
         #sigma = rMin * sigmaScale
         exceptions14.append((iAtom, lAtom))
         excludedAtomPairs.add(min((iAtom, lAtom), (lAtom, iAtom)))
-    
+
     # Add 1-2 and 1-3 Interactions
     excludedAtoms = prmtop.getExcludedAtoms()
     #excludeParams = (0.0, 0.1, 0.0)
@@ -1020,7 +1020,7 @@ def coul_init_ewald(prmtop, boxVectors, cutoff=0.8, grid_points=96, ewald_error=
         # i_f = jnp.stack((exclusions[:,0], e_idx[:,1]),axis=-1)
         # jax.debug.print("if 1 {i_f}", i_f=i_f[:50])
         # jax.debug.print("if 1e {i_f}", i_f=i_f[-5:])
-        
+
         #print("if 1", i_f[:50])
         #idxs = jnp.where(i_f[:,0] == 13, size=len(exclusions))
         #jax.debug.print("idxs for 13 1 {idxs}", idxs=idxs[:10])
@@ -1058,7 +1058,7 @@ def coul_init_ewald(prmtop, boxVectors, cutoff=0.8, grid_points=96, ewald_error=
         #     idx = idx.at[exclusion[1], e_idx].set(nAtoms)
 
         return idx
-    
+
     # def coulomb_ewald_neighbor_list(
     #     displacement_fn: Array,
     #     box: Array,
@@ -1130,7 +1130,7 @@ def coul_get_energy_nb_ewald(positions, box, prms, nbList):
     dist = distance(p1, p2, box)
     dist = jnp.where(jnp.isclose(dist, 0.), 1, dist)
     correction_factor = jnp.float64(138.935456) * -jnp.sum(chg1 * chg2 * (1.0/dist) * erf(alpha * dist))
-    
+
     # print("Ewald Correction Factor:", correction_factor)
     #print("Self Energy:", self_nrg * 4.184)
     #jax.debug.print("Ewald D+R Energy {direct_and_recip_nrg}", direct_and_recip_nrg=direct_and_recip_nrg)
@@ -1269,7 +1269,7 @@ def rest_get_energy(positions, box, restraint=None):
     frc1 = restraint[5]
     # tapering factor from 0 to frc1, lower value equals steeper taper
     frc2 = restraint[6]
-    
+
     current_angle = current_angle * radian_to_degree
     target_angle = target_angle * radian_to_degree
 
