@@ -35,6 +35,7 @@ INSTALL_REQUIRES = [
     'dm-haiku',
     'optax',
     'frozendict',
+    'pymatgen'
 ]
 
 setuptools.setup(
