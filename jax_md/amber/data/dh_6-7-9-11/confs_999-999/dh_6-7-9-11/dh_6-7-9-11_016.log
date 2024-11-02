@@ -1,0 +1,324 @@
+geometric-optimize called with the following command line:
+/opt/software/geometric/bin/geometric-optimize --ase-class=ase.calculators.amber.Amber --ase-kwargs={"amber_exe":"sander -O ", "infile":"mdin", "outfile":"dh_6-7-9-11_016.out", "topologyfile":"prmtop", "incoordfile":"dh_6-7-9-11_016.rst7"} --engine ase dh_6-7-9-11_016.xyz constraints.txt
+
+                                        [91m())))))))))))))))/[0m                     
+                                    [91m())))))))))))))))))))))))),[0m                
+                                [91m*)))))))))))))))))))))))))))))))))[0m             
+                        [94m#,[0m    [91m()))))))))/[0m                [91m.)))))))))),[0m          
+                      [94m#%%%%,[0m  [91m())))))[0m                        [91m.))))))))*[0m        
+                      [94m*%%%%%%,[0m  [91m))[0m              [93m..[0m              [91m,))))))).[0m      
+                        [94m*%%%%%%,[0m         [93m***************/.[0m        [91m.)))))))[0m     
+                [94m#%%/[0m      [94m(%%%%%%,[0m    [93m/*********************.[0m       [91m)))))))[0m    
+              [94m.%%%%%%#[0m      [94m*%%%%%%,[0m  [93m*******/,[0m     [93m**********,[0m      [91m.))))))[0m   
+                [94m.%%%%%%/[0m      [94m*%%%%%%,[0m  [93m**[0m              [93m********[0m      [91m.))))))[0m  
+          [94m##[0m      [94m.%%%%%%/[0m      [94m(%%%%%%,[0m                  [93m,******[0m      [91m/)))))[0m  
+        [94m%%%%%%[0m      [94m.%%%%%%#[0m      [94m*%%%%%%,[0m    [92m,/////.[0m       [93m******[0m      [91m))))))[0m 
+      [94m#%[0m      [94m%%[0m      [94m.%%%%%%/[0m      [94m*%%%%%%,[0m  [92m////////,[0m      [93m*****/[0m     [91m,)))))[0m 
+    [94m#%%[0m  [94m%%%[0m  [94m%%%#[0m      [94m.%%%%%%/[0m      [94m(%%%%%%,[0m  [92m///////.[0m     [93m/*****[0m      [91m))))).[0m
+  [94m#%%%%.[0m      [94m%%%%%#[0m      [94m/%%%%%%*[0m      [94m#%%%%%%[0m   [92m/////)[0m     [93m******[0m      [91m))))),[0m
+    [94m#%%%%##%[0m  [94m%%%#[0m      [94m.%%%%%%/[0m      [94m(%%%%%%,[0m  [92m///////.[0m     [93m/*****[0m      [91m))))).[0m
+      [94m##[0m     [94m%%%[0m      [94m.%%%%%%/[0m      [94m*%%%%%%,[0m  [92m////////.[0m      [93m*****/[0m     [91m,)))))[0m 
+        [94m#%%%%#[0m      [94m/%%%%%%/[0m      [94m(%%%%%%[0m      [92m/)/)//[0m       [93m******[0m      [91m))))))[0m 
+          [94m##[0m      [94m.%%%%%%/[0m      [94m(%%%%%%,[0m                  [93m*******[0m      [91m))))))[0m  
+                [94m.%%%%%%/[0m      [94m*%%%%%%,[0m  [93m**.[0m             [93m/*******[0m      [91m.))))))[0m  
+              [94m*%%%%%%/[0m      [94m(%%%%%%[0m   [93m********/*..,*/*********[0m       [91m*))))))[0m   
+                [94m#%%/[0m      [94m(%%%%%%,[0m    [93m*********************/[0m        [91m)))))))[0m    
+                        [94m*%%%%%%,[0m         [93m,**************/[0m         [91m,))))))/[0m     
+                      [94m(%%%%%%[0m   [91m()[0m                              [91m))))))))[0m       
+                      [94m#%%%%,[0m  [91m())))))[0m                        [91m,)))))))),[0m        
+                        [94m#,[0m    [91m())))))))))[0m                [91m,)))))))))).[0m          
+                                 [91m()))))))))))))))))))))))))))))))/[0m             
+                                    [91m())))))))))))))))))))))))).[0m                
+                                         [91m())))))))))))))),[0m                     
+
+-=# [1;94m geomeTRIC started. Version: 1.0+41.ga67ca54 [0m #=-
+Current date and time: 2024-02-21 09:22:44
+ASE-Calculator engine selected. 
+   ASE  calculator:ase.calculators.amber.Amber
+   ASE calc kwargs:{"amber_exe":"sander -O ", "infile":"mdin", "outfile":"dh_6-7-9-11_016.out", "topologyfile":"prmtop", "incoordfile":"dh_6-7-9-11_016.rst7"}
+$freeze
+dihedral 7 8 10 12
+Bonds will be generated from interatomic distances less than 1.20 times sum of covalent radii
+84 internal coordinates being used (instead of 84 Cartesians)
+Internal coordinate system (atoms numbered from 1):
+Dihedral 7-8-10-12
+Distance 1-2
+Distance 1-6
+Distance 1-25
+Distance 2-3
+Distance 2-16
+Distance 3-4
+Distance 3-17
+Distance 4-5
+Distance 5-6
+Distance 5-7
+Distance 6-18
+Distance 7-8
+Distance 7-19
+Distance 8-9
+Distance 8-10
+Distance 10-11
+Distance 10-12
+Distance 10-14
+Distance 11-12
+Distance 11-20
+Distance 11-21
+Distance 12-13
+Distance 12-15
+Distance 13-22
+Distance 13-23
+Distance 13-24
+Distance 25-26
+Distance 25-27
+Distance 25-28
+Angle 2-1-25
+Angle 6-1-25
+Angle 1-2-16
+Angle 3-2-16
+Angle 2-3-17
+Angle 4-3-17
+Angle 3-4-5
+Angle 4-5-7
+Angle 6-5-7
+Angle 1-6-18
+Angle 5-6-18
+Angle 5-7-19
+Angle 8-7-19
+Angle 7-8-10
+Angle 9-8-10
+Angle 8-10-11
+Angle 8-10-12
+Angle 11-10-12
+Angle 11-10-14
+Angle 12-10-14
+Angle 10-11-12
+Angle 10-11-20
+Angle 10-11-21
+Angle 12-11-20
+Angle 12-11-21
+Angle 20-11-21
+Angle 10-12-11
+Angle 10-12-13
+Angle 10-12-15
+Angle 11-12-13
+Angle 11-12-15
+Angle 13-12-15
+Angle 12-13-22
+Angle 12-13-23
+Angle 12-13-24
+Angle 22-13-23
+Angle 22-13-24
+Angle 23-13-24
+Angle 1-25-26
+Angle 1-25-27
+Angle 1-25-28
+Angle 26-25-27
+Angle 26-25-28
+Angle 27-25-28
+Out-of-Plane 1-2-6-25
+Out-of-Plane 2-1-3-16
+Out-of-Plane 3-2-4-17
+Out-of-Plane 5-4-6-7
+Out-of-Plane 6-1-5-18
+Out-of-Plane 7-5-8-19
+Out-of-Plane 8-7-9-10
+Out-of-Plane 10-8-14-11
+Dihedral 6-1-2-3
+Dihedral 6-1-2-16
+Dihedral 25-1-2-3
+Dihedral 25-1-2-16
+Dihedral 2-1-6-5
+Dihedral 2-1-6-18
+Dihedral 25-1-6-5
+Dihedral 25-1-6-18
+Dihedral 2-1-25-26
+Dihedral 2-1-25-27
+Dihedral 2-1-25-28
+Dihedral 6-1-25-26
+Dihedral 6-1-25-27
+Dihedral 6-1-25-28
+Dihedral 1-2-3-4
+Dihedral 1-2-3-17
+Dihedral 16-2-3-4
+Dihedral 16-2-3-17
+Dihedral 2-3-4-5
+Dihedral 17-3-4-5
+Dihedral 3-4-5-6
+Dihedral 3-4-5-7
+Dihedral 4-5-6-1
+Dihedral 4-5-6-18
+Dihedral 7-5-6-1
+Dihedral 7-5-6-18
+Dihedral 4-5-7-8
+Dihedral 4-5-7-19
+Dihedral 6-5-7-8
+Dihedral 6-5-7-19
+Dihedral 5-7-8-9
+Dihedral 5-7-8-10
+Dihedral 19-7-8-9
+Dihedral 19-7-8-10
+Dihedral 7-8-10-11
+Dihedral 7-8-10-14
+Dihedral 9-8-10-11
+Dihedral 9-8-10-12
+Dihedral 9-8-10-14
+Dihedral 8-10-11-12
+Dihedral 8-10-11-20
+Dihedral 8-10-11-21
+Dihedral 12-10-11-20
+Dihedral 12-10-11-21
+Dihedral 14-10-11-12
+Dihedral 14-10-11-20
+Dihedral 14-10-11-21
+Dihedral 8-10-12-11
+Dihedral 8-10-12-13
+Dihedral 8-10-12-15
+Dihedral 11-10-12-13
+Dihedral 11-10-12-15
+Dihedral 14-10-12-11
+Dihedral 14-10-12-13
+Dihedral 14-10-12-15
+Dihedral 10-11-12-13
+Dihedral 10-11-12-15
+Dihedral 20-11-12-10
+Dihedral 20-11-12-13
+Dihedral 20-11-12-15
+Dihedral 21-11-12-10
+Dihedral 21-11-12-13
+Dihedral 21-11-12-15
+Dihedral 10-12-13-22
+Dihedral 10-12-13-23
+Dihedral 10-12-13-24
+Dihedral 11-12-13-22
+Dihedral 11-12-13-23
+Dihedral 11-12-13-24
+Dihedral 15-12-13-22
+Dihedral 15-12-13-23
+Dihedral 15-12-13-24
+Translation-X 1-28
+Translation-Y 1-28
+Translation-Z 1-28
+Rotation-A 1-28
+Rotation-B 1-28
+Rotation-C 1-28
+<class 'geometric.internal.Dihedral'> : 73
+<class 'geometric.internal.Distance'> : 29
+<class 'geometric.internal.Angle'> : 44
+<class 'geometric.internal.OutOfPlane'> : 8
+<class 'geometric.internal.TranslationX'> : 1
+<class 'geometric.internal.TranslationY'> : 1
+<class 'geometric.internal.TranslationZ'> : 1
+<class 'geometric.internal.RotationA'> : 1
+<class 'geometric.internal.RotationB'> : 1
+<class 'geometric.internal.RotationC'> : 1
+Constraint                         Current      Target       Diff.
+Dihedral 7-8-10-12                63.77358    63.77358     0.00000
+> ===== Optimization Info: ====
+> Job type: Energy minimization
+> Maximum number of optimization cycles: 300
+> Initial / maximum trust radius (Angstrom): 0.100 / 0.300
+> Convergence Criteria:
+> Will converge when all 5 criteria are reached:
+>  |Delta-E| < 1.00e-06
+>  RMS-Ortho-Grad < 3.00e-04
+>  Max-Ortho-Grad < 4.50e-04
+>  RMS-Disp  < 1.20e-03
+>  Max-Disp  < 1.80e-03
+> 
+> Constraints are requested. The following criterion is added:
+>  Max Constraint Violation (in Angstroms/degrees) < 1.00e-02 
+> === End Optimization Info ===
+Step    0 : Gradient = 9.811e-03/2.034e-02 (rms/max) Energy = -0.1729146394
+Hessian Eigenvalues: 2.30000e-02 2.30000e-02 2.30000e-02 ... 5.73474e-01 5.82414e-01 9.47226e-01
+Step    1 : Displace = [0m1.060e-01[0m/[0m2.184e-01[0m (rms/max) Trust = 1.000e-01 (=) Grad_T = [0m7.927e-03[0m/[0m1.842e-02[0m (rms/max) E (change) = -0.1748382943 ([0m-1.924e-03[0m) Quality = [0m0.218[0m
+Hessian Eigenvalues: 2.29921e-02 2.30000e-02 2.30000e-02 ... 5.81352e-01 9.34750e-01 2.47475e+00
+Step    2 : Displace = [0m4.688e-02[0m/[0m1.171e-01[0m (rms/max) Trust = 5.000e-02 ([91m-[0m) Grad_T = [0m5.212e-03[0m/[0m1.275e-02[0m (rms/max) E (change) = -0.1775169801 ([0m-2.679e-03[0m) Quality = [0m0.771[0m
+Constraint                         Current      Target       Diff.
+Dihedral 7-8-10-12                63.79470    63.77358     0.02112
+Hessian Eigenvalues: 2.25553e-02 2.30000e-02 2.30000e-02 ... 5.80279e-01 9.31085e-01 2.17016e+00
+Step    3 : Displace = [0m4.760e-02[0m/[0m7.371e-02[0m (rms/max) Trust = 7.071e-02 ([92m+[0m) Grad_T = [0m4.001e-03[0m/[0m1.218e-02[0m (rms/max) E (change) = -0.1779628703 ([0m-4.459e-04[0m) Quality = [0m0.314[0m
+Constraint                         Current      Target       Diff.
+Dihedral 7-8-10-12                63.77716    63.77358     0.00358
+Hessian Eigenvalues: 2.08487e-02 2.29999e-02 2.30000e-02 ... 6.21689e-01 9.31034e-01 2.19600e+00
+Step    4 : Displace = [0m3.195e-02[0m/[0m6.134e-02[0m (rms/max) Trust = 7.071e-02 (=) Grad_T = [0m1.413e-03[0m/[0m3.280e-03[0m (rms/max) E (change) = -0.1784936154 ([0m-5.307e-04[0m) Quality = [0m0.732[0m
+Hessian Eigenvalues: 2.06299e-02 2.29362e-02 2.30000e-02 ... 6.45292e-01 9.30832e-01 2.16124e+00
+Step    5 : Displace = [0m2.390e-02[0m/[0m5.203e-02[0m (rms/max) Trust = 7.071e-02 (=) Grad_T = [0m1.142e-03[0m/[0m3.353e-03[0m (rms/max) E (change) = -0.1785730652 ([0m-7.945e-05[0m) Quality = [0m0.481[0m
+Constraint                         Current      Target       Diff.
+Dihedral 7-8-10-12                63.78141    63.77358     0.00783
+Hessian Eigenvalues: 1.99961e-02 2.11784e-02 2.30000e-02 ... 6.30360e-01 9.31154e-01 2.20772e+00
+Step    6 : Displace = [0m9.524e-03[0m/[0m2.241e-02[0m (rms/max) Trust = 7.071e-02 (=) Grad_T = [0m8.800e-04[0m/[0m2.025e-03[0m (rms/max) E (change) = -0.1786144144 ([0m-4.135e-05[0m) Quality = [0m0.500[0m
+Constraint                         Current      Target       Diff.
+Dihedral 7-8-10-12                63.78135    63.77358     0.00777
+Hessian Eigenvalues: 1.66300e-02 2.12264e-02 2.27586e-02 ... 7.10180e-01 9.30797e-01 2.17462e+00
+Step    7 : Displace = [0m9.435e-03[0m/[0m2.441e-02[0m (rms/max) Trust = 7.071e-02 (=) Grad_T = [0m4.225e-04[0m/[0m1.137e-03[0m (rms/max) E (change) = -0.1786536355 ([0m-3.922e-05[0m) Quality = [0m0.810[0m
+Constraint                         Current      Target       Diff.
+Dihedral 7-8-10-12                63.77147    63.77358    -0.00211
+Hessian Eigenvalues: 1.29676e-02 2.12674e-02 2.24791e-02 ... 7.01711e-01 9.31518e-01 2.23072e+00
+Step    8 : Displace = [0m7.370e-03[0m/[0m2.077e-02[0m (rms/max) Trust = 1.000e-01 ([92m+[0m) Grad_T = [0m3.998e-04[0m/[0m1.188e-03[0m (rms/max) E (change) = -0.1786739359 ([0m-2.030e-05[0m) Quality = [0m1.097[0m
+Hessian Eigenvalues: 5.89884e-03 2.03506e-02 2.23711e-02 ... 7.30868e-01 9.30922e-01 2.19015e+00
+Step    9 : Displace = [0m1.641e-02[0m/[0m4.304e-02[0m (rms/max) Trust = 1.414e-01 ([92m+[0m) Grad_T = [0m4.701e-04[0m/[0m1.055e-03[0m (rms/max) E (change) = -0.1787033796 ([0m-2.944e-05[0m) Quality = [0m1.002[0m
+Constraint                         Current      Target       Diff.
+Dihedral 7-8-10-12                63.78147    63.77358     0.00789
+Hessian Eigenvalues: 2.60269e-03 2.02995e-02 2.21415e-02 ... 7.22644e-01 9.31321e-01 2.28415e+00
+Step   10 : Displace = [0m2.129e-02[0m/[0m5.332e-02[0m (rms/max) Trust = 2.000e-01 ([92m+[0m) Grad_T = [0m4.573e-04[0m/[0m9.724e-04[0m (rms/max) E (change) = -0.1787511548 ([0m-4.778e-05[0m) Quality = [0m1.639[0m
+Constraint                         Current      Target       Diff.
+Dihedral 7-8-10-12                63.77841    63.77358     0.00483
+Hessian Eigenvalues: 8.41899e-04 2.03011e-02 2.22766e-02 ... 7.22028e-01 9.31146e-01 2.25629e+00
+Step   11 : Displace = [0m7.471e-02[0m/[0m1.713e-01[0m (rms/max) Trust = 2.828e-01 ([92m+[0m) Grad_T = [0m4.946e-04[0m/[0m1.155e-03[0m (rms/max) E (change) = -0.1788358574 ([0m-8.470e-05[0m) Quality = [0m1.115[0m
+Constraint                         Current      Target       Diff.
+Dihedral 7-8-10-12                63.78331    63.77358     0.00973
+Hessian Eigenvalues: 7.16179e-04 1.96606e-02 2.22235e-02 ... 7.23741e-01 9.31079e-01 2.23954e+00
+Step   12 : Displace = [0m3.730e-02[0m/[0m7.587e-02[0m (rms/max) Trust = 3.000e-01 ([92m+[0m) Grad_T = [0m4.747e-04[0m/[0m1.100e-03[0m (rms/max) E (change) = -0.1788825949 ([0m-4.674e-05[0m) Quality = [0m1.585[0m
+Constraint                         Current      Target       Diff.
+Dihedral 7-8-10-12                63.78098    63.77358     0.00740
+Hessian Eigenvalues: 5.41354e-04 1.05815e-02 2.10090e-02 ... 7.21624e-01 9.31109e-01 1.89567e+00
+Step   13 : Displace = [0m9.868e-02[0m/[0m1.841e-01[0m (rms/max) Trust = 3.000e-01 (=) Grad_T = [0m5.310e-04[0m/[0m1.287e-03[0m (rms/max) E (change) = -0.1789814951 ([0m-9.890e-05[0m) Quality = [0m1.291[0m
+Constraint                         Current      Target       Diff.
+Dihedral 7-8-10-12                63.78527    63.77358     0.01169
+Hessian Eigenvalues: 7.54435e-04 5.80202e-03 2.10833e-02 ... 7.21298e-01 9.31106e-01 1.82143e+00
+Step   14 : Displace = [0m4.090e-02[0m/[0m7.492e-02[0m (rms/max) Trust = 3.000e-01 (=) Grad_T = [0m5.871e-04[0m/[0m1.695e-03[0m (rms/max) E (change) = -0.1790534401 ([0m-7.195e-05[0m) Quality = [0m1.299[0m
+Constraint                         Current      Target       Diff.
+Dihedral 7-8-10-12                63.78465    63.77358     0.01107
+Hessian Eigenvalues: 7.18411e-04 3.51534e-03 2.07860e-02 ... 7.23486e-01 9.31422e-01 2.07727e+00
+Step   15 : Displace = [0m8.435e-02[0m/[0m1.592e-01[0m (rms/max) Trust = 3.000e-01 (=) Grad_T = [0m6.397e-04[0m/[0m2.031e-03[0m (rms/max) E (change) = -0.1791198965 ([0m-6.646e-05[0m) Quality = [0m1.084[0m
+Constraint                         Current      Target       Diff.
+Dihedral 7-8-10-12                63.78708    63.77358     0.01350
+Hessian Eigenvalues: 1.22470e-03 2.58170e-03 1.99261e-02 ... 7.23640e-01 9.31374e-01 2.23731e+00
+Step   16 : Displace = [0m3.699e-02[0m/[0m1.202e-01[0m (rms/max) Trust = 3.000e-01 (=) Grad_T = [0m6.389e-04[0m/[0m1.685e-03[0m (rms/max) E (change) = -0.1792263753 ([0m-1.065e-04[0m) Quality = [0m1.117[0m
+Constraint                         Current      Target       Diff.
+Dihedral 7-8-10-12                63.78350    63.77358     0.00992
+Hessian Eigenvalues: 1.37360e-03 2.47112e-03 1.65998e-02 ... 7.23760e-01 9.31371e-01 2.40531e+00
+Step   17 : Displace = [0m2.146e-02[0m/[0m4.949e-02[0m (rms/max) Trust = 3.000e-01 (=) Grad_T = [0m3.614e-04[0m/[0m1.054e-03[0m (rms/max) E (change) = -0.1792838929 ([0m-5.752e-05[0m) Quality = [0m1.452[0m
+Constraint                         Current      Target       Diff.
+Dihedral 7-8-10-12                63.77701    63.77358     0.00343
+Hessian Eigenvalues: 1.30204e-03 2.58785e-03 1.14118e-02 ... 7.23656e-01 9.31364e-01 2.34453e+00
+Step   18 : Displace = [0m8.873e-03[0m/[0m2.111e-02[0m (rms/max) Trust = 3.000e-01 (=) Grad_T = [92m9.101e-05[0m/[92m2.440e-04[0m (rms/max) E (change) = -0.1793034408 ([0m-1.955e-05[0m) Quality = [0m0.988[0m
+Constraint                         Current      Target       Diff.
+Dihedral 7-8-10-12                63.76941    63.77358    -0.00417
+Hessian Eigenvalues: 1.29965e-03 2.53584e-03 1.18578e-02 ... 7.23585e-01 9.31332e-01 2.29689e+00
+Step   19 : Displace = [0m8.475e-03[0m/[0m1.726e-02[0m (rms/max) Trust = 3.000e-01 (=) Grad_T = [92m6.095e-05[0m/[92m2.044e-04[0m (rms/max) E (change) = -0.1793048907 ([0m-1.450e-06[0m) Quality = [0m1.064[0m
+Constraint                         Current      Target       Diff.
+Dihedral 7-8-10-12                63.77080    63.77358    -0.00278
+Hessian Eigenvalues: 1.29497e-03 3.75070e-03 1.20465e-02 ... 7.22357e-01 9.31386e-01 2.17278e+00
+Step   20 : Displace = [0m2.937e-03[0m/[0m5.594e-03[0m (rms/max) Trust = 3.000e-01 (=) Grad_T = [92m3.925e-05[0m/[92m1.488e-04[0m (rms/max) E (change) = -0.1793057224 ([92m-8.317e-07[0m) Quality = [0m1.420[0m
+Constraint                         Current      Target       Diff.
+Dihedral 7-8-10-12                63.77129    63.77358    -0.00228
+Hessian Eigenvalues: 1.27260e-03 3.66214e-03 1.05179e-02 ... 7.20219e-01 9.31449e-01 2.12808e+00
+Step   21 : Displace = [0m2.360e-03[0m/[0m4.564e-03[0m (rms/max) Trust = 3.000e-01 (=) Grad_T = [92m1.920e-05[0m/[92m5.535e-05[0m (rms/max) E (change) = -0.1793060847 ([92m-3.624e-07[0m) Quality = [0m1.152[0m
+Constraint                         Current      Target       Diff.
+Dihedral 7-8-10-12                63.77156    63.77358    -0.00201
+Hessian Eigenvalues: 1.24725e-03 3.60530e-03 9.24285e-03 ... 7.18159e-01 9.31306e-01 2.07044e+00
+Step   22 : Displace = [92m4.094e-04[0m/[92m8.116e-04[0m (rms/max) Trust = 3.000e-01 (=) Grad_T = [92m1.033e-05[0m/[92m2.282e-05[0m (rms/max) E (change) = -0.1793061612 ([92m-7.649e-08[0m) Quality = [0m1.257[0m
+Constraint                         Current      Target       Diff.
+Dihedral 7-8-10-12                63.77219    63.77358    -0.00139
+Hessian Eigenvalues: 1.24725e-03 3.60530e-03 9.24285e-03 ... 7.18159e-01 9.31306e-01 2.07044e+00
+Converged! =D
+
+    #==========================================================================#
+    #| If this code has benefited your research, please support us by citing: |#
+    #|                                                                        |#
+    #| Wang, L.-P.; Song, C.C. (2016) "Geometry optimization made simple with |#
+    #| translation and rotation coordinates", J. Chem, Phys. 144, 214108.     |#
+    #| http://dx.doi.org/10.1063/1.4952956                                    |#
+    #==========================================================================#
+    Time elapsed since start of run_optimizer: 4.565 seconds
