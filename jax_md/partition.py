@@ -911,10 +911,18 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
         idx = cell_list_candidate_fn(cl.id_buffer, position.shape)
         cl_capacity = cl.cell_capacity
 
+      #print("custom mask fn", custom_mask_function)
+      #sys.exit()
       if mask_self:
         idx = mask_self_fn(idx)
       if custom_mask_function is not None:
+        #print("Custom Mask fn")
+        #sys.exit()
         idx = custom_mask_function(idx)
+      #import sys
+      #jnp.set_printoptions(threshold=sys.maxsize, suppress=True)
+      #print("Mask Fn IDX", idx[0])
+      #sys.exit()
 
       if is_sparse(format):
         idx, occupancy = prune_neighbor_list_sparse(position, idx, **kwargs)
