@@ -15,10 +15,24 @@
 import jax.numpy as jnp
 from typing import Dict
 from jax_md import util
+import brainunit as u
 
 """Defines a units system and returns a dictionary of conversion factors.
    Units are defined similar to https://docs.lammps.org/units.html
 """
+
+eV_unit = u.Unit.create(dim=u.joule.dim, name='Electric voltage', dispname='eV', scale=-19)
+eV = 1.602176565 * eV_unit
+angstrom = u.Unit.create(dim=u.meter.dim, name='Angstrom', dispname='Å', scale=-10)
+force_unit = u.Unit.create(dim=eV_unit.dim/angstrom.dim, name='Force', dispname='N', scale=eV_unit.scale-angstrom.scale)
+amu_unit = u.Unit.create(dim=u.kgram.dim, name='Atomic mass unit', dispname='u', scale=-24)
+amu = 1.66053906660 * amu_unit
+
+def get_energy_in_eV(energy_in_joules):
+  return energy_in_joules / 602176565
+
+def get_mass_in_amu(mass_in_kg):
+  return mass_in_kg / 1.66053906660
 
 # Types
 f64 = util.f64

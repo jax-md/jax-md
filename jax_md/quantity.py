@@ -18,6 +18,7 @@
 from typing import TypeVar, Callable, Union, Tuple, Optional, Any
 
 from absl import logging
+from brainunit import check_units, UNITLESS, Quantity
 
 from jax import grad, vmap, eval_shape
 from jax.tree_util import tree_map, tree_reduce
@@ -26,8 +27,9 @@ from jax import ops
 from jax import ShapeDtypeStruct
 from jax.tree_util import tree_map, tree_reduce
 from jax.scipy.special import gammaln
+import brainunit as u
 
-from jax_md import space, dataclasses, partition, util
+from jax_md import space, dataclasses, partition, util, units as ju
 
 import functools
 import operator
@@ -45,8 +47,8 @@ DisplacementFn = space.DisplacementFn
 MetricFn = space.MetricFn
 Box = space.Box
 
-EnergyFn = Callable[..., Array]
-ForceFn = Callable[..., Array]
+EnergyFn = Callable[..., Array | Quantity]
+ForceFn = Callable[..., Array | Quantity]
 
 T = TypeVar('T')
 InitFn = Callable[..., T]
@@ -66,8 +68,8 @@ def clipped_force(energy_fn: EnergyFn, max_force: float) -> ForceFn:
   force_fn = force(energy_fn)
   def wrapped_force_fn(R, *args, **kwargs):
     force = force_fn(R, *args, **kwargs)
-    force_norm = jnp.linalg.norm(force, axis=-1, keepdims=True)
-    return jnp.where(force_norm > max_force,
+    force_norm = u.linalg.norm(force, axis=-1, keepdims=True)
+    return u.math.where(force_norm > max_force,
                      force / force_norm * max_force,
                      force)
 
@@ -106,22 +108,24 @@ def count_dof(position: Array) -> int:
   return tree_reduce(lambda accum, x: accum + x.size, position, 0)
 
 
-def volume(dimension: int, box: Box) -> Array:
-  if jnp.isscalar(box) or not box.ndim:
+def volume(dimension: int, box: Box) -> Quantity | Array:
+  if u.math.isscalar(box) or not box.ndim:
     return box ** dimension
   elif box.ndim == 1:
-    return jnp.prod(box)
+    return u.math.prod(box)
   elif box.ndim == 2:
-    return jnp.linalg.det(box)
+    return u.linalg.det(box)
   raise ValueError(('Box must be either: a scalar, a vector, or a matrix. '
                     f'Found {box}.'))
 
 
+@check_units(momentum=ju.amu_unit * ju.angstrom / u.second, velocity=ju.angstrom / u.second, mass=ju.amu_unit,
+             result=ju.eV_unit)
 def kinetic_energy(*unused_args,
-                   momentum: Array=None,
-                   velocity: Array=None,
-                   mass: Array=1.0,
-                   ) -> float:
+                   momentum: Quantity=None,
+                   velocity: Quantity=None,
+                   mass: Quantity=1.0*ju.amu_unit,
+                   ) -> Quantity:
   """Computes the kinetic energy of a system.
 
   To avoid ambiguity, either momentum or velocity must be passed explicitly
@@ -147,14 +151,15 @@ def kinetic_energy(*unused_args,
   util.check_custom_simulation_type(q)
 
   ke = tree_map(lambda m, q: 0.5 * util.high_precision_sum(k(q, m)), mass, q)
-  return tree_reduce(operator.add, ke, 0.0)
+  return tree_reduce(u.math.add, ke, 0.0)
 
-
+@check_units(momentum=ju.amu_unit * ju.angstrom / u.second, velocity=ju.angstrom / u.second, mass=ju.amu_unit,
+             result=u.kelvin)
 def temperature(*unused_args,
-                momentum: Array=None,
-                velocity: Array=None,
-                mass: Array=1.0,
-                ) -> float:
+                momentum: Quantity=None,
+                velocity: Quantity=None,
+                mass: Quantity=1.0*ju.amu_unit,
+                ) -> Quantity:
   """Computes the temperature of a system.
 
   To avoid ambiguity, either momentum or velocity must be passed explicitly
@@ -182,11 +187,16 @@ def temperature(*unused_args,
   dof = count_dof(q)
 
   kT = tree_map(lambda m, q: util.high_precision_sum(t(q, m)) / dof, mass, q)
-  return tree_reduce(operator.add, kT, 0.0)
+  return tree_reduce(u.math.add, kT, 0.0)
 
-
-def pressure(energy_fn: EnergyFn, position: Array, box: Box,
-             kinetic_energy: float=0.0, **kwargs) -> float:
+@check_units(position=ju.angstrom, energy=ju.eV_unit, result=ju.amu_unit/ ju.angstrom / u.second2)
+def pressure(
+    energy_fn: EnergyFn,
+    position: Quantity,
+    box: Box,
+    kinetic_energy: Quantity=0.0 * ju.eV_unit,
+    **kwargs
+) -> Quantity:
   """Computes the internal pressure of a system.
 
   Args:
@@ -210,13 +220,15 @@ def pressure(energy_fn: EnergyFn, position: Array, box: Box,
     except space.UnexpectedBoxException:
       return energy_fn(position, perturbation=(1 + eps), **kwargs)
 
-  dUdV = grad(U)
+  dUdV = u.autograd.grad(U)
   vol_0 = volume(dim, box)
 
+  # TODO: unit is not equivalent
   return 1 / (dim * vol_0) * (2 * kinetic_energy - dUdV(0.0))
 
-
-def stress(energy_fn: EnergyFn, position: Array, box: Box,
+@check_units(position=ju.angstrom, velocity=ju.angstrom / u.second, mass=ju.amu_unit,
+             result=ju.amu_unit/ ju.angstrom / u.second2)
+def stress(energy_fn: EnergyFn, position: Quantity, box: Box,
            mass: Array=1.0, velocity: Optional[Array]=None, **kwargs
            ) -> Array:
   """Computes the internal stress of a system.
@@ -238,8 +250,8 @@ def stress(energy_fn: EnergyFn, position: Array, box: Box,
   """
   dim = position.shape[1]
 
-  zero = jnp.zeros((dim, dim), position.dtype)
-  I = jnp.eye(dim, dtype=position.dtype)
+  zero = u.math.zeros((dim, dim), position.dtype)
+  I = u.math.eye(dim, dtype=position.dtype)
 
   def U(eps):
     try:
@@ -247,7 +259,7 @@ def stress(energy_fn: EnergyFn, position: Array, box: Box,
     except space.UnexpectedBoxException:
       return energy_fn(position, perturbation=(I + eps), **kwargs)
 
-  dUdV = grad(U)
+  dUdV = u.autograd.grad(U)
   vol_0 = volume(dim, box)
 
   VxV = 0.0
@@ -257,12 +269,12 @@ def stress(energy_fn: EnergyFn, position: Array, box: Box,
 
   return 1 / vol_0 * (VxV - dUdV(zero))
 
-
-def cosine_angle_between_two_vectors(dR_12: Array, dR_13: Array) -> Array:
+@check_units(dR12=ju.angstrom, dR13=ju.angstrom, result=UNITLESS)
+def cosine_angle_between_two_vectors(dR_12: Quantity, dR_13: Quantity) -> Quantity:
   dr_12 = space.distance(dR_12) + 1e-7
   dr_13 = space.distance(dR_13) + 1e-7
-  cos_angle = jnp.dot(dR_12, dR_13) / dr_12 / dr_13
-  return jnp.clip(cos_angle, -1.0, 1.0)
+  cos_angle = u.math.dot(dR_12, dR_13) / dr_12 / dr_13
+  return u.math.clip(cos_angle, -1.0, 1.0)
 
 
 def cosine_angles(dR: Array) -> Array:

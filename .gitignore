@@ -13,3 +13,6 @@ build/
 dist/
 .mypy_cache/
 examples/output/*
+
+.vscode
+.idea
