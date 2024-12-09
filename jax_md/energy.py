@@ -28,9 +28,6 @@ from jax import vmap
 import haiku as hk
 from jax.scipy.special import erfc  # error function
 from jax_md import space, smap, partition, nn, quantity, interpolate, util
-import brainunit as u
-from brainunit import check_units, UNITLESS, Quantity
-from jax_md import units as ju
 
 from ml_collections import ConfigDict
 
@@ -74,18 +71,18 @@ NeighborListFormat = partition.NeighborListFormat
 
 # Energy Functions
 
-@check_units(dr=ju.angstrom, length=ju.angstrom, epsilon=ju.eV_unit/ju.angstrom, alpha=UNITLESS, result=ju.eV_unit)
-def simple_spring(dr: Quantity,
-                  length: Quantity=1,
-                  epsilon: Quantity=1,
+
+def simple_spring(dr: Array,
+                  length: Array=1,
+                  epsilon: Array=1,
                   alpha: Array=2,
-                  **unused_kwargs) -> Quantity:
+                  **unused_kwargs) -> Array:
   """Isotropic spring potential with a given rest length.
 
   We define `simple_spring` to be a generalized Hookean spring with
   agreement when `alpha = 2`.
   """
-  return epsilon / (alpha * u.math.abs((dr - length).to_decimal(ju.angstrom)) ** alpha) * ju.angstrom
+  return epsilon / alpha * jnp.abs(dr - length) ** alpha
 
 
 def simple_spring_bond(displacement_or_metric: DisplacementOrMetricFn,
@@ -108,12 +105,12 @@ def simple_spring_bond(displacement_or_metric: DisplacementOrMetricFn,
     epsilon=epsilon,
     alpha=alpha)
 
-@check_units(dr=ju.angstrom, sigma=ju.angstrom, epsilon=ju.eV_unit/ju.angstrom, alpha=UNITLESS, result=ju.eV_unit)
-def soft_sphere(dr: Quantity,
-                sigma: Quantity=1,
-                epsilon: Quantity=1,
+
+def soft_sphere(dr: Array,
+                sigma: Array=1,
+                epsilon: Array=1,
                 alpha: Array=2,
-                **unused_kwargs) -> Quantity:
+                **unused_kwargs) -> Array:
   """.. _soft-sphere:
 
   Finite ranged repulsive interaction between soft spheres.
@@ -130,14 +127,14 @@ def soft_sphere(dr: Quantity,
   Returns:
     Matrix of energies whose shape is `[n, m]`.
   """
-  dr_u = dr.unit
+
   dr = dr / sigma
-  fn = lambda dr: epsilon / (alpha * (f32(1.0) - dr) ** alpha) * dr_u
+  fn = lambda dr: epsilon / alpha * (f32(1.0) - dr) ** alpha
 
   if isinstance(alpha, int) or issubclass(type(alpha.dtype), jnp.integer):
-    return u.math.where(dr < 1.0, fn(dr), f32(0.0) * ju.eV_unit)
+    return jnp.where(dr < 1.0, fn(dr), f32(0.0))
 
-  return util.safe_mask(dr < 1.0, fn, dr, f32(0.0) * ju.eV_unit)
+  return util.safe_mask(dr < 1.0, fn, dr, f32(0.0))
 
 
 def soft_sphere_pair(displacement_or_metric: DisplacementOrMetricFn,
@@ -201,11 +198,11 @@ def soft_sphere_neighbor_list(
 
   return neighbor_fn, energy_fn
 
-@check_units(dr=ju.angstrom, sigma=ju.angstrom, epsilon=ju.eV_unit/ju.angstrom, result=ju.eV_unit)
-def lennard_jones(dr: Quantity,
-                  sigma: Quantity=1,
-                  epsilon: Quantity=1,
-                  **unused_kwargs) -> Quantity:
+
+def lennard_jones(dr: Array,
+                  sigma: Array=1,
+                  epsilon: Array=1,
+                  **unused_kwargs) -> Array:
   """.. _lj-pot:
 
   Lennard-Jones interaction between particles with a minimum at `sigma`.
@@ -226,7 +223,7 @@ def lennard_jones(dr: Quantity,
   idr12 = idr6 * idr6
   # TODO(schsam): This seems potentially dangerous. We should do ErrorChecking
   # here.
-  return u.math.nan_to_num(f32(4) * epsilon * (idr12 - idr6) * ju.angstrom)
+  return jnp.nan_to_num(f32(4) * epsilon * (idr12 - idr6))
 
 
 def lennard_jones_pair(displacement_or_metric: DisplacementOrMetricFn,
@@ -293,12 +290,11 @@ def lennard_jones_neighbor_list(
   return neighbor_fn, energy_fn
 
 
-@check_units(dr=ju.angstrom, sigma=ju.angstrom, epsilon=ju.eV_unit/ju.angstrom, result=ju.eV_unit)
-def morse(dr: Quantity,
-          sigma: Quantity=1.0,
-          epsilon: Quantity=5.0,
+def morse(dr: Array,
+          sigma: Array=1.0,
+          epsilon: Array=5.0,
           alpha: Array=5.0,
-          **unused_kwargs) -> Quantity:
+          **unused_kwargs) -> Array:
   """.. _morse-pot:
 
   Morse interaction between particles with a minimum at `sigma`.
@@ -315,9 +311,9 @@ def morse(dr: Quantity,
   Returns:
     Matrix of energies of shape `[n, m]`.
   """
-  U = epsilon * (f32(1) - u.math.exp(-alpha * (dr - sigma), unit_to_scale=ju.angstrom))**f32(2) - epsilon
+  U = epsilon * (f32(1) - jnp.exp(-alpha * (dr - sigma)))**f32(2) - epsilon
   # TODO(cpgoodri): ErrorChecking following lennard_jones
-  return u.math.nan_to_num(U * ju.angstrom, dtype=dr.dtype)
+  return jnp.nan_to_num(jnp.array(U, dtype=dr.dtype))
 
 
 def morse_pair(displacement_or_metric: DisplacementOrMetricFn,
@@ -386,7 +382,7 @@ def morse_neighbor_list(
 
   return neighbor_fn, energy_fn
 
-@check_units(r_0n=ju.angstrom, U_n=UNITLESS, A=ju.eV_unit, cutoff=ju.angstrom, result=ju.eV_unit)
+
 def gupta_potential(displacement, p, q, r_0n, U_n, A, cutoff):
   """.. _gupta-pot:
 
@@ -428,25 +424,25 @@ def gupta_potential(displacement, p, q, r_0n, U_n, A, cutoff):
   def _gupta_term1(r, p, r_0n, cutoff):
     """Repulsive term in Gupta potential."""
     within_cutoff = (r > 0) & (r < cutoff)
-    term1 = u.math.exp(-1.0 * p * (r / r_0n - 1), unit_to_scale=ju.angstrom)
-    return u.math.where(within_cutoff, term1, 0.0)
+    term1 = jnp.exp(-1.0 * p * (r / r_0n - 1))
+    return jnp.where(within_cutoff, term1, 0.0)
 
   def _gupta_term2(r, q, r_0n, cutoff):
     """Attractive term in Gupta potential."""
     within_cutoff = (r > 0) & (r < cutoff)
-    term2 = u.math.exp(-2.0 * q * (r / r_0n - 1), unit_to_scale=ju.angstrom)
-    return u.math.where(within_cutoff, term2, 0.0)
+    term2 = jnp.exp(-2.0 * q * (r / r_0n - 1))
+    return jnp.where(within_cutoff, term2, 0.0)
 
   def compute_fn(R):
     dR = space.map_product(displacement)(R, R)
-    dr = space.distance(dR) * ju.angstrom
-    first_term = A * u.math.sum(_gupta_term1(dr, p, r_0n, cutoff), axis=1)
+    dr = space.distance(dR)
+    first_term = A * jnp.sum(_gupta_term1(dr, p, r_0n, cutoff), axis=1)
     # Safe sqrt used in order to ensure that force calculations are not nan
     # when the particles are too widely separated at initialization
     # (corresponding to the case where the attractive term is 0.).
-    attractive_term = u.math.sum(_gupta_term2(dr, q, r_0n, cutoff), axis=1)
+    attractive_term = jnp.sum(_gupta_term2(dr, q, r_0n, cutoff), axis=1)
     second_term = util.safe_mask(attractive_term > 0,
-                                 u.math.sqrt, attractive_term) * ju.eV_unit
+                                 jnp.sqrt, attractive_term)
     return U_n / 2.0 * jnp.sum(first_term - second_term)
 
   return compute_fn
@@ -518,35 +514,32 @@ def multiplicative_isotropic_cutoff(fn: Callable[..., Array],
   return cutoff_fn
 
 
-def dsf_coulomb(r: Quantity,
-                Q_sq: Quantity,
-                alpha: Quantity=0.25 / ju.angstrom,
-                cutoff: Quantity=8.0 * ju.angstrom) -> Quantity:
+def dsf_coulomb(r: Array,
+                Q_sq: Array,
+                alpha: Array=0.25,
+                cutoff: float=8.0) -> Array:
   """Damped-shifted-force approximation of the coulombic interaction."""
-  qqr2e = 332.06371 * ju.eV_unit  # Coulombic conversion factor: 1/(4*pi*epo).
+  qqr2e = 332.06371  # Coulombic conversion factor: 1/(4*pi*epo).
 
   cutoffsq = cutoff * cutoff
   erfcc = erfc(alpha * cutoff)
-  erfcd = u.math.exp(-alpha * alpha * cutoffsq)
-  f_shift = -(erfcc / cutoffsq + 2 / u.math.sqrt(u.math.pi) * alpha * erfcd / cutoff) # unit=1/ju.angstrom2
-  e_shift = erfcc / cutoff - f_shift * cutoff # unit=1/ju.angstrom
+  erfcd = jnp.exp(-alpha * alpha * cutoffsq)
+  f_shift = -(erfcc / cutoffsq + 2 / jnp.sqrt(jnp.pi) * alpha * erfcd / cutoff)
+  e_shift = erfcc / cutoff - f_shift * cutoff
 
   e = qqr2e * Q_sq / r * (erfc(alpha * r) - r * e_shift - r**2 * f_shift)
-  return u.math.where(r < cutoff, e, 0.0) * ju.eV_unit
+  return jnp.where(r < cutoff, e, 0.0)
 
 
-@check_units(dr=ju.angstrom, Q_sq=ju.eV_unit, exp_coeff=ju.eV_unit, exp_decay=UNITLESS,
-             attractive_coeff=ju.eV_unit * ju.angstrom ** 6, repulsive_coeff=ju.eV_unit * ju.angstrom ** 24,
-             coulomb_alpha=1/ju.angstrom, cutoff=ju.angstrom, result=ju.eV_unit)
-def bks(dr: Quantity,
-        Q_sq: Quantity,
-        exp_coeff: Quantity,
-        exp_decay: Quantity,
-        attractive_coeff: Quantity,
-        repulsive_coeff: Quantity,
-        coulomb_alpha: Quantity,
-        cutoff: Quantity,
-        **unused_kwargs) -> Quantity:
+def bks(dr: Array,
+        Q_sq: Array,
+        exp_coeff: Array,
+        exp_decay: Array,
+        attractive_coeff: Array,
+        repulsive_coeff: Array,
+        coulomb_alpha: Array,
+        cutoff: float,
+        **unused_kwargs) -> Array:
   """.. _bks-pot:
 
   Beest-Kramer-van Santen (BKS) potential [#bks]_ which is commonly used to
@@ -582,9 +575,9 @@ def bks(dr: Quantity,
     arXiv preprint arXiv:1902.03486 (2019).
   """
   energy = (dsf_coulomb(dr, Q_sq, coulomb_alpha, cutoff) + \
-            exp_coeff * u.math.exp(-dr / exp_decay, unit_to_scale=ju.angstrom) + \
+            exp_coeff * jnp.exp(-dr / exp_decay) + \
             attractive_coeff / dr ** 6 + repulsive_coeff / dr ** 24)
-  return  u.math.where(dr < cutoff, energy, 0.0)
+  return  jnp.where(dr < cutoff, energy, 0.0)
 
 
 def bks_pair(displacement_or_metric: DisplacementOrMetricFn,
@@ -753,9 +746,9 @@ def bks_silica_neighbor_list(
 
 # Stillinger-Weber Potential
 
-@check_units(gamma=UNITLESS, sigma=ju.angstrom, cutoff=ju.angstrom, dR12=ju.angstrom, dR13=ju.angstrom, result=UNITLESS)
-def _sw_angle_interaction(gamma: Quantity, sigma: Quantity, cutoff: Quantity,
-                          dR12: Quantity, dR13: Quantity) -> Array:
+
+def _sw_angle_interaction(gamma: float, sigma: float, cutoff: float,
+                          dR12: Array, dR13: Array) -> Array:
   """The angular interaction for the Stillinger-Weber potential.
   This function is defined only for interaction with a pair of
   neighbors. We then vmap this function three times below to make
@@ -778,41 +771,38 @@ def _sw_angle_interaction(gamma: Quantity, sigma: Quantity, cutoff: Quantity,
   a = cutoff / sigma
   dr12 = space.distance(dR12)
   dr13 = space.distance(dR13)
-  dr12 = u.math.where(dr12 < cutoff, dr12, 0)
-  dr13 = u.math.where(dr13 < cutoff, dr13, 0)
-  term1 = u.math.exp(gamma / (dr12 / sigma - a) + gamma / (dr13 / sigma - a))
+  dr12 = jnp.where(dr12 < cutoff, dr12, 0)
+  dr13 = jnp.where(dr13 < cutoff, dr13, 0)
+  term1 = jnp.exp(gamma / (dr12 / sigma - a) + gamma / (dr13 / sigma - a))
   cos_angle = quantity.cosine_angle_between_two_vectors(dR12, dR13)
   term2 = (cos_angle + 1./3)**2
-  within_cutoff = (dr12>0 * ju.angstrom) & (dr13>0 * ju.angstrom) & (u.linalg.norm(dR12-dR13)>1e-5 * ju.angstrom)
-  return u.math.where(within_cutoff, term1 * term2, 0)
-
+  within_cutoff = (dr12>0) & (dr13>0) & (jnp.linalg.norm(dR12-dR13)>1e-5)
+  return jnp.where(within_cutoff, term1 * term2, 0)
 sw_three_body_term = vmap(vmap(vmap(
     _sw_angle_interaction, (0, None)), (None, 0)), 0)
 
 
-@check_units(sigma=ju.angstrom, B=ju.eV_unit, cutoff=ju.angstrom, r=ju.angstrom, result=ju.eV_unit)
-def _sw_radial_interaction(sigma: Quantity, B: Quantity, cutoff: Quantity, r: Quantity
+def _sw_radial_interaction(sigma: float, B: float, cutoff: float, r: Array
                            ) -> Array:
   """The two body term of the Stillinger-Weber potential."""
   a = cutoff / sigma
   p = 4
-  term1 = (B * (r / sigma)**(-p) - 1.0 * ju.eV_unit)
+  term1 = (B * (r / sigma)**(-p) - 1.0)
   within_cutoff = (r > 0) & (r < cutoff)
-  r = u.math.where(within_cutoff, r, 0)
-  term2 = u.math.exp(1 / (r / sigma - a))
-  return u.math.where(within_cutoff, term1 * term2, 0.0 * ju.eV_unit)
+  r = jnp.where(within_cutoff, r, 0)
+  term2 = jnp.exp(1 / (r / sigma - a))
+  return jnp.where(within_cutoff, term1 * term2, 0.0)
 
-@check_units(sigma=ju.angstrom, A=ju.eV_unit, B=ju.eV_unit, lam=UNITLESS, gamma=UNITLESS,
-             epsilon=ju.eV_unit, three_body_strength=UNITLESS, cutoff=ju.angstrom, result=ju.eV_unit)
+
 def stillinger_weber(displacement: DisplacementFn,
-                     sigma: Quantity = 2.0951,
-                     A: Quantity = 7.049556277,
-                     B: Quantity = 0.6022245584,
-                     lam: Quantity = 21.0,
-                     gamma: Quantity = 1.2,
-                     epsilon: Quantity = 2.16826,
-                     three_body_strength: Quantity =1.0,
-                     cutoff: Quantity = 3.77118) -> Callable[[Array], Array]:
+                     sigma: float = 2.0951,
+                     A: float = 7.049556277,
+                     B: float = 0.6022245584,
+                     lam: float = 21.0,
+                     gamma: float = 1.2,
+                     epsilon: float = 2.16826,
+                     three_body_strength: float =1.0,
+                     cutoff: float = 3.77118) -> Callable[[Array], Array]:
   """.. _sw-pot:
 
   Computes the Stillinger-Weber potential.
@@ -863,7 +853,7 @@ def stillinger_weber(displacement: DisplacementFn,
     dr = space.distance(dR)
     first_term = util.high_precision_sum(two_body_fn(dr)) / 2.0 * A
     second_term = lam *  util.high_precision_sum(three_body_fn(dR, dR)) / 2.0
-    return epsilon.to_decimal(ju.eV_unit/ju.angstrom) * (first_term + three_body_strength * second_term)
+    return epsilon * (first_term + three_body_strength * second_term)
   return compute_fn
 
 

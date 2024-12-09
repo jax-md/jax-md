@@ -47,13 +47,11 @@ in a vectorized fashion. To do this we provide three functions: `map_product`,
 
 from typing import Callable, Union, Tuple, Any, Optional
 
-from brainunit import check_units, Quantity
 from jax.core import ShapedArray
 
 from jax import eval_shape
 from jax import vmap
 from jax import custom_jvp
-import brainunit as u
 
 import jax
 
@@ -63,20 +61,19 @@ from jax_md.util import Array
 from jax_md.util import f32
 from jax_md.util import f64
 from jax_md.util import safe_mask
-from jax_md import units as ju
 
 
 # Types
 
 
-DisplacementFn = Callable[[Array | Quantity, Array | Quantity], Array | Quantity]
-MetricFn = Callable[[Array | Quantity, Array | Quantity], float]
+DisplacementFn = Callable[[Array, Array], Array]
+MetricFn = Callable[[Array, Array], float]
 DisplacementOrMetricFn = Union[DisplacementFn, MetricFn]
 
-ShiftFn = Callable[[Array | Quantity, Array | Quantity], Array | Quantity]
+ShiftFn = Callable[[Array, Array], Array]
 
 Space = Tuple[DisplacementFn, ShiftFn]
-Box = Array | Quantity
+Box = Array
 
 
 # Exceptions
@@ -192,8 +189,7 @@ def periodic_displacement(side: Box, dR: Array) -> Array:
   return jnp.mod(dR + side * f32(0.5), side) - f32(0.5) * side
 
 
-@check_units(dR = ju.angstrom, result=ju.angstrom**2)
-def square_distance(dR: Quantity) -> Array:
+def square_distance(dR: Array) -> Array:
   """Computes square distances.
 
   Args:
@@ -201,10 +197,10 @@ def square_distance(dR: Quantity) -> Array:
   Returns:
     Matrix of squared distances; `ndarray(shape=[...])`.
   """
-  return u.math.sum(dR.to_decimal(ju.angstrom) ** 2, axis=-1)
+  return jnp.sum(dR ** 2, axis=-1)
 
 
-def distance(dR: Quantity) -> Quantity:
+def distance(dR: Array) -> Array:
   """Computes distances.
 
   Args:
@@ -213,7 +209,7 @@ def distance(dR: Quantity) -> Quantity:
     Matrix of distances; `ndarray(shape=[...])`.
   """
   dr = square_distance(dR)
-  return safe_mask(dr > 0, u.math.sqrt, dr)
+  return safe_mask(dr > 0, jnp.sqrt, dr)
 
 
 def periodic_shift(side: Box, R: Array, dR: Array) -> Array:

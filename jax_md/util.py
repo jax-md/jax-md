@@ -17,12 +17,10 @@
 from typing import Iterable, Union, Optional, Any
 
 import jax
-from brainunit import Quantity
 from jax.tree_util import register_pytree_node
 from jax.lib import xla_bridge
 import jax.numpy as jnp
 from jax import jit
-import brainunit as u
 
 from functools import partial
 
@@ -82,11 +80,11 @@ def merge_dicts(a, b, ignore_unused_parameters=False):
 
 @partial(jit, static_argnums=(1,))
 def safe_mask(mask, fn, operand, placeholder=0):
-  masked = u.math.where(mask, operand, 0)
-  return u.math.where(mask, fn(masked), placeholder)
+  masked = jnp.where(mask, operand, 0)
+  return jnp.where(mask, fn(masked), placeholder)
 
 
-def high_precision_sum(X: Array | Quantity,
+def high_precision_sum(X: Array,
                        axis: Optional[Union[Iterable[int], int]]=None,
                        keepdims: bool=False):
   """Sums over axes at 64-bit precision then casts back to original dtype."""
@@ -97,7 +95,8 @@ def high_precision_sum(X: Array | Quantity,
   else:
     dtyp = jnp.float64
 
-  return u.math.sum(X, axis=axis, dtype=dtyp, keepdims=keepdims)
+  return jnp.array(
+      jnp.sum(X, axis=axis, dtype=dtyp, keepdims=keepdims), dtype=X.dtype)
 
 
 def maybe_downcast(x):
