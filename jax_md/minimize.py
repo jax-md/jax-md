@@ -34,6 +34,7 @@ from collections import namedtuple
 from typing import TypeVar, Callable, Tuple, Union, Any
 
 import jax.numpy as jnp
+import brainunit as u
 from jax.tree_util import tree_map, tree_reduce
 
 from jax_md import quantity
@@ -41,6 +42,7 @@ from jax_md import dataclasses
 from jax_md import util
 from jax_md import space
 from jax_md import simulate
+from jax_md import units as ju
 
 # Types
 
@@ -153,14 +155,15 @@ def fire_descent(energy_or_force: Callable[..., Array],
   dt_start, dt_max, n_min, f_inc, f_dec, alpha_start, f_alpha = util.static_cast(
     dt_start, dt_max, n_min, f_inc, f_dec, alpha_start, f_alpha)
 
+  dt_start = dt_start * ju.fsecond
   nve_init_fn, nve_step_fn = simulate.nve(energy_or_force, shift_fn, dt_start)
-  force = quantity.canonicalize_force(energy_or_force)
+  force = quantity.canonicalize_force(u.autograd.grad(energy_or_force))
 
   def init_fn(R: PyTree, mass: Array=1.0, **kwargs) -> FireDescentState:
-    P = tree_map(lambda x: jnp.zeros_like(x), R)
+    P = tree_map(lambda x: jnp.zeros_like(x), R.mantissa * ju.force_unit * ju.fsecond)
     n_pos = jnp.zeros((), jnp.int32)
     F = force(R, **kwargs)
-    state = FireDescentState(R, P, F, mass, dt_start, alpha_start, n_pos)  # pytype: disable=wrong-arg-count
+    state = FireDescentState(R, P, F, mass, dt_start, alpha_start, n_pos) # pytype: disable=wrong-arg-count
     return simulate.canonicalize_mass(state)
 
   def apply_fn(state: FireDescentState, **kwargs) -> FireDescentState:

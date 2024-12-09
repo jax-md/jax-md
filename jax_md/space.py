@@ -47,11 +47,13 @@ in a vectorized fashion. To do this we provide three functions: `map_product`,
 
 from typing import Callable, Union, Tuple, Any, Optional
 
+from brainunit import assign_units
 from jax.core import ShapedArray
 
 from jax import eval_shape
 from jax import vmap
 from jax import custom_jvp
+import brainunit as u
 
 import jax
 
@@ -61,7 +63,8 @@ from jax_md.util import Array
 from jax_md.util import f32
 from jax_md.util import f64
 from jax_md.util import safe_mask
-
+from jax_md import units as ju
+from brainunit import Quantity
 
 # Types
 
@@ -73,7 +76,7 @@ DisplacementOrMetricFn = Union[DisplacementFn, MetricFn]
 ShiftFn = Callable[[Array, Array], Array]
 
 Space = Tuple[DisplacementFn, ShiftFn]
-Box = Array
+Box = Array | Quantity
 
 
 # Exceptions
@@ -150,7 +153,7 @@ def transform_jvp(primals, tangents):
   dbox, dR = tangents
   return (transform(box, R), dR + transform(dbox, R))
 
-
+@u.assign_units(Ra=ju.angstrom, Rb=ju.angstrom, result=ju.angstrom)
 def pairwise_displacement(Ra: Array, Rb: Array) -> Array:
   """Compute a matrix of pairwise displacements given two sets of positions.
 
@@ -174,7 +177,7 @@ def pairwise_displacement(Ra: Array, Rb: Array) -> Array:
 
   return Ra - Rb
 
-
+@assign_units(dR=ju.angstrom, result=ju.angstrom)
 def periodic_displacement(side: Box, dR: Array) -> Array:
   """Wraps displacement vectors into a hypercube.
 
@@ -186,7 +189,9 @@ def periodic_displacement(side: Box, dR: Array) -> Array:
   Returns:
     Matrix of wrapped displacements; `ndarray(shape=[..., spatial_dim])`.
   """
-  return jnp.mod(dR + side * f32(0.5), side) - f32(0.5) * side
+  if isinstance(side, Quantity):
+    side = side.to_decimal(side.unit)
+  return u.math.mod(dR + side * f32(0.5), side) - f32(0.5) * side
 
 
 def square_distance(dR: Array) -> Array:
@@ -199,7 +204,7 @@ def square_distance(dR: Array) -> Array:
   """
   return jnp.sum(dR ** 2, axis=-1)
 
-
+@assign_units(dR=ju.angstrom, result=ju.angstrom)
 def distance(dR: Array) -> Array:
   """Computes distances.
 
@@ -211,9 +216,11 @@ def distance(dR: Array) -> Array:
   dr = square_distance(dR)
   return safe_mask(dr > 0, jnp.sqrt, dr)
 
-
+@assign_units(R=ju.angstrom, dR=ju.angstrom, result=ju.angstrom)
 def periodic_shift(side: Box, R: Array, dR: Array) -> Array:
   """Shifts positions, wrapping them back within a periodic hypercube."""
+  if isinstance(side, Quantity):
+    side = side.to_decimal(side.unit)
   return jnp.mod(R + dR, side)
 
 

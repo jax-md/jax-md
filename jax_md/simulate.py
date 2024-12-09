@@ -39,6 +39,7 @@ from typing import Any, Callable, TypeVar, Union, Tuple, Dict, Optional
 
 import functools
 
+from brainunit import Quantity
 from jax import grad
 from jax import jit
 from jax import random
@@ -52,6 +53,7 @@ from jax_md import space
 from jax_md import dataclasses
 from jax_md import partition
 from jax_md import smap
+from jax_md import units as ju
 
 static_cast = util.static_cast
 
@@ -154,12 +156,12 @@ def initialize_momenta(state: T, key: Array, kT: float) -> T:
 
 
 @dispatch_by_state
-def momentum_step(state: T, dt: float) -> T:
+def momentum_step(state: T, dt: float | Quantity) -> T:
   """Apply a single step of the time evolution operator for momenta."""
   assert hasattr(state, 'momentum')
-  new_momentum = tree_map(lambda p, f: p + dt * f,
+  new_momentum = tree_map(lambda p, fdt: p + fdt,
                           state.momentum,
-                          state.force)
+                          state.force * dt)
   return state.set(momentum=new_momentum)
 
 
@@ -168,6 +170,7 @@ def position_step(state: T, shift_fn: Callable, dt: float, **kwargs) -> T:
   """Apply a single step of the time evolution operator for positions."""
   if isinstance(shift_fn, Callable):
     shift_fn = tree_map(lambda r: shift_fn, state.position)
+  # TODO: unit handling
   new_position = tree_map(lambda s_fn, r, p, m: s_fn(r, dt * p / m, **kwargs),
                           shift_fn,
                           state.position,
@@ -214,12 +217,16 @@ interesting simulations that involve e.g. temperature gradients.
 
 def velocity_verlet(force_fn: Callable[..., Array],
                     shift_fn: ShiftFn,
-                    dt: float,
+                    dt: float | Quantity,
                     state: T,
                     **kwargs) -> T:
   """Apply a single step of velocity Verlet integration to a state."""
-  dt = f32(dt)
-  dt_2 = f32(dt / 2)
+  if isinstance(dt, Quantity):
+    dt = f32(dt.to_decimal(dt.unit)) * dt.unit
+    dt_2 = f32(dt.to_decimal(dt.unit) / 2) * dt.unit
+  else:
+    dt = f32(dt)
+    dt_2 = f32(dt / 2)
 
   state = momentum_step(state, dt_2)
   state = position_step(state, shift_fn, dt, **kwargs)

@@ -16,6 +16,7 @@
 
 import base64
 
+from brainunit import Quantity
 from google.colab import output
 
 import IPython
@@ -208,6 +209,9 @@ def render(box_size,
     verbose: Specifies whether or not the client should emit information and
       error messages. Useful for debugging visualizations, but adds clutter.
   """
+  if isinstance(box_size, Quantity):
+    box_size = box_size.to_decimal(box_size.unit)
+
   global SIMULATION_IDX
   # INTERNAL_RENDERER_CODE_LOADING
 

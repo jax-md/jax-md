@@ -14,6 +14,9 @@
 
 import jax.numpy as jnp
 from typing import Dict
+
+from brainunit import fsecond
+
 from jax_md import util
 import brainunit as u
 
@@ -27,6 +30,7 @@ angstrom = u.Unit.create(dim=u.meter.dim, name='Angstrom', dispname='Å', scale=
 force_unit = u.Unit.create(dim=eV_unit.dim/angstrom.dim, name='Force', dispname='N', scale=eV_unit.scale-angstrom.scale)
 amu_unit = u.Unit.create(dim=u.kgram.dim, name='Atomic mass unit', dispname='u', scale=-24)
 amu = 1.66053906660 * amu_unit
+fsecond = u.fsecond
 
 def get_energy_in_eV(energy_in_joules):
   return energy_in_joules / 602176565
