@@ -216,7 +216,7 @@ def distance(dR: Array) -> Array:
   dr = square_distance(dR)
   return safe_mask(dr > 0, jnp.sqrt, dr)
 
-@assign_units(R=ju.angstrom, dR=ju.angstrom, result=ju.angstrom)
+# @assign_units(R=ju.angstrom, dR=ju.angstrom, result=ju.angstrom)
 def periodic_shift(side: Box, R: Array, dR: Array) -> Array:
   """Shifts positions, wrapping them back within a periodic hypercube."""
   if isinstance(side, Quantity):
@@ -268,9 +268,9 @@ def periodic(side: Box, wrapped: bool=True) -> Space:
         raise UnexpectedBoxException(('`space.periodic` does not accept a box '
                                       'argument. Perhaps you meant to use '
                                       '`space.periodic_general`?'))
-
       return periodic_shift(side, R, dR)
   else:
+    @u.assign_units(R=ju.angstrom, dR=ju.angstrom, result=ju.angstrom)
     def shift_fn(R: Array, dR: Array, **unused_kwargs) -> Array:
       if 'box' in unused_kwargs:
         raise UnexpectedBoxException(('`space.periodic` does not accept a box '

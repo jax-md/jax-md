@@ -171,11 +171,11 @@ def position_step(state: T, shift_fn: Callable, dt: float, **kwargs) -> T:
   if isinstance(shift_fn, Callable):
     shift_fn = tree_map(lambda r: shift_fn, state.position)
   # TODO: unit handling
-  new_position = tree_map(lambda s_fn, r, p, m: s_fn(r, dt * p / m, **kwargs),
+  new_position = tree_map(lambda s_fn, r, pmt: s_fn(r, pmt, **kwargs),
                           shift_fn,
                           state.position,
-                          state.momentum,
-                          state.mass)
+                          (state.momentum / state.mass * dt).in_unit(ju.angstrom),
+                          )
   return state.set(position=new_position)
 
 
@@ -228,6 +228,7 @@ def velocity_verlet(force_fn: Callable[..., Array],
     dt = f32(dt)
     dt_2 = f32(dt / 2)
 
+  # TODO: something wrong?
   state = momentum_step(state, dt_2)
   state = position_step(state, shift_fn, dt, **kwargs)
   state = state.set(force=force_fn(state.position, **kwargs))

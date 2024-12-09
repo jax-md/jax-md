@@ -150,17 +150,22 @@ state = init_fn(R)
 
 trajectory = []
 
+attempt = 0
+
 while u.math.max(u.math.abs(state.force)) > 1e-4 * ju.force_unit:
   state = apply_fn(state)
   trajectory += [state.position]
-  
-  trajectory = jnp.stack(trajectory)
 
-renderer.render(box_size,
-                renderer.Disk(trajectory),
-                resolution=(512, 512))
+  attempt += 1
+  if attempt % 100 == 0:
+    print(f'Attempt: {attempt}, Force: {u.math.max(u.math.abs(state.force))}')
 
-cond_fn = lambda state: jnp.max(jnp.abs(state.force)) > 1e-4
+trajectory = u.math.stack(trajectory)
+# renderer.render(box_size,
+#                 renderer.Disk(trajectory),
+#                 resolution=(512, 512))
+
+cond_fn = lambda state: u.math.max(u.math.abs(state.force)) > 1e-4 * ju.force_unit
 
 def min(R):
   init, apply = minimize.fire_descent(energy_fn, shift)
