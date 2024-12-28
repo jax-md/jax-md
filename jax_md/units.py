@@ -27,6 +27,8 @@ import brainunit as u
 eV_unit = u.Unit.create(dim=u.joule.dim, name='Electric voltage', dispname='eV', scale=-19)
 eV = 1.602176565 * eV_unit
 angstrom = u.Unit.create(dim=u.meter.dim, name='Angstrom', dispname='Å', scale=-10)
+angstrom2 = u.Unit.create(dim=u.meter2.dim, name='Angstrom^2', dispname='Å^2', scale=-20)
+angstrom3 = u.Unit.create(dim=u.meter3.dim, name='Angstrom^3', dispname='Å^3', scale=-30)
 force_unit = u.Unit.create(dim=eV_unit.dim/angstrom.dim, name='Force', dispname='N', scale=eV_unit.scale-angstrom.scale)
 amu_unit = u.Unit.create(dim=u.kgram.dim, name='Atomic mass unit', dispname='u', scale=-24)
 amu = 1.66053906660 * amu_unit

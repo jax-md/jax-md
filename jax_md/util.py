@@ -26,6 +26,8 @@ from functools import partial
 
 import numpy as onp
 
+import brainunit as u
+
 Array = jnp.ndarray
 PyTree = Any
 
@@ -95,8 +97,7 @@ def high_precision_sum(X: Array,
   else:
     dtyp = jnp.float64
 
-  return jnp.array(
-      jnp.sum(X, axis=axis, dtype=dtyp, keepdims=keepdims), dtype=X.dtype)
+  return u.math.sum(X, axis=axis, dtype=dtyp, keepdims=keepdims)
 
 
 def maybe_downcast(x):

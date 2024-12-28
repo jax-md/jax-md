@@ -82,20 +82,20 @@ def canonicalize_force(energy_or_force_fn: Union[EnergyFn, ForceFn]) -> ForceFn:
   def force_fn(R, **kwargs):
     nonlocal _force_fn
     if _force_fn is None:
-      out_shaped = eval_shape(energy_or_force_fn, R, **kwargs)
+      out_shaped = eval_shape(energy_or_force_fn, R, **kwargs).mantissa
       if isinstance(out_shaped, ShapeDtypeStruct) and out_shaped.shape == ():
         _force_fn = force(energy_or_force_fn)
       else:
         # Check that the output has the right shape to be a force.
-        # is_valid_force = tree_reduce(
-        #   lambda x, y: x and y,
-        #   tree_map(lambda x, y: x.shape == y.shape, out_shaped, R),
-        #   True
-        # )
-        # if not is_valid_force:
-        #   raise ValueError('Provided function should be compatible with '
-        #                    'either an energy or a force. Found a function '
-        #                    f'whose output has shape {out_shaped}.')
+        is_valid_force = tree_reduce(
+          lambda x, y: x and y,
+          tree_map(lambda x, y: x.shape == y.shape, out_shaped, R),
+          True
+        )
+        if not is_valid_force:
+          raise ValueError('Provided function should be compatible with '
+                           'either an energy or a force. Found a function '
+                           f'whose output has shape {out_shaped}.')
 
         _force_fn = energy_or_force_fn
     return _force_fn(R, **kwargs)
@@ -595,7 +595,7 @@ def box_size_at_number_density(particle_count: int,
                                spatial_dimension: int) -> float:
   if isinstance(number_density, Quantity):
     number_density = number_density.to_decimal(1/ju.angstrom**spatial_dimension)
-  return Quantity(jnp.power(particle_count / number_density, 1 / spatial_dimension), unit=ju.angstrom ** spatial_dimension)
+  return Quantity(jnp.power(particle_count / number_density, 1 / spatial_dimension), unit=ju.angstrom)
 
 
 def box_from_parameters(a: float, b: float, c: float,

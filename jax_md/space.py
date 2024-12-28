@@ -202,7 +202,7 @@ def square_distance(dR: Array) -> Array:
   Returns:
     Matrix of squared distances; `ndarray(shape=[...])`.
   """
-  return jnp.sum(dR ** 2, axis=-1)
+  return u.math.sum(dR ** 2, axis=-1)
 
 @assign_units(dR=ju.angstrom, result=ju.angstrom)
 def distance(dR: Array) -> Array:
@@ -452,8 +452,8 @@ def canonicalize_displacement_or_metric(displacement_or_metric):
   """Checks whether or not a displacement or metric was provided."""
   for dim in range(1, 4):
     try:
-      R = ShapedArray((dim,), f32)
-      dR_or_dr = eval_shape(displacement_or_metric, R, R, t=0)
+      R = Quantity(ShapedArray((dim,), f32), unit=ju.angstrom)
+      dR_or_dr = eval_shape(displacement_or_metric, R, R, t=0).mantissa
       if len(dR_or_dr.shape) == 0:
         return displacement_or_metric
       else:

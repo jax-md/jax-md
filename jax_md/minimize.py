@@ -159,8 +159,8 @@ def fire_descent(energy_or_force: Callable[..., Array],
 
     dt_start = dt_start * ju.fsecond
     dt_max = dt_max * ju.fsecond
-    nve_init_fn, nve_step_fn = simulate.nve(u.autograd.grad(energy_or_force), shift_fn, dt_start)
-    force = quantity.canonicalize_force(u.autograd.grad(energy_or_force))
+    nve_init_fn, nve_step_fn = simulate.nve(energy_or_force, shift_fn, dt_start)
+    force = quantity.canonicalize_force(energy_or_force)
 
     def init_fn(R: PyTree, mass: Quantity = 1.0 * ju.amu_unit, **kwargs) -> FireDescentState:
         P = tree_map(lambda x: jnp.zeros_like(x), R.mantissa * ju.force_unit * ju.fsecond)
@@ -211,7 +211,7 @@ def fire_descent(energy_or_force: Callable[..., Array],
         alpha = jnp.where(F_dot_P < 0, alpha_start, alpha)
         P = tree_map(lambda p: (F_dot_P >= 0) * p, P)
 
-        R, P, F, M, dt, n_pos = R_unit * R, P_unit * P, F_unit * F, M_unit * M, dt_unit * dt, n_pos_unit * n_pos
+        R, P, F, M, dt, n_pos = Quantity(R, unit=R_unit), Quantity(P, unit=P_unit), Quantity(F, unit=F_unit), Quantity(M, unit=M_unit), Quantity(dt, unit=dt_unit), Quantity(n_pos, unit=n_pos_unit)
         return FireDescentState(R, P, F, M, dt, alpha, n_pos)  # pytype: disable=wrong-arg-count
 
     return init_fn, apply_fn
