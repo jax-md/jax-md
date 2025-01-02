@@ -39,7 +39,6 @@ from typing import Any, Callable, TypeVar, Union, Tuple, Dict, Optional
 
 import functools
 
-from brainunit import Quantity
 from jax import grad
 from jax import jit
 from jax import random
@@ -53,9 +52,6 @@ from jax_md import space
 from jax_md import dataclasses
 from jax_md import partition
 from jax_md import smap
-from jax_md import units as ju
-
-import brainunit as u
 
 static_cast = util.static_cast
 
@@ -141,29 +137,29 @@ def initialize_momenta(state: T, key: Array, kT: float) -> T:
   """Initialize momenta with the Maxwell-Boltzmann distribution."""
   R, mass = state.position, state.mass
 
-  R, treedef = tree_flatten(R.mantissa)
+  R, treedef = tree_flatten(R)
   mass, _ = tree_flatten(mass)
   keys = random.split(key, len(R))
 
   def initialize_fn(k, r, m):
-    p = u.math.sqrt(m * kT) * random.normal(k, r.shape, dtype=r.dtype)
+    p = jnp.sqrt(m * kT) * random.normal(k, r.shape, dtype=r.dtype)
     # If simulating more than one particle, center the momentum.
     if r.shape[0] > 1:
-      p = p - u.math.mean(p, axis=0, keepdims=True)
-    return p.mantissa
+      p = p - jnp.mean(p, axis=0, keepdims=True)
+    return p
 
   P = [initialize_fn(k, r, m) for k, r, m in zip(keys, R, mass)]
 
-  return state.set(momentum=tree_unflatten(treedef, P) * ju.force_unit * ju.fsecond)
+  return state.set(momentum=tree_unflatten(treedef, P))
 
 
 @dispatch_by_state
-def momentum_step(state: T, dt: float | Quantity) -> T:
+def momentum_step(state: T, dt: float) -> T:
   """Apply a single step of the time evolution operator for momenta."""
   assert hasattr(state, 'momentum')
-  new_momentum = tree_map(lambda p, fdt: p + fdt,
+  new_momentum = tree_map(lambda p, f: p + dt * f,
                           state.momentum,
-                          state.force * dt)
+                          state.force)
   return state.set(momentum=new_momentum)
 
 
@@ -171,16 +167,13 @@ def momentum_step(state: T, dt: float | Quantity) -> T:
 def position_step(state: T, shift_fn: Callable, dt: float, **kwargs) -> T:
   """Apply a single step of the time evolution operator for positions."""
   if isinstance(shift_fn, Callable):
-    shift_fn = tree_map(lambda r: shift_fn, state.position.mantissa)
-  # TODO: unit handling
-  new_position = tree_map(lambda s_fn, r, p, m, _dt: s_fn(r, _dt * p / m, **kwargs),
+    shift_fn = tree_map(lambda r: shift_fn, state.position)
+  new_position = tree_map(lambda s_fn, r, p, m: s_fn(r, dt * p / m, **kwargs),
                           shift_fn,
-                          state.position.to_decimal(ju.angstrom) if isinstance(state.position, Quantity) else state.position,
-                          state.momentum.to_decimal(ju.force_unit * ju.fsecond) if isinstance(state.momentum, Quantity) else state.momentum,
-                          state.mass.to_decimal(ju.amu_unit) if isinstance(state.mass, Quantity) else state.mass,
-                          dt.to_decimal(ju.fsecond) if isinstance(dt, Quantity) else dt,
-                          )
-  return state.set(position=Quantity(new_position, unit=ju.angstrom))
+                          state.position,
+                          state.momentum,
+                          state.mass)
+  return state.set(position=new_position)
 
 
 @dispatch_by_state
@@ -221,18 +214,13 @@ interesting simulations that involve e.g. temperature gradients.
 
 def velocity_verlet(force_fn: Callable[..., Array],
                     shift_fn: ShiftFn,
-                    dt: float | Quantity,
+                    dt: float,
                     state: T,
                     **kwargs) -> T:
   """Apply a single step of velocity Verlet integration to a state."""
-  if isinstance(dt, Quantity):
-    dt = f32(dt.to_decimal(dt.unit)) * dt.unit
-    dt_2 = f32(dt.to_decimal(dt.unit) / 2) * dt.unit
-  else:
-    dt = f32(dt)
-    dt_2 = f32(dt / 2)
+  dt = f32(dt)
+  dt_2 = f32(dt / 2)
 
-  # TODO: something wrong?
   state = momentum_step(state, dt_2)
   state = position_step(state, shift_fn, dt, **kwargs)
   state = state.set(force=force_fn(state.position, **kwargs))
@@ -419,16 +407,13 @@ def nose_hoover_chain(dt: float,
     xi = jnp.zeros(chain_length, KE.dtype)
     p_xi = jnp.zeros(chain_length, KE.dtype)
 
-    Q = kT * tau ** 2 * jnp.ones(chain_length, dtype=f32)
+    Q = kT * tau ** f32(2) * jnp.ones(chain_length, dtype=f32)
     Q = Q.at[0].multiply(degrees_of_freedom)
     return NoseHooverChain(xi, p_xi, Q, tau, KE, degrees_of_freedom)
 
   def substep_fn(delta, P, state, kT):
     """Apply a single update to the chain parameters and rescales velocity."""
     xi, p_xi, Q, _tau, KE, DOF = dataclasses.astuple(state)
-
-    delta_unit, P_unit, Q_unit, _tau_unit, KT_unit = delta.unit, P.unit, Q.unit, _tau.unit, kT.unit
-    delta, P, Q, _tau, kT = delta.mantissa, P.mantissa, Q.mantissa, _tau.mantissa, kT.mantissa
 
     delta_2 = delta   / f32(2.0)
     delta_4 = delta_2 / f32(2.0)
@@ -469,8 +454,6 @@ def nose_hoover_chain(dt: float,
     p_xi = p_xi.at[idx].set(p_xi_update)
     p_xi = p_xi.at[M].add(delta_4 * G)
 
-    delta, P, Q, _tau, kT = Quantity(delta, unit=delta_unit), Quantity(P, unit=P_unit), Quantity(Q, unit=Q_unit), Quantity(_tau, unit=_tau_unit), Quantity(kT, unit=KT_unit)
-
     return P, NoseHooverChain(xi, p_xi, Q, _tau, KE, DOF), kT
 
   def half_step_chain_fn(P, state, kT):
@@ -481,7 +464,7 @@ def nose_hoover_chain(dt: float,
     delta = dt / chain_steps
     ws = jnp.array(SUZUKI_YOSHIDA_WEIGHTS[sy_steps])
     def body_fn(cs, i):
-      d = Quantity(f32(delta.mantissa * ws[i % sy_steps]), unit=delta.unit)
+      d = f32(delta * ws[i % sy_steps])
       return substep_fn(d, *cs), 0
     P, state, _ = lax.scan(body_fn,
                            (P, state, kT),
@@ -491,7 +474,7 @@ def nose_hoover_chain(dt: float,
   def update_chain_mass_fn(state, kT):
     xi, p_xi, Q, _tau, KE, DOF = dataclasses.astuple(state)
 
-    Q = kT * _tau ** 2 * jnp.ones(chain_length, dtype=f32)
+    Q = kT * _tau ** f32(2) * jnp.ones(chain_length, dtype=f32)
     Q = Q.at[0].multiply(DOF)
 
     return NoseHooverChain(xi, p_xi, Q, _tau, KE, DOF)
@@ -544,8 +527,8 @@ class NVTNoseHooverState:
 
 def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
                     shift_fn: ShiftFn,
-                    dt: Quantity,
-                    kT: Quantity,
+                    dt: float,
+                    kT: float,
                     chain_length: int=5,
                     chain_steps: int=2,
                     sy_steps: int=3,
@@ -597,10 +580,11 @@ def nvt_nose_hoover(energy_or_force_fn: Callable[..., Array],
     Journal of Physics A: Mathematical and General 39, no. 19 (2006): 5629.
   """
   force_fn = quantity.canonicalize_force(energy_or_force_fn)
-  dt = f32(dt.to_decimal(ju.fsecond)) * ju.fsecond
-  dt_2 = dt / 2
+  dt = f32(dt)
+  dt_2 = f32(dt / 2)
   if tau is None:
     tau = dt * 100
+  tau = f32(tau)
 
   thermostat = nose_hoover_chain(dt, chain_length, chain_steps, sy_steps, tau)
 

@@ -18,17 +18,14 @@
 from typing import TypeVar, Callable, Union, Tuple, Optional, Any
 
 from absl import logging
-from brainunit import Quantity, assign_units
 
-from jax import vmap, eval_shape
+from jax import grad, vmap, eval_shape
 from jax.tree_util import tree_map, tree_reduce
 import jax.numpy as jnp
 from jax import ops
 from jax import ShapeDtypeStruct
 from jax.tree_util import tree_map, tree_reduce
 from jax.scipy.special import gammaln
-import brainunit as u
-from jax_md import units as ju
 
 from jax_md import space, dataclasses, partition, util
 
@@ -62,7 +59,7 @@ Simulator = Tuple[InitFn, ApplyFn]
 
 def force(energy_fn: EnergyFn) -> ForceFn:
   """Computes the force as the negative gradient of an energy."""
-  return u.autograd.grad(lambda R, *args, **kwargs: -energy_fn(R, *args, **kwargs))
+  return grad(lambda R, *args, **kwargs: -energy_fn(R, *args, **kwargs))
 
 
 def clipped_force(energy_fn: EnergyFn, max_force: float) -> ForceFn:
@@ -82,7 +79,7 @@ def canonicalize_force(energy_or_force_fn: Union[EnergyFn, ForceFn]) -> ForceFn:
   def force_fn(R, **kwargs):
     nonlocal _force_fn
     if _force_fn is None:
-      out_shaped = eval_shape(energy_or_force_fn, R, **kwargs).mantissa
+      out_shaped = eval_shape(energy_or_force_fn, R, **kwargs)
       if isinstance(out_shaped, ShapeDtypeStruct) and out_shaped.shape == ():
         _force_fn = force(energy_or_force_fn)
       else:
@@ -589,13 +586,10 @@ def box_size_at_volume_fraction(volume_fraction: float,
   Vparticle = particle_volume(radii, spatial_dimension, particle_count, species)
   return jnp.power( Vparticle / volume_fraction, 1 / spatial_dimension)
 
-
 def box_size_at_number_density(particle_count: int,
-                               number_density: float | Quantity,
+                               number_density: float,
                                spatial_dimension: int) -> float:
-  if isinstance(number_density, Quantity):
-    number_density = number_density.to_decimal(1/ju.angstrom**spatial_dimension)
-  return Quantity(jnp.power(particle_count / number_density, 1 / spatial_dimension), unit=ju.angstrom)
+  return jnp.power(particle_count / number_density, 1 / spatial_dimension)
 
 
 def box_from_parameters(a: float, b: float, c: float,

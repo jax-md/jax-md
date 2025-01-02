@@ -47,13 +47,11 @@ in a vectorized fashion. To do this we provide three functions: `map_product`,
 
 from typing import Callable, Union, Tuple, Any, Optional
 
-from brainunit import assign_units
 from jax.core import ShapedArray
 
 from jax import eval_shape
 from jax import vmap
 from jax import custom_jvp
-import brainunit as u
 
 import jax
 
@@ -63,8 +61,7 @@ from jax_md.util import Array
 from jax_md.util import f32
 from jax_md.util import f64
 from jax_md.util import safe_mask
-from jax_md import units as ju
-from brainunit import Quantity
+
 
 # Types
 
@@ -76,7 +73,7 @@ DisplacementOrMetricFn = Union[DisplacementFn, MetricFn]
 ShiftFn = Callable[[Array, Array], Array]
 
 Space = Tuple[DisplacementFn, ShiftFn]
-Box = Array | Quantity
+Box = Array
 
 
 # Exceptions
@@ -153,7 +150,7 @@ def transform_jvp(primals, tangents):
   dbox, dR = tangents
   return (transform(box, R), dR + transform(dbox, R))
 
-@u.assign_units(Ra=ju.angstrom, Rb=ju.angstrom, result=ju.angstrom)
+
 def pairwise_displacement(Ra: Array, Rb: Array) -> Array:
   """Compute a matrix of pairwise displacements given two sets of positions.
 
@@ -177,7 +174,7 @@ def pairwise_displacement(Ra: Array, Rb: Array) -> Array:
 
   return Ra - Rb
 
-@assign_units(dR=ju.angstrom, result=ju.angstrom)
+
 def periodic_displacement(side: Box, dR: Array) -> Array:
   """Wraps displacement vectors into a hypercube.
 
@@ -189,9 +186,7 @@ def periodic_displacement(side: Box, dR: Array) -> Array:
   Returns:
     Matrix of wrapped displacements; `ndarray(shape=[..., spatial_dim])`.
   """
-  if isinstance(side, Quantity):
-    side = side.to_decimal(side.unit)
-  return u.math.mod(dR + side * f32(0.5), side) - f32(0.5) * side
+  return jnp.mod(dR + side * f32(0.5), side) - f32(0.5) * side
 
 
 def square_distance(dR: Array) -> Array:
@@ -202,9 +197,9 @@ def square_distance(dR: Array) -> Array:
   Returns:
     Matrix of squared distances; `ndarray(shape=[...])`.
   """
-  return u.math.sum(dR ** 2, axis=-1)
+  return jnp.sum(dR ** 2, axis=-1)
 
-@assign_units(dR=ju.angstrom, result=ju.angstrom)
+
 def distance(dR: Array) -> Array:
   """Computes distances.
 
@@ -216,11 +211,9 @@ def distance(dR: Array) -> Array:
   dr = square_distance(dR)
   return safe_mask(dr > 0, jnp.sqrt, dr)
 
-# @assign_units(R=ju.angstrom, dR=ju.angstrom, result=ju.angstrom)
+
 def periodic_shift(side: Box, R: Array, dR: Array) -> Array:
   """Shifts positions, wrapping them back within a periodic hypercube."""
-  if isinstance(side, Quantity):
-    side = side.to_decimal(side.unit)
   return jnp.mod(R + dR, side)
 
 
@@ -268,9 +261,9 @@ def periodic(side: Box, wrapped: bool=True) -> Space:
         raise UnexpectedBoxException(('`space.periodic` does not accept a box '
                                       'argument. Perhaps you meant to use '
                                       '`space.periodic_general`?'))
+
       return periodic_shift(side, R, dR)
   else:
-    @u.assign_units(R=ju.angstrom, dR=ju.angstrom, result=ju.angstrom)
     def shift_fn(R: Array, dR: Array, **unused_kwargs) -> Array:
       if 'box' in unused_kwargs:
         raise UnexpectedBoxException(('`space.periodic` does not accept a box '
@@ -452,8 +445,8 @@ def canonicalize_displacement_or_metric(displacement_or_metric):
   """Checks whether or not a displacement or metric was provided."""
   for dim in range(1, 4):
     try:
-      R = Quantity(ShapedArray((dim,), f32), unit=ju.angstrom)
-      dR_or_dr = eval_shape(displacement_or_metric, R, R, t=0).mantissa
+      R = ShapedArray((dim,), f32)
+      dR_or_dr = eval_shape(displacement_or_metric, R, R, t=0)
       if len(dR_or_dr.shape) == 0:
         return displacement_or_metric
       else:
