@@ -17,6 +17,7 @@
 from typing import Iterable, Union, Optional, Any
 
 import jax
+from brainunit import Quantity
 from jax.tree_util import register_pytree_node
 from jax.lib import xla_bridge
 import jax.numpy as jnp
@@ -54,9 +55,11 @@ def static_cast(*xs):
   """Function to cast a value to the lowest dtype that can express it."""
   # NOTE(schsam): static_cast is so named because it cannot be jit.
   if xla_bridge.get_backend().platform == 'tpu':
-    return (jnp.array(x, jnp.float32) for x in xs)
+    return (Quantity(jnp.array(x.mantissa, jnp.float32), unit=x.unit) if isinstance(x, Quantity) \
+              else (jnp.array(x, jnp.float32)) for x in xs)
   else:
-    return (jnp.array(x, dtype=onp.min_scalar_type(x)) for x in xs)
+    return (Quantity(jnp.array(x.mantissa, dtype=onp.min_scalar_type(x.mantissa)), unit=x.unit) if isinstance(x, Quantity) \
+      else jnp.array(x, dtype=onp.min_scalar_type(x)) for x in xs)
 
 
 def register_pytree_namedtuple(cls):

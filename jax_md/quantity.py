@@ -18,8 +18,11 @@
 from typing import TypeVar, Callable, Union, Tuple, Optional, Any
 
 from absl import logging
+from brainunit import Quantity
+from brainunit.autograd import grad
+import brainunit as u
 
-from jax import grad, vmap, eval_shape
+from jax import vmap, eval_shape
 from jax.tree_util import tree_map, tree_reduce
 import jax.numpy as jnp
 from jax import ops
@@ -79,7 +82,10 @@ def canonicalize_force(energy_or_force_fn: Union[EnergyFn, ForceFn]) -> ForceFn:
   def force_fn(R, **kwargs):
     nonlocal _force_fn
     if _force_fn is None:
-      out_shaped = eval_shape(energy_or_force_fn, R, **kwargs)
+      try:
+        out_shaped = eval_shape(energy_or_force_fn, R, **kwargs).mantissa
+      except:
+        out_shaped = eval_shape(energy_or_force_fn, R, **kwargs)
       if isinstance(out_shaped, ShapeDtypeStruct) and out_shaped.shape == ():
         _force_fn = force(energy_or_force_fn)
       else:
@@ -587,9 +593,11 @@ def box_size_at_volume_fraction(volume_fraction: float,
   return jnp.power( Vparticle / volume_fraction, 1 / spatial_dimension)
 
 def box_size_at_number_density(particle_count: int,
-                               number_density: float,
+                               number_density: float | Quantity,
                                spatial_dimension: int) -> float:
-  return jnp.power(particle_count / number_density, 1 / spatial_dimension)
+  if isinstance(number_density, Quantity):
+    number_density = number_density.to_decimal(1/u.angstrom**spatial_dimension)
+  return jnp.power(particle_count / number_density, 1 / spatial_dimension) * u.angstrom
 
 
 def box_from_parameters(a: float, b: float, c: float,

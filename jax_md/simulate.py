@@ -39,6 +39,8 @@ from typing import Any, Callable, TypeVar, Union, Tuple, Dict, Optional
 
 import functools
 
+from brainunit import Quantity
+import brainunit as u
 from jax import grad
 from jax import jit
 from jax import random
@@ -117,12 +119,14 @@ class dispatch_by_state:
 def canonicalize_mass(state: T) -> T:
   """Reshape mass vector for broadcasting with positions."""
   def canonicalize_fn(mass):
+    # if isinstance(mass, Quantity):
+    #   mass = mass.to_decimal(u.atomic_mass)
     if isinstance(mass, float):
       return mass
     if mass.ndim == 2 and mass.shape[1] == 1:
       return mass
     elif mass.ndim == 1:
-      return jnp.reshape(mass, (mass.shape[0], 1))
+      return u.math.reshape(mass, (mass.shape[0], 1))
     elif mass.ndim == 0:
       return mass
     msg = (
@@ -157,9 +161,17 @@ def initialize_momenta(state: T, key: Array, kT: float) -> T:
 def momentum_step(state: T, dt: float) -> T:
   """Apply a single step of the time evolution operator for momenta."""
   assert hasattr(state, 'momentum')
-  new_momentum = tree_map(lambda p, f: p + dt * f,
-                          state.momentum,
-                          state.force)
+  if isinstance(state.momentum, Quantity) and isinstance(state.mass, Quantity) and isinstance(dt, Quantity):
+    dt = dt.to_decimal(dt.unit)
+    new_momentum = tree_map(lambda p, f: p + dt * f,
+                            state.momentum.to_decimal(u.IMF * u.angstrom),
+                            state.force.to_decimal(u.IMF)) * u.IMF * u.angstrom
+  elif isinstance(state.momentum, Quantity) or isinstance(state.mass, Quantity) or isinstance(dt, Quantity):
+    raise ValueError('state.momentum, state.mass, and dt must all be Quantities or none of them.')
+  else:
+    new_momentum = tree_map(lambda p, f: p + dt * f,
+                            state.momentum,
+                            state.force)
   return state.set(momentum=new_momentum)
 
 
@@ -167,12 +179,22 @@ def momentum_step(state: T, dt: float) -> T:
 def position_step(state: T, shift_fn: Callable, dt: float, **kwargs) -> T:
   """Apply a single step of the time evolution operator for positions."""
   if isinstance(shift_fn, Callable):
-    shift_fn = tree_map(lambda r: shift_fn, state.position)
-  new_position = tree_map(lambda s_fn, r, p, m: s_fn(r, dt * p / m, **kwargs),
-                          shift_fn,
-                          state.position,
-                          state.momentum,
-                          state.mass)
+    shift_fn = tree_map(lambda r: shift_fn, state.position.mantissa if isinstance(state.position, Quantity) else state.position)
+  if isinstance(state.position, Quantity) and isinstance(state.momentum, Quantity) and isinstance(state.mass, Quantity) and isinstance(dt, Quantity):
+    dt = dt.to_decimal(dt.unit)
+    dr = tree_map(lambda p, m: dt * p / m,
+                        state.momentum.to_decimal(u.IMF * u.angstrom),
+                        state.mass.to_decimal(u.atomic_mass)) * u.angstrom
+    new_position = tree_map(lambda s_fn, r, d: s_fn(r, d, **kwargs),
+                        shift_fn,
+                        state.position,
+                        dr)
+  else:
+    new_position = tree_map(lambda s_fn, r, p, m: s_fn(r, dt * p / m, **kwargs),
+                            shift_fn,
+                            state.position,
+                            state.momentum,
+                            state.mass)
   return state.set(position=new_position)
 
 
@@ -218,8 +240,12 @@ def velocity_verlet(force_fn: Callable[..., Array],
                     state: T,
                     **kwargs) -> T:
   """Apply a single step of velocity Verlet integration to a state."""
-  dt = f32(dt)
-  dt_2 = f32(dt / 2)
+  if isinstance(dt, Quantity):
+    dt = f32(dt.to_decimal(dt.unit)) * dt.unit
+    dt_2 = f32(dt.to_decimal(dt.unit) / 2) * dt.unit
+  else:
+    dt = f32(dt)
+    dt_2 = f32(dt / 2)
 
   state = momentum_step(state, dt_2)
   state = position_step(state, shift_fn, dt, **kwargs)
