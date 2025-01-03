@@ -260,7 +260,8 @@ def velocity_verlet(force_fn: Callable[..., Array],
 
   state = momentum_step(state, dt_2)
   state = position_step(state, shift_fn, dt, **kwargs)
-  state = state.set(force=force_fn(state.position, **kwargs) * u.IMF if return_quantity else force_fn(state.position, **kwargs))
+  F = force_fn(state.position, **kwargs)
+  state = state.set(force=F * u.IMF if return_quantity and isinstance(F, Quantity) else force_fn(state.position, **kwargs))
   state = momentum_step(state, dt_2)
 
   return state
