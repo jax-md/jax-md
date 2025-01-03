@@ -17,6 +17,7 @@
 from typing import Iterable, Union, Optional, Any
 
 import jax
+from brainunit import Quantity
 from jax.tree_util import register_pytree_node
 from jax.lib import xla_bridge
 import jax.numpy as jnp
@@ -25,8 +26,6 @@ from jax import jit
 from functools import partial
 
 import numpy as onp
-
-import brainunit as u
 
 Array = jnp.ndarray
 PyTree = Any
@@ -56,9 +55,11 @@ def static_cast(*xs):
   """Function to cast a value to the lowest dtype that can express it."""
   # NOTE(schsam): static_cast is so named because it cannot be jit.
   if xla_bridge.get_backend().platform == 'tpu':
-    return (jnp.array(x, jnp.float32) for x in xs)
+    return (Quantity(jnp.array(x.mantissa, jnp.float32), unit=x.unit) if isinstance(x, Quantity) \
+              else (jnp.array(x, jnp.float32)) for x in xs)
   else:
-    return (jnp.array(x, dtype=onp.min_scalar_type(x)) for x in xs)
+    return (Quantity(jnp.array(x.mantissa, dtype=onp.min_scalar_type(x.mantissa)), unit=x.unit) if isinstance(x, Quantity) \
+      else jnp.array(x, dtype=onp.min_scalar_type(x)) for x in xs)
 
 
 def register_pytree_namedtuple(cls):
@@ -90,6 +91,11 @@ def high_precision_sum(X: Array,
                        axis: Optional[Union[Iterable[int], int]]=None,
                        keepdims: bool=False):
   """Sums over axes at 64-bit precision then casts back to original dtype."""
+  X_unit = None
+  if isinstance(X, Quantity):
+    X_unit = X.unit
+    X = X.mantissa
+
   if jnp.issubdtype(X.dtype, jnp.integer):
     dtyp = jnp.int64
   elif jnp.issubdtype(X.dtype, jnp.complexfloating):
@@ -97,13 +103,24 @@ def high_precision_sum(X: Array,
   else:
     dtyp = jnp.float64
 
-  return u.math.sum(X, axis=axis, dtype=dtyp, keepdims=keepdims)
+  if X_unit is None:
+    return jnp.array(
+        jnp.sum(X, axis=axis, dtype=dtyp, keepdims=keepdims), dtype=X.dtype)
+  else:
+    return Quantity(
+        jnp.array(
+            jnp.sum(X, axis=axis, dtype=dtyp, keepdims=keepdims), dtype=X.dtype),
+        unit=X_unit)
 
 
 def maybe_downcast(x):
+  x_unit = None
+  if isinstance(x, Quantity):
+    x_unit = x.unit
+    x = x.mantissa
   if isinstance(x, jnp.ndarray) and x.dtype is jnp.dtype('float64'):
     return x
-  return jnp.array(x, f32)
+  return jnp.array(x, f32) if x_unit is None else Quantity(jnp.array(x, f32), unit=x_unit)
 
 
 def is_array(x: Any) -> bool:

@@ -16,3 +16,5 @@ examples/output/*
 
 .vscode
 .idea
+/examples-with-unit/Supplementary
+examples-with-unit/si_gnn.pickle

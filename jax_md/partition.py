@@ -29,6 +29,7 @@ import math
 from operator import mul
 
 import numpy as onp
+import brainunit as u
 from brainunit import Quantity
 
 from jax import lax
@@ -42,11 +43,8 @@ import jax.numpy as jnp
 from jax_md import space
 from jax_md import dataclasses
 from jax_md import util
-from jax_md import units as ju
 
 import jraph
-
-import brainunit as u
 
 
 # Types
@@ -175,11 +173,11 @@ def count_cell_filling(position: Array,
 
   hash_multipliers = _compute_hash_constants(dim, cells_per_side)
 
-  particle_index = u.math.array(position / cell_size, dtype=i32)
-  particle_hash = u.math.sum(particle_index * hash_multipliers, axis=1)
+  particle_index = jnp.array(position / cell_size, dtype=i32)
+  particle_hash = jnp.sum(particle_index * hash_multipliers, axis=1)
 
-  filling = ops.segment_sum(u.math.ones_like(particle_hash).mantissa if isinstance(particle_hash, Quantity) else jnp.ones_like(particle_hash),
-                            particle_hash.mantissa if isinstance(particle_hash, Quantity) else particle_hash,
+  filling = ops.segment_sum(jnp.ones_like(particle_hash),
+                            particle_hash,
                             cell_count)
   return filling
 
@@ -307,10 +305,9 @@ def cell_list(box_size: Box,
                    capacity_overflow_update: Optional[
                        Tuple[int, bool, Callable[..., CellList]]] = None,
                    extra_capacity: int = 0, **kwargs) -> CellList:
+    position = u.get_mantissa(position)
     N = position.shape[0]
     dim = position.shape[1]
-
-    position = position.to_decimal(ju.angstrom)
 
     if dim != 2 and dim != 3:
       # NOTE(schsam): Do we want to check this in compute_fn as well?
@@ -400,7 +397,7 @@ def cell_list(box_size: Box,
     max_occupancy = jnp.max(occupancy)
     overflow = overflow | (max_occupancy > cell_capacity)
 
-    return CellList(Quantity(cell_position, unit=ju.angstrom), cell_id, cell_kwargs,
+    return CellList(cell_position, cell_id, cell_kwargs,
                     overflow, cell_capacity, cell_size, update_fn)  # pytype: disable=wrong-arg-count
 
   def allocate_fn(position: Array, extra_capacity: int = 0, **kwargs
@@ -493,8 +490,8 @@ def _displacement_or_metric_to_metric_sq(
   """Checks whether or not a displacement or metric was provided."""
   for dim in range(1, 4):
     try:
-      R = Quantity(ShapedArray((dim,), f32), unit=ju.angstrom)
-      dR_or_dr = eval_shape(displacement_or_metric, R, R, t=0).mantissa
+      R = ShapedArray((dim,), f32)
+      dR_or_dr = eval_shape(displacement_or_metric, R, R, t=0)
       if len(dR_or_dr.shape) == 0:
         return lambda Ra, Rb, **kwargs: \
           displacement_or_metric(Ra, Rb, **kwargs) ** 2
@@ -788,7 +785,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
   r_cutoff = lax.stop_gradient(r_cutoff)
   dr_threshold = lax.stop_gradient(dr_threshold)
 
-  box = f32(box.mantissa)
+  box = f32(box)
 
   cutoff = r_cutoff + dr_threshold
   cutoff_sq = cutoff ** 2
@@ -836,8 +833,6 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
   @jit
   def prune_neighbor_list_dense(position: Array, idx: Array, **kwargs
                                 ) -> Array:
-    position = position.to_decimal(ju.angstrom)
-
     d = partial(metric_sq, **kwargs)
     d = space.map_neighbor(d)
 
@@ -859,8 +854,6 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
   @jit
   def prune_neighbor_list_sparse(position: Array, idx: Array, **kwargs
                                  ) -> Array:
-    position = position.to_decimal(ju.angstrom)
-
     d = partial(metric_sq, **kwargs)
     d = space.map_bond(d)
 
@@ -869,7 +862,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
 
     sender_idx = jnp.reshape(sender_idx, (-1,))
     receiver_idx = jnp.reshape(idx, (-1,))
-    dR = d(Quantity(position[sender_idx], unit=ju.angstrom), Quantity(position[receiver_idx], ju.angstrom)).mantissa
+    dR = d(position[sender_idx], position[receiver_idx])
 
     mask = (dR < cutoff_sq) & (receiver_idx < N)
     if format is NeighborListFormat.OrderedSparse:
@@ -889,8 +882,10 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                        neighbors = None,
                        extra_capacity: int = 0,
                        **kwargs) -> NeighborList:
+    position = u.get_mantissa(position)
     def neighbor_fn(position_and_error, max_occupancy=None):
       position, err = position_and_error
+      position = u.get_mantissa(position)
       N = position.shape[0]
 
       cl_fn = None
@@ -983,16 +978,22 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
     d = partial(metric_sq, **kwargs)
     d = vmap(d)
     return lax.cond(
-        jnp.any(d(position, nbrs.reference_position) > threshold_sq),
-        (position, nbrs.error), neighbor_fn,
+        jnp.any(
+          u.get_mantissa(d(position, nbrs.reference_position)) > threshold_sq),
+        (position, nbrs.error),
+        neighbor_fn,
         nbrs, lambda x: x)
 
   def allocate_fn(position: Array, extra_capacity: int = 0, **kwargs
                   ):
+    if isinstance(position, Quantity):
+      position = position.to_decimal(u.angstrom)
     return neighbor_list_fn(position, extra_capacity=extra_capacity, **kwargs)
 
   def update_fn(position: Array, neighbors, **kwargs
                 ):
+    if isinstance(position, Quantity):
+      position = position.to_decimal(u.angstrom)
     return neighbor_list_fn(position, neighbors, **kwargs)
 
   return NeighborListFns(allocate_fn, update_fn)  # pytype: disable=wrong-arg-count

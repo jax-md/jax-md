@@ -16,10 +16,12 @@
 
 import base64
 
-from brainunit import Quantity
-from google.colab import output
+# from google.colab import output
 
 import IPython
+from brainunit import Quantity
+import brainunit as u
+
 
 import jax.numpy as jnp
 from jax import tree_map
@@ -67,6 +69,8 @@ class Disk:
   count: int = dataclasses.static_field()
 
   def __init__(self, position, diameter=1.0, color=None):
+    position = position.to_deciaml(u.angstrom) if isinstance(position, Quantity) else position
+
     if color is None:
       color = jnp.array([0.8, 0.8, 1.0])
 
@@ -209,8 +213,8 @@ def render(box_size,
     verbose: Specifies whether or not the client should emit information and
       error messages. Useful for debugging visualizations, but adds clutter.
   """
-  if isinstance(box_size, Quantity):
-    box_size = box_size.to_decimal(box_size.unit)
+
+  box_size = box_size.to_decimal(u.angstrom) if isinstance(box_size, Quantity) else box_size
 
   global SIMULATION_IDX
   # INTERNAL_RENDERER_CODE_LOADING

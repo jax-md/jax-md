@@ -704,7 +704,7 @@ def pair_neighbor_list(fn: Callable[..., Array],
     if out.ndim > mask.ndim:
       ddim = out.ndim - mask.ndim
       mask = jnp.reshape(mask, mask.shape + (1,) * ddim)
-    out *= mask
+    out = out * mask
 
     if reduce_axis is None:
       return util.high_precision_sum(out) / normalization
