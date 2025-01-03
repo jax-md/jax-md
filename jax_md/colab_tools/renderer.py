@@ -69,7 +69,7 @@ class Disk:
   count: int = dataclasses.static_field()
 
   def __init__(self, position, diameter=1.0, color=None):
-    position = position.to_deciaml(u.angstrom) if isinstance(position, Quantity) else position
+    position = position.to_decimal(u.angstrom) if isinstance(position, Quantity) else position
 
     if color is None:
       color = jnp.array([0.8, 0.8, 1.0])
