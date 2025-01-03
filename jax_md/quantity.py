@@ -82,10 +82,11 @@ def canonicalize_force(energy_or_force_fn: Union[EnergyFn, ForceFn]) -> ForceFn:
   def force_fn(R, **kwargs):
     nonlocal _force_fn
     if _force_fn is None:
+      out_shaped = eval_shape(energy_or_force_fn, R, **kwargs)
       try:
-        out_shaped = eval_shape(energy_or_force_fn, R, **kwargs).mantissa
+        out_shaped = out_shaped.mantissa
       except:
-        out_shaped = eval_shape(energy_or_force_fn, R, **kwargs)
+        pass
       if isinstance(out_shaped, ShapeDtypeStruct) and out_shaped.shape == ():
         _force_fn = force(energy_or_force_fn)
       else:
@@ -116,9 +117,9 @@ def volume(dimension: int, box: Box) -> Array:
   if jnp.isscalar(box) or not box.ndim:
     return box ** dimension
   elif box.ndim == 1:
-    return jnp.prod(box)
+    return u.math.prod(box)
   elif box.ndim == 2:
-    return jnp.linalg.det(box)
+    return u.linalg.det(box)
   raise ValueError(('Box must be either: a scalar, a vector, or a matrix. '
                     f'Found {box}.'))
 
@@ -147,13 +148,24 @@ def kinetic_energy(*unused_args,
   if momentum is not None and velocity is not None:
     raise ValueError('To use the kinetic energy function, you must pass either'
                      ' a momentum or a velocity.')
+  return_quantity = False
+  if isinstance(momentum, Quantity):
+    momentum = momentum.to_decimal(u.IMF * u.angstrom)
+    return_quantity = True
+  if isinstance(mass, Quantity):
+    mass = mass.to_decimal(u.atomic_mass)
+    return_quantity = True
+  if isinstance(velocity, Quantity):
+    velocity = velocity.to_decimal(u.angstrom / u.fsecond)
+    return_quantity = True
 
   k = (lambda v, m: v**2 * m) if momentum is None else (lambda p, m: p**2 / m)
   q = velocity if momentum is None else momentum
   util.check_custom_simulation_type(q)
 
   ke = tree_map(lambda m, q: 0.5 * util.high_precision_sum(k(q, m)), mass, q)
-  return tree_reduce(operator.add, ke, 0.0)
+  r = tree_reduce(operator.add, ke, 0.0)
+  return r * u.eV if return_quantity else r
 
 
 def temperature(*unused_args,
@@ -181,6 +193,17 @@ def temperature(*unused_args,
     raise ValueError('To use the kinetic energy function, you must pass either'
                      ' a momentum or a velocity.')
 
+  return_quantity = False
+  if isinstance(momentum, Quantity):
+    momentum = momentum.to_decimal(u.IMF * u.angstrom)
+    return_quantity = True
+  if isinstance(mass, Quantity):
+    mass = mass.to_decimal(u.atomic_mass)
+    return_quantity = True
+  if isinstance(velocity, Quantity):
+    velocity = velocity.to_decimal(u.angstrom / u.fsecond)
+    return_quantity = True
+
   t = (lambda v, m: v**2 * m) if momentum is None else (lambda p, m: p**2 / m)
   q = velocity if momentum is None else momentum
   util.check_custom_simulation_type(q)
@@ -188,7 +211,8 @@ def temperature(*unused_args,
   dof = count_dof(q)
 
   kT = tree_map(lambda m, q: util.high_precision_sum(t(q, m)) / dof, mass, q)
-  return tree_reduce(operator.add, kT, 0.0)
+  r = tree_reduce(operator.add, kT, 0.0)
+  return r * u.kelvin if return_quantity else r
 
 
 def pressure(energy_fn: EnergyFn, position: Array, box: Box,
@@ -208,6 +232,10 @@ def pressure(energy_fn: EnergyFn, position: Array, box: Box,
   Returns:
     A float specifying the pressure of the system.
   """
+  return_quantity = False
+  if isinstance(position, Quantity) or isinstance(box, Quantity):
+    return_quantity = True
+
   dim = position.shape[1]
 
   def U(eps):
@@ -219,7 +247,8 @@ def pressure(energy_fn: EnergyFn, position: Array, box: Box,
   dUdV = grad(U)
   vol_0 = volume(dim, box)
 
-  return 1 / (dim * vol_0) * (2 * kinetic_energy - dUdV(0.0))
+  return 1 / (dim * u.get_mantissa(vol_0)) * (2 * u.get_mantissa(kinetic_energy) - u.get_mantissa(dUdV(0.0))) * (u.eV/u.angstrom**3) if return_quantity \
+    else 1 / (dim * vol_0) * (2 * kinetic_energy - dUdV(0.0))
 
 
 def stress(energy_fn: EnergyFn, position: Array, box: Box,
@@ -242,6 +271,10 @@ def stress(energy_fn: EnergyFn, position: Array, box: Box,
   Returns:
     A float specifying the pressure of the system.
   """
+  return_quantity = False
+  if isinstance(position, Quantity) or isinstance(box, Quantity):
+    return_quantity = True
+
   dim = position.shape[1]
 
   zero = jnp.zeros((dim, dim), position.dtype)
@@ -261,7 +294,8 @@ def stress(energy_fn: EnergyFn, position: Array, box: Box,
     V = velocity
     VxV = util.high_precision_sum(mass * V[:, None, :] * V[:, :, None], axis=0)
 
-  return 1 / vol_0 * (VxV - dUdV(zero))
+  return 1 / u.get_mantissa(vol_0) * (u.get_mantissa(VxV) - u.get_mantissa(dUdV(zero))) * (u.eV/u.angstrom**3) if return_quantity \
+    else 1 / vol_0 * (VxV - dUdV(zero))
 
 
 def cosine_angle_between_two_vectors(dR_12: Array, dR_13: Array) -> Array:

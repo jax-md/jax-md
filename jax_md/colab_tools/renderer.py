@@ -16,7 +16,7 @@
 
 import base64
 
-from google.colab import output
+# from google.colab import output
 
 import IPython
 from brainunit import Quantity
