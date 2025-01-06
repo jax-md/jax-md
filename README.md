@@ -7,7 +7,7 @@ However, recent work in machine learning has led to significant software develop
 
 JAX, MD is a research project that is currently under development. Expect sharp edges and possibly some API breaking changes as we continue to support a broader set of simulations. JAX MD is a functional and data driven library. Data is stored in arrays or tuples of arrays and functions transform data from one state to another.
 
-🚧 Please note that only some APIs have been modified to support `brainunit`, because it is not easy to modify all the complex codes of JAX, M,D. 🚧
+🚧 Please note that only some APIs have been modified to support [`brainunit`](https://github.com/chaobrain/brainunit), because it is not easy to modify all the complex codes of JAX, M,D. 🚧
 
 
 ## Getting Started
