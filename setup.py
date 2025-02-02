@@ -35,7 +35,9 @@ INSTALL_REQUIRES = [
     'dm-haiku',
     'optax',
     'frozendict',
-    'pymatgen'
+    'pymatgen',
+    'brainstate',
+    'brainunit'
 ]
 
 setuptools.setup(
