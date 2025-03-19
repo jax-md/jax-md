@@ -165,6 +165,9 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
             species = ff.species
             far_neigh_types = species[far_nbr_inds]
 
+            far_nbr_mask = (far_nbr_inds != ff.atom_count) & (atom_mask.reshape(-1,1) # TODO look above, duplicate?
+                                                    & atom_mask[far_nbr_inds])
+
             # TODO some of this can be precomputed
             gamma = jnp.power(ffq_ff.gamma.reshape(-1, 1), 3/2)
             gamma_mat = gamma * gamma.transpose()
@@ -186,6 +189,9 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
                                       tol=1e-6,
                                       max_solver_iter=-1)
 
+            chg_mask = jnp.arange(len(charges))
+            chg_mask = (chg_mask >= ff.solute_cut) & (chg_mask < (len(charges)-1))
+            charges = jnp.where(chg_mask[:-1], ff.charges, charges[:-1])
             charges_14 = charges[ff.pairs_14[:, 0]] * charges[ff.pairs_14[:, 1]]
         else:
             charges = ff.charges

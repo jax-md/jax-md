@@ -465,7 +465,7 @@ def load_amber_ff(inpcrd_file,
             # TODO consider if there can be a case where you get a pattern like MOL WAT MOL WAT
             # if so, create flag and make sure you don't accidently get the wrong number of solute atoms
 
-        if len(prmtop._raw_data['RESIDUE_POINTER']) > 1 and charge_method == "FFQMM":
+        if len(prmtop._raw_data['RESIDUE_POINTER']) > 1 and charge_method == "FFQ":
             solute_cut = jnp.int32(prmtop._raw_data['RESIDUE_POINTER'][num_solute_residues])-1
         else:
             solute_cut = atom_count
