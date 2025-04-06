@@ -915,7 +915,7 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
       else:
         err = err.update(PEC.CELL_LIST_OVERFLOW, cl.did_buffer_overflow)
         idx = cell_list_candidate_fn(cl.id_buffer, position.shape)
-        print(f"jax-md partition: cell_size={cell_size}, cl.id_buffer.size={cl.id_buffer.size}, N={position.shape[0]}, cl.did_buffer_overflow={cl.did_buffer_overflow}")
+        print(f"jax-md info: n_atoms={position.shape[0]}, buffer_size={cl.id_buffer.size},  overflow={cl.did_buffer_overflow}")
         cl_capacity = cl.cell_capacity
 
       if mask_self:
