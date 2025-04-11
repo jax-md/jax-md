@@ -554,6 +554,118 @@ class SimulateTest(test_util.JAXMDTestCase):
   @parameterized.named_parameters(
     test_util.cases_from_list(
       {
+        'testcase_name': f'_dtype={dtype.__name__}',
+        'dtype': dtype,
+      }
+      for dtype in DTYPE
+    )
+  )
+  def test_init_functions_accept_explicit_momenta(self, dtype):
+    key = random.PRNGKey(0)
+    alt_key = random.PRNGKey(1)
+    particle_count = 4
+    spatial_dimension = 2
+
+    R = np.arange(
+      particle_count * spatial_dimension, dtype=dtype
+    ).reshape((particle_count, spatial_dimension))
+    mass = np.array([1.0, 2.0, 3.0, 4.0], dtype=dtype)
+    momenta = np.arange(
+      particle_count * spatial_dimension, dtype=dtype
+    ).reshape((particle_count, spatial_dimension)) / dtype(10.0)
+
+    _, free_shift = space.free()
+    box = np.eye(spatial_dimension, dtype=dtype) * dtype(5.0)
+    _, periodic_shift = space.periodic_general(box)
+
+    free_energy = lambda positions, **kwargs: np.sum(positions**2)
+    periodic_energy = lambda positions, box, **kwargs: np.sum(positions**2)
+
+    thermostat_cases = [
+      ('nve', simulate.nve(free_energy, free_shift, 1e-3)[0], {'kT': dtype(1.0)}),
+      (
+        'nvt_nose_hoover',
+        simulate.nvt_nose_hoover(free_energy, free_shift, 1e-3, dtype(1.0))[0],
+        {},
+      ),
+      (
+        'npt_nose_hoover',
+        simulate.npt_nose_hoover(
+          periodic_energy, periodic_shift, 1e-3, dtype(1.0), dtype(1.0)
+        )[0],
+        {'box': box},
+      ),
+      (
+        'nvt_langevin',
+        simulate.nvt_langevin(
+          free_energy, free_shift, 1e-3, dtype(1.0), gamma=dtype(0.1)
+        )[0],
+        {},
+      ),
+      (
+        'temp_rescale',
+        simulate.temp_rescale(
+          free_energy, free_shift, 1e-3, dtype(1.0), window=dtype(0.2), fraction=dtype(0.5)
+        )[0],
+        {},
+      ),
+      (
+        'temp_berendsen',
+        simulate.temp_berendsen(
+          free_energy, free_shift, 1e-3, dtype(1.0), tau=dtype(0.5)
+        )[0],
+        {},
+      ),
+      ('nvk', simulate.nvk(free_energy, free_shift, 1e-3, dtype(1.0))[0], {}),
+      (
+        'temp_csvr',
+        simulate.temp_csvr(
+          free_energy, free_shift, 1e-3, dtype(1.0), tau=dtype(0.5)
+        )[0],
+        {},
+      ),
+    ]
+
+    for _, init_fn, extra_kwargs in thermostat_cases:
+      state = init_fn(key, R, mass=mass, momenta=momenta, **extra_kwargs)
+      alt_state = init_fn(alt_key, R, mass=mass, momenta=momenta, **extra_kwargs)
+      self.assertAllClose(state.momentum, momenta)
+      self.assertAllClose(state.velocity, momenta / mass[:, None])
+      self.assertAllClose(alt_state.momentum, momenta)
+
+  @parameterized.named_parameters(
+    test_util.cases_from_list(
+      {
+        'testcase_name': f'_dtype={dtype.__name__}',
+        'dtype': dtype,
+      }
+      for dtype in DTYPE
+    )
+  )
+  def test_init_functions_randomize_momenta_when_omitted(self, dtype):
+    R = np.zeros((4, 2), dtype=dtype)
+    mass = np.array([1.0, 2.0, 3.0, 4.0], dtype=dtype)
+    _, shift = space.free()
+    energy_fn = lambda positions, **kwargs: np.sum(positions**2)
+
+    nve_init_fn, _ = simulate.nve(energy_fn, shift, 1e-3)
+    nvt_langevin_init_fn, _ = simulate.nvt_langevin(
+      energy_fn, shift, 1e-3, dtype(1.0), gamma=dtype(0.1)
+    )
+
+    nve_state = nve_init_fn(random.PRNGKey(0), R, kT=dtype(1.0), mass=mass)
+    nve_alt_state = nve_init_fn(random.PRNGKey(1), R, kT=dtype(1.0), mass=mass)
+    self.assertFalse(np.allclose(nve_state.momentum, nve_alt_state.momentum))
+
+    langevin_state = nvt_langevin_init_fn(random.PRNGKey(0), R, mass=mass)
+    langevin_alt_state = nvt_langevin_init_fn(random.PRNGKey(1), R, mass=mass)
+    self.assertFalse(
+      np.allclose(langevin_state.momentum, langevin_alt_state.momentum)
+    )
+
+  @parameterized.named_parameters(
+    test_util.cases_from_list(
+      {
         'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
         'spatial_dimension': dim,
         'dtype': dtype,
