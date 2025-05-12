@@ -3,6 +3,7 @@ import jax
 import jax.numpy as jnp
 import numpy as onp
 from jax.scipy.special import erf, erfc  # error function
+from jax.scipy.linalg import cho_factor, cho_solve
 #TODO check if this can be imported from jax_md
 from jax_md.reaxff.reaxff_helper import safe_sqrt
 from jax_md.reaxff.reaxff_energy import taper
@@ -28,8 +29,16 @@ NeighborListFormat = partition.NeighborListFormat
 # also look into safe mask and safe sqrt for things
 # TODO move these to constants file
 # TODO make sure kB is correct in kj or kcal units
+# TODO big task, but fully integrate with JAX MD units file
 ONE_4PI_EPS = 138.935456
 kB = 0.00831446267
+CHARGE_SCALE_AMBER = 18.2223
+# conversion factors from lrch_utils.mod.F90
+BOHRS_TO_A = 0.529177249
+AU_PER_AMBER_CHARGE = 1.0 / CHARGE_SCALE_AMBER
+AU_PER_AMBER_ANGSTROM = 1.0 / BOHRS_TO_A
+AU_PER_AMBER_KCAL_PER_MOL = AU_PER_AMBER_CHARGE * AU_PER_AMBER_CHARGE / AU_PER_AMBER_ANGSTROM
+AU_PER_AMBER_FORCE = AU_PER_AMBER_KCAL_PER_MOL / AU_PER_AMBER_ANGSTROM
 
 def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble="NVE", timestep=1e-3, init_temp=1e-3, return_charges=False, ffq_ff=None, backprop_solve=False):
     # TODO which functions should be generators and which should just return a value?
@@ -49,6 +58,8 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
     disp_map = jax.vmap(disp_fn)
     metric_fn = space.metric(disp_fn)
     dist_fn = jax.vmap(metric_fn)
+    map_metric = space.map_neighbor(metric_fn)
+    map_disp = space.map_neighbor(disp_fn) # TODO this is confusing with the previous function
     # TODO rework these to take displacement and distance matrices/index lists
     angle_fn = jax.vmap(angle)
     torsion_fn = jax.vmap(torsion, (0,0,0,0))
@@ -81,15 +92,23 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
 
             return idx
 
+        if nonbonded_method == "PME" and charge_method == "FFQ":
+            #TODO: add sparse support for this
+            nbr_fmt = NeighborListFormat.Dense
+            mask_fn = None
+        else:
+            nbr_fmt = NeighborListFormat.OrderedSparse
+            mask_fn = mask_function
+
         neighbor_fn = partition.neighbor_list(
             space.canonicalize_displacement_or_metric(disp_fn),
             box=ff.box_vectors,
             r_cutoff=ff.cutoff,
             dr_threshold=ff.dr_threshold,
             disable_cell_list=False,
-            custom_mask_function=mask_function,
+            custom_mask_function=mask_fn,
             fractional_coordinates=False,
-            format=NeighborListFormat.OrderedSparse,
+            format=nbr_fmt, # TODO was ordered sparse, but need to figure out converting this from sparse to dense
         )
 
         # TODO this should be decoupled with the distance calculations
@@ -100,7 +119,7 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
             dr < ff.cutoff,
             coulomb_direct(dr, **kwargs),
             0.)
-        
+
         masked_lj_fn = lambda dr, **kwargs: jnp.where(
             dr < ff.cutoff,
             lennard_jones(dr, **kwargs),
@@ -120,7 +139,7 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
             epsilon=(lambda e1, e2: safe_sqrt(e1 * e2), ff.epsilon)
         )
 
-        reciprocal_fn = coulomb_recip(ff.charges, ff.box_vectors, ff.grid_points, ff.ewald_alpha, fractional_coordinates=False)
+        reciprocal_fn = coulomb_recip(ff.charges, ff.box_vectors, ff.grid_points, ff.ewald_alpha, fractional_coordinates=False, indiv_return=True)
 
         direct_named = jax.named_call(pair_direct_fn, name="Direct Function")
         reciprocal_named = jax.named_call(reciprocal_fn, name="Reciprocal Function")
@@ -131,7 +150,7 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
     else:
         lj_named = jax.named_call(lennard_jones, name="LJ Function")
         coul_named = jax.named_call(coulomb, name="Coulomb Function")
-    
+
     # TODO @partial(jax.jit, static_argnames=["debug"])
     def nrg_fn(positions, ff, nbr_list, debug=False):
 
@@ -141,13 +160,24 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
             atom_mask = ff.species >= 0
             atm_mask = jnp.arange(len(ff.species))
             atm_mask = atm_mask < ff.solute_cut
-            atom_mask = atom_mask * atm_mask
-            
-            nbr_inds = jnp.tile(jnp.arange(len(ff.masses)), (len(ff.masses), 1))
-            far_nbr_inds = jnp.fill_diagonal(nbr_inds, ff.atom_count, inplace=False)
+            atom_mask = atom_mask * atm_mask # TODO consider if the solute cut portion should be there
+            # i think it is for the last rows/columns of the array
+
+            # TODO 3 cases to consider:
+            # only solute, no cut
+            # solvent present but not interacted with
+            # solvent present AND interacting with it in the EEM matrix ***
+
+            if nonbonded_method == "PME":
+                nbr_inds = nbr_list.idx # expand dims to nxn
+                print("nbr list", nbr_list.idx[0, :50])
+                far_nbr_inds = nbr_inds
+            else:
+                nbr_inds = jnp.tile(jnp.arange(len(ff.masses)), (len(ff.masses), 1))
+                far_nbr_inds = jnp.fill_diagonal(nbr_inds, ff.atom_count, inplace=False)
 
             row_inds = jnp.arange(len(ff.masses))
-            nbr_mask = (row_inds >= ff.solute_cut) & (far_nbr_inds >= ff.solute_cut)
+            nbr_mask = (row_inds >= ff.solute_cut).reshape(-1,1) & (far_nbr_inds >= ff.solute_cut)
             far_nbr_inds = jnp.where(nbr_mask, ff.atom_count, far_nbr_inds)
 
             R_far_nbr = positions[far_nbr_inds,:]
@@ -187,7 +217,7 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
                                       total_charge=0.0,
                                       backprop_solve=backprop_solve,
                                       tol=1e-6,
-                                      max_solver_iter=-1)
+                                      max_solver_iter=-1) # TODO add as param, same for lrch
 
             chg_mask = jnp.arange(len(charges))
             chg_mask = (chg_mask >= ff.solute_cut) & (chg_mask < (len(charges)-1))
@@ -230,23 +260,145 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
         if nonbonded_method == "PME":
             lj_pot = 0.0
             direct_pot = 0.0
+            self_pot = 0.0
+            recip_pot = 0.0
+            correction_pot = 0.0
 
-            nb_dist = dist_fn(positions[nbr_list.idx[0, :]], positions[nbr_list.idx[1, :]])
-            nb_mask = (nb_dist < ff.cutoff) & (nbr_list.idx[0, :] < ff.atom_count)
-            dir_chg = ff.charges[nbr_list.idx[0, :]] * ff.charges[nbr_list.idx[1, :]]
+            # print("nbr list {}", nbr_list.idx[:, :50])
+            #print("nbr list shape", nbr_list.idx.shape)
+
+            #nb_dist = map_metric(positions, positions[nbr_list.idx])
+
+            i_nbrs = nbr_list.idx[0, :]
+            j_nbrs = nbr_list.idx[1, :]
+
+            #valid_mask = (i_nbrs < N) & (j_nbrs < N)
+            #jax.debug.print("Valid sparse neighbor pairs: {}", jnp.sum(valid_mask))
+            # sort_idx = jnp.argsort(i_nbrs)
+            # i_nbrs = i_nbrs[sort_idx]
+            # j_nbrs = j_nbrs[sort_idx]
+
+            #lj_pot = nbr_list.idx[0,0] * 1e-10
+            #lj_pot = jnp.sum(nbr_list.idx) * 1e-10 # TODO dummy example to force variable to be traced
+            #lj_pot = jnp.sum(ff.charges[i_nbrs]) * 1e-10
+            #lj_pot = jnp.sum(ff.charges[nbr_list.idx]) * 1e-10
+            # print("chgs shape", ff.charges.shape)
+            # print("pos shape", positions.shape)
+            # sys.exit()
+
+            # TODO look into making these functions use squared distances
+
+            ### Alternative using take to see if semantics are better
+            # pos_i = jnp.take(positions, i_nbrs, axis=0)
+            # pos_j = jnp.take(positions, j_nbrs, axis=0)
+            # nb_dist = dist_fn(pos_i, pos_j)
+
+            # ### Attempt to directly manipulate lax.gather
+            # def gather_rows(arr, idx):
+            #     dnums = jax.lax.GatherDimensionNumbers(
+            #         offset_dims=(1,),             # result dim 1 = slice dim 1
+            #         collapsed_slice_dims=(0,),   # collapse dimension 0 in slice
+            #         start_index_map=(0,)         # indices index into dimension 0
+            #     )
+            #     slice_sizes = (1, arr.shape[1])  # (1, 3) slice: one row of 3 values
+            #     # print("slice_sizes", slice_sizes)
+            #     idx = idx[:, None]               # make it shape (N, 1) as required
+            #     gathered = jax.lax.gather(arr, idx, dimension_numbers=dnums, slice_sizes=slice_sizes)
+            #     #return gathered[:, 0]            # remove length-1 gather 
+            #     return gathered
+
+            # # Now use this:
+            # pos_i = gather_rows(positions, i_nbrs)  # shape: (N, 3)
+            # pos_j = gather_rows(positions, j_nbrs)  # shape: (N, 3)
+            # nb_dist = dist_fn(pos_i, pos_j)
+
+            ### Original approach
+
+            nb_dist = dist_fn(positions[i_nbrs], positions[j_nbrs])
+            nb_mask = (nb_dist < ff.cutoff) & (i_nbrs < ff.atom_count)
+            dir_chg = ff.charges[i_nbrs] * ff.charges[j_nbrs]
+
+            #lj_pot = jnp.sum(positions[i_nbrs]) * 1e-10 + jnp.sum(positions[j_nbrs]) * 1e-10 # TODO dummy example to force variable to be traced
+            # def nbr_sum(pos, idx):
+            #     return jnp.sum(positions[nbr_list.idx]) * 1e-10
+            # lj_pot = jnp.sum(jax.vmap(nbr_sum)(positions, nbr_list.idx)) * 1e-10
+            #lj_pot = jnp.sum(positions[nbr_list.idx]) * 1e-10
+            #lj_pot += jnp.sum(positions[i_nbrs]) * 1e-10
+            #lj_pot += jnp.sum(positions[j_nbrs]) * 1e-10
+            #lj_pot = jnp.sum(jnp.take(positions, nbr_list.idx, axis=0, mode="clip")) * 1e-10
+
+            ###############################################
+            ### Original approach .0057 s
+            # lj_pot = jnp.sum(positions[i_nbrs]) * 1e-10 + jnp.sum(positions[j_nbrs]) * 1e-10
+
+            ### Dual gather/split approach .0040
+
+            # positions_x = positions[:, 0]
+            # positions_y = positions[:, 1]
+            # positions_z = positions[:, 2]
+
+            # pxi = positions_x[i_nbrs]
+            # pyi = positions_y[i_nbrs]
+            # pzi = positions_z[i_nbrs]
+
+            # #lj_pot += jnp.sum(px + py + pz) * 1e-10
+
+            # positions_x = positions[:, 0]
+            # positions_y = positions[:, 1]
+            # positions_z = positions[:, 2]
+
+            # pxj = positions_x[j_nbrs]
+            # pyj = positions_y[j_nbrs]
+            # pzj = positions_z[j_nbrs]
+
+            # #lj_pot += jnp.sum(px + py + pz) * 1e-10
+
+            # nb_dist = dist_fn(jnp.stack([pxi, pyi, pzi], axis=-1), jnp.stack([pxj, pyj, pzj], axis=-1))
+            # nb_mask = (nb_dist < ff.cutoff) & (i_nbrs < ff.atom_count)
+            # dir_chg = ff.charges[i_nbrs] * ff.charges[j_nbrs]
+
+            ### Argsort approach - extremely slow
+
+            # j_sorted = jnp.argsort(j_nbrs)
+            # j_unsort = jnp.argsort(j_sorted)  # used later to restore order
+
+            # # Now gather in sorted order
+            # pj_sorted = positions[j_nbrs[j_sorted]]  # fast gather
+
+            # # Reorder to original order
+            # pj = pj_sorted[j_unsort]
+
+            # pi = positions[i_nbrs]
+
+            # lj_pot = jnp.sum(pi) * 1e-10 + jnp.sum(pj) * 1e-10
+
+            ### Stack/single gather approach .0057
+
+            # all_nbrs = jnp.concatenate([i_nbrs, j_nbrs])
+            # pos_all = positions[all_nbrs]
+            # lj_pot += jnp.sum(pos_all) * 1e-10
+
+            ##################################################################
+
+            #lj_pot = jnp.sum(nb_dist) * 1e-10 # TODO dummy example to force variable to be traced
 
             direct_pot = jnp.sum(coulomb_direct(nb_dist, dir_chg, ff.ewald_alpha) * nb_mask)
 
             self_pot = self_named(ff.charges, ff.ewald_alpha)
-            
+
             corr_dr = dist_fn(positions[ff.exclusions[:, 0]], positions[ff.exclusions[:, 1]])
             charge_sq = ff.charges[ff.exclusions[:, 0]] * ff.charges[ff.exclusions[:, 1]]
             correction_pot = correction_named(corr_dr, charge_sq, ff.ewald_alpha)
-            
-            recip_pot = reciprocal_named(positions)
-         
-            sigma = 0.5*(ff.sigma[nbr_list.idx[0, :]] + ff.sigma[nbr_list.idx[1, :]])
-            epsilon = safe_sqrt(ff.epsilon[nbr_list.idx[0, :]] * ff.epsilon[nbr_list.idx[1, :]])
+
+            # TODO small modification to provide grid information for linear response code
+            # a cleaner way of doing this would probably be to return the potential w.r.t
+            # each atom, the potential grid, and the sum potential as in AMBER
+            recip_grid = reciprocal_named(positions)
+            pme_mask,pme_exp_m,pme_B,pme_Fgrid = recip_grid
+            recip_pot = util.high_precision_sum(pme_mask * pme_exp_m * pme_B * jnp.abs(pme_Fgrid)**2)
+
+            sigma = 0.5*(ff.sigma[i_nbrs] + ff.sigma[j_nbrs])
+            epsilon = safe_sqrt(ff.epsilon[i_nbrs] * ff.epsilon[j_nbrs])
             lj_pot = jnp.sum(lennard_jones(nb_dist, sigma, epsilon) * nb_mask)
 
             result_dict["direct_pot"] = ONE_4PI_EPS * direct_pot
@@ -276,6 +428,14 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
         result_dict['coul_pot'] = coul_pot
         result_dict['disp_pot'] = disp_pot
 
+        if charge_method == "LRCH":
+            # TODO convert internal units from A -> nm
+            dq, resp = linear_response(positions * 10.0, ff, nbr_list, 0, metric_fn, recip_grid, ff.box_vectors, ff.grid_points)
+            result_dict['lrch_pot'] = resp
+            lrch_pot = resp
+        else:
+            lrch_pot = 0.0
+
         ### 1-4 interactions
         # TODO change all the array names to follow xxx_14 xxx_bond for consistency
         pos_14_1 = positions[ff.pairs_14[:, 0]]
@@ -288,7 +448,7 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
         result_dict['lj_14_pot'] = lj_14_pot
         result_dict['coul_14_pot'] = coul_14_pot
 
-        nb_pot = lj_pot + coul_pot + lj_14_pot + coul_14_pot
+        nb_pot = lj_pot + coul_pot + lj_14_pot + coul_14_pot + lrch_pot
         result_dict['nb_pot'] = nb_pot
 
         # TODO add restraint energies where applicable
@@ -299,8 +459,6 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
         else:
             return (bond_pot + angle_pot + torsion_pot + nb_pot)
 
-
-    
     # TODO this may not be very safe
     # wrapping static argument via closure allows me to return non jit nrg function in this case
     # it also allows me to do this with debug and still respect the single return rule for jax md
@@ -320,6 +478,13 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
             state, ff, nbr_list = state
             nbr_list = nbr_list.update(state.position)
             state = apply_fn(state, ff=ff, nbr_list=nbr_list)
+
+            # TODO example for COM motion removal
+            # need to validate more with long simulation, not clear
+            # if this is the correct formulation with momentum
+            # total_mass = jnp.sum(state.mass)
+            # v_com = jnp.sum(state.momentum, axis=0) / total_mass
+            # state = state.set(momentum=state.momentum - state.mass * v_com)
 
             return state, ff, nbr_list
     elif ensemble != None:
@@ -387,7 +552,7 @@ def coulomb_self(charges, ewald_alpha):
 def coulomb_correction(dr, charge_sq, ewald_alpha):
     return -jnp.sum(charge_sq * erf(ewald_alpha * dr) / dr)
 
-def coulomb_recip(charges, box, grid_points, ewald_alpha, fractional_coordinates=False):
+def coulomb_recip(charges, box, grid_points, ewald_alpha, fractional_coordinates=False, indiv_return=False):
     box = jnp.diag(box) if (isinstance(box, jnp.ndarray) and box.ndim == 1) else box
     _ibox = space.inverse(box)
 
@@ -427,11 +592,15 @@ def coulomb_recip(charges, box, grid_points, ewald_alpha, fractional_coordinates
 
         def exp_ret():
             exp_m = 1 / (2 * jnp.pi * V) * jnp.exp(-jnp.pi**2 * m_2 / ewald_alpha**2) / m_2
-            ret_val = util.high_precision_sum(mask * exp_m * B(mx, my, mz) * jnp.abs(Fgrid)**2)
+            if indiv_return:
+                ret_val = (mask,exp_m,B(mx, my, mz),Fgrid)
+
+            else:
+                ret_val = util.high_precision_sum(mask * exp_m * B(mx, my, mz) * jnp.abs(Fgrid)**2)
             return ret_val
         ret_named = jax.named_call(exp_ret, name="exp and ret")
         final_ret = ret_named()
-        return final_ret 
+        return final_ret
     return energy_fn
 
 # PME utility functions
@@ -614,7 +783,7 @@ def calculate_eem_charges(species: Array,
     if max_solver_iter == -1:
         charges = jnp.linalg.solve(to_dense(), b)
     else:
-        charges, conv_info = linalg.cg(SPMV_dense, b, x0=init_charges, tol=tol, maxiter=max_solver_iter)
+        charges, conv_info = jax.scipy.sparse.linalg.cg(SPMV_dense, b, x0=init_charges, tol=tol, maxiter=max_solver_iter)
         # TODO look into other solvers like bicgstab or gmres
         # TODO figure out if there's a way to make convergence info work
         # jax.debug.print("Convergence Information {conv_info}", conv_info=conv_info)
@@ -622,11 +791,301 @@ def calculate_eem_charges(species: Array,
     charges = charges.at[:-1].multiply(atom_mask)
     return charges
 
-def shake():
-    return
+# linear response based fluctuating charge method based on lrch branch of amber gitlab
+# TODO add type annotations and -> signature
+def linear_response(positions, ff, nbr_list, intrascl=0.0, dist_fn=None, pme_recip_grid=None, box=None, grid_points=None):
+    num_fluc = ff.solute_cut
+    num_solvent = ff.atom_count - num_fluc
 
-def settle():
-    return
+    cut = ff.cutoff
+    cut = cut * AU_PER_AMBER_ANGSTROM
 
-def cm_motion_remover():
-    return
+    bvec = jnp.zeros(num_fluc)
+
+    pm_coords_bohr = positions[:num_fluc] * AU_PER_AMBER_ANGSTROM
+    mm_coords_bohr = positions[num_fluc:] * AU_PER_AMBER_ANGSTROM
+    pm_ref_charges = ff.charges[:num_fluc]
+    mm_ref_charges = ff.charges[num_fluc:]
+    pair_indices = None
+    pair_scale = None
+    # TODO what is the conversion factor for this from kcal/kj to atomic units
+    # this is currently provided as the grid of potentials, need to interpolate back to the point charges
+
+    # contribution at a given point will be equal to the spline weights times
+    # the potentials at each of the grid points from 1..N where N = spline order
+    # which in this case is 4
+
+    # TODO most of this probably should be moved into the ewald routine itself eventually,
+    # maybe with a mask to select which atoms to caluclate point potentials for to improve efficiency
+    pme_mask,pme_exp_m,pme_B,pme_Fgrid = pme_recip_grid
+    
+    # TODO do you need to take the inverse fft if you're looking for the positions?
+    # if so, does this move the coefficients and indexing back into real space?
+    V_grid = jnp.fft.ifftn(pme_mask * pme_exp_m * pme_B * pme_Fgrid).real / (1.0/jnp.prod(jnp.array(grid_points)))
+
+    grid_dimensions = grid_points
+
+    ibox = space.inverse(box)
+
+    pme_pos = positions
+    pme_chg = ff.charges
+
+    # TODO this doesn't work for fractional coordinates, consider this going forward
+    u = space.raw_transform(ibox, pme_pos / 10.0) * grid_dimensions
+    w = u - jnp.floor(u)
+    coeffs = optimized_bspline_4(w)
+
+    base_idx = jnp.floor(u).astype(jnp.int32)  # shape (n_atoms, 3)
+    offsets = jnp.arange(4)
+
+    # compute 4 indices per axis (broadcasted over atoms) for the spline order (could change in the future, not sure)
+    # TODO likely need to add order 5 and 6 splines to match some other codes or explicitly require order 4 for lrch
+    x_idx = (base_idx[:, 0, None] + offsets[None, :]) % grid_dimensions[0]
+    y_idx = (base_idx[:, 1, None] + offsets[None, :]) % grid_dimensions[1]
+    z_idx = (base_idx[:, 2, None] + offsets[None, :]) % grid_dimensions[2]
+
+    # create all 64 combinations of x,y,z indices for each atom
+    # same idea as the charge spread in the reciprocal function
+    # TODO there are probably some better numpy routines for this
+    x_idx = x_idx[:, :, None, None]  # (n_atoms, 4, 1, 1)
+    y_idx = y_idx[:, None, :, None]  # (n_atoms, 1, 4, 1)
+    z_idx = z_idx[:, None, None, :]  # (n_atoms, 1, 1, 4)
+
+    idx = jnp.stack([x_idx + jnp.zeros_like(y_idx) + jnp.zeros_like(z_idx), 
+                     y_idx + jnp.zeros_like(x_idx) + jnp.zeros_like(z_idx), 
+                     z_idx + jnp.zeros_like(x_idx) + jnp.zeros_like(y_idx)], axis=-1)
+    # shape: (n_atoms, 4, 4, 4, 3)
+
+    # flatten indices for gathering
+    idx_flat = idx.reshape(-1, 3)
+    V_vals_flat = V_grid[idx_flat[:, 0], idx_flat[:, 1], idx_flat[:, 2]]  # (n_atoms * 64,)
+
+    # reshape to (n_atoms, 4, 4, 4)
+    V_vals = V_vals_flat.reshape(pme_pos.shape[0], 4, 4, 4)
+
+    # compute tensor product of weights
+    wx = coeffs[:, 0, :]  # shape (n_atoms, 4)
+    wy = coeffs[:, 1, :]
+    wz = coeffs[:, 2, :]
+
+    # outer product of weights: (n_atoms, 4, 4, 4)
+    weights = wx[:, :, None, None] * wy[:, None, :, None] * wz[:, None, None, :]
+
+    V_atoms = jnp.sum(weights * V_vals, axis=(1, 2, 3))  # shape (n_atoms,)
+
+    # TODO change this to only calculate relevant atoms if the MM point potentials aren't relevant
+    pme_recip_pot = 2.0 * V_atoms[:ff.solute_cut] / 10.0 / AU_PER_AMBER_ANGSTROM
+
+    # TODO have to deal with the case where eta is near 0
+    eta = ff.hardness[:num_fluc]
+    eta = jnp.where(eta < 1e-8, 10.0, eta)
+    zetas = eta * eta * (jnp.pi/2.0)
+
+    # final derived equation comes out to something like
+    # Ecew = E0 + E1 + E2
+    #
+    # E0 = 1/2 <mm+qref|jn|mm+qref>
+    # E1 = <dq|jn|mm+qref>
+    #    =   <dq|(j<)|qref>  ! term 1
+    #      - <dq|jg|qref>    ! term 2
+    #      + <dq|(j<)|qref>  ! term 3
+    #      - <dq|jg|qref>    ! term 4
+    #      + <dq|j%|mm+qref> ! term 5
+    # E2 = 1/2 <dq|j|dq>
+    # where
+    # E0 = regular MM energy
+    # E1 = interaction of the response density with the periodic MM charges
+    # E2 = nonperiodic interaction between the response charges
+    # and
+    # j< = short-range direct interaction
+    # j% = reciprocal space contribution
+    # jg = Ewald Gaussian potential
+    # jn = periodic potential = ((j<) + j% - jg)|x>
+
+    def build_bvec(
+        pm_coords: jnp.ndarray,       # (npm, 3)
+        mm_coords: jnp.ndarray,       # (nmm, 3)
+        pm_ref_charges: jnp.ndarray,  # (npm, )
+        mm_ref_charges: jnp.ndarray,  # (nmm, 3)
+        zetas: jnp.ndarray,           # (npm, )
+        # TODO consider if this really makes sense or if generating the matrices on the spot is easier, at least for pm-pm inter
+        pair_indices: jnp.ndarray,    # (npairs, 2) for real-space pairs i<j assuming nb list is used
+        pair_scale: jnp.ndarray,      # (npairs, ) scale factors (could be intramolecular scale, 1-4 SCEE, etc.)
+        pme_recip_pot: jnp.ndarray,    # (npm, ) precomputed reciprocal potential at each PM site (if needed)
+        cut: jnp.ndarray
+        ): # TODO add type annotation
+        """
+        Construct the bvec for the linear-response model, adding real-space terms
+        from reference charges and optionally a known reciprocal-space potential
+        TODO how exactly do non-ewald cases work w.r.t. the recip vector
+        """
+        # TODO not sure if this is correct, this comes from the ewald routine in amber
+        beta = ff.ewald_alpha / AU_PER_AMBER_ANGSTROM / 10.0 # TODO might be off by factor of 10
+        #beta = 0.14558004294479038 # TODO calculated value from amber for test, not for production
+        SQRT_PI = jnp.sqrt(jnp.pi)
+
+        npm = pm_coords.shape[0]
+        nmm = mm_coords.shape[0]
+        ew_self = 2.0 * beta / SQRT_PI
+
+        # TODO need to implement intrascl and do_cew options
+        # particularly important for pbc vs nobc
+
+        bvec = jnp.zeros((npm,), dtype=jnp.float64)
+
+        # important to avoid NaN gradient due to evaluation of sqrt for i=j pairs
+        pm_dr = jax.vmap(lambda x: jax.vmap(lambda y: jnp.sum((x-y)**2))(pm_coords))(pm_coords)
+        pm_dr = util.safe_mask(pm_dr > 1e-12, lambda r: jnp.sqrt(r), pm_dr, 0.0)
+        pm_mm_dr = jax.vmap(lambda x: jax.vmap(lambda y: jnp.sum((x-y)**2))(mm_coords))(pm_coords)
+        pm_mm_dr = util.safe_mask(pm_mm_dr > 1e-12, lambda r: jnp.sqrt(r), pm_mm_dr, 0.0)
+
+        # 1) + <dq|(j<)|qref>
+
+        # this should be controlled by intrascl
+        # in practice, for an MM simulation, this would be
+        # 2 point charges right on top of each other
+        # we should likely ignore the interaction of the response basis
+        # with its own MM charge, this can just be treated as an additive term when
+        # tuning our constant parameters, as this is what this would be in practice
+
+        # 2) - <dq|jg|qref>
+        # self contribution
+        bvec = bvec - (pm_ref_charges * ew_self)
+
+        # TODO should probably use jnp.where or maybe double where trick
+        op = util.safe_mask(pm_dr > 1e-12, lambda r: jax.scipy.special.erf(beta*r)/r, pm_dr, 0.0)
+        bvec = bvec - jnp.sum(pm_ref_charges * op, axis=1) #/ 2.0) # to avoid double counting?
+
+        # 3) + <dq|(j<)|qref> TODO pretty sure this should be |mm>
+        sqz = jnp.sqrt(zetas)
+        # can just do something with the upper triangular portion of the matrix or directly manipulate the diag idx
+        mask = (pm_mm_dr > 1e-12) & (pm_mm_dr < cut)
+        pm_mm_dr_safe = jnp.where(mask, pm_mm_dr, 1.0)
+        pm_mm_dr_sqz = jax.scipy.special.erf(sqz.reshape((-1,1)) * pm_mm_dr) # TODO this isn't a very efficient way of doing this
+        op = jnp.where(mask, pm_mm_dr_sqz / pm_mm_dr_safe, 0.0)
+        bvec = bvec + jnp.sum(mm_ref_charges * op, axis=1)
+
+        # 4) - <dq|jg|qref> TODO pretty sure this should be |mm>
+        mask = (pm_mm_dr > 1e-12) & (pm_mm_dr < cut)
+        op = util.safe_mask(mask, lambda r: jax.scipy.special.erf(beta*r)/r, pm_mm_dr, 0.0)
+        bvec = bvec - jnp.sum(mm_ref_charges * op, axis=1)
+
+        # 5) + <dq|j%|mm+qref>
+        bvec = bvec + pme_recip_pot
+
+        # 6) TODO without intrascl do you add exclusions here?
+
+        return bvec
+
+    def build_Amat(
+        pm_coords: jnp.ndarray,   # (npm,3)
+        zetas: jnp.ndarray,       # (npm,)
+        hardness: jnp.ndarray,    # (npm,) -> diagonal entries
+        pair_indices: jnp.ndarray, # (npairs,2) but i don't think this will be used for now
+        cut: jnp.ndarray):
+        """
+        construct A matrix - n_pm x n_pm
+        A(i,i) = hardness[i]
+        A(i,j) = erf( sqrt(zeta_ij)*r ) / r, for i<j
+        """
+
+        npm = pm_coords.shape[0]
+        # Initialize Amat
+        Amat = jnp.zeros((npm, npm), dtype=jnp.float64)
+
+        # Put hardness on diag
+        Amat = Amat.at[jnp.arange(npm), jnp.arange(npm)].set(hardness)
+
+        # TODO consider if generating triangular matrix and then filling is better
+        # https://stackoverflow.com/questions/36250729/how-to-convert-triangle-matrix-to-square-in-numpy
+        # given the fact that you're essentially generating that for this and the pm-pm inters for the bvec,
+        # this might be a good bit more efficient
+        # also probably want to generate the matrix outside and pass in in to these functions for reuse
+        # as both require the distance matrix
+        # the pm-mm distance matrix should probably be built from the nb list eventually
+        # in practice this doesn't seem to have too bad of a performance impact so far
+
+        # important to mask nans from sqrt 0
+        pm_dr = jax.vmap(lambda x: jax.vmap(lambda y: jnp.sum((x-y)**2))(pm_coords))(pm_coords)
+        pm_dr = util.safe_mask(pm_dr > 1e-12, lambda r: jnp.sqrt(r), pm_dr, 0.0)
+
+        zeta_mul = zetas * zetas.T
+        zeta_sum = zetas + zetas.T
+        zeta_mat = zeta_mul/zeta_sum # TODO might be a better way to implement this combining rule
+
+        mask = (pm_dr > 1e-12) & (pm_dr < cut)
+        pm_dr_safe = jnp.where(mask, pm_dr, 1.0)
+        pm_dr_zeta = jax.scipy.special.erf(zeta_mat * pm_dr) 
+        op = jnp.where(mask, pm_dr_zeta / pm_dr_safe, 0.0)
+
+
+        Amat = Amat + op
+
+        return Amat
+
+    def solve_flucq(Amat: jnp.ndarray,
+                bvec: jnp.ndarray,
+                max_solver_iter: jnp.ndarray = -1) -> jnp.ndarray:
+        """
+        Solve A * dq = -b  for dq to get final delta from response vec
+        For large N, iterative solver will be needed as this uses LU
+        """
+
+        # TODO it turns out this is a constrained problem
+        # need to work out non LU based approach for larger systems
+        # if max_solver_iter == -1:
+        #     dq = jnp.linalg.solve(Amat, bvec)
+        # else:
+        #     dq, conv_info = jax.scipy.sparse.linalg.cg(SPMV_dense, bvec, x0=init_charges, tol=tol, maxiter=max_solver_iter)
+
+        # attempt to replicate fortran code with constraint
+        # use cholesky and lagrange to solve constrained system
+        from jax.scipy.linalg import cho_factor, cho_solve
+        d = jnp.ones(len(bvec))
+        c = 0.0
+        cho = cho_factor(Amat, lower=False)
+        Ainv_b = cho_solve(cho, bvec)
+        Ainv_d = cho_solve(cho, d)
+        mu = (jnp.dot(d, Ainv_b) + c) / jnp.dot(d, Ainv_d)
+        x = mu * Ainv_d - Ainv_b
+
+        # TODO should also add options for things like spsolve, bicg/stab, gmres, etc
+        # probably not necessary for well conditioned matrix in this case but useful for future constraints in linear system
+        return x
+
+    def compute_response_energy(Amat: jnp.ndarray,
+                            bvec: jnp.ndarray,
+                            dq: jnp.ndarray) -> float:
+        """
+        Compute linear response energy from bvec
+        E = b·dq + 0.5 dq^T A dq
+        """
+        E1 = jnp.dot(bvec, dq)
+        E2 = 0.5 * jnp.dot(dq, Amat @ dq)
+        return E1 + E2
+
+    # Build the real-space portion of bvec
+    b_real = build_bvec(
+        pm_coords_bohr, mm_coords_bohr, pm_ref_charges, mm_ref_charges, zetas,
+        pair_indices, pair_scale, pme_recip_pot, cut
+    )
+
+    # Build the real-space portion of Amat
+    A_real = build_Amat(pm_coords_bohr, zetas, ff.hardness[:ff.solute_cut], pair_indices, cut)
+
+    # Combine with reciprocal block
+    # TODO this may not be necessary, it seemed like the reciprocal interaction
+    # should be incorporated into the hardness matrix but it doesn't look like
+    # that's the case
+    Amat_total = A_real
+
+    # Solve for dq
+    dq = solve_flucq(Amat_total, b_real)
+
+    # Compute response energy
+    # TODO check if this is correct, other terms are in kj/mol
+    Eresp = compute_response_energy(Amat_total, b_real, dq) * 4.184
+
+    # Return first-order response vector and response energy
+    # TODO should extra information like second-order response be copied?
+    return dq, Eresp
