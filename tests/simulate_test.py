@@ -53,7 +53,7 @@ COORDS = ['fractional', 'real']
 LANGEVIN_PARTICLE_COUNT = 8000
 LANGEVIN_DYNAMICS_STEPS = 8000
 
-BROWNIAN_PARTICLE_COUNT = 8000
+BROWNIAN_PARTICLE_COUNT = 24000
 BROWNIAN_DYNAMICS_STEPS = 8000
 
 DTYPE = [f32]
@@ -581,7 +581,7 @@ class SimulateTest(test_util.JAXMDTestCase):
     _, shift = space.free()
     energy_fn = lambda R, **kwargs: f32(0)
 
-    R = np.zeros((BROWNIAN_PARTICLE_COUNT, 2), dtype=dtype)
+    R = np.zeros((BROWNIAN_PARTICLE_COUNT, spatial_dimension), dtype=dtype)
     mass = random.uniform(
       mass_split, (), minval=0.1, maxval=10.0, dtype=dtype)
     T = random.uniform(T_split, (), minval=0.3, maxval=1.4, dtype=dtype)
