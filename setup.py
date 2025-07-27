@@ -28,7 +28,6 @@ INSTALL_REQUIRES = [
     'jaxlib',
     'flax',
     'jraph',
-    'dataclasses',
     'einops',
     'ml_collections',
     'e3nn-jax',
