@@ -563,8 +563,6 @@ class SimulateTest(test_util.JAXMDTestCase):
                         pos_fn(t),
                         rtol=tol,
                         atol=tol)
-    print(jnp.mean(state.momentum * p0),
-          mom_fn(t))
     self.assertAllClose(jnp.mean(state.momentum * p0),
                         mom_fn(t),
                         rtol=tol,
