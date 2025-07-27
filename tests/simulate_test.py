@@ -522,7 +522,7 @@ class SimulateTest(test_util.JAXMDTestCase):
     E = lambda x: jnp.sum(0.5 * alpha * x ** 2)
     displacement, shift = space.free()
 
-    N = 100_000
+    N = 200000
     steps = 1000
     kT = 0.25
     dt = 1e-4
@@ -563,6 +563,8 @@ class SimulateTest(test_util.JAXMDTestCase):
                         pos_fn(t),
                         rtol=tol,
                         atol=tol)
+    print(jnp.mean(state.momentum * p0),
+          mom_fn(t))
     self.assertAllClose(jnp.mean(state.momentum * p0),
                         mom_fn(t),
                         rtol=tol,
