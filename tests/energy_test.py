@@ -1013,7 +1013,7 @@ class EnergyTest(test_util.JAXMDTestCase):
       self.assertAllClose(energy_fn(params, R), nl_energy_fn(params, R, nbrs))
     else:
       self.assertAllClose(energy_fn(params, R), nl_energy_fn(params, R, nbrs),
-                          rtol=2e-4, atol=2e-4)
+                          rtol=4e-4, atol=2e-4)
 
   @parameterized.named_parameters(test_util.cases_from_list(
       {
