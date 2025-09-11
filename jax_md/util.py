@@ -79,8 +79,8 @@ def merge_dicts(a, b, ignore_unused_parameters=False):
 
 
 @partial(jit, static_argnums=(1,))
-def safe_mask(mask, fn, operand, placeholder=0):
-  masked = jnp.where(mask, operand, 0)
+def safe_mask(mask, fn, operand, placeholder=0, intermediate_placeholder=0):
+  masked = jnp.where(mask, operand, intermediate_placeholder)
   return jnp.where(mask, fn(masked), placeholder)
 
 

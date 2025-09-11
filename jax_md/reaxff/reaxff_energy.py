@@ -154,7 +154,7 @@ def calculate_reaxff_energy(species: Array,
     d = far_nbr_dists / xcut
     bond_softness = force_field.par_35 * (d**3) * ((1-d)**6)
     bond_softness = safe_mask(far_nbr_dists < xcut,
-                              lambda x: x, bond_softness, 0.0)
+                              lambda x: x, bond_softness, 0.0, intermediate_placeholder=1.0)
     self_mask = jnp.arange(N).reshape(-1,1) == far_nbr_inds
     bond_softness = jnp.where(self_mask == 1, 0, bond_softness)
     charges,effpot = calculate_acks2_charges(species,
