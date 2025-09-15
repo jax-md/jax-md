@@ -52,6 +52,7 @@ class AmberForceField(object):
     name: Array
     atom_count: Array # TODO change to num_atoms
     atom_types: Array
+    atomic_number: Array
     positions: Array # TODO move this to other structure
     box_vectors: Array # TODO change to orthoganalization_matrix
     # orth_matrix: Array
@@ -116,7 +117,9 @@ class AmberForceField(object):
     hardness: Array
     species: Array
     name_to_index: Array # TODO this may not be safe for vectorization due to string types
-    solute_cut: Array # TODO change to num_solute
+    # TODO this change is for linear response code as shape of Amat and bvec depend on this
+    # this may not be a safe change in general and may need to be reexamined
+    solute_cut: Array = dataclasses.static_field() # TODO change to num_solute
 
     # TODO populate local indices and fill off diagonal terms where applicable, may need to store original arrays
     # this helps because you can still maintain globally consistent indexing for parameter optimization

@@ -1218,7 +1218,19 @@ def coul_get_energy_nb_pme(positions, box, prms, nbList):
     dist = distance(p1, p2, box)
     dist = jnp.where(jnp.isclose(dist, 0.), 1, dist)
     correction_factor = jnp.float64(138.935456) * -jnp.sum(chg1 * chg2 * (1.0/dist) * erf(alpha * dist))
+
+    # jax.debug.print("exc {direct_and_recip_nrg}", direct_and_recip_nrg=exceptions.shape)
+    # jax.debug.print("exc14 {direct_and_recip_nrg}", direct_and_recip_nrg=exceptions14.shape)
+    # jax.debug.print("drs {direct_and_recip_nrg}", direct_and_recip_nrg=dist)
+    jax.debug.print("charges {direct_and_recip_nrg}", direct_and_recip_nrg=(charges))
+    jax.debug.print("alpha {direct_and_recip_nrg}", direct_and_recip_nrg=alpha)
+    jax.debug.print("corr_fresh{direct_and_recip_nrg}", direct_and_recip_nrg=(-jnp.sum(chg1 * chg2 * (1.0/dist) * erf(alpha * dist))))
     #print("PME Correction Factor:", correction_factor)
+
+    jax.debug.print("direct_and_recip_nrg {direct_and_recip_nrg}", direct_and_recip_nrg=direct_and_recip_nrg/4.184)
+    jax.debug.print("self_nrg {self_nrg}", self_nrg=self_nrg/4.184)
+    jax.debug.print("correction_factor {correction_factor}", correction_factor=correction_factor/4.184)
+    #sys.exit()
 
     return (direct_and_recip_nrg + self_nrg + correction_factor)
 

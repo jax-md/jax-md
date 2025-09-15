@@ -8,7 +8,7 @@ from jax.scipy.linalg import cho_factor, cho_solve
 from jax_md.reaxff.reaxff_helper import safe_sqrt
 from jax_md.reaxff.reaxff_energy import taper
 from jax_md import dataclasses, space, smap, util, partition, simulate, minimize
-from jax_md.amber.amber_helper import angle, torsion
+from jax_md.amber.amber_helper import angle, torsion, torsion_v2
 from functools import wraps, partial
 from typing import Callable, Tuple, TextIO, Dict, Any, Optional
 
@@ -40,11 +40,18 @@ AU_PER_AMBER_ANGSTROM = 1.0 / BOHRS_TO_A
 AU_PER_AMBER_KCAL_PER_MOL = AU_PER_AMBER_CHARGE * AU_PER_AMBER_CHARGE / AU_PER_AMBER_ANGSTROM
 AU_PER_AMBER_FORCE = AU_PER_AMBER_KCAL_PER_MOL / AU_PER_AMBER_ANGSTROM
 
-def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble="NVE", timestep=1e-3, init_temp=1e-3, return_charges=False, ffq_ff=None, backprop_solve=False):
+# TODO add some kind of switching structure for force groups to disable forces as needed
+#@partial(jax.jit, static_argnames=["nonbonded_method", "charge_method", "ensemble"])
+def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble="NVE", timestep=1e-3, init_temp=1e-3, return_charges=False,
+                ffq_ff=None, backprop_solve=False, vdw_scaling=None, coul_scaling=None, ti_mask=1.0, sc_mask=1.0, debug=False, return_mode=None, disp_tuple=None):
     # TODO which functions should be generators and which should just return a value?
     # TODO remove this if it interferes with nb code and put large box vectors
     # TODO consider if wrapped=False + no MIC has significant performance benefits
-    if nonbonded_method == "PME":
+    if disp_tuple != None:
+        disp_fn, shift_fn = disp_tuple
+    elif nonbonded_method == "PME":
+        # TODO this may cause ff to be closed over into the energy function
+        # my worry is that this will cause tracer issues if you reuse the object
         disp_fn, shift_fn = space.periodic(ff.box_vectors)
     else:
         disp_fn, shift_fn = space.free()
@@ -63,6 +70,7 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
     # TODO rework these to take displacement and distance matrices/index lists
     angle_fn = jax.vmap(angle)
     torsion_fn = jax.vmap(torsion, (0,0,0,0))
+    torsion_fn_v2 = jax.vmap(torsion_v2, (0,0,0))
     ffq_dist_fn = space.map_neighbor(metric_fn)
 
     # TODO named jax or nvtx annotations for each function? @named_call?
@@ -92,13 +100,27 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
 
             return idx
 
-        if nonbonded_method == "PME" and charge_method == "FFQ":
-            #TODO: add sparse support for this
-            nbr_fmt = NeighborListFormat.Dense
-            mask_fn = None
-        else:
-            nbr_fmt = NeighborListFormat.OrderedSparse
-            mask_fn = mask_function
+        # old approach which is probably less efficient
+        # exclusions = ff.exclusions
+        # nAtoms = ff.atom_count
+        # def mask_function(idx):
+        #     e_idx = jnp.argwhere(idx[exclusions[:, 0]] == exclusions[:, 1].reshape(-1,1), size=len(exclusions), fill_value=nAtoms)
+        #     idx = idx.at[exclusions[:, 0][e_idx[:, 0]], e_idx[:, 1]].set(nAtoms)
+        #     e_idx = jnp.argwhere(idx[exclusions[:, 1]] == exclusions[:, 0].reshape(-1,1), size=len(exclusions), fill_value=nAtoms)
+        #     idx = idx.at[exclusions[:, 1][e_idx[:, 0]], e_idx[:, 1]].set(nAtoms)
+        #     return idx
+
+        # TODO this is the general idea for an efficient implementation that will include solvent effects
+        # some kind of filtering needs to be done after extracting the relevant solute-solvent ixns
+        # if nonbonded_method == "PME" and charge_method == "FFQ":
+        #     #TODO: add sparse support for this
+        #     nbr_fmt = NeighborListFormat.Dense
+        #     mask_fn = None
+        # else:
+        #     nbr_fmt = NeighborListFormat.OrderedSparse
+        #     mask_fn = mask_function
+        nbr_fmt = NeighborListFormat.OrderedSparse
+        mask_fn = mask_function
 
         neighbor_fn = partition.neighbor_list(
             space.canonicalize_displacement_or_metric(disp_fn),
@@ -112,7 +134,8 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
         )
 
         # TODO this should be decoupled with the distance calculations
-        ff = dataclasses.replace(ff, nbr_list=neighbor_fn.allocate(ff.positions))
+        # if return_mode != "simple":
+        #     ff = dataclasses.replace(ff, nbr_list=neighbor_fn.allocate(ff.positions))
 
         # TODO think more about the implications of this masking
         masked_direct_fn = lambda dr, **kwargs: jnp.where(
@@ -150,17 +173,19 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
     else:
         lj_named = jax.named_call(lennard_jones, name="LJ Function")
         coul_named = jax.named_call(coulomb, name="Coulomb Function")
+        neighbor_fn = None
 
     # TODO @partial(jax.jit, static_argnames=["debug"])
-    def nrg_fn(positions, ff, nbr_list, debug=False):
+    def nrg_fn(positions, ff, nbr_list, debug=False, return_charges=False, cl_lambda=0.0):
+        #TODO add explicit closure with kwargs.pop(), also add kwargs
 
         result_dict = dict()
 
         if charge_method == "FFQ":
             atom_mask = ff.species >= 0
-            atm_mask = jnp.arange(len(ff.species))
+            atm_mask = jnp.arange(ff.solute_cut)
             atm_mask = atm_mask < ff.solute_cut
-            atom_mask = atom_mask * atm_mask # TODO consider if the solute cut portion should be there
+            atom_mask = atom_mask[:ff.solute_cut] * atm_mask # TODO consider if the solute cut portion should be there
             # i think it is for the last rows/columns of the array
 
             # TODO 3 cases to consider:
@@ -168,21 +193,28 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
             # solvent present but not interacted with
             # solvent present AND interacting with it in the EEM matrix ***
 
-            if nonbonded_method == "PME":
-                nbr_inds = nbr_list.idx # expand dims to nxn
-                print("nbr list", nbr_list.idx[0, :50])
-                far_nbr_inds = nbr_inds
-            else:
-                nbr_inds = jnp.tile(jnp.arange(len(ff.masses)), (len(ff.masses), 1))
-                far_nbr_inds = jnp.fill_diagonal(nbr_inds, ff.atom_count, inplace=False)
+            # if nonbonded_method == "PME":
+            #     # this approach may have some issues and is only really necessary when solvent effects are included
+            #     # nbr_inds = nbr_list.idx # expand dims to nxn
+            #     # #print("nbr list", nbr_list.idx[0, :50])
+            #     # far_nbr_inds = nbr_inds
+            #     # #sys.exit() # TODO may still have issues
+            #     nbr_inds = jnp.tile(jnp.arange(ff.solute_cut), (ff.solute_cut, 1))
+            #     far_nbr_inds = jnp.fill_diagonal(nbr_inds, ff.solute_cut, inplace=False)
+            # else:
+            #     nbr_inds = jnp.tile(jnp.arange(ff.solute_cut), (ff.solute_cut, 1))
+            #     far_nbr_inds = jnp.fill_diagonal(nbr_inds, ff.solute_cut, inplace=False)
 
-            row_inds = jnp.arange(len(ff.masses))
+            nbr_inds = jnp.tile(jnp.arange(ff.solute_cut), (ff.solute_cut, 1))
+            far_nbr_inds = jnp.fill_diagonal(nbr_inds, ff.solute_cut, inplace=False)
+
+            row_inds = jnp.arange(ff.solute_cut)
             nbr_mask = (row_inds >= ff.solute_cut).reshape(-1,1) & (far_nbr_inds >= ff.solute_cut)
             far_nbr_inds = jnp.where(nbr_mask, ff.atom_count, far_nbr_inds)
 
             R_far_nbr = positions[far_nbr_inds,:]
             # TODO add conversion constants to do this all in NM
-            far_nbr_dists = ffq_dist_fn(positions, R_far_nbr) * 10.0
+            far_nbr_dists = ffq_dist_fn(positions[:ff.solute_cut], R_far_nbr) * 10.0
             far_nbr_mask = (far_nbr_inds != ff.atom_count) & (atom_mask.reshape(-1,1)
                                         & atom_mask[far_nbr_inds])
             far_nbr_dists = far_nbr_dists * far_nbr_mask
@@ -192,7 +224,7 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
                                     0.0,
                                     tapered_dists)
 
-            species = ff.species
+            species = ff.species[:ff.solute_cut]
             far_neigh_types = species[far_nbr_inds]
 
             far_nbr_mask = (far_nbr_inds != ff.atom_count) & (atom_mask.reshape(-1,1) # TODO look above, duplicate?
@@ -201,34 +233,109 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
             # TODO some of this can be precomputed
             gamma = jnp.power(ffq_ff.gamma.reshape(-1, 1), 3/2)
             gamma_mat = gamma * gamma.transpose()
+            # print(gamma_mat.shape, far_neigh_types.shape, species.shape)
             gamma_mat = gamma_mat[far_neigh_types, species.reshape(-1, 1)]
             hulp1_mat = far_nbr_dists ** 3 + (1/gamma_mat)
             hulp2_mat = jnp.power(hulp1_mat, 1.0/3.0) * far_nbr_mask
 
-            charges = calculate_eem_charges(species,
-                                      atom_mask,
+            #print(species, far_neigh_types, hulp2_mat.shape)
+            #print(ffq_ff.hardness, ffq_ff.electronegativity)
+            charges = calculate_eem_charges(species[:ff.solute_cut],
+                                      atom_mask[:ff.solute_cut],
                                       far_nbr_inds,
                                       hulp2_mat,
                                       tapered_dists,
-                                      ffq_ff.hardness,
-                                      ffq_ff.electronegativity,
-                                      ff.atom_count,
+                                      ffq_ff.hardness, #[:ff.solute_cut]
+                                      ffq_ff.electronegativity, #[:ff.solute_cut]
+                                      #ff.atom_count,
+                                      ff.solute_cut,
                                       init_charges=None,
                                       total_charge=0.0,
                                       backprop_solve=backprop_solve,
                                       tol=1e-6,
                                       max_solver_iter=-1) # TODO add as param, same for lrch
 
-            chg_mask = jnp.arange(len(charges))
-            chg_mask = (chg_mask >= ff.solute_cut) & (chg_mask < (len(charges)-1))
-            charges = jnp.where(chg_mask[:-1], ff.charges, charges[:-1])
+            # charges = calculate_eem_charges(species,
+            #                           atom_mask,
+            #                           far_nbr_inds,
+            #                           hulp2_mat,
+            #                           tapered_dists,
+            #                           ffq_ff.hardness,
+            #                           ffq_ff.electronegativity,
+            #                           12,
+            #                           init_charges=None,
+            #                           total_charge=0.0,
+            #                           backprop_solve=backprop_solve,
+            #                           tol=1e-6,
+            #                           max_solver_iter=-1) # TODO add as param, same for lrch
+
+            #print("itemp info", ff.solute_cut, ffq_ff.hardness, ffq_ff.hardness[:ff.solute_cut])
+            # chg_mask = jnp.arange(len(charges))
+            # chg_mask = (chg_mask >= ff.solute_cut) & (chg_mask < (len(charges)-1))
+            # charges = jnp.where(chg_mask[:-1], ff.charges, charges[:-1])
+            #print(charges[:ff.solute_cut].shape, ff.charges[ff.solute_cut:].shape, ff.charges.shape)
+            charges = jnp.concatenate((charges[:ff.solute_cut], ff.charges[ff.solute_cut:]))
+            #print("chg shape", charges.shape)
             charges_14 = charges[ff.pairs_14[:, 0]] * charges[ff.pairs_14[:, 1]]
         else:
             charges = ff.charges
             charges_14 = ff.charges_14
 
+        if coul_scaling == "linear":
+            #this probably isn't correct, only the softcore atoms should have their charges scaled
+            # charges = (1.0 - cl_lambda) * charges
+            charges = jnp.where(sc_mask == 1, (1 - cl_lambda) * charges, charges)
+        # TODO think more about softcore coulomb scaling
+        # amber manual states that only this only works under pbcs
+
+        if vdw_scaling == "softcore":
+            if nonbonded_method == "PME":
+                senders = nbr_list.idx[0, :]
+                receivers = nbr_list.idx[1, :]
+            else:
+                senders = ff.pairs[:, 0]
+                receivers = ff.pairs[:, 1]
+            #senders, receivers = nbrs
+            #print("senders", senders)
+            #print("sc_mask", sc_mask)
+            #print("vdw_scaling", vdw_scaling)
+            mask_s = sc_mask[senders]
+            mask_r = sc_mask[receivers]
+            #mask_s = jnp.asarray(mask_s, dtype=bool)
+            #mask_r = jnp.asarray(mask_r, dtype=bool)
+            sc_sc = mask_s & mask_r        # both softcore
+            sc_cc = mask_s ^ mask_r        # one softcore, one not
+            cc_cc = ~(mask_s | mask_r)     # both non-softcore
+            #cc_cc = jnp.logical_not(jnp.logical_or(mask_s, mask_r))
+            #jax.debug.print("{} {} {}", sc_sc, sc_cc, cc_cc)
+            senders_14 = ff.pairs_14[:, 0]
+            receivers_14 = ff.pairs_14[:, 1]
+
+            mask_s_14 = sc_mask[senders_14]
+            mask_r_14 = sc_mask[receivers_14]
+
+            sc_sc_14 = mask_s_14 & mask_r_14       # both softcore
+            sc_cc_14 = mask_s_14 ^ mask_r_14       # one softcore, one not
+            cc_cc_14 = ~(mask_s_14 | mask_r_14)    # both non-softcore
+
+            # print("senders_14",senders_14)
+            # print("receivers_14",receivers_14)
+            # print("sc_sc_14",sc_sc_14)
+            # print("sc_cc_14",sc_cc_14)
+            # print("cc_cc_14",cc_cc_14)
+
+
+            # then energies are expressed as something like
+            # where they can be scaled by group
+            # this needs to be done based on the sc flag that controls which ixns are scaled
+            # energy_sc_sc = jnp.sum(jnp.where(sc_sc, pairwise_vals, 0.0))
+            # energy_sc_nsc = jnp.sum(jnp.where(sc_nsc, pairwise_vals, 0.0))
+            # energy_nsc_nsc = jnp.sum(jnp.where(nsc_nsc, pairwise_vals, 0.0))
+
         # TODO decide where to trim last value of array
         #charges = charges[:-1]
+        #jax.debug.print("charges {}", charges[:50])
+        #jax.debug.print("solvent cut {}", ff.solute_cut)
 
         ### Bond interaction
         bond_idx = ff.bond_idx
@@ -236,6 +343,10 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
         bond_dist = dist_fn(b_pos[:, 0], b_pos[:, 1])
         bond_mask = bond_idx[:,0] != -1
         bond_pot = jnp.sum(bond_mask * bond_named(bond_dist, ff.bond_k, ff.bond_len))
+        # print("bond components", bond_mask * bond_named(bond_dist, ff.bond_k, ff.bond_len))
+        # print("bond_idx", bond_idx)
+        # print("bond_dist", bond_dist)
+        # print("ff.bond_len", ff.bond_len)
         result_dict['bond_pot'] = bond_pot
 
         ### Angle interaction
@@ -251,7 +362,8 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
         torsion_idx = ff.torsion_idx
         t_pos = positions[torsion_idx]
         # TODO this also may not work over periodic boundaries, the displacements in the function are plain
-        torsion_theta = torsion_fn(t_pos[:, 0], t_pos[:, 1], t_pos[:, 2], t_pos[:, 3])
+        #torsion_theta = torsion_fn(t_pos[:, 0], t_pos[:, 1], t_pos[:, 2], t_pos[:, 3])
+        torsion_theta = torsion_fn_v2(disp_map(t_pos[:, 1], t_pos[:, 0]), disp_map(t_pos[:, 2], t_pos[:, 1]), disp_map(t_pos[:, 3], t_pos[:, 2]))
         torsion_mask = torsion_idx[:,0] != -1
         torsion_pot = jnp.sum(torsion_mask * torsion_named(torsion_theta, ff.torsion_k, ff.torsion_phase, ff.torsion_period))
         result_dict['torsion_pot'] = torsion_pot
@@ -316,7 +428,7 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
 
             nb_dist = dist_fn(positions[i_nbrs], positions[j_nbrs])
             nb_mask = (nb_dist < ff.cutoff) & (i_nbrs < ff.atom_count)
-            dir_chg = ff.charges[i_nbrs] * ff.charges[j_nbrs]
+            dir_chg = charges[i_nbrs] * charges[j_nbrs]
 
             #lj_pot = jnp.sum(positions[i_nbrs]) * 1e-10 + jnp.sum(positions[j_nbrs]) * 1e-10 # TODO dummy example to force variable to be traced
             # def nbr_sum(pos, idx):
@@ -384,22 +496,52 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
 
             direct_pot = jnp.sum(coulomb_direct(nb_dist, dir_chg, ff.ewald_alpha) * nb_mask)
 
-            self_pot = self_named(ff.charges, ff.ewald_alpha)
+            self_pot = self_named(charges, ff.ewald_alpha)
 
             corr_dr = dist_fn(positions[ff.exclusions[:, 0]], positions[ff.exclusions[:, 1]])
-            charge_sq = ff.charges[ff.exclusions[:, 0]] * ff.charges[ff.exclusions[:, 1]]
+            charge_sq = charges[ff.exclusions[:, 0]] * charges[ff.exclusions[:, 1]]
             correction_pot = correction_named(corr_dr, charge_sq, ff.ewald_alpha)
 
             # TODO small modification to provide grid information for linear response code
             # a cleaner way of doing this would probably be to return the potential w.r.t
             # each atom, the potential grid, and the sum potential as in AMBER
-            recip_grid = reciprocal_named(positions)
+            #recip_grid = reciprocal_named(positions, charges=charges)
+            recip_grid = reciprocal_named(positions, charges=charges)
             pme_mask,pme_exp_m,pme_B,pme_Fgrid = recip_grid
             recip_pot = util.high_precision_sum(pme_mask * pme_exp_m * pme_B * jnp.abs(pme_Fgrid)**2)
 
             sigma = 0.5*(ff.sigma[i_nbrs] + ff.sigma[j_nbrs])
             epsilon = safe_sqrt(ff.epsilon[i_nbrs] * ff.epsilon[j_nbrs])
-            lj_pot = jnp.sum(lennard_jones(nb_dist, sigma, epsilon) * nb_mask)
+            if vdw_scaling == "softcore":
+                #split up energy term, this is non softcore though
+                pairwise_lj = nb_mask * lennard_jones(nb_dist, sigma, epsilon)
+                pairwise_lj_softcore = nb_mask * lj_softcore(nb_dist, sigma, epsilon, cl_lambda, alpha=0.5)
+                #so there is both regular and 14 ixns
+                #section 26.1.6.2 in amber25 manual is relevant here, 26.1.7.2 also has information on gti_add_sc
+                #sc-sc and sc-cc contribute to dv/dl
+                #gti_add_sc = 1 is the same as only sc-cc being scaled (does this mean sc-sc isn't softcore?)
+                energy_sc_sc = jnp.sum(jnp.where(sc_sc, pairwise_lj, 0.0))
+                energy_sc_cc = jnp.sum(jnp.where(sc_cc, pairwise_lj, 0.0))
+                energy_cc_cc = jnp.sum(jnp.where(cc_cc, pairwise_lj, 0.0))
+                energy_sc_sc_softcore = jnp.sum(jnp.where(sc_sc, pairwise_lj_softcore, 0.0))
+                energy_sc_cc_softcore = jnp.sum(jnp.where(sc_cc, pairwise_lj_softcore, 0.0))
+                energy_cc_cc_softcore = jnp.sum(jnp.where(cc_cc, pairwise_lj_softcore, 0.0))
+                # jax.debug.print("vdw energy sc-sc {}", energy_sc_sc/4.184)
+                # jax.debug.print("vdw energy sc-cc {}", energy_sc_cc/4.184)
+                # jax.debug.print("vdw energy cc-cc {}", energy_cc_cc/4.184)
+                # jax.debug.print("vdw energy sc-sc softcore {}", energy_sc_sc_softcore/4.184)
+                # jax.debug.print("vdw energy sc-cc softcore {}", energy_sc_cc_softcore/4.184)
+                # jax.debug.print("vdw energy cc-cc softcore {}", energy_cc_cc_softcore/4.184)
+                #lj_pot = energy_sc_sc + energy_sc_cc + energy_cc_cc
+                lj_pot = energy_sc_sc + energy_sc_cc_softcore + energy_cc_cc
+                result_dict["SC_VDW"] = energy_sc_sc
+            else:
+                lj_pot = util.high_precision_sum(nb_mask * lennard_jones(nb_dist, sigma, epsilon))
+                # jax.debug.print("lj pot debug {}", lj_pot)
+                # jax.debug.print("lj pot alt {}", util.high_precision_sum(nb_mask * lj_named(positions, neighbor=nbr_list)))
+                # jax.debug.print("lj pot alt 2 {}", util.high_precision_sum(lj_named(positions, neighbor=nbr_list)))
+
+            #lj_pot = jnp.sum(lennard_jones(nb_dist, sigma, epsilon) * nb_mask)
 
             result_dict["direct_pot"] = ONE_4PI_EPS * direct_pot
             result_dict["self_pot"] = ONE_4PI_EPS * self_pot
@@ -420,10 +562,39 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
             charge_sq = charges[ff.pairs[:, 0]] * charges[ff.pairs[:, 1]]
             nb_mask = ff.pairs[:,0] != -1
 
-            lj_pot = util.high_precision_sum(nb_mask * lj_named(dist_nb, sigma, epsilon))
+            if vdw_scaling == "softcore":
+                #split up energy term, this is non softcore though
+                pairwise_lj = nb_mask * lj_named(dist_nb, sigma, epsilon)
+                pairwise_lj_softcore = nb_mask * lj_softcore(dist_nb, sigma, epsilon, cl_lambda, alpha=0.5)
+                #so there is both regular and 14 ixns
+                #section 26.1.6.2 in amber25 manual is relevant here, 26.1.7.2 also has information on gti_add_sc
+                #sc-sc and sc-cc contribute to dv/dl
+                #gti_add_sc = 1 is the same as only sc-cc being scaled (does this mean sc-sc isn't softcore?)
+                energy_sc_sc = jnp.sum(jnp.where(sc_sc, pairwise_lj, 0.0))
+                energy_sc_cc = jnp.sum(jnp.where(sc_cc, pairwise_lj, 0.0))
+                energy_cc_cc = jnp.sum(jnp.where(cc_cc, pairwise_lj, 0.0))
+                energy_sc_sc_softcore = jnp.sum(jnp.where(sc_sc, pairwise_lj_softcore, 0.0))
+                energy_sc_cc_softcore = jnp.sum(jnp.where(sc_cc, pairwise_lj_softcore, 0.0))
+                energy_cc_cc_softcore = jnp.sum(jnp.where(cc_cc, pairwise_lj_softcore, 0.0))
+                # jax.debug.print("vdw energy sc-sc {}", energy_sc_sc/4.184)
+                # jax.debug.print("vdw energy sc-cc {}", energy_sc_cc/4.184)
+                # jax.debug.print("vdw energy cc-cc {}", energy_cc_cc/4.184)
+                # jax.debug.print("softcore vdw energy sc-sc {}", energy_sc_sc_softcore/4.184)
+                # jax.debug.print("softcore vdw energy sc-cc {}", energy_sc_cc_softcore/4.184)
+                # jax.debug.print("softcore vdw energy cc-cc {}", energy_cc_cc_softcore/4.184)
+                #lj_pot = energy_sc_sc + energy_sc_cc + energy_cc_cc
+                lj_pot = energy_sc_sc + energy_sc_cc_softcore + energy_cc_cc
+                #result_dict["SC_EPtot"]
+                result_dict["SC_VDW"] = energy_sc_sc
+            else:
+                lj_pot = util.high_precision_sum(nb_mask * lj_named(dist_nb, sigma, epsilon))
+            # lj_pot = util.high_precision_sum(nb_mask * lj_named(dist_nb, sigma, epsilon))
             coul_pot = jnp.sum(nb_mask * coul_named(dist_nb, charge_sq))
             disp_pot = 0.0
 
+        # lj_pot = 0.0
+        # coul_pot = 0.0
+        # disp_pot = 0.0
         result_dict['lj_pot'] = lj_pot
         result_dict['coul_pot'] = coul_pot
         result_dict['disp_pot'] = disp_pot
@@ -443,7 +614,26 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
         dist_14 = dist_fn(pos_14_1, pos_14_2)
 
         mask_14 = ff.pairs_14[:,0] != -1
-        lj_14_pot = util.high_precision_sum(mask_14 * lennard_jones(dist_14, ff.sigma_14, ff.epsilon_14))
+        if vdw_scaling == "softcore":
+            pairwise_lj_14 = mask_14 * lennard_jones(dist_14, ff.sigma_14, ff.epsilon_14)
+            pairwise_lj_14_softcore = mask_14 * lj_softcore(dist_14, ff.sigma_14, ff.epsilon_14, cl_lambda, alpha=0.5)
+            energy_sc_sc_14 = jnp.sum(jnp.where(sc_sc_14, pairwise_lj_14, 0.0))
+            energy_sc_cc_14 = jnp.sum(jnp.where(sc_cc_14, pairwise_lj_14, 0.0))
+            energy_cc_cc_14 = jnp.sum(jnp.where(cc_cc_14, pairwise_lj_14, 0.0))
+            energy_sc_sc_14_softcore = jnp.sum(jnp.where(sc_sc_14, pairwise_lj_14_softcore, 0.0))
+            energy_sc_cc_14_softcore = jnp.sum(jnp.where(sc_cc_14, pairwise_lj_14_softcore, 0.0))
+            energy_cc_cc_14_softcore = jnp.sum(jnp.where(cc_cc_14, pairwise_lj_14_softcore, 0.0))
+            # jax.debug.print("vdw 14 energy sc-sc {}", energy_sc_sc_14/4.184)
+            # jax.debug.print("vdw 14 energy sc-cc {}", energy_sc_cc_14/4.184)
+            # jax.debug.print("vdw 14 energy cc-cc {}", energy_cc_cc_14/4.184)
+            # jax.debug.print("vdw 14 energy sc-sc softcore {}", energy_sc_sc_14_softcore/4.184)
+            # jax.debug.print("vdw 14 energy sc-cc softcore {}", energy_sc_cc_14_softcore/4.184)
+            # jax.debug.print("vdw 14 energy cc-cc softcore {}", energy_cc_cc_14_softcore/4.184)
+            result_dict["SC_14NB"] = energy_sc_sc_14
+
+            lj_14_pot = energy_sc_sc_14 + energy_sc_cc_14_softcore + energy_cc_cc_14
+        else:
+            lj_14_pot = util.high_precision_sum(mask_14 * lennard_jones(dist_14, ff.sigma_14, ff.epsilon_14))
         coul_14_pot = jnp.sum(mask_14 * coulomb(dist_14, charges_14))
         result_dict['lj_14_pot'] = lj_14_pot
         result_dict['coul_14_pot'] = coul_14_pot
@@ -451,12 +641,19 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
         nb_pot = lj_pot + coul_pot + lj_14_pot + coul_14_pot + lrch_pot
         result_dict['nb_pot'] = nb_pot
 
+        #jax.debug.print("{}", result_dict)
+        # sys.exit()
+
         # TODO add restraint energies where applicable
         if debug:
             return result_dict
         elif return_charges:
             return (bond_pot + angle_pot + torsion_pot + nb_pot), charges
         else:
+            #TODO debugging with just lj system
+            #return (bond_pot + angle_pot + torsion_pot)
+            #return lj_pot + coul_pot + lj_14_pot + coul_14_pot
+            #return (bond_pot + angle_pot + nb_pot)
             return (bond_pot + angle_pot + torsion_pot + nb_pot)
 
     # TODO this may not be very safe
@@ -464,6 +661,14 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
     # it also allows me to do this with debug and still respect the single return rule for jax md
     # i don't think i can get all of these things with @partial and static_argnames but i need to look more
     # this also might not be necessary actually
+    # from jax.core import Tracer
+    # from jax.tree_util import tree_leaves
+
+    # def contains_tracer(pytree):
+    #     return any(isinstance(x, Tracer) for x in tree_leaves(pytree))
+
+    # print("Is ff.nbr_list a Tracer?", isinstance(ff.nbr_list, Tracer))
+    # print("Is ff object traced?", contains_tracer(ff))
     if ensemble == "NVE":
         nrg_closure = lambda pos, ff, nbr_list: nrg_fn(pos, ff, nbr_list, False)
         init_fn, apply_fn = simulate.nve(nrg_closure, shift_fn, timestep)
@@ -472,8 +677,19 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
         nrg_closure = lambda pos, ff, nbr_list: nrg_fn(pos, ff, nbr_list, False)
         init_fn, apply_fn = minimize.gradient_descent(nrg_closure, shift_fn, timestep)
         state = init_fn(ff.positions, ff=ff, nbr_list=ff.nbr_list)
+    elif ensemble == "NVT":
+        nrg_closure = lambda pos, ff, nbr_list: nrg_fn(pos, ff, nbr_list, False)
+        init_fn, apply_fn = simulate.nvt_langevin(nrg_closure, shift_fn, timestep, kT=init_temp*kB)
+        state = init_fn(jax.random.PRNGKey(0), ff.positions, mass=ff.masses, kT=init_temp*kB, ff=ff, nbr_list=ff.nbr_list)
+    elif ensemble == "NVTNOCLOSURE":
+        #nrg_closure = lambda pos, ff, nbr_list: nrg_fn(pos, ff, nbr_list)
+        init_fn, apply_fn = simulate.nvt_langevin(nrg_fn, shift_fn, timestep, kT=init_temp*kB)
+        state = init_fn(jax.random.PRNGKey(0), ff.positions, mass=ff.masses, kT=init_temp*kB, ff=ff, nbr_list=ff.nbr_list)
+
+
 
     if nonbonded_method == "PME" and ensemble != None:
+        # TODO this may not be safe because of tracing issues and running this fn multiple times
         def body_fn(i, state):
             state, ff, nbr_list = state
             nbr_list = nbr_list.update(state.position)
@@ -487,6 +703,7 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
             # state = state.set(momentum=state.momentum - state.mass * v_com)
 
             return state, ff, nbr_list
+        #body_fn = None
     elif ensemble != None:
         def body_fn(i, state):
             state, ff, _ = state
@@ -497,8 +714,10 @@ def amber_energy(ff, nonbonded_method="NoCutoff", charge_method="GAFF", ensemble
         body_fn = None
         state = None
 
-
-    return nrg_fn, ff, body_fn, state
+    if return_mode == "simple":
+        return nrg_fn, ff, body_fn, state, neighbor_fn
+    else:
+        return nrg_fn, ff, body_fn, state
 
 # TODO partial decorator for this to make named call?
 # does this work with mapping? wrap named call and vmap?
@@ -510,6 +729,10 @@ def harmonic_angle(theta, k, eq_angle):
     return k * jnp.power((theta - eq_angle), 2)
 
 def periodic_torsion(theta, k, phase, period):
+    #TODO this may not be a good idea to use floor like this
+    # this is a patch for non integer input parameters from optimization but again probably isn't the most
+    # stable approach
+    #return k * (1.0 + jnp.cos(jnp.floor(period) * theta - phase))
     return k * (1.0 + jnp.cos(period * theta - phase))
 
 def cmap_torsion():
@@ -527,6 +750,24 @@ def lennard_jones(dr, sigma, epsilon):
     idr6 = idr2*idr2*idr2
     idr12 = idr6*idr6
     return 4.0*epsilon*(idr12-idr6)
+
+def lj_softcore(dr, sigma, epsilon, cl_lambda, alpha=0.5):
+                    # this is the formula for disappearing atoms, appearing atoms either need
+                    # a new formula, or to pass 1-lambda
+                    #
+                    # functional form is:
+                    # 4 * epsilon * (1 - lambda) *
+                    # (1/(alpha * (lambda) + (rij/sigma)**6)**2 - (1/(alpha * (lambda) + (rij/sigma)**6))
+                    dr = jnp.where(jnp.isclose(dr, 0.), 1, dr)
+                    #idr = (sigma/dr)
+                    idr = (dr/sigma)
+                    idr2 = idr*idr
+                    idr6 = idr2*idr2*idr2
+                    #idr12 = idr6*idr6
+                    lidr6 = alpha * cl_lambda + idr6
+                    lidr12 = lidr6*lidr6
+
+                    return 4.0*epsilon*(1.0-cl_lambda)*((1.0/lidr12)-(1.0/lidr6))
 
 def coulomb(dr, charge_sq):
     dr = jnp.where(jnp.isclose(dr, 0.), 1, dr)
@@ -740,8 +981,8 @@ def calculate_eem_charges(species: Array,
         tapered_dists = jax.lax.stop_gradient(tapered_dists)
         hulp2_mat = jax.lax.stop_gradient(hulp2_mat)
     prev_dtype = tapered_dists.dtype
-    N = len(species)
-    # N = n_atoms
+    # N = len(species)
+    N = n_atoms
     # might cause nan issues if 0s not handled well
     # internal parameter is 14.4
     A = util.safe_mask(hulp2_mat != 0, lambda x: tapered_dists * 14.4 / x, hulp2_mat, 0.0)
@@ -770,6 +1011,7 @@ def calculate_eem_charges(species: Array,
         '''
         res = jnp.zeros(shape=(N+1,), dtype=jnp.float64)
         s_vec = vec.astype(prev_dtype)[nbr_inds] * mask
+        # print(vec.shape, A.shape, s_vec.shape, nbr_inds)
         vals = jax.vmap(jnp.dot)(A, s_vec) + \
             (my_idemp * 2.0) * vec[:N] + vec[N]
         res = res.at[:N].set(vals * atom_mask)
@@ -779,6 +1021,13 @@ def calculate_eem_charges(species: Array,
     b = jnp.zeros(shape=(N+1,), dtype=jnp.float64)
     b = b.at[:N].set(-1 * my_elect)
     b = b.at[N].set(total_charge)
+
+    # jax.debug.print("b vec {}", b[:33])
+    # jax.debug.print("2 * my idemp{}", 2.0 * my_idemp[:33])
+    # jax.debug.print("amat (not NxN) {}", A[:33,:33])
+    # jax.debug.print("nbr inds {}", nbr_inds[:33,:33])
+    #jax.debug.print("spmv dense shape {}", SPMV_dense)
+    #print("dense nbr", to_dense(), b)
 
     if max_solver_iter == -1:
         charges = jnp.linalg.solve(to_dense(), b)
