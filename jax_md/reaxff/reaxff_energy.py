@@ -960,8 +960,8 @@ def calculate_valency_pot(species: Array,
   my_vkac = force_field.vkac[neigh1_types, cent_types, neigh2_types]
   evboadj = 1.0  # why?
   # to solve the nan issue, clip the vlaues
-  expun = jnp.exp(-my_vkac * my_exbo)
-  expun2 = jnp.exp(force_field.val_par15 * my_exbo)
+  expun = jnp.minimum(jnp.exp(-my_vkac * my_exbo), 1e10)
+  expun2 = jnp.minimum(jnp.exp(force_field.val_par15 * my_exbo), 1e10)
 
   htun1 = 2.0 + expun2
   htun2 = 1.0 + expun + expun2
