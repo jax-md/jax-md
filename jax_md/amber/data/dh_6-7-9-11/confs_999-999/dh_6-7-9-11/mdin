@@ -1,7 +1,0 @@
-ligand minimization input
-&cntrl
-imin=0, nstlim=0,  ntx=1 !0 step md
-cut=100, ntb=0,          !non-periodic
-ntpr=1,ntwf=1,ntwe=1,ntwx=1 ! (output frequencies)
-&end
-END
