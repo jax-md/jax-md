@@ -222,6 +222,28 @@ def load_amber_ff(inpcrd_file,
 
     atom_count = np.int32(prmtop.getNumAtoms())
 
+    # also need to keep mapping of atom types to internal indices
+    # for reax this is something like
+    # for i in range(real_num_atom_types):
+    #     # first line
+    #     line = f.readline().strip()
+    #     split_line = line.split()
+    #     atom_names.append(str(split_line[0]))
+    #     name_to_index[atom_names[i]] = i
+    # but in this case, the atom types just need to be reduced down to a set of indices
+    # and then name_to_index can be created from that
+    # in this case, .getAtomTypes() returns an N atom long list of types
+    # so the duplicates need to be filtered out for the name_to_index mapping
+
+    # will eventually correspond to Structure.atom_types
+    atom_types = prmtop.getAtomTypes()
+    name_to_index = dict()
+    found_types = 0
+    for atype in atom_types:
+        if atype not in name_to_index:
+            name_to_index[atype] = found_types
+            found_types += 1
+
     if nonbonded_method == "PME":
         # TODO a better error message should exist if non periodic file is passed with PME enabled
         # alternatively, PME is automatically toggled, not necessarily in line with AMBER md.in convention
@@ -305,11 +327,11 @@ def load_amber_ff(inpcrd_file,
     bond_k = bonds[:, 2]
     bond_len = bonds[:, 3]
 
-    # for i in range(len(bond_idx)):
-    #     ind1 = bond_idx[i, 0]
-    #     ind2 = bond_idx[i, 1]
-    #     params_to_indices[(0,i,0)] = ("bond_k", (ind1, ind2))
-    #     params_to_indices[(0,i,1)] = ("bond_l", (ind1, ind2))
+    for i in range(len(bond_idx)):
+        ind1 = bond_idx[i, 0]
+        ind2 = bond_idx[i, 1]
+        params_to_indices[(0,i,0)] = ("bond_k", (ind1, ind2))
+        params_to_indices[(0,i,1)] = ("bond_l", (ind1, ind2))
 
     ### Angle parameters
 
@@ -319,12 +341,12 @@ def load_amber_ff(inpcrd_file,
     angle_k = angles[:, 3]
     angle_equil = angles[:, 4]
 
-    # for i in range(len(angle_idx)):
-    #     ind1 = angle_idx[i, 0]
-    #     ind2 = angle_idx[i, 1]
-    #     ind3 = angle_idx[i, 2]
-    #     params_to_indices[(1,i,0)] = ("angle_k", (ind1, ind2, ind3))
-    #     params_to_indices[(1,i,1)] = ("angle_equil", (ind1, ind2, ind3))
+    for i in range(len(angle_idx)):
+        ind1 = angle_idx[i, 0]
+        ind2 = angle_idx[i, 1]
+        ind3 = angle_idx[i, 2]
+        params_to_indices[(1,i,0)] = ("angle_k", (ind1, ind2, ind3))
+        params_to_indices[(1,i,1)] = ("angle_equil", (ind1, ind2, ind3))
 
     ### Torsion parameters
 
@@ -353,20 +375,34 @@ def load_amber_ff(inpcrd_file,
         torsion_phase = np.zeros((1,), dtype=dtype)
         torsion_period = np.zeros((1,), dtype=dtype)
 
-    print("[DEBUG] Number of dihedrals", len(torsion_idx))
+    #print("[DEBUG] Number of dihedrals", len(torsion_idx))
 
     ### Nonbonded interactions
 
+    # TODO this is deceiving, as I believe these are actually
+    # per atom parameters, not per interaction
     nonbonds = np.array(prmtop.getNonbondTerms(), dtype=dtype)
 
+    # different conventions depending on package
+    # amber is rmin/2 (A) for sigma and kcal/mol for eps
+    # openmm is rmin (nm) for sigma and kj/mol for eps
+    # so eps can be * or / 4.184
+    # and sig is scaled accordingly
+    # TODO this may not be correct, the function should return
+    # the correct omm units without needing conversion
+    # this does exactly match the values returned by
+    # sigma, epsilon = nb.getParticleParameters(i) though
     sigma = nonbonds[:, 0] * 2**(-1./6.) * 2.0
+    #sigma = nonbonds[:, 0]
     epsilon = nonbonds[:, 1]
 
     charges = np.array(prmtop.getCharges(), dtype=dtype)
 
-    # for i in range(len(nonbonds)):
-    #     params_to_indices[(3,i,0)] = ("sigma", (i,))
-    #     params_to_indices[(3,i,1)] = ("epsilon", (i,))
+    for i in range(len(nonbonds)):
+        # TODO change to 1 based indexing, along with lj examples
+        params_to_indices[(3,i,0)] = ("sigma", (i,))
+        params_to_indices[(3,i,1)] = ("epsilon", (i,))
+        params_to_indices[(3,i,2)] = ("charge", (i,))
 
     ### 1-4 interactions
 
@@ -469,7 +505,7 @@ def load_amber_ff(inpcrd_file,
     if charge_method in ["FFQ", "FFQMM"]:
         species = np.array([GAFFTYPES[name.lower()] for name in prmtop._raw_data['AMBER_ATOM_TYPE']], dtype=np.int32)
     else:
-        species = None
+        species = np.array([-1], dtype=np.int32)
 
     if charge_method in ["FFQ", "FFQMM", "LRCH"] and ffq_file != None:
         with open(ffq_file, 'r') as f:
@@ -509,7 +545,7 @@ def load_amber_ff(inpcrd_file,
         else:
             solute_cut = atom_count
     else:
-        solute_cut = None
+        solute_cut = np.array([-1], dtype=np.int32)
 
     if charge_method == "LRCH" and ffq_file == None:
         # (n_atoms, ) arrays with parameters for linear response code
@@ -532,6 +568,7 @@ def load_amber_ff(inpcrd_file,
     # must be frozendict to be implicitly treated as static during JIT compilation
     # this is important for compatibility with JAX transformations
     params_to_indices = frozendict(params_to_indices)
+    name_to_index = frozendict(name_to_index)
 
     atomic_number = np.array([np.int32(num) for num in prmtop._raw_data['ATOMIC_NUMBER']])
 
@@ -543,6 +580,7 @@ def load_amber_ff(inpcrd_file,
     amber_ff = AmberForceField(
                                 name=0.0,
                                 atom_types=0.0,
+                                #name_to_index=name_to_index,
                                 atomic_number=atomic_number,
                                 total_charge=0.0,
                                 params_to_indices=params_to_indices,
@@ -585,7 +623,7 @@ def load_amber_ff(inpcrd_file,
                                 electronegativity=electronegativity,
                                 hardness=hardness,
                                 species=species,
-                                name_to_index=0.0,
+                                name_to_index=name_to_index,
                                 solute_cut=solute_cut)
 
     # TODO insert check to make sure no fields are of instance jnp

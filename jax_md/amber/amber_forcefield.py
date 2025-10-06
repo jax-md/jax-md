@@ -6,6 +6,7 @@ from jax_md import dataclasses, util
 from dataclasses import fields
 import jax
 import jax.numpy as jnp
+from typing import Any
 
 Array = util.Array
 
@@ -58,7 +59,9 @@ class AmberForceField(object):
     # orth_matrix: Array
     masses: Array # might not work for HMR
     total_charge: Array
-    params_to_indices: list = dataclasses.static_field()
+    params_to_indices: Any = dataclasses.static_field() # was list
+    #params_to_indices: Any # TODO static field isn't safe in this case for vmapping because it's treated as 0d array
+    #params_to_indices: Any
 
     bond_restraints: BondRestraint
     angle_restraints: AngleRestraint
@@ -116,10 +119,12 @@ class AmberForceField(object):
     electronegativity: Array
     hardness: Array
     species: Array
-    name_to_index: Array # TODO this may not be safe for vectorization due to string types
+    name_to_index: Any = dataclasses.static_field() # TODO this may not be safe for vectorization due to string types
+    #name_to_index: Any # TODO static field isn't safe in this case for vmapping because it's treated as 0d array
     # TODO this change is for linear response code as shape of Amat and bvec depend on this
     # this may not be a safe change in general and may need to be reexamined
-    solute_cut: Array = dataclasses.static_field() # TODO change to num_solute
+    #solute_cut: Array = dataclasses.static_field() # TODO change to num_solute
+    solute_cut: Array # TODO static field isn't safe in this case for vmapping because it's treated as 0d array
 
     # TODO populate local indices and fill off diagonal terms where applicable, may need to store original arrays
     # this helps because you can still maintain globally consistent indexing for parameter optimization
