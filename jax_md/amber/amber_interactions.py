@@ -83,93 +83,93 @@ def calculate_dist_and_angles_amber(positions, force_field, nbr_lists=None):
 
 ##########################################################################################################
 
-#disp_fn, shift_fn = space.periodic_general(jnp.identity(3), fractional_coordinates=False)
-pd_fn, ps_fn = space.periodic(jnp.float32(1))
-fd_fn, fs_fn = space.free()
-m = jnp.finfo(jnp.float32).max/10000
-pos = jnp.array([10.32, 4.23, 6.32], dtype=jnp.float32)
-def periodic_fn(side, dR):
-    return jnp.mod(dR + side * jnp.float32(0.5), side) - jnp.float32(0.5) * side
+# #disp_fn, shift_fn = space.periodic_general(jnp.identity(3), fractional_coordinates=False)
+# pd_fn, ps_fn = space.periodic(jnp.float32(1))
+# fd_fn, fs_fn = space.free()
+# m = jnp.finfo(jnp.float32).max/10000
+# pos = jnp.array([10.32, 4.23, 6.32], dtype=jnp.float32)
+# def periodic_fn(side, dR):
+#     return jnp.mod(dR + side * jnp.float32(0.5), side) - jnp.float32(0.5) * side
 
-print("m", m)
-print("p", pd_fn(pos, .5 * pos))
-print("p max", pd_fn(pos, .5 * pos, side=100))
-dR = pos - (.5 * pos)
-side = m
-print(jnp.mod(dR + side * jnp.float32(0.5), side))
-print(jnp.float32(0.5) * side)
-print("periodic max", periodic_fn(m, dR)) # -> [0., 0., 0.] if m is used, overflow
+# print("m", m)
+# print("p", pd_fn(pos, .5 * pos))
+# print("p max", pd_fn(pos, .5 * pos, side=100))
+# dR = pos - (.5 * pos)
+# side = m
+# print(jnp.mod(dR + side * jnp.float32(0.5), side))
+# print(jnp.float32(0.5) * side)
+# print("periodic max", periodic_fn(m, dR)) # -> [0., 0., 0.] if m is used, overflow
 
-#print("norm", jnp.linalg.norm(dR))
-print("free", fd_fn(pos, .5 * pos))
+# #print("norm", jnp.linalg.norm(dR))
+# print("free", fd_fn(pos, .5 * pos))
 
-sys.exit()
+# sys.exit()
 
-##########################################################################################################
+# ##########################################################################################################
 
-inpcrd_file = "data/diala_pbc/diala_pbc.inpcrd"
-prmtopFile = "data/diala_pbc/diala_pbc.prmtop"
+# inpcrd_file = "data/diala_pbc/diala_pbc.inpcrd"
+# prmtopFile = "data/diala_pbc/diala_pbc.prmtop"
 
-inpcrd = app.AmberInpcrdFile(inpcrd_file)
-positions = jnp.array(inpcrd.getPositions(asNumpy=True))
+# inpcrd = app.AmberInpcrdFile(inpcrd_file)
+# positions = jnp.array(inpcrd.getPositions(asNumpy=True))
 
-#print(positions)
+# #print(positions)
 
-idx = jnp.tile(jnp.arange(1000000), 2).reshape((1000000,2))
+# idx = jnp.tile(jnp.arange(1000000), 2).reshape((1000000,2))
 
-mask = jnp.arange(1000000)
-mask = jnp.where((mask % 2) == 0, 1, 0)
+# mask = jnp.arange(1000000)
+# mask = jnp.where((mask % 2) == 0, 1, 0)
 
-# side = jnp.arange(1000000) / 1000
-side = positions[idx[:, 0]] * 100
+# # side = jnp.arange(1000000) / 1000
+# side = positions[idx[:, 0]] * 100
 
 
-#print(mask[:50])
-# perodic_fn = space.periodic_displacement
-# free_fn = space.pairwise_displacement
-f32 = jnp.float32
-def periodic_fn(side, dR):
-    return jnp.linalg.norm(5 + jnp.mod(dR + side * f32(0.5), side) - f32(0.5) * side)
+# #print(mask[:50])
+# # perodic_fn = space.periodic_displacement
+# # free_fn = space.pairwise_displacement
+# f32 = jnp.float32
+# def periodic_fn(side, dR):
+#     return jnp.linalg.norm(5 + jnp.mod(dR + side * f32(0.5), side) - f32(0.5) * side)
 
-def free_fn(side, dR):
-    return jnp.linalg.norm(1 + jnp.mod(dR + side * f32(0.5), side) - f32(0.5) * side)
+# def free_fn(side, dR):
+#     return jnp.linalg.norm(1 + jnp.mod(dR + side * f32(0.5), side) - f32(0.5) * side)
 
-#part_fn = partial(switch)
+# #part_fn = partial(switch)
 
-def dist_fn_switch(dist, mask, side):
-    return jax.lax.switch(mask, [periodic_fn, free_fn], side, dist)
+# def dist_fn_switch(dist, mask, side):
+#     return jax.lax.switch(mask, [periodic_fn, free_fn], side, dist)
 
-jit_dist = jax.jit(jax.vmap(dist_fn_switch))
-jit_peri = jax.jit(jax.vmap(periodic_fn))
+# jit_dist = jax.jit(jax.vmap(dist_fn_switch))
+# jit_peri = jax.jit(jax.vmap(periodic_fn))
 
-#print(idx[:, 0].shape)
+# #print(idx[:, 0].shape)
 
-print(periodic_fn(10, positions[0]-positions[1]))
+# print(periodic_fn(10, positions[0]-positions[1]))
 
-print(positions[idx[:, 0]] - positions[idx[:, 1]])
+# print(positions[idx[:, 0]] - positions[idx[:, 1]])
 
-print(mask)
+# print(mask)
 
-print(side)
+# print(side)
 
-res = jnp.sum(jit_dist(positions[idx[:, 0]] - positions[idx[:, 1]], mask, side)).block_until_ready()
-res2 = jnp.sum(jit_peri(side, positions[idx[:, 0]] - positions[idx[:, 1]])).block_until_ready()
+# res = jnp.sum(jit_dist(positions[idx[:, 0]] - positions[idx[:, 1]], mask, side)).block_until_ready()
+# res2 = jnp.sum(jit_peri(side, positions[idx[:, 0]] - positions[idx[:, 1]])).block_until_ready()
 
-start = time.time()
-total = 0
-for i in range(1000):
-    total += jnp.sum(mask*jit_peri(side, positions[idx[:, 0]] - positions[idx[:, 1]])).block_until_ready()
+# start = time.time()
+# total = 0
+# for i in range(1000):
+#     total += jnp.sum(mask*jit_peri(side, positions[idx[:, 0]] - positions[idx[:, 1]])).block_until_ready()
     
-end = time.time()
-print("periodic total time is", end-start, total)
+# end = time.time()
+# print("periodic total time is", end-start, total)
 
-start = time.time()
-total = 0
-for i in range(1000):
-    total += jnp.sum(jit_dist(positions[idx[:, 0]] - positions[idx[:, 1]], mask, side)).block_until_ready()
+# start = time.time()
+# total = 0
+# for i in range(1000):
+#     total += jnp.sum(jit_dist(positions[idx[:, 0]] - positions[idx[:, 1]], mask, side)).block_until_ready()
     
-end = time.time()
-print("switch total time is", end-start, total)
+# end = time.time()
+# print("switch total time is", end-start, total)
 
-def switch_test():
-    return
+# def switch_test():
+#     return

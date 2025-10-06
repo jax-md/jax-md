@@ -22,8 +22,8 @@ import numpy as np
 import openmm as omm
 from openmm import app
 from jax_md import dataclasses, space, minimize, simulate, quantity
-from amber_helper import load_amber_ff, move_dataclass, load_ffq_ff
-from amber_energy_v2 import amber_energy
+from jax_md.amber.amber_helper import load_amber_ff, move_dataclass, load_ffq_ff
+from jax_md.amber.amber_energy_v2 import amber_energy
 import parmed as pmd
 
 # TODO do these need to be frozen=True or are they implicitly static?
