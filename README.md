@@ -249,4 +249,3 @@ If you use functionalities related to `RigidBody`, please cite the following pap
   publisher={National Academy of Sciences}
 }
 ```
-

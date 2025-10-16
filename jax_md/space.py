@@ -47,7 +47,9 @@ in a vectorized fashion. To do this we provide three functions: `map_product`,
 
 from typing import Callable, Union, Tuple, Any, Optional
 
+from brainunit import Quantity
 from jax.core import ShapedArray
+import brainunit as u
 
 from jax import eval_shape
 from jax import vmap
@@ -197,6 +199,8 @@ def square_distance(dR: Array) -> Array:
   Returns:
     Matrix of squared distances; `ndarray(shape=[...])`.
   """
+  if isinstance(dR, Quantity):
+    dR = dR.to_decimal(u.angstrom)
   return jnp.sum(dR ** 2, axis=-1)
 
 
@@ -208,8 +212,10 @@ def distance(dR: Array) -> Array:
   Returns:
     Matrix of distances; `ndarray(shape=[...])`.
   """
+  if isinstance(dR, Quantity):
+    dR = dR.to_decimal(u.angstrom)
   dr = square_distance(dR)
-  return safe_mask(dr > 0, jnp.sqrt, dr)
+  return Quantity(safe_mask(dr > 0, jnp.sqrt, dr), u.angstrom)
 
 
 def periodic_shift(side: Box, R: Array, dR: Array) -> Array:
@@ -244,9 +250,21 @@ def periodic(side: Box, wrapped: bool=True) -> Space:
   Returns:
     `(displacement_fn, shift_fn)` tuple.
   """
+  if isinstance(side, Quantity):
+    side = side.to_decimal(u.angstrom)
   def displacement_fn(Ra: Array, Rb: Array,
                       perturbation: Optional[Array] = None,
                       **unused_kwargs) -> Array:
+    return_quantity = False
+    if isinstance(Ra, Quantity):
+      Ra = Ra.to_decimal(u.angstrom)
+      return_quantity = True
+    if isinstance(Rb, Quantity):
+      Rb = Rb.to_decimal(u.angstrom)
+      return_quantity = True
+
+
+
     if 'box' in unused_kwargs:
       raise UnexpectedBoxException(('`space.periodic` does not accept a box '
                                     'argument. Perhaps you meant to use '
@@ -254,22 +272,36 @@ def periodic(side: Box, wrapped: bool=True) -> Space:
     dR = periodic_displacement(side, pairwise_displacement(Ra, Rb))
     if perturbation is not None:
       dR = raw_transform(perturbation, dR)
-    return dR
+    return Quantity(dR, unit=u.angstrom) if return_quantity else dR
   if wrapped:
     def shift_fn(R: Array, dR: Array, **unused_kwargs) -> Array:
+      return_quantity = False
+      if isinstance(R, Quantity) and isinstance(dR, Quantity):
+        R = R.to_decimal(u.angstrom)
+        dR = dR.to_decimal(u.angstrom)
+        return_quantity = True
+      elif isinstance(R, Quantity) or isinstance(dR, Quantity):
+        raise ValueError('Both R and dR must be Quantity objects.')
       if 'box' in unused_kwargs:
         raise UnexpectedBoxException(('`space.periodic` does not accept a box '
                                       'argument. Perhaps you meant to use '
                                       '`space.periodic_general`?'))
 
-      return periodic_shift(side, R, dR)
+      return Quantity(periodic_shift(side, R, dR), unit=u.angstrom) if return_quantity else periodic_shift(side, R, dR)
   else:
     def shift_fn(R: Array, dR: Array, **unused_kwargs) -> Array:
+      return_quantity = False
+      if isinstance(R, Quantity) and isinstance(dR, Quantity):
+        R = R.to_decimal(u.angstrom)
+        dR = dR.to_decimal(u.angstrom)
+        return_quantity = True
+      elif isinstance(R, Quantity) or isinstance(dR, Quantity):
+        raise ValueError('Both R and dR must be Quantity objects.')
       if 'box' in unused_kwargs:
         raise UnexpectedBoxException(('`space.periodic` does not accept a box '
                                       'argument. Perhaps you meant to use '
                                       '`space.periodic_general`?'))
-      return R + dR
+      return Quantity(R + dR, unit=u.angstrom) if return_quantity else R + dR
   return displacement_fn, shift_fn
 
 

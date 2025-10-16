@@ -29,6 +29,8 @@ import math
 from operator import mul
 
 import numpy as onp
+import brainunit as u
+from brainunit import Quantity
 
 from jax import lax
 from jax import ops
@@ -303,6 +305,7 @@ def cell_list(box_size: Box,
                    capacity_overflow_update: Optional[
                        Tuple[int, bool, Callable[..., CellList]]] = None,
                    extra_capacity: int = 0, **kwargs) -> CellList:
+    position = u.get_mantissa(position)
     N = position.shape[0]
     dim = position.shape[1]
 
@@ -879,8 +882,10 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
                        neighbors = None,
                        extra_capacity: int = 0,
                        **kwargs) -> NeighborList:
+    position = u.get_mantissa(position)
     def neighbor_fn(position_and_error, max_occupancy=None):
       position, err = position_and_error
+      position = u.get_mantissa(position)
       N = position.shape[0]
 
       cl_fn = None
@@ -973,16 +978,22 @@ def neighbor_list(displacement_or_metric: DisplacementOrMetricFn,
     d = partial(metric_sq, **kwargs)
     d = vmap(d)
     return lax.cond(
-        jnp.any(d(position, nbrs.reference_position) > threshold_sq),
-        (position, nbrs.error), neighbor_fn,
+        jnp.any(
+          u.get_mantissa(d(position, nbrs.reference_position)) > threshold_sq),
+        (position, nbrs.error),
+        neighbor_fn,
         nbrs, lambda x: x)
 
   def allocate_fn(position: Array, extra_capacity: int = 0, **kwargs
                   ):
+    if isinstance(position, Quantity):
+      position = position.to_decimal(u.angstrom)
     return neighbor_list_fn(position, extra_capacity=extra_capacity, **kwargs)
 
   def update_fn(position: Array, neighbors, **kwargs
                 ):
+    if isinstance(position, Quantity):
+      position = position.to_decimal(u.angstrom)
     return neighbor_list_fn(position, neighbors, **kwargs)
 
   return NeighborListFns(allocate_fn, update_fn)  # pytype: disable=wrong-arg-count

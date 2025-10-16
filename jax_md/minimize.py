@@ -33,7 +33,10 @@ from collections import namedtuple
 
 from typing import TypeVar, Callable, Tuple, Union, Any
 
+import brainunit as u
+
 import jax.numpy as jnp
+from brainunit import Quantity
 from jax.tree_util import tree_map, tree_reduce
 
 from jax_md import quantity
@@ -112,8 +115,8 @@ class FireDescentState:
 
 def fire_descent(energy_or_force: Callable[..., Array],
                  shift_fn: ShiftFn,
-                 dt_start: float=0.1,
-                 dt_max: float=0.4,
+                 dt_start: float=0.1 * u.fsecond,
+                 dt_max: float=0.4 * u.fsecond,
                  n_min: float=5,
                  f_inc: float=1.1,
                  f_dec: float=0.5,
@@ -153,19 +156,27 @@ def fire_descent(energy_or_force: Callable[..., Array],
   dt_start, dt_max, n_min, f_inc, f_dec, alpha_start, f_alpha = util.static_cast(
     dt_start, dt_max, n_min, f_inc, f_dec, alpha_start, f_alpha)
 
+  dt_max = dt_max.to_decimal(u.fsecond) if isinstance(dt_max, Quantity) else dt_max
+
   nve_init_fn, nve_step_fn = simulate.nve(energy_or_force, shift_fn, dt_start)
   force = quantity.canonicalize_force(energy_or_force)
 
   def init_fn(R: PyTree, mass: Array=1.0, **kwargs) -> FireDescentState:
-    P = tree_map(lambda x: jnp.zeros_like(x), R)
-    n_pos = jnp.zeros((), jnp.int32)
+    P = tree_map(lambda x: jnp.zeros_like(x), R.mantissa) * u.IMF * u.angstrom if isinstance(R, Quantity) else tree_map(lambda x: jnp.zeros_like(x), R)
+    n_pos = u.math.zeros((), jnp.int32, unit=u.angstrom) if isinstance(R, Quantity) else jnp.zeros((), jnp.int32)
     F = force(R, **kwargs)
+    mass = Quantity(mass, unit=u.atomic_mass) if isinstance(R, Quantity) else mass
     state = FireDescentState(R, P, F, mass, dt_start, alpha_start, n_pos)  # pytype: disable=wrong-arg-count
     return simulate.canonicalize_mass(state)
 
   def apply_fn(state: FireDescentState, **kwargs) -> FireDescentState:
     state = nve_step_fn(state, dt=state.dt, **kwargs)
     R, P, F, M, dt, alpha, n_pos = dataclasses.unpack(state)
+    try:
+        R_unit, P_unit, F_unit, M_unit, dt_unit, n_pos_unit = R.unit, P.unit, F.unit, M.unit, dt.unit, n_pos.unit
+        R, P, F, M, dt, n_pos = R.mantissa, P.mantissa, F.mantissa, M.mantissa, dt.mantissa, n_pos.mantissa
+    except:
+        pass
 
     # NOTE(schsam): This will be wrong if F_norm ~< 1e-8.
     # TODO(schsam): We should check for forces below 1e-6. @ErrorChecking
@@ -202,5 +213,10 @@ def fire_descent(energy_or_force: Callable[..., Array],
     alpha = jnp.where(F_dot_P < 0, alpha_start, alpha)
     P = tree_map(lambda p: (F_dot_P >= 0) * p, P)
 
+    try:
+        R, P, F, M, dt, n_pos = Quantity(R, unit=R_unit), Quantity(P, unit=P_unit), Quantity(F, unit=F_unit), \
+            Quantity(M, unit=M_unit), Quantity(dt, unit=dt_unit), Quantity(n_pos, unit=n_pos_unit)
+    except:
+        pass
     return FireDescentState(R, P, F, M, dt, alpha, n_pos)  # pytype: disable=wrong-arg-count
   return init_fn, apply_fn

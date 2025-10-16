@@ -22,6 +22,8 @@ import re
 
 import jax
 import jax.numpy as jnp
+import brainunit as u
+from brainunit import Quantity
 from jax import ops
 from jax.tree_util import tree_map
 from jax import vmap
@@ -127,6 +129,11 @@ def soft_sphere(dr: Array,
   Returns:
     Matrix of energies whose shape is `[n, m]`.
   """
+  if isinstance(dr, Quantity):
+    dr = dr.to_decimal(u.angstrom)
+    return_quantity = True
+  else:
+    return_quantity = False
 
   dr = dr / sigma
   fn = lambda dr: epsilon / alpha * (f32(1.0) - dr) ** alpha
@@ -134,7 +141,8 @@ def soft_sphere(dr: Array,
   if isinstance(alpha, int) or issubclass(type(alpha.dtype), jnp.integer):
     return jnp.where(dr < 1.0, fn(dr), f32(0.0))
 
-  return util.safe_mask(dr < 1.0, fn, dr, f32(0.0))
+  r = util.safe_mask(dr < 1.0, fn, dr, f32(0.0))
+  return r * u.angstrom if return_quantity else r
 
 
 def soft_sphere_pair(displacement_or_metric: DisplacementOrMetricFn,
@@ -165,7 +173,7 @@ def soft_sphere_neighbor_list(
     sigma: Array=1.0,
     epsilon: Array=1.0,
     alpha: Array=2.0,
-    dr_threshold: float=0.2,
+    dr_threshold: float=0.2 * u.angstrom,
     per_particle: bool=False,
     fractional_coordinates: bool=False,
     format: NeighborListFormat=partition.OrderedSparse,
@@ -177,6 +185,13 @@ def soft_sphere_neighbor_list(
   alpha = maybe_downcast(alpha)
   list_cutoff = jnp.max(sigma)
   dr_threshold = maybe_downcast(dr_threshold)
+
+  if isinstance(box_size, Quantity) and isinstance(dr_threshold, Quantity):
+    box_size = box_size.to_decimal(u.angstrom)
+    dr_threshold = dr_threshold.to_decimal(u.angstrom)
+  elif isinstance(box_size, Quantity) or isinstance(dr_threshold, Quantity):
+    raise ValueError("box_size and dr_threshold must be either both quantities or both floats.")
+
 
   neighbor_fn = partition.neighbor_list(
     displacement_or_metric,
@@ -1907,6 +1922,13 @@ def graph_network_neighbor_list(
     model parameters and an `E = apply_fn(params, R)` that computes the energy
     for a particular state.
   """
+
+  if isinstance(box_size, Quantity) and isinstance(dr_threshold, Quantity) and isinstance(r_cutoff, Quantity):
+    box_size = box_size.to_decimal(u.angstrom)
+    dr_threshold = dr_threshold.to_decimal(u.angstrom)
+    r_cutoff = r_cutoff.to_decimal(u.angstrom)
+  elif isinstance(box_size, Quantity) or isinstance(dr_threshold, Quantity):
+    raise ValueError("box_size and dr_threshold must be either both quantities or both floats.")
 
   nodes = _canonicalize_node_state(nodes)
 
