@@ -3,7 +3,7 @@
 ### Accelerated, Differentiable, Molecular Dynamics
 [**Quickstart**](#getting-started) | [**Reference docs**](https://jax-md.readthedocs.io/en/main/) | [**Paper**](https://arxiv.org/pdf/1912.04232.pdf) | [**NeurIPS 2020**](https://neurips.cc/virtual/2020/public/poster_83d3d4b6c9579515e1679aca8cbc8033.html)
 
-[![Build](https://github.com/jax-md/jax-md/actions/workflows/build.yml/badge.svg)](https://github.com/jax-md/jax-md/actions/workflows/build.yml) [![Coverage](https://codecov.io/gh/google/jax-md/branch/main/graph/badge.svg?token=JYQpbNyICv)](https://codecov.io/gh/google/jax-md) [![PyPI](https://img.shields.io/pypi/v/jax-md)](https://pypi.org/project/jax-md/) [![PyPI - License](https://img.shields.io/pypi/l/jax_md)](https://github.com/google/jax-md/blob/main/LICENSE)
+[![Build](https://github.com/jax-md/jax-md/actions/workflows/build.yml/badge.svg)](https://github.com/jax-md/jax-md/actions/workflows/build.yml) ![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.14220247.svg) [![PyPI](https://img.shields.io/pypi/v/jax-md)](https://pypi.org/project/jax-md/) [![PyPI - License](https://img.shields.io/pypi/l/jax_md)](https://github.com/google/jax-md/blob/main/LICENSE)
 
 Molecular dynamics is a workhorse of modern computational condensed matter physics. It is frequently used to simulate materials to observe how small scale interactions can give rise to complex large-scale phenomenology. Most molecular dynamics packages (e.g. HOOMD Blue or LAMMPS) are complicated, specialized pieces of code that are many thousands of lines long. They typically involve significant code duplication to allow for running simulations on CPU and GPU. Additionally, large amounts of code is often devoted to taking derivatives of quantities to compute functions of interest (e.g. gradients of energies to compute forces).
 
@@ -34,16 +34,26 @@ To get started playing around with JAX MD check out the following colab notebook
 - [Athermal Linear Elasticity](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/athermal_linear_elasticity.ipynb)
 - [Smash a Sand Castle](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/sand_castle.ipynb)
 
-You can install JAX MD locally with pip,
-```
-pip install jax-md --upgrade
-```
-If you want to build the latest version then you can grab the most recent version from head,
-```
-git clone https://github.com/jax-md/jax-md
-pip install -e jax-md
-```
-Or by using the following command,
+[//]: # (TODO: uncomment the following once the JAX MD package is bumped on PyPI)
+
+[//]: # (You can install JAX MD locally with pip,)
+
+[//]: # (```)
+
+[//]: # (pip install jax-md --upgrade)
+
+[//]: # (```)
+
+[//]: # (If you want to build the latest version then you can grab the most recent version from head,)
+
+[//]: # (```)
+
+[//]: # (git clone https://github.com/jax-md/jax-md)
+
+[//]: # (pip install -e jax-md)
+
+[//]: # (```)
+JAX-MD can be installed locally with the following command:
 ```
 pip install https://github.com/jax-md/jax-md/archive/main.zip
 ```
@@ -193,22 +203,24 @@ config.update("jax_enable_x64", True)
 
 JAX MD has been used in the following publications. If you don't see your paper on the list, but you used JAX MD let us know and we'll add it to the list!
 
-1. [Generalized design of sequence-ensemble-function relationships for intrinsically disordered proteins](https://www.biorxiv.org/content/10.1101/2024.10.10.617695v1)<br> R. K. Krueger, M. P. Brenner, and K. Shrinivas
-2. [Tuning colloidal reactions. (PRL 2024)](https://arxiv.org/abs/2312.07798v2)<br> R. K. Krueger, E. M. King, and M. P. Brenner
-3. [Programming patchy particles for materials assembly design. (PNAS 2024)](https://www.pnas.org/doi/abs/10.1073/pnas.2311891121)<br> E. M. King, CX. Du, QZ. Zhu, S. S. Schoenholz, and M. P. Brenner
-4. [LATTE: an atomic environment descriptor based on Cartesian tensor contractions.](https://arxiv.org/abs/2405.08137)<br> F. Pellegrini, S. Gironcoli, E. Küçükbenli
-5. [PySAGES: flexible, advanced sampling methods accelerated with GPUs. (npj Computational Materials 2024)](https://www.nature.com/articles/s41524-023-01189-z)<br> P. F. Zubieta Rico, et al.
-6. [LapTrack: linear assignment particle tracking with tunable metrics. (Bioinformatics 2023)](https://doi.org/10.1093/bioinformatics/btac799)<br> Yohsuke T Fukai and Kyogo Kawaguchi
-7. [A Differentiable Neural-Network Force Field for Ionic Liquids. (J. Chem. Inf. Model. 2022)](https://pubs.acs.org/doi/abs/10.1021/acs.jcim.1c01380)<br> H. Montes-Campos, J. Carrete, S. Bichelmaier, L. M. Varela, and G. K. H. Madsen
-8. [Correlation Tracking: Using simulations to interpolate highly correlated particle tracks. (Phys. Rev. E. 2022)](https://journals.aps.org/pre/abstract/10.1103/PhysRevE.105.044608?ft=1)<br> E. M. King, Z. Wang, D. A. Weitz, F. Spaepen, and M. P. Brenner
-9. [Optimal Control of Nonequilibrium Systems Through Automatic Differentiation.](https://arxiv.org/abs/2201.00098)<br> M. C. Engel, J. A. Smith, and M. P. Brenner
-10. [Graph Neural Networks Accelerated Molecular Dynamics. (J. Chem. Phys. 2022)](https://aip.scitation.org/doi/10.1063/5.0083060)<br> Z. Li, K. Meidani, P. Yadav, and A. B. Farimani
-11. [Gradients are Not All You Need.](https://arxiv.org/abs/2111.05803)<br> L. Metz, C. D. Freeman, S. S. Schoenholz, and T. Kachman
-12. [Lagrangian Neural Network with Differential Symmetries and Relational Inductive Bias.](https://arxiv.org/abs/2110.03266)<br> R. Bhattoo, S. Ranu, and N. M. A. Krishnan
-13. [Efficient and Modular Implicit Differentiation.](https://arxiv.org/abs/2105.15183)<br> M. Blondel, Q. Berthet, M. Cuturi, R. Frostig, S. Hoyer, F. Llinares-López, F. Pedregosa, and J.-P. Vert
-14 [Learning neural network potentials from experimental data via Differentiable Trajectory Reweighting.<br>(Nature Communications 2021)](https://www.nature.com/articles/s41467-021-27241-4)<br> S. Thaler and J. Zavadlav
-15. [Learn2Hop: Learned Optimization on Rough Landscapes. (ICML 2021)](http://proceedings.mlr.press/v139/merchant21a.html)<br> A. Merchant, L. Metz, S. S. Schoenholz, and E. D. Cubuk
-16. [Designing self-assembling kinetics with differentiable statistical physics models. (PNAS 2021)](https://www.pnas.org/content/118/10/e2024083118.short)<br> C. P. Goodrich, E. M. King, S. S. Schoenholz, E. D. Cubuk, and  M. P. Brenner
+1. [Designing precise dynamical steady states in disordered networks. (Machine Learning: Science and Technology (2025))](https://iopscience.iop.org/article/10.1088/2632-2153/ade590/meta)<br> M. Berneman and D. Hexner
+2. [Generalized design of sequence-ensemble-function relationships for intrinsically disordered proteins](https://www.biorxiv.org/content/10.1101/2024.10.10.617695v1)<br> R. K. Krueger, M. P. Brenner, and K. Shrinivas
+3. [Tuning colloidal reactions. (PRL 2024)](https://arxiv.org/abs/2312.07798v2)<br> R. K. Krueger, E. M. King, and M. P. Brenner
+4. [Programming patchy particles for materials assembly design. (PNAS 2024)](https://www.pnas.org/doi/abs/10.1073/pnas.2311891121)<br> E. M. King, CX. Du, QZ. Zhu, S. S. Schoenholz, and M. P. Brenner
+5. [LATTE: an atomic environment descriptor based on Cartesian tensor contractions. (arXiv 2024)](https://arxiv.org/abs/2405.08137)<br> F. Pellegrini, S. Gironcoli, E. Küçükbenli
+6. [PySAGES: flexible, advanced sampling methods accelerated with GPUs. (npj Computational Materials 2024)](https://www.nature.com/articles/s41524-023-01189-z)<br> P. F. Zubieta Rico, et al.
+7. [Scaling deep learning for materials discovery (Nature 2023)](https://www.nature.com/articles/s41586-023-06735-9)<br> A. Merchant, et al.
+8. [LapTrack: linear assignment particle tracking with tunable metrics. (Bioinformatics 2023)](https://doi.org/10.1093/bioinformatics/btac799)<br> Yohsuke T Fukai and Kyogo Kawaguchi
+9. [A Differentiable Neural-Network Force Field for Ionic Liquids. (J. Chem. Inf. Model. 2022)](https://pubs.acs.org/doi/abs/10.1021/acs.jcim.1c01380)<br> H. Montes-Campos, J. Carrete, S. Bichelmaier, L. M. Varela, and G. K. H. Madsen
+10. [Correlation Tracking: Using simulations to interpolate highly correlated particle tracks. (Phys. Rev. E. 2022)](https://journals.aps.org/pre/abstract/10.1103/PhysRevE.105.044608?ft=1)<br> E. M. King, Z. Wang, D. A. Weitz, F. Spaepen, and M. P. Brenner
+11. [Optimal Control of Nonequilibrium Systems Through Automatic Differentiation.](https://arxiv.org/abs/2201.00098)<br> M. C. Engel, J. A. Smith, and M. P. Brenner
+12. [Graph Neural Networks Accelerated Molecular Dynamics. (J. Chem. Phys. 2022)](https://aip.scitation.org/doi/10.1063/5.0083060)<br> Z. Li, K. Meidani, P. Yadav, and A. B. Farimani
+13. [Gradients are Not All You Need.](https://arxiv.org/abs/2111.05803)<br> L. Metz, C. D. Freeman, S. S. Schoenholz, and T. Kachman
+14. [Lagrangian Neural Network with Differential Symmetries and Relational Inductive Bias.](https://arxiv.org/abs/2110.03266)<br> R. Bhattoo, S. Ranu, and N. M. A. Krishnan
+15. [Efficient and Modular Implicit Differentiation.](https://arxiv.org/abs/2105.15183)<br> M. Blondel, Q. Berthet, M. Cuturi, R. Frostig, S. Hoyer, F. Llinares-López, F. Pedregosa, and J.-P. Vert
+16. [Learning neural network potentials from experimental data via Differentiable Trajectory Reweighting.<br>(Nature Communications 2021)](https://www.nature.com/articles/s41467-021-27241-4)<br> S. Thaler and J. Zavadlav
+17. [Learn2Hop: Learned Optimization on Rough Landscapes. (ICML 2021)](http://proceedings.mlr.press/v139/merchant21a.html)<br> A. Merchant, L. Metz, S. S. Schoenholz, and E. D. Cubuk
+18. [Designing self-assembling kinetics with differentiable statistical physics models. (PNAS 2021)](https://www.pnas.org/content/118/10/e2024083118.short)<br> C. P. Goodrich, E. M. King, S. S. Schoenholz, E. D. Cubuk, and  M. P. Brenner
 
 # Citation
 
