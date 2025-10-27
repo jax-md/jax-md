@@ -51,7 +51,7 @@ jobs:
        swap-size-gb: 10
     - name: Test with pytest and generate coverage report
       run: |
-        JAX_ENABLE_X64=1 pytest --cov=jax_md --cov-report=xml --cov-report=term --cov-config=setup.cfg
+        JAX_ENABLE_X64=1 pytest -n auto --cov=jax_md --cov-report=xml --cov-report=term --cov-config=setup.cfg
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v1
       with:
