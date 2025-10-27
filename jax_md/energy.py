@@ -254,7 +254,6 @@ def lennard_jones_neighbor_list(
     species: Optional[Array]=None,
     sigma: Array=1.0,
     epsilon: Array=1.0,
-    alpha: Array=2.0,
     r_onset: float=2.0,
     r_cutoff: float=2.5,
     dr_threshold: float=0.5,
