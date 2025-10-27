@@ -16,7 +16,6 @@
 
 from typing import Iterable, Union, Optional, Any
 
-import jax
 from jax.tree_util import register_pytree_node
 import jax.numpy as jnp
 from jax import jit
