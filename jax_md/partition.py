@@ -97,7 +97,7 @@ class CellList:
   did_buffer_overflow: Array
 
   cell_capacity: int = dataclasses.static_field()
-  cell_size: float = dataclasses.static_field()
+  cell_size: dataclasses.static_field()
 
   update_fn: Callable[..., 'CellList'] = \
       dataclasses.static_field()
