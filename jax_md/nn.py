@@ -16,27 +16,19 @@
 
 from typing import Callable, Tuple, Dict, Any, Optional
 
-import numpy as onp
 
 import jax
-from jax import vmap, jit
+from jax import vmap
 import jax.numpy as jnp
 
-from jax_md import space, dataclasses, quantity, partition, smap
+from jax_md import space, dataclasses, partition
 from jax_md import util as jmd_util
 import haiku as hk
 
-from collections import namedtuple
-from functools import partial, reduce
-from jax.tree_util import tree_map
-from jax import ops
+from functools import partial
 
 import jraph
 
-from ._nn import behler_parrinello
-from ._nn import nequip
-from ._nn import gnome
-from ._nn import util
 
 # Typing
 
@@ -80,6 +72,7 @@ NeighborList = partition.NeighborList
   implementation. See `GraphsTuple` for details.
 """
 
+
 @dataclasses.dataclass
 class GraphsTuple(object):
     """A struct containing graph data.
@@ -96,6 +89,7 @@ class GraphsTuple(object):
         Empty entries (that don't contain an edge) are denoted by
         `edge_idx[i, j] == N_nodes`.
     """
+
     nodes: jnp.ndarray
     edges: jnp.ndarray
     globals: jnp.ndarray
@@ -105,206 +99,225 @@ class GraphsTuple(object):
 
 
 def concatenate_graph_features(graphs: Tuple[GraphsTuple, ...]) -> GraphsTuple:
-  """Given a list of GraphsTuple returns a new concatenated GraphsTuple.
+    """Given a list of GraphsTuple returns a new concatenated GraphsTuple.
 
-  Note that currently we do not check that the graphs have consistent edge
-  connectivity.
-  """
-  graph = graphs[0]
-  return graph._replace(
-    nodes=jnp.concatenate([g.nodes for g in graphs], axis=-1),
-    edges=jnp.concatenate([g.edges for g in graphs], axis=-1),
-    globals=jnp.concatenate([g.globals for g in graphs], axis=-1),  # pytype: disable=missing-parameter
-  )
-
-
-def GraphMapFeatures(edge_fn: Callable[[Array], Array],
-                     node_fn: Callable[[Array], Array],
-                     global_fn: Callable[[Array], Array]
-                     ) -> Callable[[GraphsTuple], GraphsTuple]:
-  """Applies functions independently to the nodes, edges, and global states.
-  """
-  identity = lambda x: x
-  _node_fn = vmap(node_fn) if node_fn is not None else identity
-  _edge_fn = vmap(vmap(edge_fn)) if edge_fn is not None else identity
-  _global_fn = global_fn if global_fn is not None else identity
-
-  def embed_fn(graph):
-    return dataclasses.replace(
-        graph,
-        nodes=_node_fn(graph.nodes),
-        edges=_edge_fn(graph.edges),
-        globals=_global_fn(graph.globals)
+    Note that currently we do not check that the graphs have consistent edge
+    connectivity.
+    """
+    graph = graphs[0]
+    return graph._replace(
+        nodes=jnp.concatenate([g.nodes for g in graphs], axis=-1),
+        edges=jnp.concatenate([g.edges for g in graphs], axis=-1),
+        globals=jnp.concatenate(
+            [g.globals for g in graphs], axis=-1
+        ),  # pytype: disable=missing-parameter
     )
-  return embed_fn
 
 
-def _apply_node_fn(graph: GraphsTuple,
-                   node_fn: Callable[[Array,Array, Array, Array], Array]
-                   ) -> Array:
-  mask = graph.edge_idx < graph.nodes.shape[0]
-  mask = mask[:, :, jnp.newaxis]
+def GraphMapFeatures(
+    edge_fn: Callable[[Array], Array],
+    node_fn: Callable[[Array], Array],
+    global_fn: Callable[[Array], Array],
+) -> Callable[[GraphsTuple], GraphsTuple]:
+    """Applies functions independently to the nodes, edges, and global states."""
+    identity = lambda x: x
+    _node_fn = vmap(node_fn) if node_fn is not None else identity
+    _edge_fn = vmap(vmap(edge_fn)) if edge_fn is not None else identity
+    _global_fn = global_fn if global_fn is not None else identity
 
-  if graph.edges is not None:
-    # TODO: Should we also have outgoing edges?
-    flat_edges = jnp.reshape(graph.edges, (-1, graph.edges.shape[-1]))
-    edge_idx = jnp.reshape(graph.edge_idx, (-1,))
-    incoming_edges = jax.ops.segment_sum(
-        flat_edges, edge_idx, graph.nodes.shape[0] + 1)[:-1]
-    outgoing_edges = jnp.sum(graph.edges * mask, axis=1)
-  else:
-    incoming_edges = None
-    outgoing_edges = None
+    def embed_fn(graph):
+        return dataclasses.replace(
+            graph,
+            nodes=_node_fn(graph.nodes),
+            edges=_edge_fn(graph.edges),
+            globals=_global_fn(graph.globals),
+        )
 
-  if graph.globals is not None:
-    _globals = jnp.broadcast_to(graph.globals[jnp.newaxis, :],
-                               graph.nodes.shape[:1] + graph.globals.shape)
-  else:
-    _globals = None
-
-  return node_fn(graph.nodes, incoming_edges, outgoing_edges, _globals)
+    return embed_fn
 
 
-def _apply_edge_fn(graph: GraphsTuple,
-                   edge_fn: Callable[[Array, Array, Array, Array], Array]
-                   ) -> Array:
-  if graph.nodes is not None:
-    incoming_nodes = graph.nodes[graph.edge_idx]
-    outgoing_nodes = jnp.broadcast_to(
-        graph.nodes[:, jnp.newaxis, :],
-        graph.edge_idx.shape + graph.nodes.shape[-1:])
-  else:
-    incoming_nodes = None
-    outgoing_nodes = None
-
-  if graph.globals is not None:
-    _globals = jnp.broadcast_to(graph.globals[jnp.newaxis, jnp.newaxis, :],
-                               graph.edge_idx.shape + graph.globals.shape)
-  else:
-    _globals = None
-
-  mask = graph.edge_idx < graph.nodes.shape[0]
-  mask = mask[:, :, jnp.newaxis]
-  return edge_fn(graph.edges, incoming_nodes, outgoing_nodes, _globals) * mask
-
-
-def _apply_global_fn(graph: GraphsTuple,
-                     global_fn: Callable[[Array, Array, Array], Array]
-                     ) -> Array:
-  nodes = None if graph.nodes is None else jnp.sum(graph.nodes, axis=0)
-
-  if graph.edges is not None:
+def _apply_node_fn(
+    graph: GraphsTuple, node_fn: Callable[[Array, Array, Array, Array], Array]
+) -> Array:
     mask = graph.edge_idx < graph.nodes.shape[0]
     mask = mask[:, :, jnp.newaxis]
-    edges = jnp.sum(graph.edges * mask, axis=(0, 1))
-  else:
-    edges = None
 
-  return global_fn(nodes, edges, graph.globals)
+    if graph.edges is not None:
+        # TODO: Should we also have outgoing edges?
+        flat_edges = jnp.reshape(graph.edges, (-1, graph.edges.shape[-1]))
+        edge_idx = jnp.reshape(graph.edge_idx, (-1,))
+        incoming_edges = jax.ops.segment_sum(
+            flat_edges, edge_idx, graph.nodes.shape[0] + 1
+        )[:-1]
+        outgoing_edges = jnp.sum(graph.edges * mask, axis=1)
+    else:
+        incoming_edges = None
+        outgoing_edges = None
+
+    if graph.globals is not None:
+        _globals = jnp.broadcast_to(
+            graph.globals[jnp.newaxis, :], graph.nodes.shape[:1] + graph.globals.shape
+        )
+    else:
+        _globals = None
+
+    return node_fn(graph.nodes, incoming_edges, outgoing_edges, _globals)
+
+
+def _apply_edge_fn(
+    graph: GraphsTuple, edge_fn: Callable[[Array, Array, Array, Array], Array]
+) -> Array:
+    if graph.nodes is not None:
+        incoming_nodes = graph.nodes[graph.edge_idx]
+        outgoing_nodes = jnp.broadcast_to(
+            graph.nodes[:, jnp.newaxis, :],
+            graph.edge_idx.shape + graph.nodes.shape[-1:],
+        )
+    else:
+        incoming_nodes = None
+        outgoing_nodes = None
+
+    if graph.globals is not None:
+        _globals = jnp.broadcast_to(
+            graph.globals[jnp.newaxis, jnp.newaxis, :],
+            graph.edge_idx.shape + graph.globals.shape,
+        )
+    else:
+        _globals = None
+
+    mask = graph.edge_idx < graph.nodes.shape[0]
+    mask = mask[:, :, jnp.newaxis]
+    return edge_fn(graph.edges, incoming_nodes, outgoing_nodes, _globals) * mask
+
+
+def _apply_global_fn(
+    graph: GraphsTuple, global_fn: Callable[[Array, Array, Array], Array]
+) -> Array:
+    nodes = None if graph.nodes is None else jnp.sum(graph.nodes, axis=0)
+
+    if graph.edges is not None:
+        mask = graph.edge_idx < graph.nodes.shape[0]
+        mask = mask[:, :, jnp.newaxis]
+        edges = jnp.sum(graph.edges * mask, axis=(0, 1))
+    else:
+        edges = None
+
+    return global_fn(nodes, edges, graph.globals)
 
 
 class GraphNetwork:
-  """Implementation of a Graph Network.
+    """Implementation of a Graph Network.
 
-  See https://arxiv.org/abs/1806.01261 for more details.
-  """
-  def __init__(self,
-               edge_fn: Callable[[Array], Array],
-               node_fn: Callable[[Array], Array],
-               global_fn: Callable[[Array], Array]):
-    self._node_fn = (None if node_fn is None else
-                     partial(_apply_node_fn, node_fn=vmap(node_fn)))
+    See https://arxiv.org/abs/1806.01261 for more details.
+    """
 
-    self._edge_fn = (None if edge_fn is None else
-                     partial(_apply_edge_fn, edge_fn=vmap(vmap(edge_fn))))
+    def __init__(
+        self,
+        edge_fn: Callable[[Array], Array],
+        node_fn: Callable[[Array], Array],
+        global_fn: Callable[[Array], Array],
+    ):
+        self._node_fn = (
+            None if node_fn is None else partial(_apply_node_fn, node_fn=vmap(node_fn))
+        )
 
-    self._global_fn = (None if global_fn is None else
-                       partial(_apply_global_fn, global_fn=global_fn))
+        self._edge_fn = (
+            None
+            if edge_fn is None
+            else partial(_apply_edge_fn, edge_fn=vmap(vmap(edge_fn)))
+        )
 
-  def __call__(self, graph: GraphsTuple) -> GraphsTuple:
-    if self._edge_fn is not None:
-      graph = dataclasses.replace(graph, edges=self._edge_fn(graph))
+        self._global_fn = (
+            None
+            if global_fn is None
+            else partial(_apply_global_fn, global_fn=global_fn)
+        )
 
-    if self._node_fn is not None:
-      graph = dataclasses.replace(graph, nodes=self._node_fn(graph))
+    def __call__(self, graph: GraphsTuple) -> GraphsTuple:
+        if self._edge_fn is not None:
+            graph = dataclasses.replace(graph, edges=self._edge_fn(graph))
 
-    if self._global_fn is not None:
-      graph = dataclasses.replace(graph, globals=self._global_fn(graph))
+        if self._node_fn is not None:
+            graph = dataclasses.replace(graph, nodes=self._node_fn(graph))
 
-    return graph
+        if self._global_fn is not None:
+            graph = dataclasses.replace(graph, globals=self._global_fn(graph))
+
+        return graph
 
 
 # Prefab Networks
 
 
 class GraphNetEncoder(hk.Module):
-  """Implements a Graph Neural Network for energy fitting.
+    """Implements a Graph Neural Network for energy fitting.
 
-  Based on the network used in "Unveiling the predictive power of static
-  structure in glassy systems"; Bapst et al.
-  (https://www.nature.com/articles/s41567-020-0842-8). This network first
-  embeds edges, nodes, and global state. Then `n_recurrences` of GraphNetwork
-  layers are applied. Unlike in Bapst et al. this network does not include a
-  readout, which should be added separately depending on the application.
+    Based on the network used in "Unveiling the predictive power of static
+    structure in glassy systems"; Bapst et al.
+    (https://www.nature.com/articles/s41567-020-0842-8). This network first
+    embeds edges, nodes, and global state. Then `n_recurrences` of GraphNetwork
+    layers are applied. Unlike in Bapst et al. this network does not include a
+    readout, which should be added separately depending on the application.
 
-  For example, when predicting particle mobilities, one would use a decoder
-  only on the node states while a model of energies would decode only the node
-  states.
-  """
-  def __init__(self,
-               n_recurrences: int,
-               mlp_sizes: Tuple[int, ...],
-               mlp_kwargs: Optional[Dict[str, Any]]=None,
-               format: partition.NeighborListFormat=partition.Dense,
-               name: str='GraphNetEncoder'):
-    super(GraphNetEncoder, self).__init__(name=name)
+    For example, when predicting particle mobilities, one would use a decoder
+    only on the node states while a model of energies would decode only the node
+    states.
+    """
 
-    if mlp_kwargs is None:
-      mlp_kwargs = {}
+    def __init__(
+        self,
+        n_recurrences: int,
+        mlp_sizes: Tuple[int, ...],
+        mlp_kwargs: Optional[Dict[str, Any]] = None,
+        format: partition.NeighborListFormat = partition.Dense,
+        name: str = "GraphNetEncoder",
+    ):
+        super(GraphNetEncoder, self).__init__(name=name)
 
-    self._n_recurrences = n_recurrences
+        if mlp_kwargs is None:
+            mlp_kwargs = {}
 
-    embedding_fn = lambda name: hk.nets.MLP(
-        output_sizes=mlp_sizes,
-        activate_final=True,
-        name=name,
-        **mlp_kwargs)
+        self._n_recurrences = n_recurrences
 
-    model_fn = lambda name: lambda *args: hk.nets.MLP(
-        output_sizes=mlp_sizes,
-        activate_final=True,
-        name=name,
-        **mlp_kwargs)(jnp.concatenate(args, axis=-1))
+        embedding_fn = lambda name: hk.nets.MLP(
+            output_sizes=mlp_sizes, activate_final=True, name=name, **mlp_kwargs
+        )
 
-    if format is partition.Dense:
-      self._encoder = GraphMapFeatures(
-        embedding_fn('EdgeEncoder'),
-        embedding_fn('NodeEncoder'),
-        embedding_fn('GlobalEncoder'))
-      self._propagation_network = lambda: GraphNetwork(
-        model_fn('EdgeFunction'),
-        model_fn('NodeFunction'),
-        model_fn('GlobalFunction'))
-    elif format is partition.Sparse:
-      self._encoder = jraph.GraphMapFeatures(
-        embedding_fn('EdgeEncoder'),
-        embedding_fn('NodeEncoder'),
-        embedding_fn('GlobalEncoder')
-      )
-      self._propagation_network = lambda: jraph.GraphNetwork(
-        model_fn('EdgeFunction'),
-        model_fn('NodeFunction'),
-        model_fn('GlobalFunction')
-      )
-    else:
-      raise ValueError()
+        model_fn = lambda name: lambda *args: hk.nets.MLP(
+            output_sizes=mlp_sizes, activate_final=True, name=name, **mlp_kwargs
+        )(jnp.concatenate(args, axis=-1))
 
-  def __call__(self, graph: GraphsTuple) -> GraphsTuple:
-    encoded = self._encoder(graph)
-    outputs = encoded
+        if format is partition.Dense:
+            self._encoder = GraphMapFeatures(
+                embedding_fn("EdgeEncoder"),
+                embedding_fn("NodeEncoder"),
+                embedding_fn("GlobalEncoder"),
+            )
+            self._propagation_network = lambda: GraphNetwork(
+                model_fn("EdgeFunction"),
+                model_fn("NodeFunction"),
+                model_fn("GlobalFunction"),
+            )
+        elif format is partition.Sparse:
+            self._encoder = jraph.GraphMapFeatures(
+                embedding_fn("EdgeEncoder"),
+                embedding_fn("NodeEncoder"),
+                embedding_fn("GlobalEncoder"),
+            )
+            self._propagation_network = lambda: jraph.GraphNetwork(
+                model_fn("EdgeFunction"),
+                model_fn("NodeFunction"),
+                model_fn("GlobalFunction"),
+            )
+        else:
+            raise ValueError()
 
-    for _ in range(self._n_recurrences):
-      inputs = concatenate_graph_features((outputs, encoded))
-      outputs = self._propagation_network()(inputs)
+    def __call__(self, graph: GraphsTuple) -> GraphsTuple:
+        encoded = self._encoder(graph)
+        outputs = encoded
 
-    return outputs
+        for _ in range(self._n_recurrences):
+            inputs = concatenate_graph_features((outputs, encoded))
+            outputs = self._propagation_network()(inputs)
+
+        return outputs
