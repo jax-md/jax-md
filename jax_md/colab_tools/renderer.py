@@ -21,7 +21,6 @@ from google.colab import output
 import IPython
 
 import jax.numpy as jnp
-from jax import tree_map
 
 from jax_md import dataclasses
 from jax_md import partition
