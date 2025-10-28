@@ -23,16 +23,14 @@ import jax.numpy as jnp
 
 from jax_md import space, dataclasses, partition
 from jax_md import util as jmd_util
+from jax_md._nn import behler_parrinello, nequip, gnome, util  # ruff noqa: F401
 import haiku as hk
 
 from functools import partial
 
 import jraph
 
-
 # Typing
-
-
 Array = jmd_util.Array
 f32 = jmd_util.f32
 f64 = jmd_util.f64

@@ -31,9 +31,6 @@ from jax_md import space, smap, partition, nn, quantity, interpolate, util
 from ml_collections import ConfigDict
 
 
-# Electrostatics
-
-
 # Define aliases different neural network primitives.
 bp = nn.behler_parrinello
 gnome = nn.gnome
