@@ -1,0 +1,12 @@
+# Ruff configuration
+exclude = [
+    "examples",
+    "notebooks",
+]
+
+[lint]
+ignore = [
+    "E731",  # Do not assign a lambda expression, use a def
+    "F405",
+    "F841"
+]
