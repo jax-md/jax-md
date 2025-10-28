@@ -27,13 +27,14 @@ jobs:
     - name: Install dependencies
       run: |
         uv pip install .
+      # TODO (ag): Add linting with ruff
 
   test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ['3.11', '3.12', '3.13']
-        test-suite: ['elasticity', 'rigid_body', 'energy', 'simulate', 'nn', 'core']
+        test-suite: ['elasticity', 'rigid_body', 'energy', 'simulate', 'nequip', 'reaxff', 'core']
     steps:
     - name: Cancel previous
       uses: styfle/cancel-workflow-action@0.11.0
@@ -66,7 +67,8 @@ jobs:
             --ignore=tests/rigid_body_test.py \
             --ignore=tests/energy_test.py \
             --ignore=tests/simulate_test.py \
-            --ignore=tests/nn_test.py
+            --ignore=tests/nequip_test.py \
+            --ignore=tests/reaxff_test.py
         else
           JAX_ENABLE_X64=1 uv run pytest tests/${{ matrix.test-suite }}_test.py --cov=jax_md --cov-report=xml --cov-report=term --cov-config=setup.cfg
         fi
