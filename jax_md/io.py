@@ -14,30 +14,31 @@
 
 import jax.numpy as np
 
+
 def _xyz_vec2str(x):
-  """Convert a vector to string.
-  """
-  return "\t".join([str(i) for i in x])
+    """Convert a vector to string."""
+    return "\t".join([str(i) for i in x])
+
 
 def write_xyz(filename, *args):
-  """Write arrays to xyz file format.
+    """Write arrays to xyz file format.
 
-  Args:
-    filename: Output filename.
-    args: Arguments can be 1D or 2D arrays where length (along axis=0) is equal to number of atoms.
+    Args:
+      filename: Output filename.
+      args: Arguments can be 1D or 2D arrays where length (along axis=0) is equal to number of atoms.
 
-  Examples:
-    write_xyz('minimize.xyz', R)
-    write_xyz('minimize.xyz', species, R)
-    write_xyz('minimize.xyz', species, R, velocities, forces)
-  """
-  vars = [arg[:, np.newaxis] if len(arg.shape)==1 else arg for arg in args]
-  vars = np.hstack(vars)
+    Examples:
+      write_xyz('minimize.xyz', R)
+      write_xyz('minimize.xyz', species, R)
+      write_xyz('minimize.xyz', species, R, velocities, forces)
+    """
+    vars = [arg[:, np.newaxis] if len(arg.shape) == 1 else arg for arg in args]
+    vars = np.hstack(vars)
 
-  with open(filename, "w+") as f:
-    N = len(vars)
-    str_ = f"{N}" + "\n\n"
-    f.write(str_)
-    for j in range(N):
-      str_ = f"{j+1}\t" + _xyz_vec2str(vars[j, :]) + "\n"
-      f.write(str_)
+    with open(filename, "w+") as f:
+        N = len(vars)
+        str_ = f"{N}" + "\n\n"
+        f.write(str_)
+        for j in range(N):
+            str_ = f"{j + 1}\t" + _xyz_vec2str(vars[j, :]) + "\n"
+            f.write(str_)
