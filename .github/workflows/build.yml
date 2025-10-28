@@ -38,7 +38,7 @@ jobs:
     strategy:
       matrix:
         python-version: ['3.11', '3.12', '3.13']
-        test-suite: ['elasticity', 'rigid_body', 'energy', 'simulate', 'nn_test', 'core']
+        test-suite: ['elasticity', 'rigid_body', 'energy', 'simulate', 'nn', 'core']
     steps:
     - name: Cancel previous
       uses: styfle/cancel-workflow-action@0.11.0
