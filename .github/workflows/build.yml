@@ -32,11 +32,13 @@ jobs:
       uses: astral-sh/setup-uv@v4
     - name: Set up Python ${{ matrix.python-version }}
       run: uv python install ${{ matrix.python-version }}
+    - name: Create virtual environment
+      run: uv venv --python ${{ matrix.python-version }}
     - name: Install dependencies
       run: |
-        uv pip install --system .
-        uv pip install --system .[testing]
-        uv pip install --system pytest pytest-xdist pytest-cov netCDF4 ase ruff
+        uv pip install .
+        uv pip install .[testing]
+        uv pip install pytest pytest-xdist pytest-cov netCDF4 ase ruff
     - name: Lint with ruff
       run: |
         uv run ruff check .
