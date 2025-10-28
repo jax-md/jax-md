@@ -84,6 +84,15 @@ def simple_spring(dr: Array,
   """
   return epsilon / alpha * jnp.abs(dr - length) ** alpha
 
+def periodic_torsion(torsion_angle: Array,
+                     amplitude : Array,
+                     periodicity : Array,
+                     phase : Array,
+                     **unused_kwargs) -> Array:
+  """cosine potential with a given amplitude, periodicity, and phase offset"""
+  # NOTE(dominicrufa): rename this with omm convention?
+  return amplitude * (1. + jnp.cos(periodicity * torsion_angle - phase))
+
 
 def simple_spring_bond(displacement_or_metric: DisplacementOrMetricFn,
                        bond: Array,
@@ -225,6 +234,23 @@ def lennard_jones(dr: Array,
   # here.
   return jnp.nan_to_num(f32(4) * epsilon * (idr12 - idr6))
 
+def softcore_lennard_jones(dr: Array,
+                           sigma: Array=1,
+                           epsilon: Array=1,
+                           alpha: Array=1,
+                           scale: Array=1,
+                           a: Array=1,
+                           b: Array=1,
+                           c: Array=1,
+                           **unused_kwargs) -> Array:
+  """
+  generalized softcore lennard jones to avoid singularities;
+  from J. Chem. Phys. 135, 034114 (2011); https://doi.org/10.1063/1.3607597 Eq. 13
+  """
+  r_eff = sigma * ( (alpha*(1. - scale))**b + (dr/sigma)**c )**(1/c)
+  x = (sigma/r_eff)**6
+  u_lj = (scale**a) * f32(4) * epsilon * x * (x - f32(1))
+  return u_lj
 
 def lennard_jones_pair(displacement_or_metric: DisplacementOrMetricFn,
                        species: Optional[Array]=None,
@@ -468,22 +494,26 @@ def gupta_gold55(displacement,
 
 def multiplicative_isotropic_cutoff(fn: Callable[..., Array],
                                     r_onset: float,
-                                    r_cutoff: float) -> Callable[..., Array]:
+                                    r_cutoff: float,
+                                    implementation: Optional[str] = 'HOOMD',
+                                    **unused_kwargs) -> Callable[..., Array]:
   """Takes an isotropic function and constructs a truncated function.
 
-  Given a function `f:R -> R`, we construct a new function `f':R -> R` such
-  that `f'(r) = f(r)` for `r < r_onset`, `f'(r) = 0` for `r > r_cutoff`, and
-  `f(r)` is :math:`C^1` everywhere. To do this, we follow the approach outlined
-  in HOOMD Blue  [#hoomd]_ (thanks to Carl Goodrich for the pointer). We
-  construct a function `S(r)` such that `S(r) = 1` for `r < r_onset`,
-  `S(r) = 0` for `r > r_cutoff`, and `S(r)` is :math:`C^1`. Then
-  `f'(r) = S(r)f(r)`.
+  Given a function `f:R -> R`, we construct a new function `f':R -> R` such that
+  `f'(r) = f(r)` for `r < r_onset`, `f'(r) = 0` for `r > r_cutoff`, and `f(r)` is :math:`C^1`
+  for `implementation=HOOMD` and :math:`C^2` for `implementation=OpenMM`.
+  By default, we follow the approach outlined in HOOMD Blue  [#hoomd]_
+  (thanks to Carl Goodrich for the pointer). We construct a function `S(r)` such
+  that `S(r) = 1` for `r < r_onset`, `S(r) = 0` for `r > r_cutoff`, and `S(r)` is :math:`C^1`.
+  Then `f'(r) = S(r)f(r)`. The non-default implemementation is outlined in OpenMM
+  [#openmm]_
 
   Args:
     fn: A function that takes an ndarray of distances of shape `[n, m]` as well
       as varargs.
     r_onset: A float specifying the distance marking the onset of deformation.
     r_cutoff: A float specifying the cutoff distance.
+    implementation: A string denoting whether to use 'HOOMD' or `OpenMM`
 
   Returns:
     A new function with the same signature as fn, with the properties outlined
@@ -492,18 +522,33 @@ def multiplicative_isotropic_cutoff(fn: Callable[..., Array],
   .. rubric:: References
   .. [#hoomd] HOOMD Blue documentation. Accessed on 05/31/2019.
       https://hoomd-blue.readthedocs.io/en/stable/module-md-pair.html#hoomd.md.pair.pair
+  .. [#openmm] OpenMM documentation. Accessed on 06/15/2021.
+      http://docs.openmm.org/latest/userguide/theory/02_standard_forces.html#lennard-jones-interaction
   """
+  assert implementation in ['HOOMD', 'OpenMM']
 
   r_c = r_cutoff ** f32(2)
   r_o = r_onset ** f32(2)
 
+  if implementation == 'HOOMD':
+      def inner_fn(dr):
+        r = dr ** f32(2)
+        inner = jnp.where(dr < r_cutoff,
+                         (r_c - r)**2 * (r_c + 2 * r - 3 * r_o) / (r_c - r_o)**3,
+                         0)
+        return inner
+  elif implementation == 'OpenMM':
+      def inner_fn(dr):
+        x = (dr - r_o) / (r_c - r_o)
+        inner = jnp.where(dr < r_cutoff,
+                       f32(1) - f32(6) * x**5 + f32(15) * x**4 - f32(10) * x**3,
+                       0)
+        return inner
+  else:
+    raise NotImplementedError
+
   def smooth_fn(dr):
-    r = dr ** f32(2)
-
-    inner = jnp.where(dr < r_cutoff,
-                     (r_c - r)**2 * (r_c + 2 * r - 3 * r_o) / (r_c - r_o)**3,
-                     0)
-
+    inner = inner_fn(dr)
     return jnp.where(dr < r_onset, 1, inner)
 
   @wraps(fn)
@@ -512,23 +557,85 @@ def multiplicative_isotropic_cutoff(fn: Callable[..., Array],
 
   return cutoff_fn
 
+def coulomb(r: Array,
+            Q_sq: Array,
+            qqr2e : Optional[Array]=138.93545764438198,
+            **unused_kwargs) -> Array:
+  """vacuum coulombic interaction;
+  qqr2e is OpenMM constant for Coulomb interactions in OpenMM units;
+  (see openmm/platforms/reference/include/SimTKOpenMMRealType.h)
+  """
+  return jnp.nan_to_num(qqr2e * Q_sq / r)
+
+def compute_rf_constants(eps_rf: Array,
+                         cutoff: Array,
+                         mrf: Array,
+                         nrf: Array,
+                         **unused_kwargs):
+  """compute constants/switches of the coulomb reaction field"""
+  krf = ((eps_rf - 1) / (1 + 2 * eps_rf)) * (1 / cutoff**3)
+  arfm = (3 * cutoff**(-(mrf+1))/(mrf*(nrf - mrf)))* \
+    ((2*eps_rf+nrf-1)/(1+2*eps_rf))
+  arfn = (3 * cutoff**(-(nrf+1))/(nrf*(mrf - nrf)))* \
+    ((2*eps_rf+mrf-1)/(1+2*eps_rf))
+  crf = ((3 * eps_rf) / (1 + 2 * eps_rf)) * (1 / cutoff) + \
+    arfm * cutoff**mrf + arfn * cutoff ** nrf
+  return krf, arfm, arfn, crf
+
+def rf_coulomb(r: Array,
+               Q_sq: Array,
+               aux_Q_sq: Array,
+               cutoff: Array=1.2,
+               eps_rf: Array=78.5,
+               mrf: Array=4,
+               nrf: Array=6,
+               qqr2e: Array=138.93545764438198,
+               compute_self_energy: bool=False,
+               **unused_kwargs):
+  """compute the coulomb reaction field implementation;
+  NOTE: this should implicitly decay to zero at cutoff with C^2 behaviour.
+  the implementation is given by https://doi.org/10.1039/D0CP03835K.
+  Code was adapted from
+  https://github.com/rinikerlab/reeds/blob/\
+  2584f7d049f622df6a3acd1cc4216b14e404f01e/reeds/openmm/reeds_openmm.py#L229
+  """
+  krf, arfm, arfn, crf = compute_rf_constants(eps_rf, cutoff, mrf, nrf)
+  interaction_energy = qqr2e * (Q_sq / r + aux_Q_sq * (krf * r**2 + \
+    arfm * r**4 + arfn * r**6 - crf))
+  return interaction_energy
+
+def self_rf_coulomb(Q_sq: Array,
+                    qqr2e: Array=138.93545764438198,
+                    eps_rf: Array=78.5,
+                    cutoff: Array=1.2,
+                    mrf: Array=4,
+                    nrf: Array=6,
+                    **unused_kwargs):
+  """compute the self-energy term of an array of chargeprods.
+    it is presumed that `Q_sq` is a 1D array.
+    adapted from https://github.com/rinikerlab/reeds/blob/\
+    2584f7d049f622df6a3acd1cc4216b14e404f01e/reeds/openmm/\
+    reeds_openmm.py#L375-L388
+  """
+  krf, arfm, arfn, crf = compute_rf_constants(eps_rf, cutoff, mrf, nrf)
+  self_energy = -f32(0.5) * qqr2e * Q_sq * crf # no force contribution
+  return self_energy
 
 def dsf_coulomb(r: Array,
                 Q_sq: Array,
                 alpha: Array=0.25,
-                cutoff: float=8.0) -> Array:
+                r_cutoff: float=8.0,
+                qqr2e: float=332.06371,
+                **unused_kwargs) -> Array:
   """Damped-shifted-force approximation of the coulombic interaction."""
-  qqr2e = 332.06371  # Coulombic conversion factor: 1/(4*pi*epo).
-
-  cutoffsq = cutoff * cutoff
-  erfcc = erfc(alpha * cutoff)
+  cutoffsq = r_cutoff * r_cutoff
+  erfcc = erfc(alpha * r_cutoff)
   erfcd = jnp.exp(-alpha * alpha * cutoffsq)
-  f_shift = -(erfcc / cutoffsq + 2 / jnp.sqrt(jnp.pi) * alpha * erfcd / cutoff)
-  e_shift = erfcc / cutoff - f_shift * cutoff
+  f_shift = -(erfcc / cutoffsq + 2 / jnp.sqrt(jnp.pi) * alpha * erfcd / r_cutoff)
+  e_shift = erfcc / r_cutoff - f_shift * r_cutoff
 
   e = qqr2e * Q_sq / r * (erfc(alpha * r) - r * e_shift - r**2 * f_shift)
-  return jnp.where(r < cutoff, e, 0.0)
-
+  return jnp.where(r < r_cutoff, e, 0.0)
 
 def bks(dr: Array,
         Q_sq: Array,

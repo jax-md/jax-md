@@ -258,12 +258,50 @@ def stress(energy_fn: EnergyFn, position: Array, box: Box,
   return 1 / vol_0 * (VxV - dUdV(zero))
 
 
-def cosine_angle_between_two_vectors(dR_12: Array, dR_13: Array) -> Array:
-  dr_12 = space.distance(dR_12) + 1e-7
-  dr_13 = space.distance(dR_13) + 1e-7
+def canonicalize_mass(mass: Union[float, Array]) -> Union[float, Array]:
+  if isinstance(mass, float):
+    return mass
+  elif isinstance(mass, jnp.ndarray):
+    if len(mass.shape) == 2 and mass.shape[1] == 1:
+      return mass
+    elif len(mass.shape) == 1:
+      return jnp.reshape(mass, (mass.shape[0], 1))
+    elif len(mass.shape) == 0:
+      return mass
+  elif isinstance(mass, f32) or isinstance(mass, f64):
+    return mass
+  msg = (
+      'Expected mass to be either a floating point number or a one-dimensional'
+      'ndarray. Found {}.'.format(mass)
+      )
+  raise ValueError(msg)
+
+
+def cosine_angle_between_two_vectors(dR_12: Array, dR_13: Array, epsilon: Optional[Array]=1e-7) -> Array:
+  dr_12 = space.square_distance(dR_12)
+  dr_13 = space.square_distance(dR_13)
+
+  dr_12 = util.safe_mask(dr_12 > 0, jnp.sqrt, dr_12, epsilon)
+  dr_13 = util.safe_mask(dr_13 > 0, jnp.sqrt, dr_13, epsilon)
+
   cos_angle = jnp.dot(dR_12, dR_13) / dr_12 / dr_13
   return jnp.clip(cos_angle, -1.0, 1.0)
 
+def angle_between_two_half_planes(dR_12: Array,
+                                  dR_32: Array,
+                                  dR_34: Array,
+                                  epsilon : Optional[Array]=1e-7) -> Array:
+  """Returns clockwise angle between two half-planes defined by (R_1, R_2, R_3) and (R_2, R_3, R_4)"""
+  # NOTE(dominicrufa): is there a more "canonical" way of nan-safing than adding 1e-7?
+  normal_1 = jnp.cross(dR_12, dR_32)
+  normal_2 = jnp.cross(dR_32, dR_34)
+  normal_plane_cross = jnp.cross(normal_1, normal_2)
+  dr_32 = space.square_distance(dR_32)
+  safe_dr_32 = util.safe_mask(dr_32 > 0, jnp.sqrt, dr_32, epsilon)
+  x1 = jnp.sum(jnp.multiply(normal_plane_cross, dR_32 / safe_dr_32), axis=-1)
+  x2 = jnp.sum(jnp.multiply(normal_1, normal_2), axis=-1)
+  angle = jnp.arctan2(x1, x2)
+  return angle
 
 def cosine_angles(dR: Array) -> Array:
   """Returns cosine of angles for all atom triplets.

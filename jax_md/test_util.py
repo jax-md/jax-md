@@ -19,7 +19,7 @@ from absl.testing import parameterized
 
 import os
 
-from typing import Dict, Sequence
+from typing import Dict, Sequence, Any
 
 import netCDF4 as nc
 
@@ -348,7 +348,6 @@ def load_lammps_stress_data(dtype):
             parse_results('/google3/third_party/py/jax_md/tests/data/'
                           'lammps_lj_stress_test'))
 
-
 def load_lammps_npt_test_case(dtype):
   def parse_state(filename):
     filename = FLAGS.test_srcdir + filename
@@ -364,3 +363,18 @@ def load_lammps_npt_test_case(dtype):
   except FileNotFoundError:
     return parse_state('/google3/third_party/py/jax_md/tests/data/'
                        'lammps_npt_test')
+                       
+def compressed_pickle(filename:str, data:Any):
+  # pickle a file and compress
+  import bz2
+  import _pickle as cPickle
+  with bz2.BZ2File(filename, 'w') as f:
+    cPickle.dump(data, f)
+
+def decompress_pickle(filename:str) -> Any:
+  # Load any compressed pickle file
+  import bz2
+  import _pickle as cPickle
+  data = bz2.BZ2File(filename, 'rb')
+  data = cPickle.load(data)
+  return data
