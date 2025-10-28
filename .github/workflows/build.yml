@@ -70,7 +70,7 @@ jobs:
             --ignore=tests/elasticity_test.py \
             --ignore=tests/rigid_body_test.py \
             --ignore=tests/energy_test.py \
-            --ignore=tests/simulate_test.py
+            --ignore=tests/simulate_test.py \
             --ignore=tests/nn_test.py
         else
           JAX_ENABLE_X64=1 uv run pytest tests/${{ matrix.test-suite }}_test.py --cov=jax_md --cov-report=xml --cov-report=term --cov-config=setup.cfg
