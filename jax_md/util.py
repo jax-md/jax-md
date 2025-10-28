@@ -26,9 +26,9 @@ import numpy as onp
 
 # Backward compatible import for get_backend
 try:
-  from jax.extend.backend import get_backend
+    from jax.extend.backend import get_backend
 except (ImportError, AttributeError):
-  from jax.lib.xla_bridge import get_backend
+    from jax.lib.xla_bridge import get_backend
 
 Array = jnp.ndarray
 PyTree = Any
@@ -45,69 +45,67 @@ CUSTOM_SIMULATION_TYPE = []
 
 
 def register_custom_simulation_type(t: Any):
-  global CUSTOM_SIMULATION_TYPE
-  CUSTOM_SIMULATION_TYPE += [t]
+    global CUSTOM_SIMULATION_TYPE
+    CUSTOM_SIMULATION_TYPE += [t]
 
 
 def check_custom_simulation_type(x: Any) -> bool:
-  if type(x) in CUSTOM_SIMULATION_TYPE:
-    raise ValueError()
+    if type(x) in CUSTOM_SIMULATION_TYPE:
+        raise ValueError()
 
 
 def static_cast(*xs):
-  """Function to cast a value to the lowest dtype that can express it."""
-  # NOTE(schsam): static_cast is so named because it cannot be jit.
-  if get_backend().platform == 'tpu':
-    return (jnp.array(x, jnp.float32) for x in xs)
-  else:
-    return (jnp.array(x, dtype=onp.min_scalar_type(x)) for x in xs)
+    """Function to cast a value to the lowest dtype that can express it."""
+    # NOTE(schsam): static_cast is so named because it cannot be jit.
+    if get_backend().platform == "tpu":
+        return (jnp.array(x, jnp.float32) for x in xs)
+    else:
+        return (jnp.array(x, dtype=onp.min_scalar_type(x)) for x in xs)
 
 
 def register_pytree_namedtuple(cls):
-  register_pytree_node(
-      cls,
-      lambda xs: (tuple(xs), None),
-      lambda _, xs: cls(*xs))
+    register_pytree_node(cls, lambda xs: (tuple(xs), None), lambda _, xs: cls(*xs))
 
 
 def merge_dicts(a, b, ignore_unused_parameters=False):
-  if not ignore_unused_parameters:
-    return {**a, **b}
+    if not ignore_unused_parameters:
+        return {**a, **b}
 
-  merged = dict(a)
-  for key in merged.keys():
-    b_val = b.get(key)
-    if b_val is not None:
-      merged[key] = b_val
-  return merged
+    merged = dict(a)
+    for key in merged.keys():
+        b_val = b.get(key)
+        if b_val is not None:
+            merged[key] = b_val
+    return merged
 
 
 @partial(jit, static_argnums=(1,))
 def safe_mask(mask, fn, operand, placeholder=0):
-  masked = jnp.where(mask, operand, 0)
-  return jnp.where(mask, fn(masked), placeholder)
+    masked = jnp.where(mask, operand, 0)
+    return jnp.where(mask, fn(masked), placeholder)
 
 
-def high_precision_sum(X: Array,
-                       axis: Optional[Union[Iterable[int], int]]=None,
-                       keepdims: bool=False):
-  """Sums over axes at 64-bit precision then casts back to original dtype."""
-  if jnp.issubdtype(X.dtype, jnp.integer):
-    dtyp = jnp.int64
-  elif jnp.issubdtype(X.dtype, jnp.complexfloating):
-    dtyp = jnp.complex128
-  else:
-    dtyp = jnp.float64
+def high_precision_sum(
+    X: Array, axis: Optional[Union[Iterable[int], int]] = None, keepdims: bool = False
+):
+    """Sums over axes at 64-bit precision then casts back to original dtype."""
+    if jnp.issubdtype(X.dtype, jnp.integer):
+        dtyp = jnp.int64
+    elif jnp.issubdtype(X.dtype, jnp.complexfloating):
+        dtyp = jnp.complex128
+    else:
+        dtyp = jnp.float64
 
-  return jnp.array(
-      jnp.sum(X, axis=axis, dtype=dtyp, keepdims=keepdims), dtype=X.dtype)
+    return jnp.array(
+        jnp.sum(X, axis=axis, dtype=dtyp, keepdims=keepdims), dtype=X.dtype
+    )
 
 
 def maybe_downcast(x):
-  if isinstance(x, jnp.ndarray) and x.dtype is jnp.dtype('float64'):
-    return x
-  return jnp.array(x, f32)
+    if isinstance(x, jnp.ndarray) and x.dtype is jnp.dtype("float64"):
+        return x
+    return jnp.array(x, f32)
 
 
 def is_array(x: Any) -> bool:
-  return isinstance(x, (jnp.ndarray, onp.ndarray))
+    return isinstance(x, (jnp.ndarray, onp.ndarray))
