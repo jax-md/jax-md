@@ -28,30 +28,28 @@ jobs:
       run: |
         sudo apt-get -y install pandoc
     - uses: actions/checkout@v3
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
       with:
-        python-version: ${{ matrix.python-version }}
-        cache: pip
-        cache-dependency-path: |
-          setup.py
+        enable-cache: true
+    - name: Set up Python ${{ matrix.python-version }}
+      run: uv python install ${{ matrix.python-version }}
     - name: Install dependencies
       run: |
-        pip install --upgrade pip
-        pip install .
-        pip install .[testing]
-        pip install pytest
-        pip install pytest-xdist
-        pip install pytest-cov
-        pip install netCDF4
-        pip install ase
+        uv pip install --system .
+        uv pip install --system .[testing]
+        uv pip install --system pytest pytest-xdist pytest-cov netCDF4 ase ruff
+    - name: Lint with ruff
+      run: |
+        uv run ruff check .
+        uv run ruff format --check .
     - name: Set Swap Space
       uses: pierotofy/set-swap-space@master
       with:
        swap-size-gb: 10
     - name: Test with pytest and generate coverage report
       run: |
-        JAX_ENABLE_X64=1 pytest --cov=jax_md --cov-report=xml --cov-report=term --cov-config=setup.cfg
+        JAX_ENABLE_X64=1 uv run pytest --cov=jax_md --cov-report=xml --cov-report=term --cov-config=setup.cfg
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v1
       with:
