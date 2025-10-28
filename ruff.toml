@@ -7,6 +7,8 @@ exclude = [
 [lint]
 ignore = [
     "E731",  # Do not assign a lambda expression, use a def
-    "F405",
-    "F841"
+    "E741",  # Ambiguous variable name
+    "F811",  # Redefinition of unused name
+    "F841",  # Local variable is assigned to but never used
+    "F401",
 ]
