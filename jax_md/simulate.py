@@ -1123,15 +1123,14 @@ def brownian(energy_or_force: Callable[..., Array],
 
   force_fn = quantity.canonicalize_force(energy_or_force)
 
-  dt, gamma = static_cast(dt, gamma)
-
   def init_fn(key, R, mass=f32(1)):
     state = BrownianState(R, mass, key)
     return canonicalize_mass(state)
 
   def apply_fn(state, **kwargs):
-    _kT = kT if 'kT' not in kwargs else kwargs['kT']
-    _gamma = gamma if 'gamma' not in kwargs else kwargs['gamma']
+    _dt = kwargs.pop('dt', dt)
+    _kT = kwargs.pop('kT', kT)
+    _gamma = kwargs.pop('gamma', gamma)
 
     R, mass, key = dataclasses.astuple(state)
 
@@ -1142,7 +1141,7 @@ def brownian(energy_or_force: Callable[..., Array],
 
     nu = f32(1) / (mass * _gamma)
 
-    dR = F * dt * nu + jnp.sqrt(f32(2) * _kT * dt * nu) * xi
+    dR = F * _dt * nu + jnp.sqrt(f32(2) * _kT * _dt * nu) * xi
     R = shift(R, dR, **kwargs)
 
     return BrownianState(R, mass, key)  # pytype: disable=wrong-arg-count
