@@ -24,16 +24,22 @@ with io.open(os.path.join(this_directory, 'README.md'), encoding='utf-8') as f:
 INSTALL_REQUIRES = [
     'absl-py',
     'numpy',
-    'jax>=0.1.73',
-    'jaxlib>=0.1.52',
-    'dm-haiku>=0.0.2',
+    'jax',
+    'jaxlib',
+    'flax',
     'jraph',
-    'dataclasses'
+    'einops',
+    'ml_collections',
+    'e3nn-jax',
+    'dm-haiku',
+    'optax',
+    'frozendict',
+    'pymatgen'
 ]
 
 setuptools.setup(
     name='jax-md',
-    version='0.1.24',
+    version='0.2.8',
     license='Apache 2.0',
     author='Google',
     author_email='jax-md-dev@google.com',
@@ -49,10 +55,11 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type='text/markdown',
     description='Differentiable, Hardware Accelerated, Molecular Dynamics',
-    python_requires='>=2.7',
+    python_requires='>=3.10',
     classifiers=[
-        'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12',
+        'Programming Language :: Python :: 3.13',
         'License :: OSI Approved :: Apache Software License',
         'Operating System :: MacOS',
         'Operating System :: POSIX :: Linux',

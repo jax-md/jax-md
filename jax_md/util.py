@@ -17,7 +17,6 @@
 from typing import Iterable, Union, Optional, Any
 
 from jax.tree_util import register_pytree_node
-from jax.lib import xla_bridge
 import jax.numpy as jnp
 from jax import jit
 
@@ -25,7 +24,14 @@ from functools import partial
 
 import numpy as onp
 
+# Backward compatible import for get_backend
+try:
+  from jax.extend.backend import get_backend
+except (ImportError, AttributeError):
+  from jax.lib.xla_bridge import get_backend
+
 Array = jnp.ndarray
+PyTree = Any
 
 i16 = jnp.int16
 i32 = jnp.int32
@@ -35,10 +41,23 @@ f32 = jnp.float32
 f64 = jnp.float64
 
 
+CUSTOM_SIMULATION_TYPE = []
+
+
+def register_custom_simulation_type(t: Any):
+  global CUSTOM_SIMULATION_TYPE
+  CUSTOM_SIMULATION_TYPE += [t]
+
+
+def check_custom_simulation_type(x: Any) -> bool:
+  if type(x) in CUSTOM_SIMULATION_TYPE:
+    raise ValueError()
+
+
 def static_cast(*xs):
   """Function to cast a value to the lowest dtype that can express it."""
   # NOTE(schsam): static_cast is so named because it cannot be jit.
-  if xla_bridge.get_backend().platform == 'tpu':
+  if get_backend().platform == 'tpu':
     return (jnp.array(x, jnp.float32) for x in xs)
   else:
     return (jnp.array(x, dtype=onp.min_scalar_type(x)) for x in xs)
@@ -73,8 +92,15 @@ def high_precision_sum(X: Array,
                        axis: Optional[Union[Iterable[int], int]]=None,
                        keepdims: bool=False):
   """Sums over axes at 64-bit precision then casts back to original dtype."""
+  if jnp.issubdtype(X.dtype, jnp.integer):
+    dtyp = jnp.int64
+  elif jnp.issubdtype(X.dtype, jnp.complexfloating):
+    dtyp = jnp.complex128
+  else:
+    dtyp = jnp.float64
+
   return jnp.array(
-      jnp.sum(X, axis=axis, dtype=f64, keepdims=keepdims), dtype=X.dtype)
+      jnp.sum(X, axis=axis, dtype=dtyp, keepdims=keepdims), dtype=X.dtype)
 
 
 def maybe_downcast(x):

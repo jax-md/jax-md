@@ -15,37 +15,39 @@
 """Spaces in which particles are simulated.
 
 Spaces are pairs of functions containing:
-
-  * `displacement_fn(Ra, Rb, **kwargs)`
-    Computes displacements between pairs of particles. Ra and Rb should
-    be ndarrays of shape [spatial_dim]. Returns an ndarray of shape
-    [spatial_dim]. To compute the displacement over more than one particle
-    at a time see the `map_product`, `map_bond`, and `map_neighbor` functions.
-
-  * `shift_fn(R, dR, **kwargs)` Moves points at position R by an amount dR.
+  `displacement_fn(Ra, Rb, **kwargs)`:
+    Computes displacements between pairs of particles. `Ra` and `Rb` should
+    be ndarrays of shape `[spatial_dim]`. Returns an ndarray of shape `[spatial_dim]`.
+    To compute the displacement over more than one particle at a time see the
+    :meth:`map_product`, :meth:`map_bond`, and :meth:`map_neighbor` functions.
+  `shift_fn(R, dR, **kwargs)`:
+    Moves points at position `R` by an amount `dR`.
 
 Spaces can accept keyword arguments allowing the space to be changed over the
-course of a simulation. For an example of this use see `periodic_general`.
+course of a simulation. For an example of this use see :meth:`periodic_general`.
 
 Although displacement functions are compute the displacement between two
 points, it is often useful to compute displacements between multiple particles
 in a vectorized fashion. To do this we provide three functions: `map_product`,
-`map_bond`, and `map_neighbor`.
-  * `map_pair` computes displacements betweeen all pairs of points such that if
-    Ra has shape [n, spatial_dim] and Rb has shape `[m, spatial_dim]` then the
+`map_bond`, and `map_neighbor`:
+  map_product:
+    Computes displacements between all pairs of points such that if
+    `Ra` has shape `[n, spatial_dim]` and `Rb` has shape `[m, spatial_dim]` then the
     output has shape `[n, m, spatial_dim]`.
-  * `map_bond` computes displacements between all points in a list such that if
-    Ra has shape [n, spatial_dim] and Rb has shape [m, spatial_dim] then the
-    otuput has shape [n, spatial_dim].
-  * `map_neighbor` computes displacements between points and all of their
-    neighbors such that if Ra has shape [n, spatial_dim] and Rb has shape
-    [n, neighbors, spatial_dim] then the output has shape
-    [n, neighbors, spatial_dim].
+  map_bond:
+    Computes displacements between all points in a list such that if
+    `Ra` has shape `[n, spatial_dim]` and `Rb` has shape `[m, spatial_dim]` then the
+    output has shape `[n, spatial_dim]`.
+  map_neighbor:
+    Computes displacements between points and all of their
+    neighbors such that if `Ra` has shape `[n, spatial_dim]` and `Rb` has shape
+    `[n, neighbors, spatial_dim]` then the output has shape
+    `[n, neighbors, spatial_dim]`.
 """
 
 from typing import Callable, Union, Tuple, Any, Optional
 
-from jax.abstract_arrays import ShapedArray
+from jax.core import ShapedArray
 
 from jax import eval_shape
 from jax import vmap
@@ -72,6 +74,13 @@ ShiftFn = Callable[[Array, Array], Array]
 
 Space = Tuple[DisplacementFn, ShiftFn]
 Box = Array
+
+
+# Exceptions
+
+
+class UnexpectedBoxException(Exception):
+  pass
 
 
 # Primitive Spatial Transforms
@@ -146,11 +155,11 @@ def pairwise_displacement(Ra: Array, Rb: Array) -> Array:
   """Compute a matrix of pairwise displacements given two sets of positions.
 
   Args:
-    Ra: Vector of positions; ndarray(shape=[spatial_dim]).
-    Rb: Vector of positions; ndarray(shape=[spatial_dim]).
+    Ra: Vector of positions; `ndarray(shape=[spatial_dim])`.
+    Rb: Vector of positions; `ndarray(shape=[spatial_dim])`.
 
   Returns:
-    Matrix of displacements; ndarray(shape=[spatial_dim]).
+    Matrix of displacements; `ndarray(shape=[spatial_dim])`.
   """
   if len(Ra.shape) != 1:
     msg = (
@@ -173,9 +182,9 @@ def periodic_displacement(side: Box, dR: Array) -> Array:
     side: Specification of hypercube size. Either,
       (a) float if all sides have equal length.
       (b) ndarray(spatial_dim) if sides have different lengths.
-    dR: Matrix of displacements; ndarray(shape=[..., spatial_dim]).
+    dR: Matrix of displacements; `ndarray(shape=[..., spatial_dim])`.
   Returns:
-    Matrix of wrapped displacements; ndarray(shape=[..., spatial_dim]).
+    Matrix of wrapped displacements; `ndarray(shape=[..., spatial_dim])`.
   """
   return jnp.mod(dR + side * f32(0.5), side) - f32(0.5) * side
 
@@ -184,9 +193,9 @@ def square_distance(dR: Array) -> Array:
   """Computes square distances.
 
   Args:
-    dR: Matrix of displacements; ndarray(shape=[..., spatial_dim]).
+    dR: Matrix of displacements; `ndarray(shape=[..., spatial_dim])`.
   Returns:
-    Matrix of squared distances; ndarray(shape=[...]).
+    Matrix of squared distances; `ndarray(shape=[...])`.
   """
   return jnp.sum(dR ** 2, axis=-1)
 
@@ -195,9 +204,9 @@ def distance(dR: Array) -> Array:
   """Computes distances.
 
   Args:
-    dR: Matrix of displacements; ndarray(shape=[..., spatial_dim]).
+    dR: Matrix of displacements; `ndarray(shape=[..., spatial_dim])`.
   Returns:
-    Matrix of distances; ndarray(shape=[...]).
+    Matrix of distances; `ndarray(shape=[...])`.
   """
   dr = square_distance(dR)
   return safe_mask(dr > 0, jnp.sqrt, dr)
@@ -233,14 +242,15 @@ def periodic(side: Box, wrapped: bool=True) -> Space:
     wrapped: A boolean specifying whether or not particle positions are
       remapped back into the box after each step
   Returns:
-    (displacement_fn, shift_fn) tuple.
+    `(displacement_fn, shift_fn)` tuple.
   """
   def displacement_fn(Ra: Array, Rb: Array,
                       perturbation: Optional[Array] = None,
                       **unused_kwargs) -> Array:
     if 'box' in unused_kwargs:
-      raise ValueError(('`space.periodic` does not accept a box argument.'
-                        'Perhaps you maent to use `space.periodic_general`?'))
+      raise UnexpectedBoxException(('`space.periodic` does not accept a box '
+                                    'argument. Perhaps you meant to use '
+                                    '`space.periodic_general`?'))
     dR = periodic_displacement(side, pairwise_displacement(Ra, Rb))
     if perturbation is not None:
       dR = raw_transform(perturbation, dR)
@@ -248,14 +258,17 @@ def periodic(side: Box, wrapped: bool=True) -> Space:
   if wrapped:
     def shift_fn(R: Array, dR: Array, **unused_kwargs) -> Array:
       if 'box' in unused_kwargs:
-        raise ValueError(('`space.periodic` does not accept a box argument.'
-                          'Perhaps you maent to use `space.periodic_general`?'))
+        raise UnexpectedBoxException(('`space.periodic` does not accept a box '
+                                      'argument. Perhaps you meant to use '
+                                      '`space.periodic_general`?'))
+
       return periodic_shift(side, R, dR)
   else:
     def shift_fn(R: Array, dR: Array, **unused_kwargs) -> Array:
       if 'box' in unused_kwargs:
-        raise ValueError(('`space.periodic` does not accept a box argument.'
-                          'Perhaps you maent to use `space.periodic_general`?'))
+        raise UnexpectedBoxException(('`space.periodic` does not accept a box '
+                                      'argument. Perhaps you meant to use '
+                                      '`space.periodic_general`?'))
       return R + dR
   return displacement_fn, shift_fn
 
@@ -265,69 +278,70 @@ def periodic_general(box: Box,
                      wrapped: bool=True) -> Space:
   """Periodic boundary conditions on a parallelepiped.
 
-  This function defines a simulation on a parallelepiped, $X$, formed by
-  applying an affine transformation, $T$, to the unit hypercube
-  $U = [0, 1]^d$ along with periodic boundary conditions across all
+  This function defines a simulation on a parallelepiped, :math:`X`, formed by
+  applying an affine transformation, :math:`T`, to the unit hypercube
+  :math:`U = [0, 1]^d` along with periodic boundary conditions across all
   of the faces.
 
-  Formally, the space is defined such that $X = {Tu : u \in [0, 1]^d}$.
+  Formally, the space is defined such that :math:`X = {Tu : u \in [0, 1]^d}`.
 
-  The affine transformation, $T$, can be specified in a number of different
-  ways. For a parallelepiped that is: 1) a cube of side length $L$, the affine
+  The affine transformation, :math:`T`, can be specified in a number of different
+  ways. For a parallelepiped that is: 1) a cube of side length :math:`L`, the affine
   transformation can simply be a scalar; 2) an orthorhombic unit cell can be
   specified by a vector `[Lx, Ly, Lz]` of lengths for each axis; 3) a general
   triclinic cell can be specified by an upper triangular matrix.
 
-  There are a number of ways to parameterize a simulation on $X$.
-  `periodic_general` supports two parametrizations of $X$ that can be selected
+  There are a number of ways to parameterize a simulation on :math:`X`.
+  `periodic_general` supports two parametrizations of :math:`X` that can be selected
   using the `fractional_coordinates` keyword argument.
+
     1) When `fractional_coordinates=True`, particle positions are stored in the
-       unit cube, $u\in U$. Here, the displacement function computes the
-       displacement between $x, y \in X$ as $d_X(x, y) = Td_U(u, v)$ where
-       $d_U$ is the displacement function on the unit cube, $U$, $x = Tu$, and
-       $v = Tv$ with $u, v\in U$. The derivative of the displacement function
-       is defined so that derivatives live in $X$ (as opposed to being
-       backpropagated to $U$). The shift function, `shift_fn(R, dR)` is defined
-       so that $R$ is expected to lie in $U$ while $dR$ should lie in $X$. This
+       unit cube, :math:`u\in U`. Here, the displacement function computes the
+       displacement between :math:`x, y \in X` as :math:`d_X(x, y) = Td_U(u, v)` where
+       :math:`d_U` is the displacement function on the unit cube, :math:`U`, :math:`x = Tu`, and
+       :math:`v = Tv` with :math:`u, v \in U`. The derivative of the displacement function
+       is defined so that derivatives live in :math:`X` (as opposed to being
+       backpropagated to :math:`U`). The shift function, `shift_fn(R, dR)` is defined
+       so that :math:`R` is expected to lie in :math:`U` while :math:`dR` should lie in :math:`X`. This
        combination enables code such as `shift_fn(R, force_fn(R))` to work as
        intended.
 
     2) When `fractional_coordinates=False`, particle positions are stored in
-       the parallelepiped $X$. Here, for $x, y\in X$, the displacement function
-       is defined as $d_X(x, y) = Td_U(T^{-1}x, T^{-1}y)$. Since there is an
-       extra multiplication by $T^{-1}$, this parameterization is typically
+       the parallelepiped :math:`X`. Here, for :math:`x, y \in X`, the displacement function
+       is defined as :math:`d_X(x, y) = Td_U(T^{-1}x, T^{-1}y)`. Since there is an
+       extra multiplication by :math:`T^{-1}`, this parameterization is typically
        slower than `fractional_coordinates=False`. As in 1), the displacement
-       function is defined to compute derivatives in $X$. The shift function
-       is defined so that $R$ and $dR$ should both lie in $X$.
-
+       function is defined to compute derivatives in :math:`X`. The shift function
+       is defined so that :math:`R` and :math:`dR` should both lie in :math:`X`.
 
   Example:
-  ```python
-    from jax import random
-    side_length = 10.0
-    disp_frac, shift_frac = periodic_general(side_length,
-                                             fractional_coordinates=True)
-    disp_real, shift_real = periodic_general(side_length,
-                                             fractional_coordinates=False)
+  
+  .. code-block:: python
 
-    # Instantiate random positions in both parameterizations.
-    R_frac = random.uniform(random.PRNGKey(0), (4, 3))
-    R_real = side_length * R_frac
+     from jax import random
+     side_length = 10.0
+     disp_frac, shift_frac = periodic_general(side_length,
+                                               fractional_coordinates=True)
+     disp_real, shift_real = periodic_general(side_length,
+                                               fractional_coordinates=False) 
 
-    # Make some shfit vectors.
-    dR = random.normal(random.PRNGKey(0), (4, 3))
+     # Instantiate random positions in both parameterizations.
+     R_frac = random.uniform(random.PRNGKey(0), (4, 3))
+     R_real = side_length * R_frac
 
-    disp_real(R_real[0], R_real[1]) == disp_frac(R_frac[0], R_frac[1])
-    transform(side_length, shift_frac(R_frac, 1.0)) == shift_real(R_real, 1.0)
-  ```
+     # Make some shift vectors.
+     dR = random.normal(random.PRNGKey(0), (4, 3))
+
+     disp_real(R_real[0], R_real[1]) == disp_frac(R_frac[0], R_frac[1])
+     transform(side_length, shift_frac(R_frac, 1.0)) == shift_real(R_real, 1.0)
 
   It is often desirable to deform a simulation cell either: using a finite
   deformation during a simulation, or using an infinitesimal deformation while
   computing elastic constants. To do this using fractional coordinates, we can
   supply a new affine transformation as `displacement_fn(Ra, Rb, box=new_box)`.
-  When using real coordinates, we can specify positions in a space $X$ defined
-  by an affine transformation $T$ and compute displacements in a deformed space
-  $X'$ defined by an affine transformation $T'$. This is done by writing
+  When using real coordinates, we can specify positions in a space :math:`X` defined
+  by an affine transformation :math:`T` and compute displacements in a deformed space
+  :math:`X'` defined by an affine transformation :math:`T'`. This is done by writing
   `displacement_fn(Ra, Rb, new_box=new_box)`.
 
   There are a few caveats when using `periodic_general`. `periodic_general`
@@ -344,7 +358,7 @@ def periodic_general(box: Box,
     wrapped: A boolean specifying whether or not particle positions are
       remapped back into the box after each step
   Returns:
-    (displacement_fn, shift_fn) tuple.
+    `(displacement_fn, shift_fn)` tuple.
   """
   inv_box = inverse(box)
 
@@ -423,7 +437,7 @@ def map_neighbor(metric_or_displacement: DisplacementOrMetricFn
                  ) -> DisplacementOrMetricFn:
   """Vectorizes a metric or displacement function over neighborhoods."""
   def wrapped_fn(Ra, Rb, **kwargs):
-    return vmap(vmap(metric_or_displacement, (None, 0)))(-Ra, -Rb, **kwargs)
+    return vmap(vmap(metric_or_displacement, (0, None)))(Rb, Ra, **kwargs)
   return wrapped_fn
 
 

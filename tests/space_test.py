@@ -17,13 +17,11 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 
-from jax.config import config as jax_config
+import jax
 from jax import random
 import jax.numpy as jnp
 
 from jax import grad, jit, jacfwd
-
-from jax import test_util as jtu
 
 from jax_md import space, test_util, quantity, energy
 from jax_md.util import *
@@ -33,9 +31,7 @@ from unittest import SkipTest
 
 test_util.update_test_tolerance(5e-5, 5e-13)
 
-jax_config.parse_flags_with_absl()
-jax_config.enable_omnistaging()
-FLAGS = jax_config.FLAGS
+jax.config.parse_flags_with_absl()
 
 PARTICLE_COUNT = 10
 STOCHASTIC_SAMPLES = 10
@@ -43,7 +39,7 @@ SHIFT_STEPS = 10
 SPATIAL_DIMENSION = [2, 3]
 BOX_FORMATS = ['scalar', 'vector', 'matrix']
 
-if FLAGS.jax_enable_x64:
+if jax.config.jax_enable_x64:
   POSITION_DTYPE = [f32, f64]
 else:
   POSITION_DTYPE = [f32]
@@ -76,11 +72,10 @@ def make_periodic_general_test_system(N, dim, dtype, box_format):
 
 
 # pylint: disable=invalid-name
-@jtu.with_config(jax_numpy_rank_promotion='allow')
-class SpaceTest(jtu.JaxTestCase):
+class SpaceTest(test_util.JAXMDTestCase):
 
   # pylint: disable=g-complex-comprehension
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -102,7 +97,7 @@ class SpaceTest(jtu.JaxTestCase):
 
       self.assertAllClose(R_prime_exact, R_prime)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}'.format(dim),
           'spatial_dimension': dim
@@ -126,7 +121,7 @@ class SpaceTest(jtu.JaxTestCase):
 
       self.assertAllClose(grad_direct, grad_indirect)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -153,7 +148,7 @@ class SpaceTest(jtu.JaxTestCase):
 
       self.assertAllClose(R, R_test)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -177,7 +172,7 @@ class SpaceTest(jtu.JaxTestCase):
 
       self.assertAllClose(metric(R, R), test_metric(R, R))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -227,7 +222,7 @@ class SpaceTest(jtu.JaxTestCase):
       assert dR_wrapped.dtype == dtype
       self.assertAllClose(dR_wrapped, dR_direct)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -258,7 +253,7 @@ class SpaceTest(jtu.JaxTestCase):
       assert dR_after.dtype == R.dtype
       self.assertAllClose(dR_after, dR)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -298,7 +293,7 @@ class SpaceTest(jtu.JaxTestCase):
           shift_fn(R_scaled, dR), general_shift_fn(R, dR) * box_size)
       assert shift_fn(R_scaled, dR).dtype == dtype
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -338,7 +333,7 @@ class SpaceTest(jtu.JaxTestCase):
       self.assertAllClose(grad_fn(R_scaled), general_grad_fn(R))
       assert general_grad_fn(R).dtype == dtype
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -382,7 +377,7 @@ class SpaceTest(jtu.JaxTestCase):
       self.assertAllClose(
         shift_fn(R, dR, box=T_1), jnp.array(true_shift_fn(R, dR), dtype=dtype))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -426,7 +421,7 @@ class SpaceTest(jtu.JaxTestCase):
           displacement(unwrapped_R, R0))
       assert not (jnp.all(unwrapped_R > 0) and jnp.all(unwrapped_R < 1))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': f'_dim={dim}_dtype={dtype.__name__}_box_format={box_format}',
           'spatial_dimension': dim,
@@ -442,7 +437,7 @@ class SpaceTest(jtu.JaxTestCase):
     self.assertAllClose(E(R), E_gf(R_f))
     self.assertAllClose(E(R), E_g(R))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': f'_dim={dim}_dtype={dtype.__name__}_box_format={box_format}',
           'spatial_dimension': dim,
@@ -458,7 +453,7 @@ class SpaceTest(jtu.JaxTestCase):
     self.assertAllClose(grad(E)(R), grad(E_gf)(R_f))
     self.assertAllClose(grad(E)(R), grad(E_g)(R))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': f'_dim={dim}_dtype={dtype.__name__}_box_format={box_format}',
           'spatial_dimension': dim,
@@ -479,7 +474,7 @@ class SpaceTest(jtu.JaxTestCase):
     self.assertAllClose(R_new, space.transform(box, R_gf_new))
     self.assertAllClose(R_new, R_g_new)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': f'_dim={dim}_dtype={dtype.__name__}_box_format={box_format}',
           'spatial_dimension': dim,
@@ -496,7 +491,7 @@ class SpaceTest(jtu.JaxTestCase):
     self.assertAllClose(E_gf(R_f, box=deformed_box),
                         E_g(R, new_box=deformed_box))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': f'_dim={dim}_dtype={dtype.__name__}_box_format={box_format}',
           'spatial_dimension': dim,
@@ -517,7 +512,7 @@ class SpaceTest(jtu.JaxTestCase):
     self.assertAllClose(jacfwd(E_gf)(R_f, box=deformed_box),
                         jacfwd(E_g)(R, new_box=deformed_box))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': f'_dim={dim}_dtype={dtype.__name__}_box_format={box_format}',
           'spatial_dimension': dim,
@@ -538,7 +533,7 @@ class SpaceTest(jtu.JaxTestCase):
 
     self.assertAllClose(R_new, R_gf_new)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': f'_dim={dim}_dtype={dtype.__name__}_box_format={box_format}',
           'spatial_dimension': dim,
@@ -563,5 +558,7 @@ class SpaceTest(jtu.JaxTestCase):
       return E_gf(R_f, box=box)
 
     self.assertAllClose(box_energy_g_fn(box), box_energy_gf_fn(box))
+
+
 if __name__ == '__main__':
   absltest.main()

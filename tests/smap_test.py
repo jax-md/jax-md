@@ -17,25 +17,22 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 
-from jax.config import config as jax_config
+import jax
 
 from jax import random
 import jax.numpy as np
 
 from jax import grad
 
-from jax import test_util as jtu
 from jax import jit, vmap
 
-from jax_md import smap, space, energy, quantity, partition
+from jax_md import smap, space, energy, quantity, partition, dataclasses
 from jax_md.util import *
 from jax_md import test_util
 
-jax_config.parse_flags_with_absl()
-jax_config.enable_omnistaging()
-FLAGS = jax_config.FLAGS
+jax.config.parse_flags_with_absl()
 
-test_util.update_test_tolerance(f32_tolerance=5e-6, f64_tolerance=1e-14)
+test_util.update_test_tolerance(f32_tol=5e-6, f64_tol=1e-14)
 
 PARTICLE_COUNT = 1000
 STOCHASTIC_SAMPLES = 3
@@ -46,14 +43,14 @@ NEIGHBOR_LIST_FORMAT = [partition.Dense,
 
 NEIGHBOR_LIST_PARTICLE_COUNT = 100
 
-if FLAGS.jax_enable_x64:
+if jax.config.jax_enable_x64:
   POSITION_DTYPE = [f32, f64]
 else:
   POSITION_DTYPE = [f32]
 
-class SMapTest(jtu.JaxTestCase):
+class SMapTest(test_util.JAXMDTestCase):
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -77,7 +74,7 @@ class SMapTest(jtu.JaxTestCase):
 
       self.assertAllClose(mapped(R), dtype(accum))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -102,7 +99,7 @@ class SMapTest(jtu.JaxTestCase):
 
       self.assertAllClose(mapped(R, bonds), dtype(accum))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -130,7 +127,7 @@ class SMapTest(jtu.JaxTestCase):
 
       self.assertAllClose(mapped(R), dtype(accum))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -158,7 +155,7 @@ class SMapTest(jtu.JaxTestCase):
 
       self.assertAllClose(mapped(R, bonds, bond_types), dtype(accum))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -185,7 +182,7 @@ class SMapTest(jtu.JaxTestCase):
 
       self.assertAllClose(mapped(R, bonds, sigma=sigma), dtype(accum))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -242,7 +239,7 @@ class SMapTest(jtu.JaxTestCase):
     self.assertAllClose(
         smap._get_matrix_parameters(params_scalar, None), params_scalar)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -267,7 +264,42 @@ class SMapTest(jtu.JaxTestCase):
         mapped_square(R),
         np.array(0.5 * np.sum(square(metric(R, R))), dtype=dtype))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': f'_dtype={dtype.__name__}',
+          'dtype': dtype
+      } for dtype in POSITION_DTYPE))
+  def test_pair_no_species_pytree(self, dtype):
+    square_scalar = lambda dr, p0, p1: p0 * dr ** 2 + p1
+    square_higher = lambda dr, p: p[0] * dr ** 2 + p[1]
+
+    @dataclasses.dataclass
+    class Parameter:
+      scale: Array
+      shift: Array
+
+    tree_fn = lambda dr, p: p.scale * dr**2 + p.shift
+    displacement, _ = space.free()
+    metric = space.metric(displacement)
+
+    p = np.array([1.0, 2.0])
+    M = smap.ParameterTreeMapping
+    mapped_scalar = smap.pair(square_scalar, metric, p0=p[0], p1=p[1])
+    mapped_higher = smap.pair(square_higher, metric,
+                              p=smap.ParameterTree(p, M.Global))
+
+    p_tree = smap.ParameterTree(Parameter(scale=p[0], shift=p[1]), M.Global)
+    mapped_tree = smap.pair(tree_fn, metric, p=p_tree)
+
+    key = random.PRNGKey(0)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = random.uniform(split, (PARTICLE_COUNT, 2), dtype=dtype)
+      self.assertAllClose(mapped_scalar(R), mapped_higher(R))
+      self.assertAllClose(mapped_scalar(R), mapped_tree(R))
+
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -294,7 +326,7 @@ class SMapTest(jtu.JaxTestCase):
         np.array(0.5 * np.sum(
           square(metric(R, R), mat_epsilon)), dtype=dtype))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -316,7 +348,80 @@ class SMapTest(jtu.JaxTestCase):
       mapped_ref = np.array(0.5 * np.sum(square(disp(R, R))), dtype=dtype)
       self.assertAllClose(mapped_square(R), mapped_ref)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': f'_dtype={dtype.__name__}',
+          'dtype': dtype
+      } for dtype in POSITION_DTYPE))
+  def test_pair_no_species_pytree_per_particle(self, dtype):
+    square_scalar = lambda dr, p0, p1: p0 * dr ** 2 + p1
+    square_higher = lambda dr, p: p[..., 0] * dr ** 2 + p[..., 1]
+
+    @dataclasses.dataclass
+    class Parameter:
+      scale: Array
+      shift: Array
+    tree_fn = lambda dr, p: p.scale * dr**2 + p.shift
+
+    displacement, _ = space.free()
+    metric = space.metric(displacement)
+
+    p = random.uniform(random.PRNGKey(1), (PARTICLE_COUNT, 2))
+    M = smap.ParameterTreeMapping
+    mapped_scalar = smap.pair(square_scalar, metric, p0=p[:, 0], p1=p[:, 1])
+    p_higher = smap.ParameterTree(p, M.PerParticle)
+    mapped_higher = smap.pair(square_higher, metric, p=p_higher)
+
+    p_tree = smap.ParameterTree(Parameter(scale=p[:, 0], shift=p[:, 1]),
+                                M.PerParticle)
+    mapped_tree = smap.pair(tree_fn, metric, p=p_tree)
+
+    key = random.PRNGKey(0)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = random.uniform(split, (PARTICLE_COUNT, 2), dtype=dtype)
+      self.assertAllClose(mapped_scalar(R), mapped_higher(R))
+      self.assertAllClose(mapped_scalar(R), mapped_tree(R))
+
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': f'_dtype={dtype.__name__}',
+          'dtype': dtype
+      } for dtype in POSITION_DTYPE))
+  def test_pair_no_species_pytree_order_per_bond(self, dtype):
+    square_scalar = lambda dr, p0, p1: p0 * dr ** 2 + p1
+    square_higher = lambda dr, p: p[..., 0] * dr ** 2 + p[..., 1]
+
+    @dataclasses.dataclass
+    class Parameter:
+      scale: Array
+      shift: Array
+    tree_fn = lambda dr, p: p.scale * dr**2 + p.shift
+
+    displacement, _ = space.free()
+    metric = space.metric(displacement)
+
+    p = random.uniform(random.PRNGKey(1), (PARTICLE_COUNT, PARTICLE_COUNT, 2))
+    M = smap.ParameterTreeMapping
+    mapped_scalar = smap.pair(square_scalar, metric,
+                              p0=p[..., 0], p1=p[..., 1])
+    mapped_higher = smap.pair(square_higher, metric,
+                              p=smap.ParameterTree(p, M.PerBond))
+
+    p_tree = smap.ParameterTree(Parameter(scale=p[..., 0], shift=p[..., 1]),
+                                M.PerBond)
+    mapped_tree = smap.pair(tree_fn, metric, p=p_tree)
+
+    key = random.PRNGKey(0)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = random.uniform(split, (PARTICLE_COUNT, 2), dtype=dtype)
+      self.assertAllClose(mapped_scalar(R), mapped_higher(R))
+      self.assertAllClose(mapped_scalar(R), mapped_tree(R))
+
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -342,7 +447,7 @@ class SMapTest(jtu.JaxTestCase):
                             dtype=dtype)
       self.assertAllClose(mapped_square(R, params=params), mapped_ref)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -378,7 +483,7 @@ class SMapTest(jtu.JaxTestCase):
           total = total + 0.5 * np.sum(square(metric(R_1, R_2), param))
       self.assertAllClose(mapped_square(R), np.array(total, dtype=dtype))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -416,7 +521,7 @@ class SMapTest(jtu.JaxTestCase):
       self.assertAllClose(
         mapped_square(R, param=params), np.array(total, dtype=dtype))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -436,7 +541,83 @@ class SMapTest(jtu.JaxTestCase):
 
     mapped(R, t=f32(0))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': f'_dtype={dtype.__name__}',
+          'dtype': dtype
+      } for dtype in POSITION_DTYPE))
+  def test_pair_species_pytree_global(self, dtype):
+    square_scalar = lambda dr, p0, p1: p0 * dr ** 2 + p1
+    square_higher = lambda dr, p: p[..., 0] * dr ** 2 + p[..., 1]
+
+    @dataclasses.dataclass
+    class Parameter:
+      scale: Array
+      shift: Array
+    square_tree = lambda dr, p: p.scale * dr**2 + p.shift
+
+    displacement, _ = space.free()
+    metric = space.metric(displacement)
+
+    p = np.array([1.0, 2.0])
+    M = smap.ParameterTreeMapping
+    species = np.where(np.arange(PARTICLE_COUNT) < PARTICLE_COUNT // 2, 0, 1)
+    mapped_scalar = smap.pair(square_scalar, metric, species=species,
+                              p0=p[0], p1=p[1])
+    p_h = smap.ParameterTree(p, M.Global)
+    mapped_higher = smap.pair(square_higher, metric, species=species, p=p_h)
+
+    p_tree = smap.ParameterTree(Parameter(p[0], p[1]), M.Global)
+    mapped_tree = smap.pair(square_tree, metric, species=species, p=p_tree)
+
+    key = random.PRNGKey(0)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = random.uniform(split, (PARTICLE_COUNT, 2), dtype=dtype)
+      self.assertAllClose(mapped_scalar(R), mapped_higher(R))
+      self.assertAllClose(mapped_scalar(R), mapped_tree(R))
+
+
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': f'_dtype={dtype.__name__}',
+          'dtype': dtype
+      } for dtype in POSITION_DTYPE))
+  def test_pair_species_pytree_per_species(self, dtype):
+    square_scalar = lambda dr, p0, p1: p0 * dr ** 2 + p1
+    square_higher = lambda dr, p: p[..., 0] * dr ** 2 + p[..., 1]
+
+    @dataclasses.dataclass
+    class Parameter:
+      scale: Array
+      shift: Array
+    square_tree = lambda dr, p: p.scale * dr**2 + p.shift
+
+    displacement, _ = space.free()
+    metric = space.metric(displacement)
+
+    p = random.uniform(random.PRNGKey(1), (2, 2, 2))
+    p = p + np.transpose(p, (1, 0, 2))
+    species = np.where(np.arange(PARTICLE_COUNT) < PARTICLE_COUNT // 2, 0, 1)
+    mapped_scalar = smap.pair(square_scalar, metric, species=species,
+                              p0=p[..., 0], p1=p[..., 1])
+    M = smap.ParameterTreeMapping
+    p_h = smap.ParameterTree(p, M.PerSpecies)
+    mapped_higher = smap.pair(square_higher, metric, species=species, p=p_h)
+
+    p_tree = smap.ParameterTree(Parameter(p[..., 0], p[..., 1]), M.PerSpecies)
+    mapped_tree = smap.pair(square_tree, metric, species=species, p=p_tree)
+
+    key = random.PRNGKey(0)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = random.uniform(split, (PARTICLE_COUNT, 2), dtype=dtype)
+      self.assertAllClose(mapped_scalar(R), mapped_higher(R))
+      self.assertAllClose(mapped_scalar(R), mapped_tree(R))
+
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -469,7 +650,7 @@ class SMapTest(jtu.JaxTestCase):
           total = total + 0.5 * np.sum(square(disp(R_1, R_2), param))
       self.assertAllClose(mapped_square(R), np.array(total, dtype=dtype))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -504,7 +685,7 @@ class SMapTest(jtu.JaxTestCase):
       self.assertAllClose(mapped_square(R, species),
                           np.array(total, dtype=dtype))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -539,7 +720,7 @@ class SMapTest(jtu.JaxTestCase):
       self.assertAllClose(mapped_square(R, species),
                           np.array(total, dtype=dtype))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
                             f'_format={format}'),
@@ -577,7 +758,305 @@ class SMapTest(jtu.JaxTestCase):
       self.assertAllClose(mapped_square(R, sigma=sigma),
                           neighbor_square(R, nbrs, sigma=sigma))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': (f'_dtype={dtype.__name__}'
+                            f'_format={format}'),
+          'dtype': dtype,
+          'format': format
+      } for dtype in POSITION_DTYPE
+        for format in NEIGHBOR_LIST_FORMAT))
+  def test_pair_neighbor_list_pytree(self, dtype, format):
+    key = random.PRNGKey(0)
+    dim = 2
+
+    def scalar_fn(dr, sigma, shift):
+      return np.where(dr < sigma, dr ** 2 + shift, f32(0.))
+
+    def higher_order_fn(dr, p):
+      sigma = random.uniform(key, (), minval=0.5, maxval=2.5)
+      return np.where(dr < p[..., 0], dr ** 2 + p[..., 1], f32(0.))
+
+    @dataclasses.dataclass
+    class Parameter:
+      sigma: Array
+      shift: Array
+
+    def tree_fn(dr, p):
+      return np.where(dr < p.sigma, dr ** 2 + p.shift, f32(0.))
+
+    N = NEIGHBOR_LIST_PARTICLE_COUNT
+    box_size = 4. * N ** (1. / dim)
+
+    key, split = random.split(key)
+    disp, _ = space.periodic(box_size)
+    d = space.metric(disp)
+
+    sigma = 1.0
+    shift = 2.0
+    M = smap.ParameterTreeMapping
+    neighbor_scalar = smap.pair_neighbor_list(scalar_fn, d,
+                                              sigma=sigma, shift=shift)
+    p = smap.ParameterTree(jnp.array([sigma, shift], dtype), M.Global)
+    neighbor_higher = smap.pair_neighbor_list(higher_order_fn, d, p=p)
+
+    p_tree = smap.ParameterTree(Parameter(sigma=sigma, shift=shift), M.Global)
+    neighbor_tree = smap.pair_neighbor_list(tree_fn, d, p=p_tree)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = box_size * random.uniform(split, (N, dim), dtype=dtype)
+      sigma = random.uniform(key, (), minval=0.5, maxval=2.5)
+      neighbor_fn = partition.neighbor_list(disp, box_size, sigma, 0.0,
+                                            format=format)
+      nbrs = neighbor_fn.allocate(R)
+      self.assertAllClose(neighbor_scalar(R, nbrs),
+                          neighbor_higher(R, nbrs))
+      self.assertAllClose(neighbor_scalar(R, nbrs),
+                          neighbor_tree(R, nbrs))
+
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': (f'_dtype={dtype.__name__}'
+                            f'_format={str(format).split(".")[-1]}'),
+          'dtype': dtype,
+          'format': format
+      } for dtype in POSITION_DTYPE
+        for format in NEIGHBOR_LIST_FORMAT))
+  def test_pair_neighbor_list_per_atom_pytree(self, dtype, format):
+    key = random.PRNGKey(0)
+    dim = 2
+
+    def scalar_fn(dr, sigma, shift):
+      return np.where(dr < sigma, dr ** 2 + shift, f32(0.))
+
+    def higher_order_fn(dr, p):
+      return np.where(dr < p[..., 0], dr ** 2 + p[..., 1], f32(0.))
+
+    @dataclasses.dataclass
+    class Parameter:
+      sigma: Array
+      shift: Array
+
+    def tree_fn(dr, p):
+      return np.where(dr < p.sigma, dr ** 2 + p.shift, f32(0.))
+
+    N = NEIGHBOR_LIST_PARTICLE_COUNT
+    box_size = 4. * N ** (1. / dim)
+
+    key, split, split2 = random.split(key, 3)
+    disp, _ = space.periodic(box_size)
+    d = space.metric(disp)
+
+    sigma = random.uniform(split, (N,), minval=0.5, maxval=1.0, dtype=dtype)
+    shift = random.uniform(split2, (N,), dtype=dtype)
+    M = smap.ParameterTreeMapping
+    neighbor_scalar = smap.pair_neighbor_list(scalar_fn, d,
+                                              sigma=sigma, shift=shift)
+    p = smap.ParameterTree(np.concatenate([sigma[:, None], shift[:, None]],
+                                          axis=-1),
+                           M.PerParticle)
+    neighbor_higher = smap.pair_neighbor_list(higher_order_fn, d, p=p)
+
+    p_tree = smap.ParameterTree(Parameter(sigma=sigma, shift=shift),
+                                M.PerParticle)
+    neighbor_tree = smap.pair_neighbor_list(tree_fn, d, p=p_tree)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = box_size * random.uniform(split, (N, dim), dtype=dtype)
+      sigma = random.uniform(key, (), minval=0.5, maxval=2.5)
+      neighbor_fn = partition.neighbor_list(disp, box_size, sigma, 0.0,
+                                            format=format)
+      nbrs = neighbor_fn.allocate(R)
+      self.assertAllClose(neighbor_scalar(R, nbrs),
+                          neighbor_higher(R, nbrs))
+      self.assertAllClose(neighbor_scalar(R, nbrs),
+                          neighbor_tree(R, nbrs))
+
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': (f'_dtype={dtype.__name__}'
+                            f'_format={str(format).split(".")[-1]}'),
+          'dtype': dtype,
+          'format': format
+      } for dtype in POSITION_DTYPE
+        for format in NEIGHBOR_LIST_FORMAT))
+  def test_pair_neighbor_list_per_bond_pytree(self, dtype, format):
+    key = random.PRNGKey(0)
+    dim = 2
+
+    def scalar_fn(dr, sigma, shift):
+      return np.where(dr < sigma, dr ** 2 + shift, f32(0.))
+
+    def higher_order_fn(dr, p):
+      return np.where(dr < p[..., 0], dr ** 2 + p[..., 1], f32(0.))
+
+    @dataclasses.dataclass
+    class Parameter:
+      sigma: Array
+      shift: Array
+
+    def tree_fn(dr, p):
+      return np.where(dr < p.sigma, dr ** 2 + p.shift, f32(0.))
+
+    N = NEIGHBOR_LIST_PARTICLE_COUNT
+    box_size = 4. * N ** (1. / dim)
+
+    key, split, split2 = random.split(key, 3)
+    disp, _ = space.periodic(box_size)
+    d = space.metric(disp)
+
+    sigma = random.uniform(split, (N, N), minval=0.5, maxval=1.0, dtype=dtype)
+    shift = random.uniform(split2, (N, N), dtype=dtype)
+    M = smap.ParameterTreeMapping
+    neighbor_scalar = smap.pair_neighbor_list(scalar_fn, d,
+                                              sigma=sigma, shift=shift)
+    p = smap.ParameterTree(np.concatenate([sigma[:, :, None],
+                                           shift[:, :, None]],
+                                          axis=-1),
+                           M.PerBond)
+    neighbor_higher = smap.pair_neighbor_list(higher_order_fn, d, p=p)
+
+    p_tree = smap.ParameterTree(Parameter(sigma=sigma, shift=shift),
+                                M.PerBond)
+    neighbor_tree = smap.pair_neighbor_list(tree_fn, d, p=p_tree)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = box_size * random.uniform(split, (N, dim), dtype=dtype)
+      sigma = random.uniform(key, (), minval=0.5, maxval=2.5)
+      neighbor_fn = partition.neighbor_list(disp, box_size, sigma, 0.0,
+                                            format=format)
+      nbrs = neighbor_fn.allocate(R)
+      self.assertAllClose(neighbor_scalar(R, nbrs),
+                          neighbor_higher(R, nbrs))
+      self.assertAllClose(neighbor_scalar(R, nbrs),
+                          neighbor_tree(R, nbrs))
+
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': (f'_dtype={dtype.__name__}'
+                            f'_format={str(format).split(".")[-1]}'),
+          'dtype': dtype,
+          'format': format
+      } for dtype in POSITION_DTYPE
+        for format in NEIGHBOR_LIST_FORMAT))
+  def test_pair_neighbor_list_species_global_pytree(self, dtype, format):
+    key = random.PRNGKey(0)
+    dim = 2
+
+    def scalar_fn(dr, sigma, shift):
+      return np.where(dr < sigma, dr ** 2 + shift, f32(0.))
+
+    def higher_order_fn(dr, p):
+      return np.where(dr < p[0], dr ** 2 + p[1], f32(0.))
+
+    @dataclasses.dataclass
+    class Parameter:
+      sigma: Array
+      shift: Array
+
+    def tree_fn(dr, p):
+      return np.where(dr < p.sigma, dr ** 2 + p.shift, f32(0.))
+
+    N = NEIGHBOR_LIST_PARTICLE_COUNT
+    box_size = 4. * N ** (1. / dim)
+
+    key, split, split2 = random.split(key, 3)
+    disp, _ = space.periodic(box_size)
+    d = space.metric(disp)
+
+    sigma = f32(1.5)
+    shift = f32(2.0)
+    species = jnp.where(jnp.arange(N) < N // 2, 0, 1)
+    M = smap.ParameterTreeMapping
+    neighbor_scalar = smap.pair_neighbor_list(scalar_fn, d, species=species,
+                                              sigma=sigma, shift=shift)
+    p = smap.ParameterTree(np.array([sigma, shift]),
+                           M.Global)
+    neighbor_higher = smap.pair_neighbor_list(higher_order_fn, d,
+                                              species=species, p=p)
+
+    p_tree = smap.ParameterTree(Parameter(sigma=sigma, shift=shift),
+                                M.Global)
+    neighbor_tree = smap.pair_neighbor_list(tree_fn, d,
+                                            species=species, p=p_tree)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = box_size * random.uniform(split, (N, dim), dtype=dtype)
+      sigma = random.uniform(key, (), minval=0.5, maxval=2.5)
+      neighbor_fn = partition.neighbor_list(disp, box_size, sigma, 0.0,
+                                            format=format)
+      nbrs = neighbor_fn.allocate(R)
+      self.assertAllClose(neighbor_scalar(R, nbrs),
+                          neighbor_higher(R, nbrs))
+      self.assertAllClose(neighbor_scalar(R, nbrs),
+                          neighbor_tree(R, nbrs))
+
+  @parameterized.named_parameters(test_util.cases_from_list(
+      {
+          'testcase_name': (f'_dtype={dtype.__name__}'
+                            f'_format={str(format).split(".")[-1]}'),
+          'dtype': dtype,
+          'format': format
+      } for dtype in POSITION_DTYPE
+        for format in NEIGHBOR_LIST_FORMAT))
+  def test_pair_neighbor_list_species_per_species_pytree(self, dtype, format):
+    key = random.PRNGKey(0)
+    dim = 2
+
+    def scalar_fn(dr, sigma, shift):
+      return np.where(dr < sigma, dr ** 2 + shift, f32(0.))
+
+    def higher_order_fn(dr, p):
+      return np.where(dr < p[..., 0], dr ** 2 + p[..., 1], f32(0.))
+
+    @dataclasses.dataclass
+    class Parameter:
+      sigma: Array
+      shift: Array
+
+    def tree_fn(dr, p):
+      return np.where(dr < p.sigma, dr ** 2 + p.shift, f32(0.))
+
+    N = NEIGHBOR_LIST_PARTICLE_COUNT
+    box_size = 4. * N ** (1. / dim)
+
+    key, split, split2 = random.split(key, 3)
+    disp, _ = space.periodic(box_size)
+    d = space.metric(disp)
+
+    sigma = jnp.array([[1.0, 1.2], [1.2, 1.5]], f32)
+    shift = jnp.array([[2.0, 1.5], [1.5, 3.0]], f32)
+    species = jnp.where(jnp.arange(N) < N // 2, 0, 1)
+    M = smap.ParameterTreeMapping
+    neighbor_scalar = smap.pair_neighbor_list(scalar_fn, d, species=species,
+                                              sigma=sigma, shift=shift)
+    p = smap.ParameterTree(np.concatenate([sigma[..., None], shift[..., None]],
+                                          axis=-1),
+                           M.PerSpecies)
+    neighbor_higher = smap.pair_neighbor_list(higher_order_fn, d,
+                                              species=species, p=p)
+
+    p_tree = smap.ParameterTree(Parameter(sigma=sigma, shift=shift),
+                                M.PerSpecies)
+    neighbor_tree = smap.pair_neighbor_list(tree_fn, d,
+                                            species=species, p=p_tree)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, split = random.split(key)
+      R = box_size * random.uniform(split, (N, dim), dtype=dtype)
+      neighbor_fn = partition.neighbor_list(disp, box_size, jnp.max(sigma),
+                                            0.0, format=format)
+      nbrs = neighbor_fn.allocate(R)
+      self.assertAllClose(neighbor_scalar(R, nbrs),
+                          neighbor_higher(R, nbrs))
+      self.assertAllClose(neighbor_scalar(R, nbrs),
+                          neighbor_tree(R, nbrs))
+
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
                             f'_format={format}'),
@@ -615,7 +1094,7 @@ class SMapTest(jtu.JaxTestCase):
       self.assertAllClose(mapped_square(R, sigma=sigma),
                           neighbor_square(R, nbrs, sigma=sigma))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
                             f'_format={format}'),
@@ -654,7 +1133,7 @@ class SMapTest(jtu.JaxTestCase):
       self.assertAllClose(mapped_square(R, sigma=sigma),
                           neighbor_square(R, nbrs, sigma=sigma))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
                             f'_format={format}'),
@@ -692,7 +1171,7 @@ class SMapTest(jtu.JaxTestCase):
       self.assertAllClose(mapped_square(R, sigma=sigma),
                           neighbor_square(R, nbrs, sigma=sigma))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
                             f'_format={format}'),
@@ -731,7 +1210,7 @@ class SMapTest(jtu.JaxTestCase):
       self.assertAllClose(mapped_square(R, sigma=sigma),
                           neighbor_square(R, nbrs, sigma=sigma))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
                             f'_format={format}'),
@@ -774,7 +1253,8 @@ class SMapTest(jtu.JaxTestCase):
       nbrs = neighbor_fn.allocate(R)
       self.assertAllClose(mapped_square(R, sigma=sigma),
                           neighbor_square(R, nbrs, sigma=sigma))
-  @parameterized.named_parameters(jtu.cases_from_list(
+
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
                             f'_format={format}'),
@@ -818,7 +1298,7 @@ class SMapTest(jtu.JaxTestCase):
         mapped_square(R, sigma=sigma),
         neighbor_square(R, nbrs, sigma=sigma, species=species))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
                             f'_format={str(format).split(".")[-1]}'),
@@ -859,7 +1339,7 @@ class SMapTest(jtu.JaxTestCase):
       self.assertAllClose(mapped_square(R, sigma=sigma),
                           neighbor_square(R, nbrs, sigma=sigma))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
                             f'_format={format}'),
@@ -908,7 +1388,7 @@ class SMapTest(jtu.JaxTestCase):
       self.assertAllClose(mapped_square(R, sigma=sigma_pair),
                           neighbor_square(R, nbrs, sigma=sigma))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': (f'_dim={dim}_dtype={dtype.__name__}'
                             f'_format={format}'),
@@ -951,7 +1431,7 @@ class SMapTest(jtu.JaxTestCase):
       self.assertAllClose(mapped_square(R, sigma=sigma_pair),
                           neighbor_square(R, nbrs, sigma=sigma))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -980,7 +1460,7 @@ class SMapTest(jtu.JaxTestCase):
             triplet_square(R) / count / 2.,
             np.array(0.5 * np.sum(metric(R, R)), dtype=dtype))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,

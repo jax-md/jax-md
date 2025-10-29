@@ -17,7 +17,7 @@
 from absl.testing import absltest
 from absl.testing import parameterized
 
-from jax.config import config as jax_config
+import jax
 from jax import random
 import jax.numpy as np
 
@@ -25,16 +25,14 @@ import numpy as onp
 
 from jax import jit, grad
 from jax_md import space, quantity, nn, dataclasses, partition
+from jax_md.nn import behler_parrinello as bp
+
 from jax_md.util import f32, f64
-from jax_md.test_util import update_test_tolerance
+from jax_md import test_util
 
-from jax import test_util as jtu
+jax.config.parse_flags_with_absl()
 
-jax_config.parse_flags_with_absl()
-jax_config.enable_omnistaging()
-FLAGS = jax_config.FLAGS
-
-if FLAGS.jax_enable_x64:
+if jax.config.jax_enable_x64:
   DTYPES = [f32, f64]
 else:
   DTYPES = [f32]
@@ -43,9 +41,8 @@ N_TYPES_TO_TEST = [1, 2]
 N_ETAS_TO_TEST = [1, 2]
 
 
-@jtu.with_config(jax_numpy_rank_promotion='allow')
-class SymmetryFunctionTest(jtu.JaxTestCase):
-  @parameterized.named_parameters(jtu.cases_from_list(
+class SymmetryFunctionTest(test_util.JAXMDTestCase):
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_N_types={}_N_etas={}_d_type={}'.format(
               N_types, N_etas, dtype.__name__),
@@ -58,7 +55,7 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
   def test_radial_symmetry_functions(self, N_types, N_etas, dtype):
     displacement, shift = space.free()
     rs = np.linspace(1.0, 2.0, N_etas, dtype=dtype)
-    gr = nn.radial_symmetry_functions(displacement,
+    gr = bp.radial_symmetry_functions(displacement,
                                       np.array([1, 1, N_types]),
                                       rs,
                                       4)
@@ -67,7 +64,7 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
     self.assertAllClose(gr_out.shape, (3, N_types * N_etas))
     self.assertAllClose(gr_out[2, 0], dtype(0.411717), rtol=1e-6, atol=1e-6)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_N_types={}_N_etas={}_dtype={}_dim={}'.format(
               N_types, N_etas, dtype.__name__, dim),
@@ -98,8 +95,8 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
     neighbor_fn = partition.neighbor_list(displacement, box_size, r_cutoff, 0.)
 
     rs = np.linspace(1.0, 2.0, N_etas, dtype=dtype)
-    gr = nn.radial_symmetry_functions(displacement, species, rs, r_cutoff)
-    gr_neigh = nn.radial_symmetry_functions_neighbor_list(
+    gr = bp.radial_symmetry_functions(displacement, species, rs, r_cutoff)
+    gr_neigh = bp.radial_symmetry_functions_neighbor_list(
       displacement,
       species,
       np.linspace(1.0, 2.0, N_etas, dtype=dtype),
@@ -108,10 +105,10 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
     gr_exact = gr(R)
     gr_nbrs = gr_neigh(R, neighbor=nbrs)
 
-    tol = 1e-13 if FLAGS.jax_enable_x64 else 1e-6
+    tol = 1e-13 if jax.config.jax_enable_x64 else 1e-6
     self.assertAllClose(gr_exact, gr_nbrs, atol=tol, rtol=tol)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_N_types={}_N_etas={}_dtype={}_dim={}'.format(
               N_types, N_etas, dtype.__name__, dim),
@@ -143,14 +140,14 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
 
     etas = np.linspace(1., 2., N_etas, dtype=dtype)
     lam = np.array([-1.0] * N_etas, dtype)
-    gr = nn.angular_symmetry_functions(displacement,
+    gr = bp.angular_symmetry_functions(displacement,
                                        species,
                                        etas=etas,
                                        lambdas=lam,
                                        zetas=np.array([1.0] * N_etas, dtype),
                                        cutoff_distance=r_cutoff)
 
-    gr_neigh = nn.angular_symmetry_functions_neighbor_list(
+    gr_neigh = bp.angular_symmetry_functions_neighbor_list(
       displacement,
       species,
       etas=etas,
@@ -162,10 +159,10 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
     gr_exact = gr(R)
     gr_nbrs = gr_neigh(R, neighbor=nbrs)
 
-    tol = 1e-13 if FLAGS.jax_enable_x64 else 1e-6
+    tol = 1e-13 if jax.config.jax_enable_x64 else 1e-6
     self.assertAllClose(gr_exact, gr_nbrs, atol=tol, rtol=tol)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_N_types={}_N_etas={}_d_type={}'.format(
               N_types, N_etas, dtype.__name__),
@@ -179,7 +176,7 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
     displacement, shift = space.free()
     etas = np.array([1e-4/(0.529177 ** 2)] * N_etas, dtype)
     lam = np.array([-1.0] * N_etas, dtype)
-    gr = nn.angular_symmetry_functions(displacement,np.array([1, 1, N_types]),
+    gr = bp.angular_symmetry_functions(displacement,np.array([1, 1, N_types]),
                                        etas=etas,
                                        lambdas=lam,
                                        zetas=np.array([1.0] * N_etas, dtype),
@@ -190,7 +187,7 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
                         (3, N_etas *  N_types * (N_types + 1) // 2))
     self.assertAllClose(gr_out[2, 0], dtype(1.577944), rtol=1e-6, atol=1e-6)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_N_types={}_N_etas={}_d_type={}'.format(
               N_types, N_etas, dtype.__name__),
@@ -202,7 +199,7 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
         for dtype in DTYPES))
   def test_behler_parrinello_symmetry_functions(self, N_types, N_etas, dtype):
     displacement, shift = space.free()
-    gr = nn.behler_parrinello_symmetry_functions(
+    gr = bp.symmetry_functions(
             displacement,np.array([1, 1, N_types]),
             radial_etas=np.array([1e-4/(0.529177 ** 2)] * N_etas, dtype),
             angular_etas=np.array([1e-4/(0.529177 ** 2)] * N_etas, dtype),
@@ -216,7 +213,7 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
                          N_etas *  (N_types + N_types * (N_types + 1) // 2)))
     self.assertAllClose(gr_out[2, 0], dtype(1.885791), rtol=1e-6, atol=1e-6)
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_N_types={}_N_etas={}_d_type={}'.format(
               N_types, N_etas, dtype.__name__),
@@ -232,7 +229,7 @@ class SymmetryFunctionTest(jtu.JaxTestCase):
                                                               dtype):
     displacement, shift = space.free()
     neighbor_fn = partition.neighbor_list(displacement, 10.0, 8.0, 0.0)
-    gr = nn.behler_parrinello_symmetry_functions_neighbor_list(
+    gr = bp.symmetry_functions_neighbor_list(
             displacement,np.array([1, 1, N_types]),
             radial_etas=np.array([1e-4/(0.529177 ** 2)] * N_etas, dtype),
             angular_etas=np.array([1e-4/(0.529177 ** 2)] * N_etas, dtype),
@@ -323,9 +320,8 @@ def _get_graphs():
   ]
 
 
-@jtu.with_config(jax_numpy_rank_promotion="allow")
-class NeuralNetworkTest(jtu.JaxTestCase):
-  @parameterized.named_parameters(jtu.cases_from_list(
+class NeuralNetworkTest(test_util.JAXMDTestCase):
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_fn={}_dtype={}'.format(fn.__name__, dtype.__name__),
           'network_fn': fn,

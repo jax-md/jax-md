@@ -12,21 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for google3.third_party.py.jax_md.dynamics."""
+"""Tests for google3.third_party.py.jax_md.elasticity."""
 
 import numpy as onp
 
 from absl.testing import absltest
 from absl.testing import parameterized
 
-from jax.config import config as jax_config
+import jax
 from jax import random
 from jax import jit
 from jax import lax
 from jax import grad
 import jax.numpy as np
-
-from jax import test_util as jtu
 
 from jax_md import space
 from jax_md import energy
@@ -36,16 +34,14 @@ from jax_md import elasticity
 from jax_md import test_util
 from jax_md.util import *
 
-jax_config.parse_flags_with_absl()
-jax_config.enable_omnistaging()
-FLAGS = jax_config.FLAGS
+jax.config.parse_flags_with_absl()
 
 PARTICLE_COUNT = 64
 NUM_SAMPLES = 2
 SPATIAL_DIMENSION = [2, 3]
 LOWPRESSURE = [True, False]
 
-if FLAGS.jax_enable_x64:
+if jax.config.jax_enable_x64:
   DTYPE = [f32, f64]
 else:
   DTYPE = [f32]
@@ -80,10 +76,9 @@ def run_minimization_while(energy_fn,
   return state.position, get_maxgrad(state), num_iterations
 
 
-class ElasticityTest(jtu.JaxTestCase):
+class ElasticityTest(test_util.JAXMDTestCase):
   # pylint: disable=g-complex-comprehension
-
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}_lowpressure={}'.format(
             dim, dtype.__name__, low_pressure),
@@ -132,7 +127,7 @@ class ElasticityTest(jtu.JaxTestCase):
         self.assertAllClose(C, jnp.einsum("ijkl->ijlk", C))
         self.assertAllClose(C, jnp.einsum("ijkl->lkij", C))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}_lowpressure={}'.format(dim,
             dtype.__name__, low_pressure),
@@ -181,7 +176,7 @@ class ElasticityTest(jtu.JaxTestCase):
         self.assertAllClose(C, jnp.einsum("ijkl->ijlk", C))
         self.assertAllClose(C, jnp.einsum("ijkl->lkij", C))
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}_lowpressure={}'.format(dim,
             dtype.__name__, low_pressure),
@@ -230,7 +225,7 @@ class ElasticityTest(jtu.JaxTestCase):
         self.assertAllClose(C, jnp.einsum("ijkl->lkij", C))
 
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}_lowpressure={}'.format(dim,
             dtype.__name__, low_pressure),
@@ -282,7 +277,7 @@ class ElasticityTest(jtu.JaxTestCase):
         self.assertAllClose(C, jnp.einsum("ijkl->lkij", C))
 
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}_lowpressure={}'.format(dim,
             dtype.__name__, low_pressure),
@@ -333,7 +328,7 @@ class ElasticityTest(jtu.JaxTestCase):
         self.assertAllClose(C, jnp.einsum("ijkl->lkij", C))
 
 
-  @parameterized.named_parameters(jtu.cases_from_list(
+  @parameterized.named_parameters(test_util.cases_from_list(
       {
           'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
           'spatial_dimension': dim,
@@ -415,7 +410,6 @@ class ElasticityTest(jtu.JaxTestCase):
 
       self.assertAllClose(e, elasticity.mandel_to_tensor(e_m))
       self.assertAllClose(C, elasticity.mandel_to_tensor(C_m))
-
 
 
 if __name__ == '__main__':

@@ -17,22 +17,35 @@
   The elastic modulus tensor describes a material's response to different
   boundary deformations. Specifically, for a small deformation given by a
   symmetric strain tensor e, the change in energy is
-    U / V^0 = U^0/V^0 + s^0_{ij} e_{ji} + (1/2) C_{ijkl} e_{ij} e_{kl} + ...
-  where V^0 is the volume, U^0 is the initial energy, s^0 is the residual stress
-  tensor of the undeformed system, and C is the elastic modulus tensor. C is
+
+  .. math::
+
+     U / V^0 = U^0/V^0 + s^0_{ij} e_{ji} + (1/2) C_{ijkl} e_{ij} e_{kl} + \ldots{}
+  
+  where :math:`V^0` is the volume, :math:`U^0` is the initial energy, :math:`s^0` is the residual stress
+  tensor of the undeformed system, and :math:`C` is the elastic modulus tensor. :math:`C` is
   a fourth-rank tensor of shape (dimension,dimension,dimension,dimension), with
   the following symmetries.
 
     Minor symmetries:
-      C_ijkl = C_jikl = C_ijlk
+
+    .. math::
+
+       C_{ijkl} = C_{jikl} = C_{ijlk}
 
     Major symmetries:
-      C_ijkl = C_lkij
+
+    .. math::
+
+       C_{ijkl} = C_{lkij}
 
   The minor symmetries are also reflected in the symmetric nature
   of stress and strain tensors:
-    s_ij = s_ji
-    e_ij = e_ji
+
+  .. math::
+  
+     s_{ij} = s_{ji}
+     e_{ij} = e_{ji}
 
   In general, there are 21 independent elastic constants in 3 dimension (6 in 2
   dimensions). While systems with additional symmetries (e.g. isotropic,
@@ -177,10 +190,10 @@ def athermal_moduli(energy_fn: Callable[..., Array],
 
   Args:
     energy_fn: A function that computes the energy of the system. This
-      function must take as an argument `perturbation` which perturbes the
+      function must take as an argument `perturbation` which perturbs the
       box shape. Any energy function constructed using `smap` or in `energy.py`
       with a standard space will satisfy this property.
-    tether_strength: scalar. Strength of the "tether" applied to each particle,
+    tether_strength: Scalar. Strength of the "tether" applied to each particle,
       which can be necessary to make the Hessian matrix non-singular. Solving
       for the non-affine response of each particle requires that the Hessian is
       positive definite. However, there can often be zero modes (eigenvectors of
@@ -188,24 +201,23 @@ def athermal_moduli(energy_fn: Callable[..., Array],
       therefore do not affect the elastic constants despite the zero eigenvalue.
       The most common example is the global translational modes. To solve for
       the non-affine response, we consider the "tethered Hessian"
-        H + tether_strength * I,
-      where I is the identity matrix and tether_strength is a small constant.
-    gradient_check: None or scalar. If not None, a check will be performed
+      `H + tether_strength * I`, 
+      where `I` is the identity matrix and `tether_strength` is a small constant.
+    gradient_check: `None` or scalar. If not `None`, a check will be performed
       to guarantee that the maximum component of the gradient is less than
-      gradient_check. In other words, that
-        jnp.amax(jnp.abs(grad(energy_fn)(R, box=box))) < gradient_check == True
+      `gradient_check`. In other words, that
+      `jnp.amax(jnp.abs(grad(energy_fn)(R, box=box))) < gradient_check == True`
       NOTE: JAX currently does not support proper runtime error handling.
       Therefore, if this check fails, the calculation will return an array
-      of jnp.nan's. It is the users responsibility, if they want to use this
+      of `jnp.nan`'s. It is the users responsibility, if they want to use this
       check, to then ensure that the returned array is not full of nans.
-    cg_tol: scalar. Tolorance used when solving for the non-affine response.
-    check_convergence: bool. If true, calculate_EMT will return a boolean
-      flag specifiying if the cg solve routine converged to the desired
-      tolorance. The default is False, but convergence checking is highly
+    cg_tol: scalar. Tolerance used when solving for the non-affine response.
+    check_convergence: bool. If true, `calculate_EMT` will return a boolean
+      flag specifying if the cg solve routine converged to the desired
+      tolerance. The default is `False`, but convergence checking is highly
       recommended especially when using 32-bit precision data.
 
   Return: A function to calculate the elastic modulus tensor
-
   """
 
   def calculate_emt(R: Array,
@@ -213,19 +225,18 @@ def athermal_moduli(energy_fn: Callable[..., Array],
                     **kwargs) -> Array:
     """Calculate the elastic modulus tensor.
 
-    energy_fn(R) corresponds to the state around which we are expanding
+    `energy_fn(R)` corresponds to the state around which we are expanding
 
     Args:
-      R: array of shape (N,dimension) of particle positions. This does not
+      R: array of shape `[N,dimension]` of particle positions. This does not
         generalize to arbitrary dimensions and is only implemented for
-          dimension == 2
-          dimension == 3
+        `dimension == 2` and `dimension == 3`.
       box: A box specifying the shape of the simulation volume. Used to infer
         the volume of the unit cell.
 
     Return: C or the tuple (C,converged)
-      where C is the Elastic modulus tensor as an array of shape (dimension,
-      dimension,dimension,dimension) that respects the major and minor
+      where C is the Elastic modulus tensor as an array of shape `[dimension,
+      dimension,dimension,dimension]` that respects the major and minor
       symmetries, and converged is a boolean flag (see above).
 
     """
@@ -343,25 +354,32 @@ def tensor_to_mandel(T: Array) -> Array:
 
   If mandel_index(i,j) performs the above index mapping, then the input T and
   output M satisfy
+
     M[mandel_index(i,j)] = T[i,j] * w
+
   or
+
     M[mandel_index(i,j), mandel_index(k,l)] = T[i,j,k,l] * w(i,j) * w(k,l)
+
   where
+
     w(i,j) = 1       if i==j
            = sqrt(2) if i!=j
+
   is a weight that is used to ensure proper contraction rules. Here (and only
   here) we do not assume major symmetries in fourth-rank tensors.
 
   Args:
     T: Array with 4 possible shapes:
-      1. T.shape == (2,2)
+
+      #. T.shape == (2,2)
          Convert a symmetric array of shape (2,2) to an array of shape (3,)
-      2. T.shape == (3,3)
+      #. T.shape == (3,3)
          Convert a symmetric array of shape (3,3) to an array of shape (6,)
-      3. T.shape == (2,2,2,2)
+      #. T.shape == (2,2,2,2)
          Convert a tensor of shape (2,2,2,2) with minor symmetries to an array
          of shape (3,3)
-      4. T.shape == (3,3,3,3)
+      #. T.shape == (3,3,3,3)
          Convert a tensor of shape (3,3,3,3) with minor symmetries to an array
          of shape (6,6)
 
@@ -503,7 +521,7 @@ def extract_isotropic_moduli(C: Array) -> Dict:
   """ Extract commonly used isotropic constants.
 
   There are a number of important constants used to describe the linear
-  elastic behavior of isotropic systems, including the bulk modulud, B,
+  elastic behavior of isotropic systems, including the bulk modulus, B,
   the shear modulus, G, the longitudinal modulus, M, the Young's modulus,
   E, and the Poisson's ratio, nu. This convenience function extracts them
   from an elastic modulus tensor C.
@@ -520,23 +538,28 @@ def extract_isotropic_moduli(C: Array) -> Dict:
 
   Bulk modulus, B:
   This is the response to the rotationally invariant strain tensor:
+
       e = (1/2) * ( 1 0 )     or      e = (1/3) * ( 1 0 0 )
                   ( 0 1 )                         ( 0 1 0 )
                                                   ( 0 0 1 )
 
   Shear modulus, G:
   This is the response to the strain tensor:
+
       e = (1/2) * ( 0 1 )     or      e = (1/2) * ( 0 1 0 )
                   ( 1 0 )                         ( 1 0 0 )
                                                   ( 0 0 0 )
+
   averaged over all possible orientations. For perfectly isotropic
   systems, it should be equal to C[0,1,0,1].
 
   Longitudinal modulus, M:
   This is the response to the strain tensor:
+
       e = ( 1 0 )     or      e = ( 1 0 0 )
           ( 0 0 )                 ( 0 0 0 )
                                   ( 0 0 0 )
+
   averaged over all possible orientations. For perfectly isotropic
   systems, it should be equal to C[0,0,0,0].
 
@@ -556,7 +579,6 @@ def extract_isotropic_moduli(C: Array) -> Dict:
       satisfy both the major and minor symmetries, but this is not checked.
 
   Return: a dictionary containing the elastic constants.
-
   """
   if C.shape[0] == 2:
     cxxxx,cyyyy,cxyxy,cxxyy,cxxxy,cyyxy = _extract_elements(C,False)
