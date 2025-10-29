@@ -688,3 +688,15 @@ def phop(displacement: DisplacementFn, window_size: int) -> PHopCalculator:
     return PHopState(buff, phop)  # pytype: disable=wrong-arg-count
 
   return init_fn, update_fn
+
+def gamma_from_stokes_law_3d(eta, radii, mass):
+  """
+  Compute gamma value for a sphere in fluid using stokes' law in three dimensions.
+  
+  Args:
+    eta: A float specifying the dynamic viscosity of the medium
+    radii: A float or an Array specifying the radii of the spheres
+    mass: A float or an Array specifying the mass of the spheres
+  """
+  
+  return 6 * jnp.pi * eta * radii / mass

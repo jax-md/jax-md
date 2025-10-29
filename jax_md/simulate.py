@@ -1072,7 +1072,6 @@ def nvt_langevin(energy_or_force_fn: Callable[..., Array],
 
   return init_fn, step_fn
 
-
 @dataclasses.dataclass
 class BrownianState:
   """A tuple containing state information for Brownian dynamics.
@@ -1114,7 +1113,9 @@ def brownian(energy_or_force: Callable[..., Array],
       constant. To update the temperature dynamically during a simulation one
       should pass `kT` as a keyword argument to the step function.
     gamma: A float specifying the friction coefficient between the particles
-      and the solvent.
+      and the solvent. The gamma here is the friction coeifficient divided by
+      the mass. For example, when the particles are 3 diemsional spheres
+      gamma = 6 pi eta R/mass. See quantity.gamma_from_stokes_law for detail.
 
   Returns:
     See above.
@@ -1130,6 +1131,7 @@ def brownian(energy_or_force: Callable[..., Array],
 
   def apply_fn(state, **kwargs):
     _kT = kT if 'kT' not in kwargs else kwargs['kT']
+    _gamma = gamma if 'gamma' not in kwargs else kwargs['gamma']
 
     R, mass, key = dataclasses.astuple(state)
 
@@ -1138,7 +1140,7 @@ def brownian(energy_or_force: Callable[..., Array],
     F = force_fn(R, **kwargs)
     xi = random.normal(split, R.shape, R.dtype)
 
-    nu = f32(1) / (mass * gamma)
+    nu = f32(1) / (mass * _gamma)
 
     dR = F * dt * nu + jnp.sqrt(f32(2) * _kT * dt * nu) * xi
     R = shift(R, dR, **kwargs)
@@ -1155,7 +1157,6 @@ Below are simulation environments whose implementation is somewhat
 experimental / preliminary. These environments might not be as ergonomic
 as the more polished environments above.
 """
-
 
 @dataclasses.dataclass
 class SwapMCState:
