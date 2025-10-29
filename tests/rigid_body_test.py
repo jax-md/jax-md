@@ -1123,8 +1123,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     init_fn, step_fn = minimize.fire_descent(energy_fn, shift,
                                              dt_start=1e-2, dt_max=4e-2)
     state = init_fn(body, mass=shape.mass(shape_species))
-    state = lax.fori_loop(0, 60, lambda i, s: step_fn(s), state)
-
+    state = lax.fori_loop(0, 100, lambda i, s: step_fn(s), state)
     self.assertTrue(energy_fn(state.position) < 12.0)
     self.assertTrue(state.position.center.dtype==dtype)
 

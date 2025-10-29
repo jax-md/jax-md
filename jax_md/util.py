@@ -16,15 +16,19 @@
 
 from typing import Iterable, Union, Optional, Any
 
-import jax
 from jax.tree_util import register_pytree_node
-from jax.lib import xla_bridge
 import jax.numpy as jnp
 from jax import jit
 
 from functools import partial
 
 import numpy as onp
+
+# Backward compatible import for get_backend
+try:
+  from jax.extend.backend import get_backend
+except (ImportError, AttributeError):
+  from jax.lib.xla_bridge import get_backend
 
 Array = jnp.ndarray
 PyTree = Any
@@ -53,7 +57,7 @@ def check_custom_simulation_type(x: Any) -> bool:
 def static_cast(*xs):
   """Function to cast a value to the lowest dtype that can express it."""
   # NOTE(schsam): static_cast is so named because it cannot be jit.
-  if xla_bridge.get_backend().platform == 'tpu':
+  if get_backend().platform == 'tpu':
     return (jnp.array(x, jnp.float32) for x in xs)
   else:
     return (jnp.array(x, dtype=onp.min_scalar_type(x)) for x in xs)
