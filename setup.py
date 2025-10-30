@@ -55,7 +55,7 @@ setuptools.setup(
     long_description=long_description,
     long_description_content_type='text/markdown',
     description='Differentiable, Hardware Accelerated, Molecular Dynamics',
-    python_requires='>=3.10',
+    python_requires='>=3.11',
     classifiers=[
         'Programming Language :: Python :: 3.11',
         'Programming Language :: Python :: 3.12',
