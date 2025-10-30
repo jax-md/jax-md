@@ -24,8 +24,8 @@ with io.open(os.path.join(this_directory, 'README.md'), encoding='utf-8') as f:
 INSTALL_REQUIRES = [
     'absl-py',
     'numpy',
-    'jax',
-    'jaxlib',
+    'jax>=0.4.36',
+    'jaxlib>=0.4.36',
     'flax',
     'jraph',
     'einops',
