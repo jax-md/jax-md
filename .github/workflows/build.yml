@@ -63,7 +63,7 @@ jobs:
       run: |
         if [ "${{ matrix.test-suite }}" == "core" ]; then
           JAX_ENABLE_X64=1 uv run pytest tests --cov=jax_md --cov-report=xml --cov-report=term \
-            --ignore=tests/elasticity_test.py \            
+            --ignore=tests/elasticity_test.py \
             --ignore=tests/rigid_body_test.py \
             --ignore=tests/energy_test.py \
             --ignore=tests/simulate_test.py \
