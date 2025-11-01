@@ -354,7 +354,7 @@ def nose_hoover_chain(dt: float,
                       sy_steps: int,
                       tau: float
                       ) -> NoseHooverChainFns:
-  """Helper function to simulate a Nose-Hoover Chain coupled to a system.
+  r"""Helper function to simulate a Nose-Hoover Chain coupled to a system.
 
   This function is used in simulations that sample from thermal ensembles by
   coupling the system to one, or more, Nose-Hoover chains. We use the direct

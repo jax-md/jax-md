@@ -319,7 +319,7 @@ def _S(q: Array) -> Array:
 
 
 def S(q: Quaternion) -> Array:
-  """From Miller III et al., S(q) is defined so that \dot q = 1/2S(q)\omega.
+  r"""From Miller III et al., S(q) is defined so that \dot q = 1/2S(q)\omega.
 
   Thus S(q) is the affine transformation that relates time derivatives of
   quaternions to angular velocities.
@@ -330,7 +330,7 @@ def S(q: Quaternion) -> Array:
 def conjugate_momentum_to_angular_momentum(orientation: Quaternion,
                                            momentum: Quaternion
                                            ) -> Array:
-  """Convert from the conjugate momentum of a quaternion to angular momentum.
+  r"""Convert from the conjugate momentum of a quaternion to angular momentum.
 
   Simulations involving quaternions typically proceed by integrating Hamilton's
   equations with an extended Hamiltonian,
