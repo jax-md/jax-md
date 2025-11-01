@@ -91,8 +91,8 @@ def get_test_grid(rng_key, topology=None, num_dims=2, add_aux=False, ):
   R = onp.array(R, onp.float64)
   if add_aux:
     # these are used as velocities
-    rng_key = random.split(rng_key)[0]
-    V = random.normal(rng_key, R.shape)
+    rng_key, subkey = random.split(rng_key)
+    V = random.normal(subkey, R.shape)
     R_grid, V_grid  = tpu.to_grid(R, box_size_in_cells, cell_size, interaction_distance, topology, aux=V, strategy='linear')
     print(f"R.shape {R.shape}, aux.shape {V.shape}, grid shape {V_grid.shape}, occupancy {R.shape[0]/float(onp.prod(V_grid.shape[:-1]))}")
     return ((R_grid, V_grid), tpu_energy_fn, tpu_force_fn), ((R, V), energy_fn, shift_fn)

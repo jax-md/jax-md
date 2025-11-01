@@ -780,7 +780,6 @@ def _positions_to_grid(position: Array,
     grid = np.zeros((total_cells, cell_contents.shape[-1]))
     centers = _grid_centers(cells, cell_size, num_dims)
     centers = np.reshape(centers, (total_cells, num_dims))
-
     grid = grid.at[:count, :].set(cell_contents)
     grid = grid.at[:count, :num_dims].add(-centers[:count])
     grid = np.reshape(grid, tuple(cells) + (-1,))

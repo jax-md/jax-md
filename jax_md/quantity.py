@@ -325,7 +325,7 @@ def pair_correlation(displacement_or_metric: Union[DisplacementFn, MetricFn],
                      species: Array = None,
                      eps: float = 1e-7,
                      compute_average: bool = False):
-  """Computes the pair correlation function at a mesh of distances.
+  r"""Computes the pair correlation function at a mesh of distances.
 
   The pair correlation function measures the number of particles at a given
   distance from a central particle. The pair correlation function is defined by
@@ -412,7 +412,7 @@ def pair_correlation_neighbor_list(
     fractional_coordinates: bool=False,
     format: partition.NeighborListFormat=partition.Dense,
     compute_average: bool = False):
-  """Computes the pair correlation function at a mesh of distances.
+  r"""Computes the pair correlation function at a mesh of distances.
 
   The pair correlation function measures the number of particles at a given
   distance from a central particle. The pair correlation function is defined by
@@ -622,7 +622,7 @@ ApplyFn = Callable[[PHopState, Array], PHopState]
 PHopCalculator = Tuple[InitFn, ApplyFn]
 
 def phop(displacement: DisplacementFn, window_size: int) -> PHopCalculator:
-  """Computes the phop indicator of rearrangements.
+  r"""Computes the phop indicator of rearrangements.
 
   phop is an indicator function that is effective at detecting when particles
   in a quiescent system have experienced a rearrangement. Qualitatively, phop

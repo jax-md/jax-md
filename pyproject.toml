@@ -1,0 +1,88 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "jax-md"
+version = "0.2.26"
+description = "Differentiable, Hardware Accelerated, Molecular Dynamics"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE", "LICENSE_SHORT"]
+authors = [
+    {name = "Google", email = "jax-md-dev@google.com"}
+]
+maintainers = [
+    {name = "Google", email = "jax-md-dev@google.com"}
+]
+keywords = [
+    "molecular-dynamics",
+    "jax",
+    "differentiable",
+    "simulation",
+    "physics",
+]
+classifiers = [
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: Software Development",
+    "Topic :: Scientific/Engineering",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+]
+dependencies = [
+    "absl-py",
+    "numpy",
+    "jax>=0.5.0",
+    "jaxlib>=0.5.0",
+    "flax",
+    "jraph",
+    "einops",
+    "ml_collections",
+    "e3nn-jax",
+    "dm-haiku",
+    "optax",
+    "frozendict",
+    "pymatgen",
+]
+[project.urls]
+Homepage = "https://github.com/google/jax-md"
+Documentation = "https://arxiv.org/abs/1912.04232"
+Repository = "https://github.com/google/jax-md"
+"Bug Tracker" = "https://github.com/google/jax-md/issues"
+Download = "https://pypi.org/project/jax-md/"
+
+[tool.hatch.build.targets.wheel]
+packages = ["jax_md"]
+
+[tool.hatch.build.targets.wheel.shared-data]
+"examples/models/*.pickle" = "examples/models"
+"examples/models/*.png" = "examples/models"
+
+[tool.coverage.run]
+source = ["jax_md"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "@abc.abstractmethod",
+    "raise NotImplementedError",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ty]
+python-version = "3.11"
+check-mode = "basic"
+exclude = [
+    "**/__pycache__",
+    "**/.*",
+    ".pytype",
+    "dist",
+    "build",
+]
+

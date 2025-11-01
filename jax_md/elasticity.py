@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Code to calculate the elastic modulus tensor for athermal systems.
+r"""Code to calculate the elastic modulus tensor for athermal systems.
 
   The elastic modulus tensor describes a material's response to different
   boundary deformations. Specifically, for a small deformation given by a
