@@ -780,18 +780,8 @@ def _positions_to_grid(position: Array,
     grid = np.zeros((total_cells, cell_contents.shape[-1]))
     centers = _grid_centers(cells, cell_size, num_dims)
     centers = np.reshape(centers, (total_cells, num_dims))
-
-    # Old code
-    # grid = grid.at[:count, :].set(cell_contents)
-    # grid = grid.at[:count, :num_dims].add(-centers[:count])
-
-    # Use dynamic_update_slice for JAX compatibility with traced values
-    grid = lax.dynamic_update_slice(grid, cell_contents, (0, 0))
-    # For the add operation, we need to slice, add, then update
-    grid_positions = lax.dynamic_slice(grid, (0, 0), (count, num_dims))
-    centers_slice = lax.dynamic_slice(centers, (0, 0), (count, num_dims))
-    grid_positions = grid_positions - centers_slice
-    grid = lax.dynamic_update_slice(grid, grid_positions, (0, 0))
+    grid = grid.at[:count, :].set(cell_contents)
+    grid = grid.at[:count, :num_dims].add(-centers[:count])
     grid = np.reshape(grid, tuple(cells) + (-1,))
   elif strategy == 'closest':
     cell_index = np.array(position / cell_size, np.int32)

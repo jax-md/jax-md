@@ -54,7 +54,7 @@ jobs:
       run: |
         uv pip install .
         uv pip install .[testing]
-        uv pip install pytest pytest-xdist pytest-cov netCDF4 ase
+        uv pip install pytest pytest-cov netCDF4 ase
     - name: Set Swap Space
       uses: pierotofy/set-swap-space@master
       with:
