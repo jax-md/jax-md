@@ -65,6 +65,8 @@ packages = ["jax_md"]
 
 [tool.coverage.run]
 source = ["jax_md"]
+
+[tool.coverage.report]
 exclude_lines = [
     "@abc.abstractmethod",
     "raise NotImplementedError",
