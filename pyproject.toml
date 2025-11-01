@@ -64,6 +64,7 @@ packages = ["jax_md"]
 "examples/models/*.png" = "examples/models"
 
 [tool.coverage.run]
+source = ["jax_md"]
 exclude_lines = [
     "@abc.abstractmethod",
     "raise NotImplementedError",
