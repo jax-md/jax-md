@@ -27,7 +27,11 @@ jobs:
     - name: Install dependencies
       run: |
         uv pip install .
-      # TODO (ag): Add linting with ruff
+        uv pip install ruff
+    - name: Run ruff check
+      run: uv run ruff check .
+    - name: Run ruff format check
+      run: uv run ruff format --check .
 
   test:
     runs-on: ubuntu-latest

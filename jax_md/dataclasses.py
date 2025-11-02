@@ -59,9 +59,7 @@ def dataclass(clz):
     kwargs = dict(meta_args + data_args)
     return data_clz(**kwargs)
 
-  jax.tree_util.register_pytree_node(data_clz,
-                                     iterate_clz,
-                                     clz_from_iterable)
+  jax.tree_util.register_pytree_node(data_clz, iterate_clz, clz_from_iterable)
 
   return data_clz
 
@@ -69,11 +67,14 @@ def dataclass(clz):
 def static_field():
   return dataclasses.field(metadata={'static': True})
 
+
 replace = dataclasses.replace
 asdict = dataclasses.asdict
 astuple = dataclasses.astuple
 is_dataclass = dataclasses.is_dataclass
 fields = dataclasses.fields
 field = dataclasses.field
+
+
 def unpack(dc) -> tuple:
-    return tuple(getattr(dc, field.name) for field in dataclasses.fields(dc))
+  return tuple(getattr(dc, field.name) for field in dataclasses.fields(dc))

@@ -34,8 +34,10 @@ import numpy as np
 
 
 renderer_code = IPython.display.HTML(
-  url=('https://raw.githubusercontent.com/google/jax-md/main/'
-       'jax_md/colab_tools/visualization.html')
+  url=(
+    'https://raw.githubusercontent.com/google/jax-md/main/'
+    'jax_md/colab_tools/visualization.html'
+  )
 )
 
 SIMULATION_IDX = 0
@@ -59,6 +61,7 @@ class Disk:
       possibly time-varying / per-disk RGB colors.
     count: The number of disks.
   """
+
   position: jnp.ndarray
   size: jnp.ndarray
   color: jnp.ndarray
@@ -93,6 +96,7 @@ class Sphere:
       possibly time-varying / per-sphere RGB colors.
     count: The number of spheres.
   """
+
   position: jnp.ndarray
   size: jnp.ndarray
   color: jnp.ndarray
@@ -129,6 +133,7 @@ class Bond:
     count: The number of objects.
     max_neighbors: The maximum number of bonds a central object can have.
   """
+
   reference_geometry: str
   neighbor_idx: jnp.ndarray
   diameter: jnp.ndarray
@@ -143,8 +148,9 @@ class Bond:
       diameter = np.array(0.2)
 
     if isinstance(idx, partition.NeighborList):
-      idx = (idx.idx if idx.format is partition.Dense
-             else partition.to_dense(idx))
+      idx = (
+        idx.idx if idx.format is partition.Dense else partition.to_dense(idx)
+      )
 
     idx, diameter, color = to_np(idx, diameter, color)
 
@@ -160,11 +166,11 @@ class Bond:
 
 
 TYPE_DIMENSIONS = {
-    'position': 2,
-    'size': 1,
-    'color': 2,
-    'neighbor_idx': 2,
-    'diameter': 1,
+  'position': 2,
+  'size': 1,
+  'color': 2,
+  'neighbor_idx': 2,
+  'diameter': 1,
 }
 
 
@@ -177,19 +183,23 @@ def _encode(R):
   dtype = jnp.float32
   return base64.b64encode(np.array(R, dtype).tobytes()).decode('utf-8')
 
+
 def _to_json(data):
   try:
     return IPython.display.JSON(data=data)
   except:
     return IPython.display.JSON(data=json.dumps(data))
 
-def render(box_size,
-           geometry,
-           buffer_size=None,
-           background_color=None,
-           resolution=None,
-           frame_rate=None,
-           verbose=False):
+
+def render(
+  box_size,
+  geometry,
+  buffer_size=None,
+  background_color=None,
+  resolution=None,
+  frame_rate=None,
+  verbose=False,
+):
   """Creates a rendering front-end along with callbacks in the host program.
 
   Args:
@@ -216,7 +226,7 @@ def render(box_size,
   dimension = None
 
   if not isinstance(geometry, dict):
-    geometry = { 'all': geometry }
+    geometry = {'all': geometry}
 
   for geom in geometry.values():
     if hasattr(geom, 'position'):
@@ -234,16 +244,20 @@ def render(box_size,
       assert box_size.shape == (dimension,)
       box_size = list(box_size)
     else:
-      box_size = [float(box_size),] * dimension
+      box_size = [
+        float(box_size),
+      ] * dimension
   elif isinstance(box_size, float) or isinstance(box_size, int):
-    box_size = [box_size,] * dimension
+    box_size = [
+      box_size,
+    ] * dimension
 
   def get_metadata():
     metadata = {
-        'box_size': box_size,
-        'dimension': dimension,
-        'geometry': [k for k in geometry.keys()],
-        'simulation_idx': simulation_idx
+      'box_size': box_size,
+      'dimension': dimension,
+      'geometry': [k for k in geometry.keys()],
+      'simulation_idx': simulation_idx,
     }
 
     if frame_count is not None:
@@ -265,6 +279,7 @@ def render(box_size,
       metadata['verbose'] = True
 
     return _to_json(metadata)
+
   output.register_callback('GetSimulationMetadata', get_metadata)
 
   def get_dynamic_geometry_metadata(name):
@@ -274,8 +289,8 @@ def render(box_size,
     geom_dict = dataclasses.asdict(geom)
 
     geom_metadata = {
-        'shape': str(geom),
-        'fields': {},
+      'shape': str(geom),
+      'fields': {},
     }
 
     for field in geom_dict:
@@ -291,8 +306,10 @@ def render(box_size,
       elif len(geom_dict[field].shape) == TYPE_DIMENSIONS[field] - 1:
         geom_metadata['fields'][field] = 'global'
     return _to_json(geom_metadata)
-  output.register_callback(f'GetGeometryMetadata{SIMULATION_IDX}',
-                           get_dynamic_geometry_metadata)
+
+  output.register_callback(
+    f'GetGeometryMetadata{SIMULATION_IDX}', get_dynamic_geometry_metadata
+  )
 
   def get_array_chunk(name, field, offset, size):
     assert name in geometry
@@ -303,9 +320,8 @@ def render(box_size,
     if isinstance(array, list):
       array = np.array(array)
 
-    return _to_json({
-        'array_chunk': _encode(array[offset:(offset + size)])
-    })
+    return _to_json({'array_chunk': _encode(array[offset : (offset + size)])})
+
   output.register_callback(f'GetArrayChunk{SIMULATION_IDX}', get_array_chunk)
 
   def get_array(name, field):
@@ -317,7 +333,8 @@ def render(box_size,
     if isinstance(array, list):
       array = np.array(array)
 
-    return _to_json({ 'array': _encode(array) })
+    return _to_json({'array': _encode(array)})
+
   output.register_callback(f'GetArray{SIMULATION_IDX}', get_array)
 
   SIMULATION_IDX += 1

@@ -94,8 +94,9 @@ def inverse(box: Box) -> Box:
     return 1 / box
   elif box.ndim == 2:
     return jnp.linalg.inv(box)
-  raise ValueError(('Box must be either: a scalar, a vector, or a matrix. '
-                    f'Found {box}.'))
+  raise ValueError(
+    (f'Box must be either: a scalar, a vector, or a matrix. Found {box}.')
+  )
 
 
 def _get_free_indices(n: int) -> str:
@@ -124,8 +125,9 @@ def raw_transform(box: Box, R: Array) -> Array:
     left_indices = free_indices + 'j'
     right_indices = free_indices + 'i'
     return jnp.einsum(f'ij,{left_indices}->{right_indices}', box, R)
-  raise ValueError(('Box must be either: a scalar, a vector, or a matrix. '
-                    f'Found {box}.'))
+  raise ValueError(
+    (f'Box must be either: a scalar, a vector, or a matrix. Found {box}.')
+  )
 
 
 @custom_jvp
@@ -197,7 +199,7 @@ def square_distance(dR: Array) -> Array:
   Returns:
     Matrix of squared distances; `ndarray(shape=[...])`.
   """
-  return jnp.sum(dR ** 2, axis=-1)
+  return jnp.sum(dR**2, axis=-1)
 
 
 def distance(dR: Array) -> Array:
@@ -222,18 +224,22 @@ def periodic_shift(side: Box, R: Array, dR: Array) -> Array:
 
 def free() -> Space:
   """Free boundary conditions."""
-  def displacement_fn(Ra: Array, Rb: Array, perturbation: Optional[Array]=None,
-                      **unused_kwargs) -> Array:
+
+  def displacement_fn(
+    Ra: Array, Rb: Array, perturbation: Optional[Array] = None, **unused_kwargs
+  ) -> Array:
     dR = pairwise_displacement(Ra, Rb)
     if perturbation is not None:
       dR = raw_transform(perturbation, dR)
     return dR
+
   def shift_fn(R: Array, dR: Array, **unused_kwargs) -> Array:
     return R + dR
+
   return displacement_fn, shift_fn
 
 
-def periodic(side: Box, wrapped: bool=True) -> Space:
+def periodic(side: Box, wrapped: bool = True) -> Space:
   """Periodic boundary conditions on a hypercube of sidelength side.
 
   Args:
@@ -244,38 +250,55 @@ def periodic(side: Box, wrapped: bool=True) -> Space:
   Returns:
     `(displacement_fn, shift_fn)` tuple.
   """
-  def displacement_fn(Ra: Array, Rb: Array,
-                      perturbation: Optional[Array] = None,
-                      **unused_kwargs) -> Array:
+
+  def displacement_fn(
+    Ra: Array, Rb: Array, perturbation: Optional[Array] = None, **unused_kwargs
+  ) -> Array:
     if 'box' in unused_kwargs:
-      raise UnexpectedBoxException(('`space.periodic` does not accept a box '
-                                    'argument. Perhaps you meant to use '
-                                    '`space.periodic_general`?'))
+      raise UnexpectedBoxException(
+        (
+          '`space.periodic` does not accept a box '
+          'argument. Perhaps you meant to use '
+          '`space.periodic_general`?'
+        )
+      )
     dR = periodic_displacement(side, pairwise_displacement(Ra, Rb))
     if perturbation is not None:
       dR = raw_transform(perturbation, dR)
     return dR
+
   if wrapped:
+
     def shift_fn(R: Array, dR: Array, **unused_kwargs) -> Array:
       if 'box' in unused_kwargs:
-        raise UnexpectedBoxException(('`space.periodic` does not accept a box '
-                                      'argument. Perhaps you meant to use '
-                                      '`space.periodic_general`?'))
+        raise UnexpectedBoxException(
+          (
+            '`space.periodic` does not accept a box '
+            'argument. Perhaps you meant to use '
+            '`space.periodic_general`?'
+          )
+        )
 
       return periodic_shift(side, R, dR)
   else:
+
     def shift_fn(R: Array, dR: Array, **unused_kwargs) -> Array:
       if 'box' in unused_kwargs:
-        raise UnexpectedBoxException(('`space.periodic` does not accept a box '
-                                      'argument. Perhaps you meant to use '
-                                      '`space.periodic_general`?'))
+        raise UnexpectedBoxException(
+          (
+            '`space.periodic` does not accept a box '
+            'argument. Perhaps you meant to use '
+            '`space.periodic_general`?'
+          )
+        )
       return R + dR
+
   return displacement_fn, shift_fn
 
 
-def periodic_general(box: Box,
-                     fractional_coordinates: bool=True,
-                     wrapped: bool=True) -> Space:
+def periodic_general(
+  box: Box, fractional_coordinates: bool = True, wrapped: bool = True
+) -> Space:
   r"""Periodic boundary conditions on a parallelepiped.
 
   This function defines a simulation on a parallelepiped, :math:`X`, formed by
@@ -315,7 +338,7 @@ def periodic_general(box: Box,
        is defined so that :math:`R` and :math:`dR` should both lie in :math:`X`.
 
   Example:
-  
+
   .. code-block:: python
 
      from jax import random
@@ -323,7 +346,7 @@ def periodic_general(box: Box,
      disp_frac, shift_frac = periodic_general(side_length,
                                                fractional_coordinates=True)
      disp_real, shift_real = periodic_general(side_length,
-                                               fractional_coordinates=False) 
+                                               fractional_coordinates=False)
 
      # Instantiate random positions in both parameterizations.
      R_frac = random.uniform(random.PRNGKey(0), (4, 3))
@@ -421,23 +444,28 @@ def metric(displacement: DisplacementFn) -> MetricFn:
   return lambda Ra, Rb, **kwargs: distance(displacement(Ra, Rb, **kwargs))
 
 
-def map_product(metric_or_displacement: DisplacementOrMetricFn
-                ) -> DisplacementOrMetricFn:
+def map_product(
+  metric_or_displacement: DisplacementOrMetricFn,
+) -> DisplacementOrMetricFn:
   """Vectorizes a metric or displacement function over all pairs."""
   return vmap(vmap(metric_or_displacement, (0, None), 0), (None, 0), 0)
 
 
-def map_bond(metric_or_displacement: DisplacementOrMetricFn
-             ) -> DisplacementOrMetricFn:
+def map_bond(
+  metric_or_displacement: DisplacementOrMetricFn,
+) -> DisplacementOrMetricFn:
   """Vectorizes a metric or displacement function over bonds."""
   return vmap(metric_or_displacement, (0, 0), 0)
 
 
-def map_neighbor(metric_or_displacement: DisplacementOrMetricFn
-                 ) -> DisplacementOrMetricFn:
+def map_neighbor(
+  metric_or_displacement: DisplacementOrMetricFn,
+) -> DisplacementOrMetricFn:
   """Vectorizes a metric or displacement function over neighborhoods."""
+
   def wrapped_fn(Ra, Rb, **kwargs):
     return vmap(vmap(metric_or_displacement, (0, None)))(Rb, Ra, **kwargs)
+
   return wrapped_fn
 
 
@@ -457,5 +485,5 @@ def canonicalize_displacement_or_metric(displacement_or_metric):
       continue
   raise ValueError(
     'Canonicalize displacement not implemented for spatial dimension larger'
-    'than 4.')
-
+    'than 4.'
+  )
