@@ -75,6 +75,62 @@ exclude_lines = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+[tool.ruff]
+line-length = 80
+target-version = "py311"
+exclude = [
+    "notebooks",
+    "examples",
+    "docs",
+]
+indent-width = 2
+
+[tool.ruff.format]
+indent-style = "space"
+quote-style = "single"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "UP032",  # use f-string (handled by formatter)
+    "UP035",
+    "E402",
+    "E721",
+    "E731",
+    "E741",
+    "E711",
+    "E712",
+    "E722",
+    "F821",
+    "F401",
+    "F403",
+    "F405",
+    "F811",
+    "F841",
+    "I001",
+    "UP004",
+    "UP006",
+    "UP007",
+    "UP008",
+    "UP010",
+    "UP015",
+    "UP020",
+    "UP031",
+    "UP034",
+    "UP037",
+    "UP038",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["jax_md"]
+
 [tool.ty]
 python-version = "3.11"
 check-mode = "basic"
@@ -85,4 +141,3 @@ exclude = [
     "dist",
     "build",
 ]
-

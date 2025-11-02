@@ -13,14 +13,17 @@
 # limitations under the License.
 
 """Utilities for a2c crystallizer."""
+
 import itertools
 import os
 from typing import Sequence, Any, List, Tuple, Optional, Union
 import numpy as onp
 import pymatgen as mg
 
+
 class Box(onp.ndarray):
   """A 3x3 matrix to hold the lattice vectors."""
+
   def __new__(cls, input_array):
     obj = onp.asarray(input_array).view(cls)
     assert obj.shape == (3, 3)
@@ -29,6 +32,7 @@ class Box(onp.ndarray):
 
 class BoxRowMatrix(Box):
   """Row-ordered box matrix (as in pyamtgen)."""
+
   @property
   def T(self):  # pylint: disable=invalid-name
     return BoxColumnMatrix(self.transpose())
@@ -36,19 +40,20 @@ class BoxRowMatrix(Box):
 
 class BoxColumnMatrix(Box):
   """Column-ordered box matrix (as in jax-md)."""
+
   @property
   def T(self):  # pylint: disable=invalid-name
     return BoxRowMatrix(self.transpose())
 
 
 def get_subcells_to_crystallize(
-    structure: mg.core.Structure,
-    d_frac: float = 0.05,
-    nmin: int = 1,
-    nmax: int = 48,
-    restrict_to_compositions: Optional[Sequence[str]] = None,
-    max_coef: Optional[int] = None,
-    elements: Optional[Sequence[str]] = None,
+  structure: mg.core.Structure,
+  d_frac: float = 0.05,
+  nmin: int = 1,
+  nmax: int = 48,
+  restrict_to_compositions: Optional[Sequence[str]] = None,
+  max_coef: Optional[int] = None,
+  elements: Optional[Sequence[str]] = None,
 ) -> List[Tuple[Sequence[int], onp.ndarray, onp.ndarray]]:
   """Get subcell structures to relax out of a large structure (e.g. amorphous).
 
@@ -73,7 +78,7 @@ def get_subcells_to_crystallize(
   # If max_coef is given in config, we will restrict formulas to
   # stoich. of max_coef e.g. for 2, A, B, AB2, A2B.
   if max_coef:
-    stoichs = list(itertools.product(range(max_coef+1), repeat=len(elements)))
+    stoichs = list(itertools.product(range(max_coef + 1), repeat=len(elements)))
     stoichs.pop(0)
     comps = []
     for stoich in stoichs:
@@ -83,31 +88,32 @@ def get_subcells_to_crystallize(
 
   # If a composition list is provided, ensure they are reduced formulas
   if restrict_to_compositions:
-    restrict_to_compositions = [mg.Composition(i).reduced_formula
-                                for i in restrict_to_compositions]
+    restrict_to_compositions = [
+      mg.Composition(i).reduced_formula for i in restrict_to_compositions
+    ]
   else:
     restrict_to_compositions = None
 
   # Create orthorombic slices from the unit cube
   bins = int(1 / d_frac)
   llim = onp.array(
-      list(itertools.product(*(3 * [onp.linspace(0, 1 - d_frac, bins)])))
+    list(itertools.product(*(3 * [onp.linspace(0, 1 - d_frac, bins)])))
   )
   hlim = onp.array(
-      list(itertools.product(*(3 * [onp.linspace(d_frac, 1, bins)])))
+    list(itertools.product(*(3 * [onp.linspace(d_frac, 1, bins)])))
   )
   candidates = []
   for l, h in itertools.product(llim, hlim):
     if onp.sum(h > l) == 3:
       mask = onp.logical_and(
-          onp.all(h >= position % 1, axis=1), onp.all(l <= position % 1, axis=1)
+        onp.all(h >= position % 1, axis=1), onp.all(l <= position % 1, axis=1)
       )
       ids = onp.argwhere(mask).flatten()  # indices of atoms in subcell
       if nmin <= len(ids) <= nmax:
         if restrict_to_compositions:
           if (
-              mg.Composition(''.join(species[ids])).reduced_formula
-              not in restrict_to_compositions
+            mg.Composition(''.join(species[ids])).reduced_formula
+            not in restrict_to_compositions
           ):
             continue
         candidates.append((ids, l, h))
@@ -115,10 +121,10 @@ def get_subcells_to_crystallize(
 
 
 def subcells_to_structures(
-    candidates: List[Tuple[Sequence[int], onp.ndarray, onp.ndarray]],
-    position: onp.ndarray,
-    box: Union[BoxColumnMatrix, BoxRowMatrix],
-    species: Sequence[str],
+  candidates: List[Tuple[Sequence[int], onp.ndarray, onp.ndarray]],
+  position: onp.ndarray,
+  box: Union[BoxColumnMatrix, BoxRowMatrix],
+  species: Sequence[str],
 ) -> List[mg.core.Structure]:
   """Create pymatgen Structure objects from subcell slices.
 
@@ -143,17 +149,19 @@ def subcells_to_structures(
     pos = position[ids] % 1
     new_pos = (pos - ldot) / (hdot - ldot)
     new_box = box * (hdot - ldot)
-    structures.append(mg.core.Structure(
+    structures.append(
+      mg.core.Structure(
         new_box.T,  # back to row format expected by pymatgen
         onp.array(species)[ids].tolist(),
         coords=new_pos,
-    ))
+      )
+    )
   return structures
 
 
-def get_candidate_subset(candidates: Sequence[Any],
-                         n_workers: int = 1,
-                         worker_id: int = 0):
+def get_candidate_subset(
+  candidates: Sequence[Any], n_workers: int = 1, worker_id: int = 0
+):
   """Conveinence method to split candidates into subsets for parallel processing.
 
   Args:
@@ -163,18 +171,21 @@ def get_candidate_subset(candidates: Sequence[Any],
   Returns:
     List of candidates corresponding to the current worker
   """
-  return onp.array_split(onp.array(candidates, dtype=object),
-                         n_workers)[worker_id]
+  return onp.array_split(onp.array(candidates, dtype=object), n_workers)[
+    worker_id
+  ]
 
 
-def valid_subcell(structure: mg.core.Structure,
-                  initial_energy: float,
-                  final_energy: float,
-                  e_tol: float = 0.001,
-                  fe_lower_limit: float = -5.0,
-                  fe_upper_limit: float = 0.0,
-                  fusion_distance: float = 1.5,
-                  distance_tolerance: float = 0.0001):
+def valid_subcell(
+  structure: mg.core.Structure,
+  initial_energy: float,
+  final_energy: float,
+  e_tol: float = 0.001,
+  fe_lower_limit: float = -5.0,
+  fe_upper_limit: float = 0.0,
+  fusion_distance: float = 1.5,
+  distance_tolerance: float = 0.0001,
+):
   """Validate the relaxed subcell."""
   # Unphysically negative formation energies indicate a problem
   if final_energy < fe_lower_limit:
@@ -195,4 +206,3 @@ def valid_subcell(structure: mg.core.Structure,
     logging.info('Bad structure! Fusion found.')
     return False
   return True
-
