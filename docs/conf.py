@@ -59,7 +59,12 @@ extensions = [
     'sphinx.ext.napoleon',
     'sphinx_autodoc_typehints',
     'sphinx_copybutton',
+    'nbsphinx',
 ]
+
+# nbsphinx configuration
+nbsphinx_execute = 'never'  # Notebooks already executed in pre_build
+nbsphinx_allow_errors = True
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']

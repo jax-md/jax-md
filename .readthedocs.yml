@@ -6,6 +6,21 @@
 version: 2
 
 # Build documentation in the docs/ directory with Sphinx
+build:
+  os: ubuntu-22.04
+  tools:
+    python: "3.12"
+  jobs:
+    pre_build:
+      - cp -r examples docs/
+      - jupytext --set-formats "py:percent,ipynb" docs/examples/*.py
+      - jupytext --set-kernel python3 docs/examples/*.py
+      - jupytext --to notebook --execute docs/examples/*.py
+      - rm docs/examples/*.py
+    post_build:
+      - mkdir -p $READTHEDOCS_OUTPUT/html/notebooks
+      - cp docs/examples/*.ipynb $READTHEDOCS_OUTPUT/html/notebooks/
+
 sphinx:
   configuration: docs/conf.py
 
@@ -17,4 +32,6 @@ formats:
 python:
   version: 3.11
   install:
+    - method: pip
+      path: .
     - requirements: docs/requirements.txt

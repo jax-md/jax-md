@@ -8,6 +8,12 @@ particular problem.
 
 .. toctree::
    :maxdepth: 2
+   :caption: Examples
+
+   examples
+
+.. toctree::
+   :maxdepth: 2
    :caption: Reference
 
    jax_md.space
