@@ -125,7 +125,6 @@ ignore = [
     "UP031",
     "UP034",
     "UP037",
-    "UP038",
     "UP045",
 ]
 
@@ -133,12 +132,7 @@ ignore = [
 known-first-party = ["jax_md"]
 
 [tool.ty]
+src = { include = ["jax_md", "tests"] }
+
+[tool.ty.environment]
 python-version = "3.11"
-check-mode = "basic"
-exclude = [
-    "**/__pycache__",
-    "**/.*",
-    ".pytype",
-    "dist",
-    "build",
-]
