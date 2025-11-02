@@ -3,6 +3,7 @@ Contains force field related code
 
 Author: Mehmet Cagri Kaymak
 """
+
 from jax_md import dataclasses, util
 from dataclasses import fields
 import jax
@@ -10,11 +11,13 @@ import jax.numpy as jnp
 
 Array = util.Array
 
+
 @dataclasses.dataclass
 class ForceField(object):
-  '''
+  """
   Container for ReaxFF parameters
-  '''
+  """
+
   num_atom_types: int = dataclasses.static_field()
   name_to_index: dict = dataclasses.static_field()
   params_to_indices: dict = dataclasses.static_field()
@@ -105,8 +108,8 @@ class ForceField(object):
   ovc: Array = dataclasses.static_field()
   v13cor: Array = dataclasses.static_field()
 
-  softcut: Array # acks2 parameter
-  softcut_2d: Array # softcut_2d[i,j] = 0.5 * (softcut[i] + softcut[j])
+  softcut: Array  # acks2 parameter
+  softcut_2d: Array  # softcut_2d[i,j] = 0.5 * (softcut[i] + softcut[j])
 
   stlp: Array
   valf: Array
@@ -170,27 +173,27 @@ class ForceField(object):
   par_26: Array
   par_28: Array
 
-  par_35: Array #ACKS2
+  par_35: Array  # ACKS2
 
   @classmethod
   def init_from_arg_dict(cls, kwargs):
     field_set = {f.name for f in fields(cls) if f.init}
-    filtered_kwargs = {k : v for k, v in kwargs.items() if k in field_set}
+    filtered_kwargs = {k: v for k, v in kwargs.items() if k in field_set}
     if len(filtered_kwargs) != len(field_set):
-      print("Missing arguments")
+      print('Missing arguments')
     else:
       return cls(**filtered_kwargs)
 
     return cls(**filtered_kwargs)
 
   def fill_symm(force_field):
-    '''
+    """
     Fills the parameter arrays based on the symmetries
-    '''
+    """
     # 2 body-params
     # for now global
     num_atoms = force_field.num_atom_types
-    body_2_indices = jnp.tril_indices(num_atoms,k=-1)
+    body_2_indices = jnp.tril_indices(num_atoms, k=-1)
     body_3_indices_src = force_field.body3_indices_src
     body_3_indices_dst = force_field.body3_indices_dst
     body_4_indices_src = force_field.body4_indices_src
@@ -198,26 +201,44 @@ class ForceField(object):
 
     replace_dict = {}
 
-    body_2_attr = ["p1co", "p2co", "p3co",
-                   "p1co_off","p2co_off","p3co_off",
-                   "rob1", "rob2", "rob3",
-                   "rob1_off","rob2_off","rob3_off",
-                   "ptp", "pdp", "popi",
-                   "pdo", "bop1", "bop2",
-                   "de1", "de2", "de3",
-                   "psp", "psi", "vover"]
+    body_2_attr = [
+      'p1co',
+      'p2co',
+      'p3co',
+      'p1co_off',
+      'p2co_off',
+      'p3co_off',
+      'rob1',
+      'rob2',
+      'rob3',
+      'rob1_off',
+      'rob2_off',
+      'rob3_off',
+      'ptp',
+      'pdp',
+      'popi',
+      'pdo',
+      'bop1',
+      'bop2',
+      'de1',
+      'de2',
+      'de3',
+      'psp',
+      'psi',
+      'vover',
+    ]
     for attr in body_2_attr:
       arr = getattr(force_field, attr)
       arr = arr.at[body_2_indices].set(arr.transpose()[body_2_indices])
       replace_dict[attr] = arr
 
-    body_3_attr = ["vval2","vkac", "th0", "vka", "vkap", "vka3", "vka8"]
+    body_3_attr = ['vval2', 'vkac', 'th0', 'vka', 'vkap', 'vka3', 'vka8']
     for attr in body_3_attr:
       arr = getattr(force_field, attr)
       arr = arr.at[body_3_indices_dst].set(arr[body_3_indices_src])
       replace_dict[attr] = arr
 
-    body_4_attr = ["v1","v2", "v3", "v4", "vconj"]
+    body_4_attr = ['v1', 'v2', 'v3', 'v4', 'vconj']
     for attr in body_4_attr:
       arr = getattr(force_field, attr)
       arr = arr.at[body_4_indices_dst].set(arr[body_4_indices_src])
@@ -228,9 +249,9 @@ class ForceField(object):
     return force_field
 
   def fill_off_diag(force_field):
-    '''
+    """
     Fills the off-diagonal entries in the parameter arrays
-    '''
+    """
     num_rows = force_field.num_atom_types
     rat = force_field.rat
     rapt = force_field.rapt
@@ -253,32 +274,32 @@ class ForceField(object):
 
     softcut = force_field.softcut
 
-    mat1 = rat.reshape(1,-1)
-    mat1 = jnp.tile(mat1,(num_rows,1))
+    mat1 = rat.reshape(1, -1)
+    mat1 = jnp.tile(mat1, (num_rows, 1))
     mat1_tr = mat1.transpose()
     rob1_temp = (mat1 + mat1_tr) * 0.5
     rob1_temp = jnp.where(mat1 > 0.0, rob1_temp, 0.0)
     rob1_temp = jnp.where(mat1_tr > 0.0, rob1_temp, 0.0)
 
-    mat1 = rapt.reshape(1,-1)
-    mat1 = jnp.tile(mat1,(num_rows,1))
+    mat1 = rapt.reshape(1, -1)
+    mat1 = jnp.tile(mat1, (num_rows, 1))
     mat1_tr = mat1.transpose()
     rob2_temp = (mat1 + mat1_tr) * 0.5
     rob2_temp = jnp.where(mat1 > 0.0, rob2_temp, 0.0)
     rob2_temp = jnp.where(mat1_tr > 0.0, rob2_temp, 0.0)
 
-    mat1 = vnq.reshape(1,-1)
-    mat1 = jnp.tile(mat1,(num_rows,1))
+    mat1 = vnq.reshape(1, -1)
+    mat1 = jnp.tile(mat1, (num_rows, 1))
     mat1_tr = mat1.transpose()
     rob3_temp = (mat1 + mat1_tr) * 0.5
     rob3_temp = jnp.where(mat1 > 0.0, rob3_temp, 0.0)
     rob3_temp = jnp.where(mat1_tr > 0.0, rob3_temp, 0.0)
 
-    p1co_temp = 4.0 * rvdw.reshape(-1,1).dot(rvdw.reshape(1,-1))
+    p1co_temp = 4.0 * rvdw.reshape(-1, 1).dot(rvdw.reshape(1, -1))
     p1co_temp = util.safe_mask(p1co_temp > 0, jnp.sqrt, p1co_temp)
-    p2co_temp = eps.reshape(-1,1).dot(eps.reshape(1,-1))
+    p2co_temp = eps.reshape(-1, 1).dot(eps.reshape(1, -1))
     p2co_temp = util.safe_mask(p2co_temp > 0, jnp.sqrt, p2co_temp)
-    p3co_temp = alf.reshape(-1,1).dot(alf.reshape(1,-1))
+    p3co_temp = alf.reshape(-1, 1).dot(alf.reshape(1, -1))
     p3co_temp = util.safe_mask(p3co_temp > 0, jnp.sqrt, p3co_temp)
 
     rob1 = jnp.where(rob1_off_mask == 0, rob1_temp, rob1_off)
@@ -289,21 +310,16 @@ class ForceField(object):
     p2co = jnp.where(p2co_off_mask == 0, p2co_temp, p2co_off)
     p3co = jnp.where(p3co_off_mask == 0, p3co_temp, p3co_off)
 
-    softcut_2d = 0.5 * (softcut.reshape(-1,1) + softcut.reshape(1,-1))
+    softcut_2d = 0.5 * (softcut.reshape(-1, 1) + softcut.reshape(1, -1))
 
-    force_field = dataclasses.replace(force_field,
-                                      rob1=rob1,
-                                      rob2=rob2,
-                                      rob3=rob3,
-                                      p1co=p1co,
-                                      p2co=p2co,
-                                      p3co=p3co,
-                                      softcut_2d=softcut_2d)
+    force_field = dataclasses.replace(
+      force_field,
+      rob1=rob1,
+      rob2=rob2,
+      rob3=rob3,
+      p1co=p1co,
+      p2co=p2co,
+      p3co=p3co,
+      softcut_2d=softcut_2d,
+    )
     return force_field
-
-
-
-
-
-
-

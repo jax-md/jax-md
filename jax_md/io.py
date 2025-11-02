@@ -14,10 +14,11 @@
 
 import jax.numpy as np
 
+
 def _xyz_vec2str(x):
-  """Convert a vector to string.
-  """
-  return "\t".join([str(i) for i in x])
+  """Convert a vector to string."""
+  return '\t'.join([str(i) for i in x])
+
 
 def write_xyz(filename, *args):
   """Write arrays to xyz file format.
@@ -31,13 +32,13 @@ def write_xyz(filename, *args):
     write_xyz('minimize.xyz', species, R)
     write_xyz('minimize.xyz', species, R, velocities, forces)
   """
-  vars = [arg[:, np.newaxis] if len(arg.shape)==1 else arg for arg in args]
+  vars = [arg[:, np.newaxis] if len(arg.shape) == 1 else arg for arg in args]
   vars = np.hstack(vars)
 
-  with open(filename, "w+") as f:
+  with open(filename, 'w+') as f:
     N = len(vars)
-    str_ = f"{N}" + "\n\n"
+    str_ = f'{N}' + '\n\n'
     f.write(str_)
     for j in range(N):
-      str_ = f"{j+1}\t" + _xyz_vec2str(vars[j, :]) + "\n"
+      str_ = f'{j + 1}\t' + _xyz_vec2str(vars[j, :]) + '\n'
       f.write(str_)

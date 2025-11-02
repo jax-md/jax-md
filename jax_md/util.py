@@ -65,9 +65,8 @@ def static_cast(*xs):
 
 def register_pytree_namedtuple(cls):
   register_pytree_node(
-      cls,
-      lambda xs: (tuple(xs), None),
-      lambda _, xs: cls(*xs))
+    cls, lambda xs: (tuple(xs), None), lambda _, xs: cls(*xs)
+  )
 
 
 def merge_dicts(a, b, ignore_unused_parameters=False):
@@ -88,9 +87,11 @@ def safe_mask(mask, fn, operand, placeholder=0):
   return jnp.where(mask, fn(masked), placeholder)
 
 
-def high_precision_sum(X: Array,
-                       axis: Optional[Union[Iterable[int], int]]=None,
-                       keepdims: bool=False):
+def high_precision_sum(
+  X: Array,
+  axis: Optional[Union[Iterable[int], int]] = None,
+  keepdims: bool = False,
+):
   """Sums over axes at 64-bit precision then casts back to original dtype."""
   if jnp.issubdtype(X.dtype, jnp.integer):
     dtyp = jnp.int64
@@ -100,7 +101,8 @@ def high_precision_sum(X: Array,
     dtyp = jnp.float64
 
   return jnp.array(
-      jnp.sum(X, axis=axis, dtype=dtyp, keepdims=keepdims), dtype=X.dtype)
+    jnp.sum(X, axis=axis, dtype=dtyp, keepdims=keepdims), dtype=X.dtype
+  )
 
 
 def maybe_downcast(x):

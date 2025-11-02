@@ -118,6 +118,7 @@ class TPUGrid:
       interactions.
     num_dims: The number of spatial dimensions.
   """
+
   cell_data: Array
 
   topology: Tuple[int, ...] = dataclasses.static_field()
@@ -132,14 +133,15 @@ class TPUGrid:
 # -----------------------------------------------------------------------------
 
 
-def to_grid(positions: Array,
-            box_size_in_cells: Union[int, Tuple[int, ...]],
-            cell_size: float,
-            max_interaction_distance: float,
-            topology: Optional[Tuple[int, ...]] = None,
-            aux: Optional[PyTree] = None,
-            strategy: str = 'closest',
-            ) -> Union[TPUGrid, Tuple[TPUGrid, PyTree]]:
+def to_grid(
+  positions: Array,
+  box_size_in_cells: Union[int, Tuple[int, ...]],
+  cell_size: float,
+  max_interaction_distance: float,
+  topology: Optional[Tuple[int, ...]] = None,
+  aux: Optional[PyTree] = None,
+  strategy: str = 'closest',
+) -> Union[TPUGrid, Tuple[TPUGrid, PyTree]]:
   """Place particles, and optionally auxiliary data, into a TPUGrid.
 
   Args:
@@ -169,22 +171,27 @@ def to_grid(positions: Array,
 
   max_grid_distance = max_interaction_distance / cell_size
   if not onp.isclose(max_grid_distance, onp.round(max_grid_distance)):
-    logging.warning(f'max_interaction_distance ({max_interaction_distance}) did'
-                    f' not evenly divide the cell_size ({cell_size}). This will'
-                    ' mean that the max grid distance will be padded.')
+    logging.warning(
+      f'max_interaction_distance ({max_interaction_distance}) did'
+      f' not evenly divide the cell_size ({cell_size}). This will'
+      ' mean that the max grid distance will be padded.'
+    )
   max_grid_distance = int(onp.ceil(max_grid_distance) + 1)
 
-  cell_data = _positions_to_grid(positions, box_size_in_cells, cell_size, ids + 1,
-                                 aux, strategy)
+  cell_data = _positions_to_grid(
+    positions, box_size_in_cells, cell_size, ids + 1, aux, strategy
+  )
 
   if np.sum(cell_data[..., -1] > 0) < len(positions):
     print(np.sum(cell_data[..., -1] > 0))
     print(len(positions))
-    raise ValueError('Lost particles while placing into grid, due to '
-                     'collision. Consider either using a better initial '
-                     'configuration or setting the placement strategy to '
-                     '`linear` (note that the linear strategy can take a '
-                     'long time for large systems).')
+    raise ValueError(
+      'Lost particles while placing into grid, due to '
+      'collision. Consider either using a better initial '
+      'configuration or setting the placement strategy to '
+      '`linear` (note that the linear strategy can take a '
+      'long time for large systems).'
+    )
 
   # Function to fold the grid on each device separately.
   inner_fold_fn = lambda grid: _fold_grid(grid, max_grid_distance, batch_size)
@@ -194,10 +201,9 @@ def to_grid(positions: Array,
 
   if topology:
     # Split grid across TPU mesh and push `inner_fold_fn` to act per-device.
-    cell_data, _ = _fold_grid(cell_data,
-                              max_grid_distance,
-                              factors=topology,
-                              inner_fold=False)
+    cell_data, _ = _fold_grid(
+      cell_data, max_grid_distance, factors=topology, inner_fold=False
+    )
     inner_fold_fn = parallelize(inner_fold_fn, topology)
 
   cell_data, factors = inner_fold_fn(cell_data)
@@ -206,13 +212,15 @@ def to_grid(positions: Array,
   factors = factors[(0,) * len(topology)]
   factors = tuple(int(f) for f in factors)
 
-  grid = TPUGrid(cell_data=cell_data,
-                 factors=factors,
-                 box_size_in_cells=box_size_in_cells,
-                 cell_size=cell_size,
-                 topology=topology,
-                 max_grid_distance=max_grid_distance,
-                 num_dims=num_dims)  # pytype: disable=wrong-keyword-args
+  grid = TPUGrid(
+    cell_data=cell_data,
+    factors=factors,
+    box_size_in_cells=box_size_in_cells,
+    cell_size=cell_size,
+    topology=topology,
+    max_grid_distance=max_grid_distance,
+    num_dims=num_dims,
+  )  # pytype: disable=wrong-keyword-args
 
   grid = _settle_particle_locations(grid)
 
@@ -224,14 +232,18 @@ def to_grid(positions: Array,
   return grid
 
 
-def from_grid(grid: TPUGrid, aux: Optional[PyTree] = None
-              ) -> Union[Array, Tuple[Array, PyTree]]:
+def from_grid(
+  grid: TPUGrid, aux: Optional[PyTree] = None
+) -> Union[Array, Tuple[Array, PyTree]]:
   """Extract positions and, optionally, auxiliary data from a grid."""
   box_size_in_cells = grid.box_size_in_cells
   # TODO(schsam, jaschasd): Maybe store the box size as a multidimensional array
   # by default.
-  box_size_in_cells = (onp.array([box_size_in_cells] * grid.num_dims)
-                       if onp.isscalar(box_size_in_cells) else onp.array(box_size_in_cells))
+  box_size_in_cells = (
+    onp.array([box_size_in_cells] * grid.num_dims)
+    if onp.isscalar(box_size_in_cells)
+    else onp.array(box_size_in_cells)
+  )
 
   cell_size = grid.cell_size
   num_dims = grid.num_dims
@@ -248,7 +260,7 @@ def from_grid(grid: TPUGrid, aux: Optional[PyTree] = None
   data = np.reshape(data, (-1, data.shape[-1]))
   grid_centers = np.reshape(grid_centers, (-1, num_dims))
 
-  valid = data[:, -1] > 0.
+  valid = data[:, -1] > 0.0
 
   data = data[valid]
   grid_centers = grid_centers[valid]
@@ -274,13 +286,14 @@ def from_grid(grid: TPUGrid, aux: Optional[PyTree] = None
   return pos
 
 
-def random_grid(key: Array,
-                density: float,
-                box_size_in_cells: Union[int, Tuple[int, ...]],
-                cell_size: float,
-                max_interaction_distance: float,
-                topology: Optional[Tuple[int, ...]] = None,
-                ) -> TPUGrid:
+def random_grid(
+  key: Array,
+  density: float,
+  box_size_in_cells: Union[int, Tuple[int, ...]],
+  cell_size: float,
+  max_interaction_distance: float,
+  topology: Optional[Tuple[int, ...]] = None,
+) -> TPUGrid:
   """Place particles, and optionally auxiliary data, into a TPUGrid.
 
   Args:
@@ -309,13 +322,18 @@ def random_grid(key: Array,
 
   max_grid_distance = max_interaction_distance / cell_size
   if not onp.isclose(max_grid_distance, onp.round(max_grid_distance)):
-    logging.warning(f'max_interaction_distance ({max_interaction_distance}) did'
-                    f' not evenly divide the cell_size ({cell_size}). This will'
-                    ' mean that the max grid distance will be padded.')
+    logging.warning(
+      f'max_interaction_distance ({max_interaction_distance}) did'
+      f' not evenly divide the cell_size ({cell_size}). This will'
+      ' mean that the max grid distance will be padded.'
+    )
   max_grid_distance = int(onp.ceil(max_grid_distance) + 1)
 
-  arr_box_size = (onp.array([box_size_in_cells] * num_dims)
-                  if onp.isscalar(box_size_in_cells) else onp.array(box_size_in_cells))
+  arr_box_size = (
+    onp.array([box_size_in_cells] * num_dims)
+    if onp.isscalar(box_size_in_cells)
+    else onp.array(box_size_in_cells)
+  )
   arr_box_size = arr_box_size / onp.array(topology)
   arr_box_size += 2 * max_grid_distance
   assert np.all(np.isclose(arr_box_size, np.round(arr_box_size)))
@@ -326,20 +344,27 @@ def random_grid(key: Array,
 
   def create_instance_by_key(key):
     pos_key, occ_key = random.split(key)
-    grid = random.uniform(pos_key, arr_box_size + (num_dims,),
-                          minval=-cell_size/2., maxval=cell_size/2.)
+    grid = random.uniform(
+      pos_key,
+      arr_box_size + (num_dims,),
+      minval=-cell_size / 2.0,
+      maxval=cell_size / 2.0,
+    )
     occupied = random.bernoulli(occ_key, density, arr_box_size + (1,))
     grid *= occupied
     return np.concatenate((grid, occupied), axis=-1)
 
   def create_instance(index):
-    index_into_topology = index[:len(topology)]
+    index_into_topology = index[: len(topology)]
     key = np.squeeze(pkeys[index_into_topology])
     return np.expand_dims(create_instance_by_key(key), range(len(topology)))
 
   mesh, axes = mesh_and_axes(topology)
-  cell_data = jax.make_array_from_callback(topology + arr_box_size + (num_dims + 1,),
-                                           jax.sharding.NamedSharding(mesh, axes), create_instance)
+  cell_data = jax.make_array_from_callback(
+    topology + arr_box_size + (num_dims + 1,),
+    jax.sharding.NamedSharding(mesh, axes),
+    create_instance,
+  )
 
   # Function to fold the grid on each device separately.
   inner_fold_fn = lambda grid: _fold_grid(grid, max_grid_distance, batch_size)
@@ -351,13 +376,15 @@ def random_grid(key: Array,
   factors = factors[(0,) * len(topology)]
   factors = tuple(int(f) for f in factors)
 
-  grid = TPUGrid(cell_data=cell_data,
-                 factors=factors,
-                 box_size_in_cells=box_size_in_cells,
-                 cell_size=cell_size,
-                 topology=topology,
-                 max_grid_distance=max_grid_distance,
-                 num_dims=num_dims)  # pytype: disable=wrong-keyword-args
+  grid = TPUGrid(
+    cell_data=cell_data,
+    factors=factors,
+    box_size_in_cells=box_size_in_cells,
+    cell_size=cell_size,
+    topology=topology,
+    max_grid_distance=max_grid_distance,
+    num_dims=num_dims,
+  )  # pytype: disable=wrong-keyword-args
 
   return _settle_particle_locations(grid)
 
@@ -383,14 +410,20 @@ def compute_displacement(grid: TPUGrid) -> Tuple[Array, Array]:
   # Compute pairwise offsets within window.
   # TODO(jaschasd, schsam): Make ordering of dimensions consistent throughout
   # code. avoid unnecessary transposes.
-  data_transposed = np.transpose(data, (0, data.ndim - 1,) +
-                                 tuple(range(1, num_dims + 1)))
+  data_transposed = np.transpose(
+    data,
+    (
+      0,
+      data.ndim - 1,
+    )
+    + tuple(range(1, num_dims + 1)),
+  )
   offsets = _get_pairwise_displacement(data_transposed, grid)
   # The shape of pairwise_dat will be B x L x C x X x Y x ...
 
   # The mask will have entries of 1 if particles exist at both grid points
   # and entries of 0 otherwise.
-  mask = (offsets[:, :, [-1], ...] > 0.5)
+  mask = offsets[:, :, [-1], ...] > 0.5
   mask = mask & (data_transposed[:, None, [-1], ...] > 0.5)
 
   reordering = (0,) + tuple(range(3, 3 + num_dims)) + (1, 2)
@@ -405,8 +438,9 @@ def compute_displacement(grid: TPUGrid) -> Tuple[Array, Array]:
   return offsets, mask
 
 
-def accumulate_on_grid(accum_fn: Callable[[Array, Array, Array], Array],
-                       grid: TPUGrid) -> Array:
+def accumulate_on_grid(
+  accum_fn: Callable[[Array, Array, Array], Array], grid: TPUGrid
+) -> Array:
   """Sums the result of `accum_fn` applied to batches of pairwise displacements.
 
   Unlike `compute_displacement`, this function evaluates the `accum_fn` serially
@@ -429,14 +463,15 @@ def accumulate_on_grid(accum_fn: Callable[[Array, Array, Array], Array],
   data = grid.cell_data
   # TODO(jaschasd, schsam): This code is only useful if there is aux data. Will
   # there ever be aux data when we call this?
-  data = np.concatenate((data[..., :grid.num_dims], data[..., -1:]), axis=-1)
+  data = np.concatenate((data[..., : grid.num_dims], data[..., -1:]), axis=-1)
   data_0 = data[..., np.newaxis, :]
 
   # TODO(jaschasd, schsam): Could move some of these into the recursion, to
   # reduce peak memory usage
   for dim in range(grid.num_dims):
-    data = _pad_axis_channel_last(data, grid.factors, dim,
-                                  grid.max_grid_distance)
+    data = _pad_axis_channel_last(
+      data, grid.factors, dim, grid.max_grid_distance
+    )
 
   return _accumulate_recursion(accum_fn, data_0, data, 0, grid)
 
@@ -464,12 +499,14 @@ def parallelize(f: Callable, topology: Tuple[int]) -> Callable:
   devs = mesh_utils.create_device_mesh(topology)
   mesh = Mesh(devs, labels)
 
-  return mesh(shard_map(
+  return mesh(
+    shard_map(
       f,
       in_axes=labels + [...],
       out_axes=labels + [...],
-      axis_resources={l: l for l in labels}
-  ))
+      axis_resources={l: l for l in labels},
+    )
+  )
 
 
 def _psum(x: Array, topology: Tuple[int]) -> Array:
@@ -509,8 +546,9 @@ def unfold_mesh(cell_data: Array, grid: TPUGrid) -> Array:
   return cell_data
 
 
-def shift(grid: TPUGrid, displacement: Array, aux: PyTree = None
-          ) -> Union[TPUGrid, Tuple[TPUGrid, PyTree]]:
+def shift(
+  grid: TPUGrid, displacement: Array, aux: PyTree = None
+) -> Union[TPUGrid, Tuple[TPUGrid, PyTree]]:
   """Moves particles in a grid by a given displacement.
 
   Args:
@@ -537,7 +575,7 @@ def shift(grid: TPUGrid, displacement: Array, aux: PyTree = None
   # we padded max_grid_distance by 1).
 
   data = grid.cell_data
-  data = data.at[..., :grid.num_dims].add(displacement)
+  data = data.at[..., : grid.num_dims].add(displacement)
 
   if aux is not None:
     data, aux_tree, aux_sizes = _set_aux(data, aux)
@@ -557,11 +595,13 @@ def shift(grid: TPUGrid, displacement: Array, aux: PyTree = None
   return shifted_grid
 
 
-def nearest_valid_grid_size(target_box_size_in_cells: Union[int, Tuple[int, ...]],
-                            topology: Union[int, Tuple],
-                            max_grid_distance: int,
-                            factors: Optional[Tuple[int, ...]]=None,
-                            dimension: Optional[int]=None):
+def nearest_valid_grid_size(
+  target_box_size_in_cells: Union[int, Tuple[int, ...]],
+  topology: Union[int, Tuple],
+  max_grid_distance: int,
+  factors: Optional[Tuple[int, ...]] = None,
+  dimension: Optional[int] = None,
+):
   if factors is None:
     if dimension is None:
       if topology:
@@ -569,28 +609,27 @@ def nearest_valid_grid_size(target_box_size_in_cells: Union[int, Tuple[int, ...]
       elif not np.isscalar(target_box_size_in_cells):
         dimension = len(target_box_size_in_cells)
       else:
-        raise ValueError('Need to (implicitly) specify dimension of space, by '
-                         'passing dimension keyword, or by making '
-                         'target_box_size_in_cells or topology a tuple.')
+        raise ValueError(
+          'Need to (implicitly) specify dimension of space, by '
+          'passing dimension keyword, or by making '
+          'target_box_size_in_cells or topology a tuple.'
+        )
     if dimension == 1:
       factors = (128,)
     elif dimension == 2:
       factors = (16, 8)
     elif dimension == 3:
       factors = (8, 4, 4)
-  folded_size = _outer_grid_size_to_inner_grid_size(target_box_size_in_cells,
-                                                    topology,
-                                                    factors,
-                                                    max_grid_distance)
+  folded_size = _outer_grid_size_to_inner_grid_size(
+    target_box_size_in_cells, topology, factors, max_grid_distance
+  )
   folded_size = onp.round(folded_size)
-  folded_size = onp.maximum(folded_size, max_grid_distance+1)
+  folded_size = onp.maximum(folded_size, max_grid_distance + 1)
   folded_size += folded_size % 2  # Make sure folded_size is even.
-  new_size = _inner_grid_size_to_outer_grid_size(folded_size,
-                                                 topology,
-                                                 factors,
-                                                 max_grid_distance)
+  new_size = _inner_grid_size_to_outer_grid_size(
+    folded_size, topology, factors, max_grid_distance
+  )
   return new_size.astype(onp.int32)
-
 
 
 # Functionality on top of API
@@ -648,26 +687,31 @@ def pair_potential(fn: Callable, **kwargs) -> Tuple[GridFn, GridFn]:
   return energy_fn, force_fn
 
 
-def soft_sphere(sigma: float = 1.0, epsilon: float = 1., alpha: float = 2
-                ) -> Tuple[GridFn, GridFn]:
+def soft_sphere(
+  sigma: float = 1.0, epsilon: float = 1.0, alpha: float = 2
+) -> Tuple[GridFn, GridFn]:
   """Compute the soft sphere potential over a TPUGrid.
 
   See `jax_md.energy.soft_sphere` for details about the potential.
   """
-  return pair_potential(energy.soft_sphere,
-                        sigma=sigma, epsilon=epsilon, alpha=alpha)
+  return pair_potential(
+    energy.soft_sphere, sigma=sigma, epsilon=epsilon, alpha=alpha
+  )
 
 
-def lennard_jones(sigma: float = 1.0,
-                  epsilon: float = 1.,
-                  r_onset: float = 2.0,
-                  r_cutoff: float = 3.0) -> Tuple[GridFn, GridFn]:
+def lennard_jones(
+  sigma: float = 1.0,
+  epsilon: float = 1.0,
+  r_onset: float = 2.0,
+  r_cutoff: float = 3.0,
+) -> Tuple[GridFn, GridFn]:
   """Compute the truncated Lennard-Jones potential over a TPUGrid.
 
   See `jax_md.energy.lennard_jones` for details about the potential.
   """
-  e_fn = energy.multiplicative_isotropic_cutoff(energy.lennard_jones,
-                                                r_onset, r_cutoff)
+  e_fn = energy.multiplicative_isotropic_cutoff(
+    energy.lennard_jones, r_onset, r_cutoff
+  )
   return pair_potential(e_fn, sigma=sigma, epsilon=epsilon)
 
 
@@ -686,20 +730,26 @@ def nve(force_fn: GridFn, dt: float) -> Simulator:
 
   See `jax_md.simulate.nve` for details about the simulation environment.
   """
-  dt_2 = 0.5 * dt ** 2
+  dt_2 = 0.5 * dt**2
+
   def init_fn(key, grid: TPUGrid, kT: float) -> NVEState:
     position = grid.cell_data
     mask = position[..., [-1]] > 0
-    v = np.sqrt(kT) * random.normal(key,
-                                    position.shape[:-1] + (grid.num_dims,),
-                                    dtype=position.dtype)
-    return NVEState(grid, v * mask, force_fn(grid))  # pytype: disable=wrong-arg-count
+    v = np.sqrt(kT) * random.normal(
+      key, position.shape[:-1] + (grid.num_dims,), dtype=position.dtype
+    )
+    return NVEState(
+      grid, v * mask, force_fn(grid)
+    )  # pytype: disable=wrong-arg-count
+
   def single_core_apply_fn(state):
     R = state.position
     V = state.velocity
     F = state.force
 
-    R, (V, F) = shift(R, V * dt + F * dt_2, (V, F))  # pytype: disable=attribute-error
+    R, (V, F) = shift(
+      R, V * dt + F * dt_2, (V, F)
+    )  # pytype: disable=attribute-error
     F_new = force_fn(R)
     V = V + 0.5 * (F + F_new) * dt
 
@@ -718,7 +768,7 @@ def kinetic_energy(state: NVEState) -> float:
   grid = state.position
   if grid.topology and len(grid.cell_data.shape) > grid.num_dims + 2:
     return 0.5 * np.sum(unfold_mesh(state.velocity, grid) ** 2)
-  return 0.5 * np.sum(state.velocity ** 2)
+  return 0.5 * np.sum(state.velocity**2)
 
 
 # Library Code
@@ -727,7 +777,9 @@ def kinetic_energy(state: NVEState) -> float:
 # Grid Packing / Unpacking.
 
 
-def _grid_centers(box_size_in_cells: Array, cell_size: float, num_dims: int) -> Array:
+def _grid_centers(
+  box_size_in_cells: Array, cell_size: float, num_dims: int
+) -> Array:
   """Computes the center position of each grid cell."""
   grid_centers = onp.zeros(tuple(box_size_in_cells) + (num_dims,))
 
@@ -745,30 +797,38 @@ def cell_hash(cell_index, cells, num_dims):
   elif num_dims == 2:
     return cell_index[:, 1] + cell_index[:, 0] * cells[1]
   elif num_dims == 3:
-    return (cell_index[:, 2] +
-            cell_index[:, 1] * cells[2] +
-            cell_index[:, 0] * cells[1] * cells[2])
+    return (
+      cell_index[:, 2]
+      + cell_index[:, 1] * cells[2]
+      + cell_index[:, 0] * cells[1] * cells[2]
+    )
   else:
-    raise ValueError('TPU only supports one-, two-, or three-dimensional '
-                     f'systems. Found {num_dims}.')
+    raise ValueError(
+      'TPU only supports one-, two-, or three-dimensional '
+      f'systems. Found {num_dims}.'
+    )
 
 
 @partial(jit, static_argnums=(1, 2, 5), backend='cpu')
-def _positions_to_grid(position: Array,
-                       box_size_in_cells: int,
-                       cell_size: float,
-                       particle_id: Array,
-                       aux: Optional[PyTree] = None,
-                       strategy: str = 'closest',
-                       ) -> Array:
+def _positions_to_grid(
+  position: Array,
+  box_size_in_cells: int,
+  cell_size: float,
+  particle_id: Array,
+  aux: Optional[PyTree] = None,
+  strategy: str = 'closest',
+) -> Array:
   """Place particles in the first `particle_count` grid cells."""
   # This will instantiate all of the atoms (and worse still, the whole grid) on
   # a single host CPU, which will probably run out of memory. So something
   # smarter would be better here.
   count, num_dims = position.shape
 
-  cells = (onp.array([box_size_in_cells] * num_dims)
-           if onp.isscalar(box_size_in_cells) else onp.array(box_size_in_cells))
+  cells = (
+    onp.array([box_size_in_cells] * num_dims)
+    if onp.isscalar(box_size_in_cells)
+    else onp.array(box_size_in_cells)
+  )
   total_cells = int(onp.prod(cells))
 
   if strategy == 'linear':
@@ -780,7 +840,6 @@ def _positions_to_grid(position: Array,
     grid = np.zeros((total_cells, cell_contents.shape[-1]))
     centers = _grid_centers(cells, cell_size, num_dims)
     centers = np.reshape(centers, (total_cells, num_dims))
-
     grid = grid.at[:count, :].set(cell_contents)
     grid = grid.at[:count, :num_dims].add(-centers[:count])
     grid = np.reshape(grid, tuple(cells) + (-1,))
@@ -789,8 +848,9 @@ def _positions_to_grid(position: Array,
     centers = cell_index * cell_size + 0.5 * cell_size
     cell_index_flattened = cell_hash(cell_index, cells, num_dims)
     cell_contents = position - centers
-    cell_contents = np.concatenate([cell_contents, particle_id[:, None]],
-                                   axis=-1)
+    cell_contents = np.concatenate(
+      [cell_contents, particle_id[:, None]], axis=-1
+    )
 
     if aux is not None:
       cell_contents, *_ = _set_aux(cell_contents, aux)
@@ -799,8 +859,10 @@ def _positions_to_grid(position: Array,
     grid = grid.at[cell_index_flattened, :].set(cell_contents)
     grid = np.reshape(grid, tuple(cells) + (-1,))
   else:
-    raise ValueError('Placement strategy must be either "closest" or "linear".'
-                     f' Found {strategy}.')
+    raise ValueError(
+      'Placement strategy must be either "closest" or "linear".'
+      f' Found {strategy}.'
+    )
 
   return grid
 
@@ -829,7 +891,9 @@ def _settle_particle_locations(grid: TPUGrid) -> TPUGrid:
 
   @jit
   def move_fn(grid):
-    old_grid = dataclasses.replace(grid, cell_data=np.zeros_like(grid.cell_data))
+    old_grid = dataclasses.replace(
+      grid, cell_data=np.zeros_like(grid.cell_data)
+    )
     return lax.while_loop(cond_fn, body_fn, (grid, old_grid))[0]
 
   if grid.topology:
@@ -841,8 +905,9 @@ def _settle_particle_locations(grid: TPUGrid) -> TPUGrid:
 # Building kernels for convolution operations.
 
 
-def _generate_offset_kernel_channel_last(axis: str, grid: TPUGrid
-                                         ) -> Tuple[Array, Array]:
+def _generate_offset_kernel_channel_last(
+  axis: str, grid: TPUGrid
+) -> Tuple[Array, Array]:
   """Generates weights and biases to get displacements with convolutions.
 
   These will act on an array of shape [BL x X x Y ... x C] and are used in the
@@ -995,10 +1060,9 @@ EINOPS_AXES_STRING = ['x', 'x y', 'x y z']
 EINOPS_FACTORS_STRING = ['fx', 'fx fy', 'fx fy fz']
 
 
-def _pad_axis_channel_last(data: Array,
-                           factors: Tuple[int, ...],
-                           axis: int,
-                           padding: int = 1) -> Array:
+def _pad_axis_channel_last(
+  data: Array, factors: Tuple[int, ...], axis: int, padding: int = 1
+) -> Array:
   """Pad an array along a specified axis when the channels are trailing."""
 
   # As the name suggests, `data` has shape [B x X x Y x ... C].
@@ -1044,8 +1108,9 @@ def _pad_axis_channel_last(data: Array,
   return data
 
 
-def _pad_axis(data: Array, factors: Tuple[int, ...], axis: int, padding: int
-              ) -> Array:
+def _pad_axis(
+  data: Array, factors: Tuple[int, ...], axis: int, padding: int
+) -> Array:
   """Pad an array along a specified axis when the channels are in the middle."""
 
   # As the name suggests, data has shape [B x L x C x X x Y x ...].
@@ -1119,13 +1184,18 @@ def _get_pairwise_displacement(data: Array, grid: TPUGrid) -> Array:
     spatial_shape = shp[-num_dims:]
 
     data = _pad_axis(data, grid.factors, axis_ind, max_grid_distance)
-    data = data.reshape((shp[0]*shp[1], shp[2]) + data.shape[-num_dims:])
+    data = data.reshape((shp[0] * shp[1], shp[2]) + data.shape[-num_dims:])
 
-    data = lax.conv_general_dilated(data, w, (1,) * num_dims, 'VALID',
-                                    dimension_numbers=dimension_numbers,
-                                    precision=lax.Precision.HIGHEST)
+    data = lax.conv_general_dilated(
+      data,
+      w,
+      (1,) * num_dims,
+      'VALID',
+      dimension_numbers=dimension_numbers,
+      precision=lax.Precision.HIGHEST,
+    )
     data += b
-    data = data.reshape((shp[0], shp[1]*kernel_width, shp[2]) + spatial_shape)
+    data = data.reshape((shp[0], shp[1] * kernel_width, shp[2]) + spatial_shape)
 
     # TODO(jaschasd, schsam): if we have an upper bound on number of neighbors,
     # we could use jax.lax.top_k to throw away entries in L corresponding to no
@@ -1140,11 +1210,13 @@ def _get_pairwise_displacement(data: Array, grid: TPUGrid) -> Array:
 # Displacement computation utilities.
 
 
-def _accumulate_recursion(accum_fn: Callable[[Array, Array, Array], Array],
-                          data_0: Array,
-                          data: Array,
-                          axis: int,
-                          grid: TPUGrid) -> Array:
+def _accumulate_recursion(
+  accum_fn: Callable[[Array, Array, Array], Array],
+  data_0: Array,
+  data: Array,
+  axis: int,
+  grid: TPUGrid,
+) -> Array:
   """Recursively sum the result of `accum_fn` applied to pairwise displacements.
 
   This function recursively goes through the spatial axes and applies the
@@ -1179,9 +1251,14 @@ def _accumulate_recursion(accum_fn: Callable[[Array, Array, Array], Array],
   w, b = _generate_offset_kernel_channel_last(axis_name, grid)
   dimension_numbers = ('N' + axes + 'C', 'IO' + axes, 'N' + axes + 'C')
 
-  data = lax.conv_general_dilated(data, w, (1,) * num_dims, 'VALID',
-                                  dimension_numbers=dimension_numbers,
-                                  precision=lax.Precision.HIGHEST)
+  data = lax.conv_general_dilated(
+    data,
+    w,
+    (1,) * num_dims,
+    'VALID',
+    dimension_numbers=dimension_numbers,
+    precision=lax.Precision.HIGHEST,
+  )
   data += b
   data = data.reshape(data.shape[:-1] + (kernel_width, num_dims + 1))
 
@@ -1190,12 +1267,12 @@ def _accumulate_recursion(accum_fn: Callable[[Array, Array, Array], Array],
   # particle, while still remaining jit-able.
 
   # If we are at the final axis, then apply the `accum_fn`.
-  if axis == num_dims-1:
+  if axis == num_dims - 1:
     # Compute the displacement from the neighbors to the particle rather than
     # the center of its grid cell.
     displacements = data_0[..., :num_dims] - data[..., :num_dims]
     accum = accum_fn(displacements, data_0[..., -1], data[..., -1])
-    return np.sum(accum, axis=(num_dims+1))
+    return np.sum(accum, axis=(num_dims + 1))
 
   # Otherwise loop over the neighbors in the current step and recurse.
   else:
@@ -1215,9 +1292,9 @@ def _accumulate_recursion(accum_fn: Callable[[Array, Array, Array], Array],
 # Folding and Unfolding utilities.
 
 
-def _folded_pad(data: Array,
-                max_grid_distance: int,
-                factors: Tuple[int, ...]) -> Array:
+def _folded_pad(
+  data: Array, max_grid_distance: int, factors: Tuple[int, ...]
+) -> Array:
   """Pad an array along all of its axes. Assumes the array is folded."""
 
   # this is called outside of the pmap
@@ -1249,20 +1326,21 @@ def _folded_unpad(data: Array, max_grid_distance: int) -> Array:
   return data[idx]
 
 
-def _fold_factors(batch_size: int,
-                  grid_shape: Tuple[int, ...],
-                  max_grid_distance: int) -> Tuple[int, ...]:
+def _fold_factors(
+  batch_size: int, grid_shape: Tuple[int, ...], max_grid_distance: int
+) -> Tuple[int, ...]:
   """Greedily compute fold factors, trying to target a given batch size."""
   num_dims = len(grid_shape)
   max_folds = onp.log(batch_size) / onp.log(2)
 
   folds = onp.zeros((num_dims,), onp.int32)
 
-  for i in range(int(max_folds)*num_dims):
+  for i in range(int(max_folds) * num_dims):
     # Here we use folds[dim]+2, rather than +1, since we need an even number of
     # cells for pairwise exchange in update_grid_locations.
-    dms = [divmod(grid_shape[dim], 2**(folds[dim] + 2))
-           for dim in range(num_dims)]
+    dms = [
+      divmod(grid_shape[dim], 2 ** (folds[dim] + 2)) for dim in range(num_dims)
+    ]
     valid_dms = [(i, dm[0]) for i, dm in enumerate(dms) if dm[1] == 0]
 
     if len(valid_dms) == 0:
@@ -1270,23 +1348,27 @@ def _fold_factors(batch_size: int,
 
     dim = sorted(valid_dms, key=lambda idm: idm[1], reverse=True)[0][0]
 
-    width, _ = divmod(grid_shape[dim], 2**(folds[dim] + 1))
-    _, remain = divmod(grid_shape[dim], 2**(folds[dim] + 2))
+    width, _ = divmod(grid_shape[dim], 2 ** (folds[dim] + 1))
+    _, remain = divmod(grid_shape[dim], 2 ** (folds[dim] + 2))
     if remain == 0 and width >= max_grid_distance:
       folds[dim] += 1
     else:
-      raise ValueError(f'Failed fold. Current folds {folds}, target fold '
-                       f'dimension {dim}, grid_shape {grid_shape}, '
-                       f'width {width}, remain {remain}.')
+      raise ValueError(
+        f'Failed fold. Current folds {folds}, target fold '
+        f'dimension {dim}, grid_shape {grid_shape}, '
+        f'width {width}, remain {remain}.'
+      )
     if onp.sum(folds) == max_folds:
       break
-  factors = 2 ** folds
+  factors = 2**folds
 
   if onp.sum(folds) < max_folds:
-    msg = (f'Folds {folds} have sum smaller than target of '
-           f'{max_folds}. This corresponds to a batch size of '
-           f'{onp.prod(factors)} rather than the target of '
-           f'{batch_size}. The grid_shape is {grid_shape}.')
+    msg = (
+      f'Folds {folds} have sum smaller than target of '
+      f'{max_folds}. This corresponds to a batch size of '
+      f'{onp.prod(factors)} rather than the target of '
+      f'{batch_size}. The grid_shape is {grid_shape}.'
+    )
     raise ValueError(msg)
 
   return factors
@@ -1304,11 +1386,13 @@ def _order_grid_by_factors(num_dims: int) -> Tuple[int, ...]:
   return front_order + back_order + (2 * num_dims,)
 
 
-def _fold_grid(cell_data: Array,
-               max_grid_distance: int,
-               batch_size: Optional[int] = None,
-               factors: Optional[Tuple[int, ...]] = None,
-               inner_fold: bool = True) -> Array:
+def _fold_grid(
+  cell_data: Array,
+  max_grid_distance: int,
+  batch_size: Optional[int] = None,
+  factors: Optional[Tuple[int, ...]] = None,
+  inner_fold: bool = True,
+) -> Array:
   """Takes data from a contiguous grid and folds it into patches.
 
   This function takes data in a grid of shape (X, Y, Z, C) and folds it into
@@ -1345,9 +1429,11 @@ def _fold_grid(cell_data: Array,
   if min_size < max_grid_distance:
     # TODO(jaschasd, schsam): How do we know this is happening when splitting
     # across devices?
-    print(f'Folded grid may be too small. This failure is happening when '
-          f'splitting across devices. Factors: {factors}, '
-          f'cell_data.shape: {cell_data.shape}, New data_shape {data_shape}.')
+    print(
+      f'Folded grid may be too small. This failure is happening when '
+      f'splitting across devices. Factors: {factors}, '
+      f'cell_data.shape: {cell_data.shape}, New data_shape {data_shape}.'
+    )
 
   ordering = _order_grid_by_factors(num_dims)
 
@@ -1362,8 +1448,9 @@ def _fold_grid(cell_data: Array,
   return cell_data, factors
 
 
-def _unfold_grid(cell_data: Array, grid: TPUGrid, inner_fold: bool=True
-                ) -> Array:
+def _unfold_grid(
+  cell_data: Array, grid: TPUGrid, inner_fold: bool = True
+) -> Array:
   """Takes data from a folded grid and unfolds it into a contiguous block."""
   num_dims = grid.num_dims
   max_grid_distance = grid.max_grid_distance
@@ -1382,7 +1469,9 @@ def _unfold_grid(cell_data: Array, grid: TPUGrid, inner_fold: bool=True
   data_shape = ()
   for i in range(num_dims):
     data_shape += (cell_data.shape[2 * i + 1] * factors[i],)
-  cell_data = np.reshape(cell_data, data_shape + cell_data.shape[2 * num_dims:])
+  cell_data = np.reshape(
+    cell_data, data_shape + cell_data.shape[2 * num_dims :]
+  )
 
   return cell_data
 
@@ -1448,9 +1537,9 @@ def _mesh_transport(cell_data: Array, grid: TPUGrid) -> Array:
     new_end = _send_prev(start, axis)
     cell_data = np.concatenate((new_start, cell_data, new_end), axis=axis_index)
 
-  cell_data = _fold_grid(cell_data,
-                         grid.max_grid_distance,
-                         factors=grid.factors)[0]
+  cell_data = _fold_grid(
+    cell_data, grid.max_grid_distance, factors=grid.factors
+  )[0]
 
   return cell_data
 
@@ -1466,11 +1555,13 @@ def _pairwise_exchange(cell_data: Array, axis: int, grid: TPUGrid) -> Array:
   aux_size = cell_data.shape[-1] - num_dims
 
   axes = EINOPS_AXES_STRING[num_dims - 1]
-  axes_pre = ' '.join([f'({a} q)' if i == axis else
-                       a for i, a in enumerate(axes.split(' '))])
+  axes_pre = ' '.join(
+    [f'({a} q)' if i == axis else a for i, a in enumerate(axes.split(' '))]
+  )
   axes_post = axes
-  cell_data = einops.rearrange(cell_data,
-                               f'{axes_pre} c -> q {axes_post} c', q=2)
+  cell_data = einops.rearrange(
+    cell_data, f'{axes_pre} c -> q {axes_post} c', q=2
+  )
 
   delta = onp.zeros((2, num_dims + aux_size))
   delta[0, axis] = grid.cell_size
@@ -1481,15 +1572,20 @@ def _pairwise_exchange(cell_data: Array, axis: int, grid: TPUGrid) -> Array:
   data_swap = data_reversed + delta * (data_reversed[..., [-1]] > 0)
 
   def square_displacement(dat: Array) -> Array:
-    return np.sum(dat[..., :num_dims]**2 * (dat[..., [-1]] > 0),
-                  axis=(0, -1), keepdims=True)
+    return np.sum(
+      dat[..., :num_dims] ** 2 * (dat[..., [-1]] > 0),
+      axis=(0, -1),
+      keepdims=True,
+    )
 
-  keep_mask = (square_displacement(cell_data) <= square_displacement(data_swap))
+  keep_mask = square_displacement(cell_data) <= square_displacement(data_swap)
 
   data_swap = einops.rearrange(data_swap, f'q {axes_post} c -> {axes_pre} c')
   keep_mask = einops.rearrange(keep_mask, f'q {axes_post} c -> {axes_pre} c')
 
   return data_swap, keep_mask
+
+
 _pairwise_exchange = vmap(_pairwise_exchange, in_axes=(0, None, None))
 
 
@@ -1511,8 +1607,9 @@ def _update_grid_locations(cell_data: Array, grid: TPUGrid) -> Array:
     # cutting the end halo off, and copying from start halo.
     base_slice = tuple(slice(cell_data.shape[j]) for j in range(axis + 1))
     body_slice = base_slice + (slice(0, -1),)
-    keep_mask = _pad_axis_channel_last(keep_mask[body_slice],
-                                       grid.factors, axis)
+    keep_mask = _pad_axis_channel_last(
+      keep_mask[body_slice], grid.factors, axis
+    )
     body_slice = base_slice + (slice(1, cell_data.shape[axis + 1]),)
     keep_mask = keep_mask[body_slice]
 
@@ -1530,8 +1627,9 @@ def _update_grid_locations(cell_data: Array, grid: TPUGrid) -> Array:
 # Auxiliary Data utilities.
 
 
-def _get_aux(cell_data: Array, aux_tree: TreeDef, aux_sizes: Tuple[int, ...]
-             ) -> Tuple[Array, PyTree]:
+def _get_aux(
+  cell_data: Array, aux_tree: TreeDef, aux_sizes: Tuple[int, ...]
+) -> Tuple[Array, PyTree]:
   """Extract auxiliary data from a grid and shape it into a PyTree."""
   cell_data, *flat_aux_occupancy = np.split(cell_data, aux_sizes, axis=-1)
   flat_aux, occupancy = flat_aux_occupancy[:-1], flat_aux_occupancy[-1]
@@ -1540,20 +1638,22 @@ def _get_aux(cell_data: Array, aux_tree: TreeDef, aux_sizes: Tuple[int, ...]
   return cell_data, aux
 
 
-def _set_aux(cell_data: Array, aux: PyTree
-             ) -> Tuple[Array, TreeDef, Tuple[int, ...]]:
+def _set_aux(
+  cell_data: Array, aux: PyTree
+) -> Tuple[Array, TreeDef, Tuple[int, ...]]:
   """Flattens a PyTree of auxiliary data and adds it to a grid."""
   flat_aux, aux_tree = tree_flatten(aux)
   aux_sizes = [x.shape[-1] for x in flat_aux]
   aux_sizes = onp.cumsum([cell_data.shape[-1] - 1] + aux_sizes)
-  cell_data = np.concatenate([cell_data[..., :-1]] +
-                             flat_aux +
-                             [cell_data[..., -1:]], axis=-1)
+  cell_data = np.concatenate(
+    [cell_data[..., :-1]] + flat_aux + [cell_data[..., -1:]], axis=-1
+  )
   return cell_data, aux_tree, aux_sizes
 
 
-def _get_aux_spec(num_dims: int, aux: PyTree
-                  ) -> Tuple[TreeDef, Tuple[int, ...]]:
+def _get_aux_spec(
+  num_dims: int, aux: PyTree
+) -> Tuple[TreeDef, Tuple[int, ...]]:
   """Extract the structure of auxiliary data."""
   flat_aux, aux_tree = tree_flatten(aux)
   aux_sizes = [x.shape[-1] for x in flat_aux]
@@ -1564,26 +1664,24 @@ def _get_aux_spec(num_dims: int, aux: PyTree
 # Grid sizing utilities
 
 
-def _outer_grid_size_to_inner_grid_size(tiled_size,
-                                        topology,
-                                        factors,
-                                        max_grid_distance):
+def _outer_grid_size_to_inner_grid_size(
+  tiled_size, topology, factors, max_grid_distance
+):
   if topology:
     unpadded_size = tiled_size / onp.array(topology)
-    padded_size = unpadded_size + 2*max_grid_distance
+    padded_size = unpadded_size + 2 * max_grid_distance
   else:
     padded_size = tiled_size
   folded_size = padded_size / onp.array(factors)
   return folded_size
 
 
-def _inner_grid_size_to_outer_grid_size(folded_size,
-                                        topology,
-                                        factors,
-                                        max_grid_distance):
+def _inner_grid_size_to_outer_grid_size(
+  folded_size, topology, factors, max_grid_distance
+):
   padded_size = folded_size * onp.array(factors)
   if topology:
-    unpadded_size = padded_size - 2*max_grid_distance
+    unpadded_size = padded_size - 2 * max_grid_distance
     tiled_size = unpadded_size * onp.array(topology)
   else:
     tiled_size = padded_size
@@ -1594,20 +1692,24 @@ def _inner_grid_size_to_outer_grid_size(folded_size,
 
 
 def test_nve(force_fn, dt):
-  dt_2 = 0.5 * dt ** 2
+  dt_2 = 0.5 * dt**2
+
   def init_fn(position: TPUGrid, velocity: Array, **kwargs) -> NVEState:
-    return NVEState(position, velocity, force_fn(position))    # pytype: disable=wrong-arg-count
+    return NVEState(
+      position, velocity, force_fn(position)
+    )  # pytype: disable=wrong-arg-count
+
   def apply_fn(state):
     R = state.position
     V = state.velocity
     F = state.force
 
-    R, (V, F) = shift(R, V * dt + F * dt_2, (V, F))  # pytype: disable=attribute-error
+    R, (V, F) = shift(
+      R, V * dt + F * dt_2, (V, F)
+    )  # pytype: disable=attribute-error
     F_new = force_fn(R)
     V = V + 0.5 * (F + F_new) * dt
 
     return NVEState(R, V, F_new)  # pytype: disable=wrong-arg-count
+
   return init_fn, apply_fn
-
-
-

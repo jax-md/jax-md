@@ -42,11 +42,11 @@ f32 = jnp.float32
 # Utility functions forked from jax._src.public_test_util
 
 
-_python_scalar_dtypes : dict = {
-    bool: onp.dtype('bool'),
-    int: onp.dtype('int64'),
-    float: onp.dtype('float64'),
-    complex: onp.dtype('complex128'),
+_python_scalar_dtypes: dict = {
+  bool: onp.dtype('bool'),
+  int: onp.dtype('int64'),
+  float: onp.dtype('float64'),
+  complex: onp.dtype('complex128'),
 }
 
 
@@ -73,11 +73,11 @@ def device_under_test():
 
 
 _DEFAULT_TOLERANCE = {
-    onp.dtype(onp.bool_): 0,
-    onp.dtype(onp.int32): 0,
-    onp.dtype(onp.int64): 0,
-    onp.dtype(onp.float32): 1e-6,
-    onp.dtype(onp.float64): 1e-15,
+  onp.dtype(onp.bool_): 0,
+  onp.dtype(onp.int32): 0,
+  onp.dtype(onp.int64): 0,
+  onp.dtype(onp.float32): 1e-6,
+  onp.dtype(onp.float64): 1e-15,
 }
 
 
@@ -97,8 +97,10 @@ def _assert_numpy_allclose(a, b, atol=None, rtol=None, err_msg=''):
   a = a.astype(onp.float32) if a.dtype == _dtypes.bfloat16 else a
   b = b.astype(onp.float32) if b.dtype == _dtypes.bfloat16 else b
   kw = {}
-  if atol: kw['atol'] = atol
-  if rtol: kw['rtol'] = rtol
+  if atol:
+    kw['atol'] = atol
+  if rtol:
+    kw['rtol'] = rtol
   with onp.errstate(invalid='ignore'):
     # TODO(phawkins): surprisingly, assert_allclose sometimes reports invalid
     # value errors. It should not do that.
@@ -125,38 +127,61 @@ def cases_from_list(xs):
 class JAXMDTestCase(parameterized.TestCase):
   """Testing helper class forked from JaxTestCase."""
 
-  def _assertAllClose(self, x, y, *, check_dtypes=True, atol=None, rtol=None,
-                      canonicalize_dtypes=True, err_msg=''):
+  def _assertAllClose(
+    self,
+    x,
+    y,
+    *,
+    check_dtypes=True,
+    atol=None,
+    rtol=None,
+    canonicalize_dtypes=True,
+    err_msg='',
+  ):
     """Assert that x and y, either arrays or nested tuples/lists, are close."""
     if isinstance(x, dict):
       self.assertIsInstance(y, dict)
       self.assertEqual(set(x.keys()), set(y.keys()))
       for k in x.keys():
-        self._assertAllClose(x[k], y[k], check_dtypes=check_dtypes, atol=atol,
-                             rtol=rtol, canonicalize_dtypes=canonicalize_dtypes,
-                             err_msg=err_msg)
+        self._assertAllClose(
+          x[k],
+          y[k],
+          check_dtypes=check_dtypes,
+          atol=atol,
+          rtol=rtol,
+          canonicalize_dtypes=canonicalize_dtypes,
+          err_msg=err_msg,
+        )
     elif is_sequence(x) and not hasattr(x, '__array__'):
       self.assertTrue(is_sequence(y) and not hasattr(y, '__array__'))
       self.assertEqual(len(x), len(y))
       for x_elt, y_elt in zip(x, y):
-        self._assertAllClose(x_elt, y_elt, check_dtypes=check_dtypes, atol=atol,
-                             rtol=rtol, canonicalize_dtypes=canonicalize_dtypes,
-                             err_msg=err_msg)
+        self._assertAllClose(
+          x_elt,
+          y_elt,
+          check_dtypes=check_dtypes,
+          atol=atol,
+          rtol=rtol,
+          canonicalize_dtypes=canonicalize_dtypes,
+          err_msg=err_msg,
+        )
     elif hasattr(x, '__array__') or onp.isscalar(x):
       self.assertTrue(hasattr(y, '__array__') or onp.isscalar(y))
       if check_dtypes:
         self.assertDtypesMatch(x, y, canonicalize_dtypes=canonicalize_dtypes)
       x = onp.asarray(x)
       y = onp.asarray(y)
-      self.assertArraysAllClose(x, y, check_dtypes=False, atol=atol, rtol=rtol,
-                                err_msg=err_msg)
+      self.assertArraysAllClose(
+        x, y, check_dtypes=False, atol=atol, rtol=rtol, err_msg=err_msg
+      )
     elif x == y:
       return
     else:
       raise TypeError((type(x), type(y)))
 
-  def assertArraysAllClose(self, x, y, *, check_dtypes=True, atol=None,
-                           rtol=None, err_msg=''):
+  def assertArraysAllClose(
+    self, x, y, *, check_dtypes=True, atol=None, rtol=None, err_msg=''
+  ):
     """Assert that x and y are close (up to numerical tolerances)."""
     self.assertEqual(x.shape, y.shape)
     atol = max(_tolerance(_dtype(x), atol), _tolerance(_dtype(y), atol))
@@ -168,21 +193,24 @@ class JAXMDTestCase(parameterized.TestCase):
 
   def assertDtypesMatch(self, x, y, *, canonicalize_dtypes=True):
     if not jax.config.x64_enabled and canonicalize_dtypes:
-      self.assertEqual(_dtypes.canonicalize_dtype(_dtype(x)),
-                       _dtypes.canonicalize_dtype(_dtype(y)))
+      self.assertEqual(
+        _dtypes.canonicalize_dtype(_dtype(x)),
+        _dtypes.canonicalize_dtype(_dtype(y)),
+      )
     else:
       self.assertEqual(_dtype(x), _dtype(y))
 
   def assertAllClose(
-      self,
-      x,
-      y,
-      *,
-      check_dtypes=True,
-      atol=None,
-      rtol=None,
-      canonicalize_dtypes=True,
-      err_msg=''):
+    self,
+    x,
+    y,
+    *,
+    check_dtypes=True,
+    atol=None,
+    rtol=None,
+    canonicalize_dtypes=True,
+    err_msg='',
+  ):
     def is_finite(x):
       self.assertTrue(jnp.all(jnp.isfinite(x)))
 
@@ -191,12 +219,13 @@ class JAXMDTestCase(parameterized.TestCase):
 
     def assert_close(x, y):
       self._assertAllClose(
-          x, y,
-          check_dtypes=check_dtypes,
-          atol=atol,
-          rtol=rtol,
-          canonicalize_dtypes=canonicalize_dtypes,
-          err_msg=err_msg,
+        x,
+        y,
+        check_dtypes=check_dtypes,
+        atol=atol,
+        rtol=rtol,
+        canonicalize_dtypes=canonicalize_dtypes,
+        err_msg=err_msg,
       )
 
     if dataclasses.is_dataclass(x):
@@ -241,10 +270,10 @@ def _load_elasticity_test_data(filename, spatial_dimension, dtype, index):
   ds = nc.Dataset(filename)
   cijkl = jnp.array(ds.variables['Cijkl'][index], dtype=dtype)
   R = jnp.array(ds.variables['pos'][index], dtype=dtype)
-  R = jnp.reshape(R, (R.shape[0]//spatial_dimension,spatial_dimension))
-  sigma = 2. * jnp.array(ds.variables['rad'][index], dtype=dtype)
+  R = jnp.reshape(R, (R.shape[0] // spatial_dimension, spatial_dimension))
+  sigma = 2.0 * jnp.array(ds.variables['rad'][index], dtype=dtype)
   box = jnp.array(ds.variables['box'][index], dtype=dtype)
-  box = jnp.reshape(box, (spatial_dimension,spatial_dimension))
+  box = jnp.reshape(box, (spatial_dimension, spatial_dimension))
   return cijkl, R, sigma, box
 
 
@@ -290,13 +319,13 @@ def _load_jammed_state(filename: str, dtype) -> JammedTestState:
   filename = FLAGS.test_srcdir + filename
   with open(filename, 'rb') as f:
     return JammedTestState(
-        fractional_position=onp.load(f).astype(dtype),
-        real_position=onp.load(f).astype(dtype),
-        species=onp.load(f),
-        sigma=onp.load(f).astype(dtype),
-        box=onp.load(f).astype(dtype),
-        energy=onp.load(f).astype(dtype),
-        pressure=onp.load(f).astype(dtype),  # pytype: disable=wrong-keyword-args
+      fractional_position=onp.load(f).astype(dtype),
+      real_position=onp.load(f).astype(dtype),
+      species=onp.load(f),
+      sigma=onp.load(f).astype(dtype),
+      box=onp.load(f).astype(dtype),
+      energy=onp.load(f).astype(dtype),
+      pressure=onp.load(f).astype(dtype),  # pytype: disable=wrong-keyword-args
     )
 
 
@@ -329,24 +358,37 @@ def load_lammps_stress_data(dtype):
     filename = FLAGS.test_srcdir + filename
     with open(filename) as f:
       data = f.read()
-    data = [[float(dd) for dd in d.split(' ') if dd != ' ' and dd != '']
-            for d in data.split('\n')]
+    data = [
+      [float(dd) for dd in d.split(' ') if dd != ' ' and dd != '']
+      for d in data.split('\n')
+    ]
     step = jnp.array([int(d[0]) for d in data if len(d) > 0])
     Es = jnp.array([d[1] for d in data if len(d) > 0], dtype)
     C = jnp.array([d[2:] for d in data if len(d) > 0], dtype)
-    C = jnp.array([[C[0, 0], C[0, 3], C[0, 4]],
-                   [C[0, 3], C[0, 1], C[0, 5]],
-                   [C[0, 4], C[0, 5], C[0, 2]]], dtype)
+    C = jnp.array(
+      [
+        [C[0, 0], C[0, 3], C[0, 4]],
+        [C[0, 3], C[0, 1], C[0, 5]],
+        [C[0, 4], C[0, 5], C[0, 2]],
+      ],
+      dtype,
+    )
     return Es[0], C
 
   try:
-    return (parse_state('tests/data/lammps_lj_stress_test_states'),
-            parse_results('tests/data/lammps_lj_stress_test'))
+    return (
+      parse_state('tests/data/lammps_lj_stress_test_states'),
+      parse_results('tests/data/lammps_lj_stress_test'),
+    )
   except FileNotFoundError:
-    return (parse_state('/google3/third_party/py/jax_md/tests/data/'
-                        'lammps_lj_stress_test_states'),
-            parse_results('/google3/third_party/py/jax_md/tests/data/'
-                          'lammps_lj_stress_test'))
+    return (
+      parse_state(
+        '/google3/third_party/py/jax_md/tests/data/lammps_lj_stress_test_states'
+      ),
+      parse_results(
+        '/google3/third_party/py/jax_md/tests/data/lammps_lj_stress_test'
+      ),
+    )
 
 
 def load_lammps_npt_test_case(dtype):
@@ -355,12 +397,19 @@ def load_lammps_npt_test_case(dtype):
     lammps_step_0 = onp.loadtxt(filename)
     position = jnp.array(lammps_step_0[:, 2:5], dtype=dtype)
     velocity = jnp.array(lammps_step_0[:, 5:8], dtype=dtype)
-    latvec_con = jnp.array([[21.724, 0.0000, 0.0000],
-                            [0.0000, 21.724, 0.0000],
-                            [0.0000, 0.0000, 21.724]], dtype=dtype)
+    latvec_con = jnp.array(
+      [
+        [21.724, 0.0000, 0.0000],
+        [0.0000, 21.724, 0.0000],
+        [0.0000, 0.0000, 21.724],
+      ],
+      dtype=dtype,
+    )
     return latvec_con, position, velocity
+
   try:
     return parse_state('tests/data/lammps_npt_test')
   except FileNotFoundError:
-    return parse_state('/google3/third_party/py/jax_md/tests/data/'
-                       'lammps_npt_test')
+    return parse_state(
+      '/google3/third_party/py/jax_md/tests/data/lammps_npt_test'
+    )

@@ -108,12 +108,15 @@ def _quaternion_multiply(lhs: Array, rhs: Array) -> Array:
 
   dtype = f64 if _is_float64(lhs) or _is_float64(rhs) else f32
 
-  return jnp.array([
+  return jnp.array(
+    [
       -xl * xr - yl * yr - zl * zr + wl * wr,
       xl * wr + yl * zr - zl * yr + wl * xr,
       -xl * zr + yl * wr + zl * xr + wl * yr,
-      xl * yr - yl * xr + zl * wr + wl * zr
-  ], dtype=dtype)
+      xl * yr - yl * xr + zl * wr + wl * zr,
+    ],
+    dtype=dtype,
+  )
 
 
 @partial(jnp.vectorize, signature='(q)->(q)')
@@ -125,11 +128,15 @@ def _quaternion_conjugate(q: Array) -> Array:
 def _quaternion_rotate_raw(q: Array, v: Array) -> Array:
   """Rotates a vector by a given quaternion."""
   if q.shape != (4,):
-    raise ValueError('quaternion_rotate expects quaternion to have '
-                     f'4-dimensions. Found {q.shape}.')
+    raise ValueError(
+      'quaternion_rotate expects quaternion to have '
+      f'4-dimensions. Found {q.shape}.'
+    )
   if v.shape != (3,):
-    raise ValueError('quaternion_rotate expects vector to have '
-                     f'three-dimensions. Found {v.shape}.')
+    raise ValueError(
+      'quaternion_rotate expects vector to have '
+      f'three-dimensions. Found {v.shape}.'
+    )
 
   v = jnp.concatenate([jnp.zeros((1,), v.dtype), v])
   q = _quaternion_multiply(q, _quaternion_multiply(v, _quaternion_conjugate(q)))
@@ -140,14 +147,17 @@ def _quaternion_rotate_raw(q: Array, v: Array) -> Array:
 def _quaternion_rotate(q: Array, v: Array) -> Array:
   return _quaternion_rotate_raw(q, v)
 
+
 def _quaternion_rotate_fwd(q: Array, v: Array) -> Array:
   return _quaternion_rotate(q, v), (q, v)
+
 
 def _quaternion_rotate_bwd(res, g: Array) -> Tuple[Array, Array]:
   q, v = res
   _, vjp_fn = jax.vjp(_quaternion_rotate_raw, q, v)
   dq, dv = vjp_fn(g)
   return dq - (q @ dq) * q, dv
+
 
 _quaternion_rotate.defvjp(_quaternion_rotate_fwd, _quaternion_rotate_bwd)
 
@@ -161,11 +171,10 @@ def _random_quaternion(key: KeyArray, dtype: DType) -> Array:
   pi2 = jnp.pi * 2.0
   t1 = pi2 * rnd[1]
   t2 = pi2 * rnd[2]
-  return jnp.array([jnp.cos(t2) * r2,
-                    jnp.sin(t1) * r1,
-                    jnp.cos(t1) * r1,
-                    jnp.sin(t2) * r2],
-                   dtype)
+  return jnp.array(
+    [jnp.cos(t2) * r2, jnp.sin(t1) * r1, jnp.cos(t1) * r1, jnp.sin(t2) * r2],
+    dtype,
+  )
 
 
 @dataclasses.dataclass
@@ -181,6 +190,7 @@ class Quaternion:
   Attributes:
     vec: An array containing the underlying jax.numpy representation.
   """
+
   vec: Array
 
   @property
@@ -203,9 +213,11 @@ class Quaternion:
   def __getitem__(self, idx):
     if self.vec.ndim == 1:
       # NOTE: This will not catch the case where `idx` indexes into b
-      raise ValueError('Quaternions do not support indexing into their '
-                       'spatial dimension. If you want this behavior then '
-                       'access the underying `vec` attribute directly.')
+      raise ValueError(
+        'Quaternions do not support indexing into their '
+        'spatial dimension. If you want this behavior then '
+        'access the underying `vec` attribute directly.'
+      )
     return Quaternion(self.vec[idx])
 
 
@@ -223,8 +235,9 @@ def random_quaternion(key: KeyArray, dtype: DType) -> Quaternion:
 
 def tree_map_no_quat(fn: Callable[..., Any], tree: Any, *rest: Any):
   """Tree map over a PyTree treating Quaternions as leaves."""
-  return tree_map(fn, tree, *rest,
-                  is_leaf=lambda node: isinstance(node, Quaternion))
+  return tree_map(
+    fn, tree, *rest, is_leaf=lambda node: isinstance(node, Quaternion)
+  )
 
 
 """Rigid body simulation functions.
@@ -293,14 +306,17 @@ util.register_custom_simulation_type(RigidBody)
 
 @partial(jnp.vectorize, signature='(d)->(k,k)')
 def _space_to_body_rotation(q: Array) -> Array:
-  q2 = q ** 2
+  q2 = q**2
   w, x, y, z = q
   w2, x2, y2, z2 = q2
-  return jnp.array([
-    [w2 + x2 - y2 - z2, 2 * (x * y + w * z), 2 * (x * z - w * y)],
-    [2 * (x * y - w * z), w2 - x2 + y2 - z2, 2 * (y * z + w * x)],
-    [2 * (x * z + w * y), 2 * (y * z - w * x), w2 - x2 - y2 + z2]
-  ], q.dtype)
+  return jnp.array(
+    [
+      [w2 + x2 - y2 - z2, 2 * (x * y + w * z), 2 * (x * z - w * y)],
+      [2 * (x * y - w * z), w2 - x2 + y2 - z2, 2 * (y * z + w * x)],
+      [2 * (x * z + w * y), 2 * (y * z - w * x), w2 - x2 - y2 + z2],
+    ],
+    q.dtype,
+  )
 
 
 def space_to_body_rotation(q: Quaternion) -> Array:
@@ -310,16 +326,19 @@ def space_to_body_rotation(q: Quaternion) -> Array:
 
 @partial(jnp.vectorize, signature='(d)->(d,d)')
 def _S(q: Array) -> Array:
-  return jnp.array([
+  return jnp.array(
+    [
       [q[0], -q[1], -q[2], -q[3]],
       [q[1], q[0], -q[3], q[2]],
       [q[2], q[3], q[0], -q[1]],
-      [q[3], -q[2], q[1], q[0]]
-  ], q.dtype)
+      [q[3], -q[2], q[1], q[0]],
+    ],
+    q.dtype,
+  )
 
 
 def S(q: Quaternion) -> Array:
-  """From Miller III et al., S(q) is defined so that \dot q = 1/2S(q)\omega.
+  r"""From Miller III et al., S(q) is defined so that \dot q = 1/2S(q)\omega.
 
   Thus S(q) is the affine transformation that relates time derivatives of
   quaternions to angular velocities.
@@ -327,10 +346,10 @@ def S(q: Quaternion) -> Array:
   return _S(q.vec)
 
 
-def conjugate_momentum_to_angular_momentum(orientation: Quaternion,
-                                           momentum: Quaternion
-                                           ) -> Array:
-  """Convert from the conjugate momentum of a quaternion to angular momentum.
+def conjugate_momentum_to_angular_momentum(
+  orientation: Quaternion, momentum: Quaternion
+) -> Array:
+  r"""Convert from the conjugate momentum of a quaternion to angular momentum.
 
   Simulations involving quaternions typically proceed by integrating Hamilton's
   equations with an extended Hamiltonian,
@@ -351,22 +370,26 @@ def conjugate_momentum_to_angular_momentum(orientation: Quaternion,
   Miller, Eleftheriou, Pattnaik, Ndirango, Newns, and Martyna
   J. Chem. Phys. 116 20 (2002)
   """
+
   # NOTE: Here we are stripping the zeroth component of the angular moment.
   # however, it would be good to add a test that this is explicitly zero.
   @partial(jnp.vectorize, signature='(d),(d)->(k)')
   def wrapped_fn(q: Array, m: Array) -> Array:
     return (0.5 * _S(q).T @ m)[1:]
+
   return wrapped_fn(orientation.vec, momentum.vec)
 
 
-def angular_momentum_to_conjugate_momentum(orientation: Quaternion,
-                                           omega: Array
-                                           ) -> Quaternion:
+def angular_momentum_to_conjugate_momentum(
+  orientation: Quaternion, omega: Array
+) -> Quaternion:
   """Transforms angular momentum vector to a conjugate momentum quaternion."""
+
   @partial(jnp.vectorize, signature='(d),(k)->(d)')
   def wrapped_fn(q: Array, o: Array) -> Array:
     o = jnp.concatenate((jnp.zeros((1,), dtype=q.dtype), o))
     return 2 * _S(q) @ o
+
   return Quaternion(wrapped_fn(orientation.vec, omega))
 
 
@@ -377,8 +400,9 @@ work with RigidBody objects rather than linear positions / velocities.
 """
 
 
-def canonicalize_momentum(position: RigidBody, momentum: RigidBody
-                          ) -> RigidBody:
+def canonicalize_momentum(
+  position: RigidBody, momentum: RigidBody
+) -> RigidBody:
   """Convert quaternion conjugate momentum to angular momentum."""
   orientation = position.orientation
   p = momentum.orientation
@@ -387,22 +411,26 @@ def canonicalize_momentum(position: RigidBody, momentum: RigidBody
   return RigidBody(momentum.center, p)
 
 
-def kinetic_energy(position: RigidBody, momentum: RigidBody, mass: RigidBody
-                   ) -> float:
+def kinetic_energy(
+  position: RigidBody, momentum: RigidBody, mass: RigidBody
+) -> float:
   """Computes the kinetic energy of a system with some momenta."""
   momentum = canonicalize_momentum(position, momentum)
-  ke = tree_map(lambda m, p: 0.5 * util.high_precision_sum(p**2 / m),
-                mass, momentum)
+  ke = tree_map(
+    lambda m, p: 0.5 * util.high_precision_sum(p**2 / m), mass, momentum
+  )
   return tree_reduce(operator.add, ke, 0.0)
 
 
-def temperature(position: RigidBody, momentum: RigidBody, mass: RigidBody
-                ) -> float:
+def temperature(
+  position: RigidBody, momentum: RigidBody, mass: RigidBody
+) -> float:
   """Computes the temperature of a system with some momenta."""
   dof = quantity.count_dof(momentum)
   momentum = canonicalize_momentum(position, momentum)
-  ke = tree_map(lambda m, p: util.high_precision_sum(p**2 / m) / dof,
-                mass, momentum)
+  ke = tree_map(
+    lambda m, p: util.high_precision_sum(p**2 / m) / dof, mass, momentum
+  )
   return tree_reduce(operator.add, ke, 0.0)
 
 
@@ -418,11 +446,15 @@ def get_moment_of_inertia_diagonal(I: Array, eps=1e-5):
   try:
     if jnp.any(jnp.abs(I - vmap(jnp.diag)(I_diag)) > eps):
       max_dev = jnp.max(jnp.abs(I - vmap(jnp.diag)(I_diag)))
-      raise ValueError('Expected diagonal moment of inertia.'
-                       f'Maximum deviation: {max_dev}. Tolerance: {eps}.')
+      raise ValueError(
+        'Expected diagonal moment of inertia.'
+        f'Maximum deviation: {max_dev}. Tolerance: {eps}.'
+      )
   except jax.errors.ConcretizationTypeError:
-    logging.info('Skipping moment of inertia diagonalization check inside of'
-                 'JIT. Make sure your moment of inertia is diagonal.')
+    logging.info(
+      'Skipping moment of inertia diagonalization check inside of'
+      'JIT. Make sure your moment of inertia is diagonal.'
+    )
   return I_diag
 
 
@@ -450,9 +482,9 @@ def _(state, key: Array, kT: float):
   R, mass = state.position, state.mass
   center_key, angular_key = random.split(key)
 
-  P_center = jnp.sqrt(mass.center * kT) * random.normal(center_key,
-                                                        R.center.shape,
-                                                        dtype=R.center.dtype)
+  P_center = jnp.sqrt(mass.center * kT) * random.normal(
+    center_key, R.center.shape, dtype=R.center.dtype
+  )
   P_center = P_center - jnp.mean(P_center, axis=0, keepdims=True)
 
   # A the moment we assume that rigid body objects are either 2d or 3d. At some
@@ -461,11 +493,12 @@ def _(state, key: Array, kT: float):
   if isinstance(R.orientation, Quaternion):
     scale = jnp.sqrt(mass.orientation * kT)
     center = R.center
-    P_angular = scale * random.normal(angular_key,
-                                      center.shape,
-                                      dtype=center.dtype)
-    P_orientation = angular_momentum_to_conjugate_momentum(R.orientation,
-                                                           P_angular)
+    P_angular = scale * random.normal(
+      angular_key, center.shape, dtype=center.dtype
+    )
+    P_orientation = angular_momentum_to_conjugate_momentum(
+      R.orientation, P_angular
+    )
   else:
     scale = jnp.sqrt(mass.orientation * kT)
     shape, dtype = R.orientation.shape, R.orientation.dtype
@@ -476,6 +509,8 @@ def _(state, key: Array, kT: float):
 
 class EmptyLeaf:
   pass
+
+
 _EMPTY_LEAF = EmptyLeaf()
 
 
@@ -484,14 +519,17 @@ def split_center_and_orientation(dc):
     if isinstance(x, RigidBody):
       return x.center
     return _EMPTY_LEAF
+
   def grab_orientation(x):
     if isinstance(x, RigidBody):
       return x.orientation
     return _EMPTY_LEAF
+
   def grab_rest(x):
     if isinstance(x, RigidBody):
       return _EMPTY_LEAF
     return x
+
   is_rigid = lambda x: isinstance(x, RigidBody)
   c = tree_map(grab_center, dc, is_leaf=is_rigid)
   o = tree_map(grab_orientation, dc, is_leaf=is_rigid)
@@ -504,6 +542,7 @@ def merge_center_and_orientation(rest, center, orientation):
     if r is _EMPTY_LEAF:
       return RigidBody(c, o)
     return r
+
   return tree_map_no_quat(merge_fn, rest, center, orientation)
 
 
@@ -514,9 +553,11 @@ MOMENTUM_PERMUTATION = [
 ]
 
 
-def _rigid_body_3d_position_step(state, shift_fn: ShiftFn, dt, m_rot: int,
-                                 **kwargs):
+def _rigid_body_3d_position_step(
+  state, shift_fn: ShiftFn, dt, m_rot: int, **kwargs
+):
   """A symplectic update function for 3d rigid bodies."""
+
   def free_rotor(k, dt, quat, p_quat, M):
     delta = dt / m_rot
 
@@ -541,9 +582,11 @@ def _rigid_body_3d_position_step(state, shift_fn: ShiftFn, dt, m_rot: int,
     R = state.position
     P = state.momentum
     if not (isinstance(R, Quaternion) and isinstance(P, Quaternion)):
-      raise ValueError('For 3d rigid bodies, orientations must be quaternions.'
-                       f'Found {type(R)} for positions and {type(P)} for '
-                       'momenta.')
+      raise ValueError(
+        'For 3d rigid bodies, orientations must be quaternions.'
+        f'Found {type(R)} for positions and {type(P)} for '
+        'momenta.'
+      )
     R = R.vec
     P = P.vec
     M = state.mass
@@ -561,22 +604,22 @@ def _rigid_body_3d_position_step(state, shift_fn: ShiftFn, dt, m_rot: int,
   return merge_center_and_orientation(rest, center, orientation)
 
 
-def _rigid_body_2d_position_step(state, shift_fn: ShiftFn, dt,
-                                 **kwargs):
+def _rigid_body_2d_position_step(state, shift_fn: ShiftFn, dt, **kwargs):
   """A symplectic update function for 2d rigid bodies."""
   rest, center, orientation = split_center_and_orientation(state)
   center = simulate.position_step(center, shift_fn, dt, **kwargs)
-  orientation = simulate.position_step(orientation,
-                                       lambda r, dr, **_: r + dr, dt,
-                                       **kwargs)
+  orientation = simulate.position_step(
+    orientation, lambda r, dr, **_: r + dr, dt, **kwargs
+  )
   return merge_center_and_orientation(rest, center, orientation)
 
 
 @simulate.position_step.register(RigidBody)
 def _(state, shift_fn, dt, m_rot=1, **kwargs):
   if isinstance(state.position.orientation, Quaternion):
-    return _rigid_body_3d_position_step(state, shift_fn, dt, m_rot=m_rot,
-                                        **kwargs)
+    return _rigid_body_3d_position_step(
+      state, shift_fn, dt, m_rot=m_rot, **kwargs
+    )
   else:
     return _rigid_body_2d_position_step(state, shift_fn, dt, **kwargs)
 
@@ -588,10 +631,8 @@ def _(state, dt: float, kT: float, gamma: float):
   rest, center, orientation = split_center_and_orientation(state)
 
   center = simulate.stochastic_step(
-    center.set(rng=center_key),
-    dt,
-    kT,
-    gamma.center)
+    center.set(rng=center_key), dt, kT, gamma.center
+  )
 
   Pi = orientation.momentum.vec
   I = orientation.mass
@@ -613,9 +654,10 @@ def _(state, dt: float, kT: float, gamma: float):
   # Then evaluate Q term
   Pi_var = 0
   for l in range(3):
-    scale = jnp.sqrt(4 * kT * I[:, l] *
-                     (1 - jnp.exp(-M * G * dt / (2 * I[:, l]))))
-    Pi_var += (scale[:, None] * P[l](Q))**2
+    scale = jnp.sqrt(
+      4 * kT * I[:, l] * (1 - jnp.exp(-M * G * dt / (2 * I[:, l])))
+    )
+    Pi_var += (scale[:, None] * P[l](Q)) ** 2
 
   momentum_dist = simulate.Normal(Pi_mean, Pi_var)
   new_momentum = Quaternion(momentum_dist.sample(orientation_key))
@@ -633,7 +675,8 @@ def _(state):
     return state.set(mass=RigidBody(mass.center[:, None], mass.orientation))
   raise NotImplementedError(
     'Center of mass must be either a scalar or a vector. Found an array of '
-    f'shape {mass.center.shape}.')
+    f'shape {mass.center.shape}.'
+  )
 
 
 @simulate.kinetic_energy.register(RigidBody)
@@ -715,34 +758,46 @@ class RigidPointUnion:
 
   def _sum_over_shapes(self, x):
     shape_count = len(self.point_count)
-    shape_idx = jnp.repeat(jnp.arange(shape_count), self.point_count,
-                           total_repeat_length=len(self.points))
-    return ops.segment_sum(x, shape_idx, shape_count,)
+    shape_idx = jnp.repeat(
+      jnp.arange(shape_count),
+      self.point_count,
+      total_repeat_length=len(self.points),
+    )
+    return ops.segment_sum(
+      x,
+      shape_idx,
+      shape_count,
+    )
 
   def moment_of_inertia(self) -> Array:
     """Compute the moment of inertia for each shape in the collection."""
     ndim = self.dimension()
     dtype = self.points.dtype
     if ndim == 2:
-      I_disk = 1 / 2 * self.point_radius ** 2
+      I_disk = 1 / 2 * self.point_radius**2
+
       @vmap
       def per_particle(point, mass):
         return mass * ((point[0] ** 2 + point[1] ** 2) + I_disk)
+
       return self._sum_over_shapes(per_particle(self.points, self.masses))
     elif ndim == 3:
-      I_sphere = 2 / 5 * self.point_radius ** 2
+      I_sphere = 2 / 5 * self.point_radius**2
+
       @vmap
       def per_particle(point, mass):
         Id = jnp.eye(3, dtype=dtype)
         diagonal = jnp.sum(point**2) * Id
         off_diagonal = point[:, None] * point[None, :]
         return mass * ((diagonal - off_diagonal) + Id * I_sphere)
+
       return self._sum_over_shapes(per_particle(self.points, self.masses))
     else:
-      raise ValueError('Rigid bodies are only defined in two- and three-'
-                       'dimensions.')
+      raise ValueError(
+        'Rigid bodies are only defined in two- and three-dimensions.'
+      )
 
-  def mass(self, shape_species: Optional[Array]=None) -> RigidBody:
+  def mass(self, shape_species: Optional[Array] = None) -> RigidBody:
     """Get a RigidBody with the mass and moment of inertia for each shape.
 
     Arguments:
@@ -753,32 +808,39 @@ class RigidPointUnion:
     ndim = self.dimension()
     if ndim == 2:
       if shape_species is not None:
-        return RigidBody(self._sum_over_shapes(self.masses)[shape_species],
-                         self.moment_of_inertia()[shape_species])
+        return RigidBody(
+          self._sum_over_shapes(self.masses)[shape_species],
+          self.moment_of_inertia()[shape_species],
+        )
 
-      return RigidBody(self._sum_over_shapes(self.masses),
-                       self.moment_of_inertia())
+      return RigidBody(
+        self._sum_over_shapes(self.masses), self.moment_of_inertia()
+      )
     elif ndim == 3:
       # In three-dimensions, we grab the diagonal of the moment of inertia
       # assuming (and checking) that it is properly diagonalized.
       I_diag = get_moment_of_inertia_diagonal(self.moment_of_inertia())
       if shape_species is not None:
-        return RigidBody(self._sum_over_shapes(self.masses)[shape_species],
-                         I_diag[shape_species])
+        return RigidBody(
+          self._sum_over_shapes(self.masses)[shape_species],
+          I_diag[shape_species],
+        )
       return RigidBody(self._sum_over_shapes(self.masses), I_diag)
-    raise ValueError('Rigid bodies only defined for two- and three-dimensions.'
-                     f' Found {ndim}.')
+    raise ValueError(
+      f'Rigid bodies only defined for two- and three-dimensions. Found {ndim}.'
+    )
 
   def __getitem__(self, idx: int) -> 'RigidPointUnion':
     """Extract a single shape from the collection of shapes."""
     start = self.point_offset[idx]
     end = start + self.point_count[idx]
-    return RigidPointUnion(self.points[start : end],
-                           self.masses[start : end],
-                           jnp.array([self.point_count[idx]]),
-                           jnp.array([0]),
-                           None if self.point_species is None else
-                           self.point_species[start : end])
+    return RigidPointUnion(
+      self.points[start:end],
+      self.masses[start:end],
+      jnp.array([self.point_count[idx]]),
+      jnp.array([0]),
+      None if self.point_species is None else self.point_species[start:end],
+    )
 
 
 def _transform_to_diagonal_frame(shape: RigidPointUnion) -> RigidPointUnion:
@@ -792,18 +854,19 @@ def _transform_to_diagonal_frame(shape: RigidPointUnion) -> RigidPointUnion:
     return shape.set(points=shape.points - com)
   elif ndim == 3:
     total_mass = jnp.sum(shape.masses)
-    I, = shape.moment_of_inertia()
+    (I,) = shape.moment_of_inertia()
 
     I_diag, U = jnp.linalg.eigh(I)
 
     points = jnp.einsum('ni,ij->nj', shape.points, U)
-    return RigidPointUnion(points,
-                          shape.masses,
-                          shape.point_count,
-                          shape.point_offset)
+    return RigidPointUnion(
+      points, shape.masses, shape.point_count, shape.point_offset
+    )
 
-  raise ValueError('Rigid bodies only defined for two- or three-dimensions'
-                   f' found shape of dimension={ndim}.')
+  raise ValueError(
+    'Rigid bodies only defined for two- or three-dimensions'
+    f' found shape of dimension={ndim}.'
+  )
 
 
 def point_union_shape(points: Array, masses: Array) -> RigidPointUnion:
@@ -821,10 +884,12 @@ def point_union_shape(points: Array, masses: Array) -> RigidPointUnion:
   """
   if jnp.isscalar(masses) or masses.shape == ():
     masses = masses * jnp.ones((len(points),), points.dtype)
-  shape = RigidPointUnion(points=points,
-                          masses=masses,
-                          point_count=jnp.array([len(points)]),
-                          point_offset=jnp.array([0]))
+  shape = RigidPointUnion(
+    points=points,
+    masses=masses,
+    point_count=jnp.array([len(points)]),
+    point_offset=jnp.array([0]),
+  )
   return _transform_to_diagonal_frame(shape)
 
 
@@ -834,22 +899,29 @@ def concatenate_shapes(*shapes) -> RigidPointUnion:
   points, masses, point_count, point_offset, point_species, _ = shape_tuples
   any_point_species = any(x is not None for x in point_species)
   if any_point_species and not all(x is not None for x in point_species):
-    raise ValueError('Either all shapes should have point species or none '
-                     'should have point species.')
-  if (any_point_species and
-      not all(isinstance(x, (Array, onp.ndarray)) for x in point_species)):
-    raise ValueError('All point species should be specified as `onp.ndarray` '
-                     'since the species must be known statically at compile '
-                     'time.')
+    raise ValueError(
+      'Either all shapes should have point species or none '
+      'should have point species.'
+    )
+  if any_point_species and not all(
+    isinstance(x, (Array, onp.ndarray)) for x in point_species
+  ):
+    raise ValueError(
+      'All point species should be specified as `onp.ndarray` '
+      'since the species must be known statically at compile '
+      'time.'
+    )
   point_count = jnp.concatenate(point_count)
   return RigidPointUnion(
-      points=jnp.concatenate(points),
-      masses=jnp.concatenate(masses),
-      point_species=(None if point_species[0] is None
-                     else jnp.concatenate(point_species)),
-      point_count=point_count,
-      point_offset=jnp.concatenate([jnp.array([0]),
-                                    jnp.cumsum(point_count)[:-1]])
+    points=jnp.concatenate(points),
+    masses=jnp.concatenate(masses),
+    point_species=(
+      None if point_species[0] is None else jnp.concatenate(point_species)
+    ),
+    point_count=point_count,
+    point_offset=jnp.concatenate(
+      [jnp.array([0]), jnp.cumsum(point_count)[:-1]]
+    ),
   )
 
 
@@ -859,8 +931,9 @@ def concatenate_shapes(*shapes) -> RigidPointUnion:
 @partial(jnp.vectorize, signature='()->(d,d)')
 def rotation2d(theta: Array) -> Array:
   """Builds a two-dimensional rotation matrix from an angle."""
-  return jnp.array([[jnp.cos(theta), -jnp.sin(theta)],
-                    [jnp.sin(theta),  jnp.cos(theta)]])
+  return jnp.array(
+    [[jnp.cos(theta), -jnp.sin(theta)], [jnp.sin(theta), jnp.cos(theta)]]
+  )
 
 
 def transform(body: RigidBody, shape: RigidPointUnion) -> Array:
@@ -872,11 +945,12 @@ def transform(body: RigidBody, shape: RigidPointUnion) -> Array:
   return body.center[None, :] + offset
 
 
-def union_to_points(body: RigidBody,
-                    shape: RigidPointUnion,
-                    shape_species: Optional[onp.ndarray]=None,
-                    **kwargs,
-                    ) -> Tuple[Array, Optional[Array]]:
+def union_to_points(
+  body: RigidBody,
+  shape: RigidPointUnion,
+  shape_species: Optional[onp.ndarray] = None,
+  **kwargs,
+) -> Tuple[Array, Optional[Array]]:
   """Transforms points in a RigidPointUnion to world space."""
   if shape_species is None:
     position = vmap(transform, (0, None))(body, shape)
@@ -890,9 +964,11 @@ def union_to_points(body: RigidBody,
   elif isinstance(shape_species, onp.ndarray):
     shape_species_types = onp.unique(shape_species)
     shape_species_count = len(shape_species_types)
-    assert (len(shape.point_count) == shape_species_count and
-            onp.max(shape_species_types) == shape_species_count - 1 and
-            onp.min(shape_species_types) == 0)
+    assert (
+      len(shape.point_count) == shape_species_count
+      and onp.max(shape_species_types) == shape_species_count - 1
+      and onp.min(shape_species_types) == 0
+    )
     shape = tree_map(lambda x: onp.array(x), shape)
 
     point_position = []
@@ -914,17 +990,21 @@ def union_to_points(body: RigidBody,
     point_species = jnp.concatenate(point_species) if point_species else None
     return point_position, point_species
   else:
-    raise NotImplementedError('Shape species must either be None or of type '
-                              'onp.ndarray since it must be specified ahead '
-                              f'of compilation. Found {type(shape_species)}.')
+    raise NotImplementedError(
+      'Shape species must either be None or of type '
+      'onp.ndarray since it must be specified ahead '
+      f'of compilation. Found {type(shape_species)}.'
+    )
+
 
 # Energy Functions
 
 
-def point_energy(energy_fn: Callable[..., Array],
-                 shape: RigidPointUnion,
-                 shape_species: Optional[onp.ndarray]=None
-                 ) -> Callable[..., Array]:
+def point_energy(
+  energy_fn: Callable[..., Array],
+  shape: RigidPointUnion,
+  shape_species: Optional[onp.ndarray] = None,
+) -> Callable[..., Array]:
   """Produces a RigidBody energy given a pointwise energy and a point union.
 
   This function takes takes a pointwise energy function that computes the
@@ -944,20 +1024,22 @@ def point_energy(energy_fn: Callable[..., Array],
     An energy function that takes a `RigidBody` and produces a scalar energy
     energy.
   """
+
   def wrapped_energy_fn(body, **kwargs):
     pos, point_species = union_to_points(body, shape, shape_species)
     if point_species is None:
       return energy_fn(pos, **kwargs)
     return energy_fn(pos, species=point_species, **kwargs)
+
   return wrapped_energy_fn
 
 
-def point_energy_neighbor_list(energy_fn: Callable[..., Array],
-                               neighbor_fn: NeighborListFns,
-                               shape: RigidPointUnion,
-                               shape_species: Optional[onp.ndarray]=None
-                               ) -> Tuple[NeighborListFns,
-                                          Callable[..., Array]]:
+def point_energy_neighbor_list(
+  energy_fn: Callable[..., Array],
+  neighbor_fn: NeighborListFns,
+  shape: RigidPointUnion,
+  shape_species: Optional[onp.ndarray] = None,
+) -> Tuple[NeighborListFns, Callable[..., Array]]:
   """Produces a RigidBody energy given a pointwise energy and a point union.
 
   This function takes takes a pointwise energy function that computes the
@@ -997,8 +1079,9 @@ def point_energy_neighbor_list(energy_fn: Callable[..., Array],
     pos, species = union_to_points(body, shape, shape_species)
     return neighbor_fn.update(pos, neighbor, **kwargs)
 
-  wrapped_neighbor_fns = partition.NeighborListFns(neighbor_allocate_fn,
-                                                    neighbor_update_fn)
+  wrapped_neighbor_fns = partition.NeighborListFns(
+    neighbor_allocate_fn, neighbor_update_fn
+  )
 
   return wrapped_neighbor_fns, wrapped_energy_fn
 
@@ -1009,26 +1092,34 @@ def point_energy_neighbor_list(energy_fn: Callable[..., Array],
 monomer = point_union_shape(onp.array([[0.0, 0.0]], f32), f32(1.0))
 dimer = point_union_shape(onp.array([[0.0, 0.5], [0.0, -0.5]], f32), f32(1.0))
 trimer = point_union_shape(
-    onp.array([[0, onp.sqrt(1 - 0.5 ** 2) - 0.5],
-               [0.5, -0.5],
-               [-0.5, -0.5]], f32),
-    f32(1.0))
+  onp.array([[0, onp.sqrt(1 - 0.5**2) - 0.5], [0.5, -0.5], [-0.5, -0.5]], f32),
+  f32(1.0),
+)
 square = point_union_shape(
-    onp.array([[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]], f32),
-    f32(1.0))
+  onp.array([[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]], f32), f32(1.0)
+)
 
 # 3D Shapes.
 tetrahedron = point_union_shape(
-  onp.array([[1.0, 1.0, 1.0],
-             [ 1.0, -1.0, -1.0],
-             [-1.0,  1.0, -1.0],
-             [-1.0, -1.0, 1.0]], f32) * f32(0.5),
-    f32(1.0))
+  onp.array(
+    [[1.0, 1.0, 1.0], [1.0, -1.0, -1.0], [-1.0, 1.0, -1.0], [-1.0, -1.0, 1.0]],
+    f32,
+  )
+  * f32(0.5),
+  f32(1.0),
+)
 octohedron = point_union_shape(
-  onp.array([[1.0, 0.0, 0.0],
-             [-1.0, 0.0, 0.0],
-             [0.0, 1.0, 0.0],
-             [0.0, -1.0, 0.0],
-             [0.0, 0.0, 1.0],
-             [0.0, 0.0, -1.0]], f32) * f32(0.5),
-    f32(1.0))
+  onp.array(
+    [
+      [1.0, 0.0, 0.0],
+      [-1.0, 0.0, 0.0],
+      [0.0, 1.0, 0.0],
+      [0.0, -1.0, 0.0],
+      [0.0, 0.0, 1.0],
+      [0.0, 0.0, -1.0],
+    ],
+    f32,
+  )
+  * f32(0.5),
+  f32(1.0),
+)
