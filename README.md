@@ -21,7 +21,6 @@ To get started playing around with JAX MD check out the following colab notebook
 
 - [JAX MD Cookbook](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/jax_md_cookbook.ipynb)
 - [Minimization](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/minimization.ipynb)
-- [NVE Simulation](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/nve_simulation.ipynb)
 - [NVT Simulation](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/nvt_simulation.ipynb)
 - [NPT Simulation](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/npt_simulation.ipynb)
 - [NVE with Neighbor Lists](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/nve_neighbor_list.ipynb)
@@ -34,28 +33,22 @@ To get started playing around with JAX MD check out the following colab notebook
 - [Athermal Linear Elasticity](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/athermal_linear_elasticity.ipynb)
 - [Smash a Sand Castle](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/sand_castle.ipynb)
 
-[//]: # (TODO: uncomment the following once the JAX MD package is bumped on PyPI)
+JAX MD also comes with self contained python scripts which you run locally if you have JAX MD installed:
 
-[//]: # (You can install JAX MD locally with pip,)
+- [Minimization](examples/minimize.py)
+- [NVE Simulation](examples/nve_simulation.py)
 
-[//]: # (```)
+You can install JAX MD locally with pip,
 
-[//]: # (pip install jax-md --upgrade)
-
-[//]: # (```)
-
-[//]: # (If you want to build the latest version then you can grab the most recent version from head,)
-
-[//]: # (```)
-
-[//]: # (git clone https://github.com/jax-md/jax-md)
-
-[//]: # (pip install -e jax-md)
-
-[//]: # (```)
-JAX-MD can be installed locally with the following command:
 ```
-pip install https://github.com/jax-md/jax-md/archive/main.zip
+pip install jax-md --upgrade
+```
+
+If you want to build the latest version then you can grab the most recent version from head,
+
+```
+git clone https://github.com/jax-md/jax-md
+pip install -e jax-md
 ```
 
 # Overview
@@ -252,4 +245,3 @@ If you use functionalities related to `RigidBody`, please cite the following pap
   publisher={National Academy of Sciences}
 }
 ```
-
