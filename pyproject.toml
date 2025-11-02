@@ -49,6 +49,21 @@ dependencies = [
     "frozendict",
     "pymatgen",
 ]
+
+[dependency-groups]
+docs = [
+    "sphinx>=7.2.0",
+    "sphinx-rtd-theme",
+    "sphinx-book-theme",
+    "sphinx-remove-toctrees",
+    "nbsphinx",
+    "sphinx-autodoc-typehints>=1.24.0",
+    "sphinx-copybutton>=0.5.0",
+    "jupytext",
+    "matplotlib",
+    "seaborn",
+]
+
 [project.urls]
 Homepage = "https://github.com/google/jax-md"
 Documentation = "https://arxiv.org/abs/1912.04232"

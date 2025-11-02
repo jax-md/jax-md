@@ -2,19 +2,36 @@
 # Read the Docs configuration file
 # See https://docs.readthedocs.io/en/stable/config-file/v2.html for details
 
-# Required
 version: 2
 
-# Build documentation in the docs/ directory with Sphinx
 sphinx:
   configuration: docs/conf.py
 
-# Optionally build your docs in additional formats such as PDF and ePub
 formats:
   - htmlzip
 
-# Optionally set the version of Python and requirements required to build your docs
-python:
-  version: 3.11
-  install:
-    - requirements: docs/requirements.txt
+build:
+  os: ubuntu-24.04
+  tools:
+    python: "3.12"
+  jobs:
+    pre_create_environment:
+      # Install uv
+      - asdf plugin add uv
+      - asdf install uv latest
+      - asdf global uv latest
+    create_environment:
+      # Create virtual environment with uv
+      - uv venv $READTHEDOCS_VIRTUALENV_PATH
+    install:
+      # Install jax-md and doc dependencies with uv
+      - UV_PROJECT_ENVIRONMENT=$READTHEDOCS_VIRTUALENV_PATH uv sync --frozen --group docs
+    pre_build:
+      - cp -r examples docs/
+      - uv run jupytext --set-formats "py:percent,ipynb" docs/examples/*.py
+      - uv run jupytext --set-kernel python3 docs/examples/*.py
+      - uv run jupytext --to notebook --execute docs/examples/*.py
+      - rm docs/examples/*.py
+    post_build:
+      - mkdir -p $READTHEDOCS_OUTPUT/html/notebooks
+      - cp docs/examples/*.ipynb $READTHEDOCS_OUTPUT/html/notebooks/

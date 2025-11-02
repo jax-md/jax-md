@@ -1,3 +1,19 @@
+# ---
+# jupyter:
+#   jupytext:
+#     formats: py:percent,ipynb
+#     text_representation:
+#       extension: .py
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.18.1
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
+# ---
+
+# %% [markdown]
 # Copyright 2019 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,69 +28,100 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Example showing the simple minimization of a two-dimensional system."""
+# %% [markdown]
+# [Download notebook](https://jax-md.readthedocs.io/en/latest/notebooks/minimize.ipynb)
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
+# %% [markdown]
+# # Energy Minimization
+#
+# This example demonstrates energy minimization of a two-dimensional system using the FIRE algorithm.
 
-from absl import app
-
-from jax import random
-from jax.config import config
+# %%
+from jax import random, config
 config.update("jax_enable_x64", True)
 
 import jax.numpy as np
-from jax import jit
-from jax_md import space, energy, minimize, quantity, smap
+from jax_md import space, energy, minimize, quantity
 from jax_md.util import f32, i32
 
-def main(unused_argv):
-  key = random.PRNGKey(0)
+# %% [markdown]
+# ## Setup System Parameters
+#
+# We create a 2D system with 500 particles in a periodic box.
 
-  # Setup some variables describing the system.
-  N = 500
-  dimension = 2
-  box_size = f32(25.0)
+# %%
+key = random.PRNGKey(0)
 
-  # Create helper functions to define a periodic box of some size.
-  displacement, shift = space.periodic(box_size)
+N = 500
+dimension = 2
+box_size = f32(25.0)
 
-  metric = space.metric(displacement)
+# Create periodic boundary conditions
+displacement, shift = space.periodic(box_size)
 
-  # Use JAX's random number generator to generate random initial positions.
-  key, split = random.split(key)
-  R = random.uniform(
+# %% [markdown]
+# ## Initialize Particle Positions
+#
+# Generate random initial positions and create a 50:50 mixture of two particle species.
+
+# %%
+key, split = random.split(key)
+R = random.uniform(
     split, (N, dimension), minval=0.0, maxval=box_size, dtype=f32)
 
-  # The system ought to be a 50:50 mixture of two types of particles, one
-  # large and one small.
-  sigma = np.array([[1.0, 1.2], [1.2, 1.4]], dtype=f32)
-  N_2 = int(N / 2)
-  species = np.array([0] * N_2 + [1] * N_2, dtype=i32)
+# Two particle types with different sizes
+sigma = np.array([[1.0, 1.2], [1.2, 1.4]], dtype=f32)
+N_2 = int(N / 2)
+species = np.array([0] * N_2 + [1] * N_2, dtype=i32)
 
-  # Create an energy function.
-  energy_fn = energy.soft_sphere_pair(displacement, species, sigma)
-  force_fn = quantity.force(energy_fn)
+# %% [markdown]
+# ## Create Energy Function and Minimizer
+#
+# We use a soft sphere pair potential and the FIRE descent minimization algorithm.
 
-  # Create a minimizer.
-  init_fn, apply_fn = minimize.fire_descent(energy_fn, shift)
-  opt_state = init_fn(R)
+# %%
+energy_fn = energy.soft_sphere_pair(displacement, species, sigma)
+force_fn = quantity.force(energy_fn)
 
-  # Minimize the system.
-  minimize_steps = 50
-  print_every = 10
+init_fn, apply_fn = minimize.fire_descent(energy_fn, shift)
+opt_state = init_fn(R)
 
-  print('Minimizing.')
-  print('Step\tEnergy\tMax Force')
-  print('-----------------------------------')
-  for step in range(minimize_steps):
+# %% [markdown]
+# ## Run Minimization
+#
+# Minimize the system energy and track the progress.
+
+# %%
+minimize_steps = 50
+print_every = 10
+
+print('Minimizing.')
+print('Step\tEnergy\tMax Force')
+print('-----------------------------------')
+
+for step in range(minimize_steps):
     opt_state = apply_fn(opt_state)
-
+    
     if step % print_every == 0:
-      R = opt_state.position
-      print('{:.2f}\t{:.2f}\t{:.2f}'.format(
-          step, energy_fn(R), np.max(force_fn(R))))
+        R = opt_state.position
+        print('{:.2f}\t{:.2f}\t{:.2f}'.format(
+            step, energy_fn(R), np.max(force_fn(R))))
 
-if __name__ == '__main__':
-  app.run(main)
+# %% [markdown]
+# ## Optional: Save Trajectory
+#
+# For saving the minimization trajectory, you can use the I/O functions:
+
+# %%
+# Uncomment to save trajectory
+# from jax_md.io import write_xyz
+# 
+# for step in range(minimize_steps):
+#     opt_state = apply_fn(opt_state)
+#     
+#     if step % print_every == 0:
+#         R = opt_state.position
+#         print('{:.2f}\t{:.2f}\t{:.2f}'.format(
+#             step, energy_fn(R), np.max(force_fn(R))))
+#         # Save configuration
+#         write_xyz(f"min_{step:06d}.xyz", species, R)

@@ -706,9 +706,9 @@ and it would be interesting to explore other possibilities.
 
 @dataclasses.dataclass
 class RigidPointUnion:
-  """.. _rigid_body_union:
+  """Defines a rigid collection of point-like masses glued together.
 
-  Defines a rigid collection of point-like masses glued together.
+  .. _rigid_body_union:
 
   This class describes a rigid body as a collection of point-like particles
   rigidly arranged in space. These points can have variable masses. Rigid
