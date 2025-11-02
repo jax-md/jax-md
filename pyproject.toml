@@ -126,6 +126,7 @@ ignore = [
     "UP034",
     "UP037",
     "UP038",
+    "UP045",
 ]
 
 [tool.ruff.lint.isort]
