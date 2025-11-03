@@ -26,6 +26,7 @@ build:
     install:
       # Install jax-md and doc dependencies with uv
       - UV_PROJECT_ENVIRONMENT=$READTHEDOCS_VIRTUALENV_PATH uv sync --group docs
+      - uv run python -m ipykernel install --user --name python3
     pre_build:
       - cp -r examples docs/
       - uv run jupytext --set-formats "py:percent,ipynb" docs/examples/*.py
