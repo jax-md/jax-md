@@ -26,6 +26,10 @@ particular problem.
    jax_md.elasticity
    jax_md.rigid_body
    jax_md.smap
+   jax_md.io
+   jax_md.interpolate
+   jax_md.dataclasses
+   jax_md.reaxff
 
 Indices and tables
 ==================
