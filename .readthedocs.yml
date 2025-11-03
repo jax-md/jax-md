@@ -25,7 +25,7 @@ build:
       - uv venv $READTHEDOCS_VIRTUALENV_PATH
     install:
       # Install jax-md and doc dependencies with uv
-      - UV_PROJECT_ENVIRONMENT=$READTHEDOCS_VIRTUALENV_PATH uv sync --frozen --group docs
+      - UV_PROJECT_ENVIRONMENT=$READTHEDOCS_VIRTUALENV_PATH uv sync --group docs
     pre_build:
       - cp -r examples docs/
       - uv run jupytext --set-formats "py:percent,ipynb" docs/examples/*.py
