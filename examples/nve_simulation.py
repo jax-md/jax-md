@@ -14,7 +14,7 @@
 # ---
 
 # %% [markdown]
-# [Download notebook](https://jax-md.readthedocs.io/en/latest/notebooks/nve_simulation.ipynb)
+# [Download notebook](https://jax-md.readthedocs.io/en/main/notebooks/nve_simulation.ipynb)
 
 # %% [markdown]
 # # Constant Energy Simulation

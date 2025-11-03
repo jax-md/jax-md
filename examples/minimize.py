@@ -29,7 +29,7 @@
 # limitations under the License.
 
 # %% [markdown]
-# [Download notebook](https://jax-md.readthedocs.io/en/latest/notebooks/minimize.ipynb)
+# [Download notebook](https://jax-md.readthedocs.io/en/main/notebooks/minimize.ipynb)
 
 # %% [markdown]
 # # Energy Minimization
