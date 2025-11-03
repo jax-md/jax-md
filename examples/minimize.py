@@ -39,7 +39,8 @@
 
 # %%
 from jax import random, config
-config.update("jax_enable_x64", True)
+
+config.update('jax_enable_x64', True)
 
 import jax.numpy as np
 from jax_md import space, energy, minimize, quantity
@@ -68,7 +69,8 @@ displacement, shift = space.periodic(box_size)
 # %%
 key, split = random.split(key)
 R = random.uniform(
-    split, (N, dimension), minval=0.0, maxval=box_size, dtype=f32)
+  split, (N, dimension), minval=0.0, maxval=box_size, dtype=f32
+)
 
 # Two particle types with different sizes
 sigma = np.array([[1.0, 1.2], [1.2, 1.4]], dtype=f32)
@@ -101,12 +103,13 @@ print('Step\tEnergy\tMax Force')
 print('-----------------------------------')
 
 for step in range(minimize_steps):
-    opt_state = apply_fn(opt_state)
-    
-    if step % print_every == 0:
-        R = opt_state.position
-        print('{:.2f}\t{:.2f}\t{:.2f}'.format(
-            step, energy_fn(R), np.max(force_fn(R))))
+  opt_state = apply_fn(opt_state)
+
+  if step % print_every == 0:
+    R = opt_state.position
+    print(
+      '{:.2f}\t{:.2f}\t{:.2f}'.format(step, energy_fn(R), np.max(force_fn(R)))
+    )
 
 # %% [markdown]
 # ## Optional: Save Trajectory
@@ -116,10 +119,10 @@ for step in range(minimize_steps):
 # %%
 # Uncomment to save trajectory
 # from jax_md.io import write_xyz
-# 
+#
 # for step in range(minimize_steps):
 #     opt_state = apply_fn(opt_state)
-#     
+#
 #     if step % print_every == 0:
 #         R = opt_state.position
 #         print('{:.2f}\t{:.2f}\t{:.2f}'.format(
