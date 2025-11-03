@@ -14,7 +14,8 @@
 # ---
 
 # %% [markdown]
-# [Download notebook](https://jax-md.readthedocs.io/en/main/notebooks/nve_simulation.ipynb)
+# [![Download Notebook](https://img.shields.io/badge/Download-Notebook-blue?style=for-the-badge&logo=jupyter)](https://jax-md.readthedocs.io/en/main/notebooks/nve_simulation.ipynb)
+# [![Download Python Script](https://img.shields.io/badge/Download-Python_Script-green?style=for-the-badge&logo=python)](https://raw.githubusercontent.com/google/jax-md/main/examples/nve_simulation.py)
 
 # %% [markdown]
 # # Constant Energy Simulation

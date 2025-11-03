@@ -14,6 +14,10 @@
 # ---
 
 # %% [markdown]
+# [![Download Notebook](https://img.shields.io/badge/Download-Notebook-blue?style=for-the-badge&logo=jupyter)](https://jax-md.readthedocs.io/en/main/notebooks/minimize.ipynb)
+# [![Download Python Script](https://img.shields.io/badge/Download-Python_Script-green?style=for-the-badge&logo=python)](https://raw.githubusercontent.com/google/jax-md/main/examples/minimize.py)
+
+# %% [markdown]
 # Copyright 2019 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -27,9 +31,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-# %% [markdown]
-# [Download notebook](https://jax-md.readthedocs.io/en/main/notebooks/minimize.ipynb)
 
 # %% [markdown]
 # # Energy Minimization
