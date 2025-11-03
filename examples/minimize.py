@@ -38,6 +38,13 @@
 # This example demonstrates energy minimization of a two-dimensional system using the FIRE algorithm.
 
 # %%
+import os
+
+IN_COLAB = 'COLAB_RELEASE_TAG' in os.environ
+if IN_COLAB:
+  import subprocess, sys
+  subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'git+https://github.com/jax-md/jax-md.git'])
+
 from jax import random, config
 
 config.update('jax_enable_x64', True)
