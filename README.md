@@ -32,7 +32,7 @@ To get started playing around with JAX MD check out the following colab notebook
 
 JAX MD also comes with self contained python scripts which you run locally if you have JAX MD installed:
 
-- [Energy Minimization](examples/minimize.py)
+- [Minimization](examples/minimize.py)
 - [NVE Simulation](examples/nve_simulation.py)
 - [NVT Simulation](examples/nvt_simulation.py)
 - [NPT Simulation](examples/npt_simulation.py)
