@@ -63,7 +63,6 @@ docs = [
     "ipykernel",
     "matplotlib",
     "seaborn",
-    "google-colab @ git+https://github.com/googlecolab/colabtools.git",
 ]
 
 [project.urls]

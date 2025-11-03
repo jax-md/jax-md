@@ -200,23 +200,26 @@ plt.axis('off')
 finalize_plot((2, 2))
 
 # %% [markdown]
-# ## Animation
+# ## Animation (Optional)
 #
-# If we want, we can also draw an animation of the simulation using JAX MD's renderer.
+# If we want, we can also draw an animation of the simulation using JAX MD's renderer. This only works in Google Colab.
 
 # %%
-from jax_md.colab_tools import renderer
+try:
+  from jax_md.colab_tools import renderer
 
-diameters = sigma[species, species]
-colors = np.where(
-  species[:, None], np.array([[1.0, 0.5, 0.01]]), np.array([[0.35, 0.65, 0.85]])
-)
+  diameters = sigma[species, species]
+  colors = np.where(
+    species[:, None], np.array([[1.0, 0.5, 0.01]]), np.array([[0.35, 0.65, 0.85]])
+  )
 
-renderer.render(
-  box_size,
-  {'particles': renderer.Disk(log['position'], diameters, colors)},
-  resolution=(700, 700),
-)
+  renderer.render(
+    box_size,
+    {'particles': renderer.Disk(log['position'], diameters, colors)},
+    resolution=(700, 700),
+  )
+except (ImportError, AttributeError):
+  print('Animation renderer only available in Google Colab. Skipping.')
 
 # %% [markdown]
 # ## Larger Simulation with Neighbor Lists
