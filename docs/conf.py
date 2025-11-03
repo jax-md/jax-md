@@ -63,8 +63,9 @@ extensions = [
 ]
 
 # nbsphinx configuration
-nbsphinx_execute = 'never'  # Notebooks already executed in pre_build
+nbsphinx_execute = 'always'
 nbsphinx_allow_errors = True
+nbsphinx_timeout = 300
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
