@@ -11,4 +11,5 @@ Units Examples
    examples/units/berendsen_si_sw
    examples/units/velocity_rescale_si_sw
    examples/units/csvr_si_sw
+   examples/units/npt_melting_si_sw
 
