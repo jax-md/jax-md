@@ -602,9 +602,8 @@ def reaxff_inter_list(
   short_inters_capacity_multiplier: int = 1.2,
   long_inters_capacity_multiplier: int = 1.2,
 ) -> Tuple[ReaxFFNeighborListFns, Callable]:
-  """
-  Contains all the neccesary logic to run a reaxff simulation and
-  allocate, reallocate, update and energy_fn functions
+  """Contains all the necessary logic to run a reaxff simulation and allocate, reallocate, update and energy_fn functions.
+
   Args:
     species: An ndarray of shape `[n, ]` for the atom types.
     species_AN:  An ndarray of shape `[n, ]` for the atomic numbers
