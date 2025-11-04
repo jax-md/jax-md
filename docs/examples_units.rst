@@ -10,4 +10,5 @@ Units Examples
    examples/units/nvk_si_sw
    examples/units/berendsen_si_sw
    examples/units/velocity_rescale_si_sw
+   examples/units/csvr_si_sw
 
