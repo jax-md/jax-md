@@ -14,13 +14,13 @@
 # ---
 
 # %% [markdown]
-# [![Download Notebook](https://img.shields.io/badge/Download-Notebook-blue?style=for-the-badge&logo=jupyter)](https://jax-md.readthedocs.io/en/main/notebooks/units_nve_si_sw.ipynb)
-# [![Download Python Script](https://img.shields.io/badge/Download-Python_Script-green?style=for-the-badge&logo=python)](https://raw.githubusercontent.com/google/jax-md/main/examples/units_nve_si_sw.py)
+# [![Download Notebook](https://img.shields.io/badge/Download-Notebook-blue?style=for-the-badge&logo=jupyter)](https://jax-md.readthedocs.io/en/main/notebooks/units/nvt_si_sw.ipynb)
+# [![Download Python Script](https://img.shields.io/badge/Download-Python_Script-green?style=for-the-badge&logo=python)](https://raw.githubusercontent.com/google/jax-md/main/examples/units/nvt_si_sw.py)
 
 # %% [markdown]
-# # Using Units in JAX-MD (NVE Simulation)
+# # Metal Units (NVT Simulation)
 #
-# This notebook demonstrates the use of a unit system (metal units) for the simulation of the Silicon crystal containing 512 atoms in the NVE ensemble with the Stillinger-Weber potential. This notebook use lammps velocities and positions as a starting point for the simulation and for comparison.
+# This notebook demonstrates the use of a unit system (metal units) for the simulation of the Silicon crystal containing 512 atoms in the NVT ensemble with the Stillinger-Weber potential. This notebook use lammps velocities and positions as a starting point for the simulation and for comparison.
 #
 # More about the unit system https://docs.lammps.org/units.html
 
@@ -65,15 +65,20 @@ import pandas as pd
 # LAMMPS simulation data for comparison
 import urllib.request
 
+SMOKE_TEST = os.environ.get('READTHEDOCS', False)
+
 def download_file(url, filename):
   if not os.path.exists(filename):
     urllib.request.urlretrieve(url, filename)
 
-base_url = 'https://raw.githubusercontent.com/abhijeetgangan/Silicon-data/main/Si-SW-MD/NVE-300K/'
-download_file(base_url + 'lammps_nve.dat', 'lammps_nve.dat')
-download_file(base_url + 'step_1.traj', 'step_1.traj')
+base_url = 'https://raw.githubusercontent.com/abhijeetgangan/Silicon-data/main/Si-SW-MD/NVT-300K/'
+download_file(base_url + 'lammps_nvt.dat', 'lammps_nvt.dat')
 
-data_lammps = pd.read_csv('lammps_nve.dat', delim_whitespace=True, header=None)
+# Download initial positions from NVE simulation
+base_url_nve = 'https://raw.githubusercontent.com/abhijeetgangan/Silicon-data/main/Si-SW-MD/NVE-300K/'
+download_file(base_url_nve + 'step_1.traj', 'step_1.traj')
+
+data_lammps = pd.read_csv('lammps_nvt.dat', delim_whitespace=True, header=None)
 data_lammps = data_lammps.dropna(axis=1)
 data_lammps.columns = ['Time', 'T', 'P', 'V', 'E', 'H']
 t_l, T, P, V, E, H = data_lammps['Time'], data_lammps['T'], data_lammps['P'], data_lammps['V'], data_lammps['E'], data_lammps['H']
@@ -113,17 +118,15 @@ T_init = 300 * unit['temperature']
 Mass = 28.0855 * unit['mass']
 key = random.PRNGKey(121)
 
-# Use smaller system for ReadTheDocs
-SMOKE_TEST = os.environ.get('READTHEDOCS', False)
-steps = 1000 if SMOKE_TEST else 50000
+NSTEPS_SIM = 1000 if SMOKE_TEST else 50000
 
 # %%
 # Logger to save data
 log = {
-  'E': jnp.zeros((steps // write_every,)),
-  'P': jnp.zeros((steps // write_every,)),
-  'T': jnp.zeros((steps // write_every,)),
-  'kT': jnp.zeros((steps // write_every,)),
+  'E': jnp.zeros((NSTEPS_SIM // write_every,)),
+  'P': jnp.zeros((NSTEPS_SIM // write_every,)),
+  'T': jnp.zeros((NSTEPS_SIM // write_every,)),
+  'kT': jnp.zeros((NSTEPS_SIM // write_every,)),
 }
 
 # %% [markdown]
@@ -142,8 +145,10 @@ energy_fn = jit(energy_fn)
 # Extra capacity to prevent overflow
 nbrs = neighbor_fn.allocate(positions, box=box, extra_capacity=2)
 
-# NVE simulation
-init_fn, apply_fn = simulate.nve(energy_fn, shift, dt=dt)
+# NVT simulation
+init_fn, apply_fn = simulate.nvt_nose_hoover(
+  energy_fn, shift, dt=dt, kT=T_init, tau=100 * dt, chain_length=3, chain_steps=1, sy_steps=1
+)
 apply_fn = jit(apply_fn)
 state = init_fn(key, positions, box=box, neighbor=nbrs, kT=T_init, mass=Mass)
 
@@ -151,7 +156,7 @@ state = init_fn(key, positions, box=box, neighbor=nbrs, kT=T_init, mass=Mass)
 state = dataclasses.replace(state, momentum=Mass * velocity * unit['velocity'])
 
 # %% [markdown]
-# ## NVE Simulation
+# ## NVT Simulation
 
 # %%
 @jit
@@ -159,7 +164,7 @@ def step_fn(i, state_nbrs):
   state, nbrs = state_nbrs
   # Take a simulation step.
   t = i * dt
-  state = apply_fn(state, neighbor=nbrs)
+  state = apply_fn(state, neighbor=nbrs, kT=T_init)
   nbrs = nbrs.update(state.position, neighbor=nbrs)
   return state, nbrs
 
@@ -175,7 +180,9 @@ def outer_sim_fn(j, state_nbrs_log):
   P = quantity.pressure(energy_fn, state.position, box, K, neighbor=nbrs)
 
   # Save the quantities
-  log['T'] = log['T'].at[j].set(K + E)
+  log['T'] = log['T'].at[j].set(
+    simulate.nvt_nose_hoover_invariant(energy_fn, state, T_init, neighbor=nbrs)
+  )
   log['E'] = log['E'].at[j].set(E)
   log['kT'] = log['kT'].at[j].set(kT)
   log['P'] = log['P'].at[j].set(P)
@@ -193,7 +200,9 @@ def outer_sim_fn(j, state_nbrs_log):
 
 
 # %%
-state_r, nbrs_r, log_r = lax.fori_loop(0, int(steps / write_every), outer_sim_fn, (state, nbrs, log))
+state_r, nbrs_r, log_r = lax.fori_loop(
+  0, int(NSTEPS_SIM / write_every), outer_sim_fn, (state, nbrs, log)
+)
 
 # %%
 # Check if neighbors overflowed
@@ -205,8 +214,8 @@ print(nbrs_r.did_buffer_overflow)
 # Note that you have to reconvert the units again.
 
 # %%
-Nsteps = int(steps / write_every)
-t = jnp.arange(0, Nsteps, dtype=f64) * timestep * write_every
+NSTEPS = int(NSTEPS_SIM / write_every)
+t = jnp.arange(0, NSTEPS, dtype=f64) * timestep * write_every
 
 # %%
 matplotlib.rcParams['mathtext.fontset'] = 'cm'
@@ -216,7 +225,7 @@ fig = plt.figure(figsize=(16, 8))
 ax1 = plt.subplot(2, 2, 1)
 ax1.plot(t, log_r['kT'] / unit['temperature'], lw=4, label='JAX MD')
 if data_lammps is not None:
-  ax1.plot(t_l, T, lw=2, label='LAMMPS')
+  ax1.plot(t_l[:NSTEPS], T[:NSTEPS], lw=2, label='LAMMPS')
 ax1.set_title('Temperature', fontsize=16)
 ax1.set_ylabel("$T\\ (K)$", fontsize=16)
 ax1.set_xlabel("$t\\ (ps)$", fontsize=16)
@@ -225,7 +234,7 @@ ax1.legend()
 ax2 = plt.subplot(2, 2, 2)
 ax2.plot(t, (log_r['P'] / unit['pressure']) / 10000, lw=4, label='JAX MD')
 if data_lammps is not None:
-  ax2.plot(t_l, P / 10000, lw=2, label='LAMMPS')
+  ax2.plot(t_l[:NSTEPS], P[:NSTEPS] / 10000, lw=2, label='LAMMPS')
 ax2.set_title('Pressure', fontsize=16)
 ax2.set_ylabel("$P\\ (GPa)$", fontsize=16)
 ax2.set_xlabel("$t\\ (ps)$", fontsize=16)
@@ -234,7 +243,7 @@ ax2.legend()
 ax3 = plt.subplot(2, 2, 3)
 ax3.plot(t, log_r['E'], lw=4, label='JAX MD')
 if data_lammps is not None:
-  ax3.plot(t_l, E, lw=2, label='LAMMPS')
+  ax3.plot(t_l[:NSTEPS], E[:NSTEPS], lw=2, label='LAMMPS')
 ax3.set_title('Potential Energy', fontsize=16)
 ax3.set_ylabel("$E_{PE}\\ (eV)$", fontsize=16)
 ax3.set_xlabel("$t\\ (ps)$", fontsize=16)
@@ -243,7 +252,7 @@ ax3.legend()
 ax4 = plt.subplot(2, 2, 4)
 ax4.plot(t, log_r['T'] / 512, lw=4, label='JAX MD')
 if data_lammps is not None:
-  ax4.plot(t_l, H / 512, lw=2, label='LAMMPS')
+  ax4.plot(t_l[:NSTEPS], H[:NSTEPS] / 512, lw=2, label='LAMMPS')
 ax4.set_title('Constant of motion', fontsize=16)
 ax4.set_ylabel("$E_{T}\\ (eV/Atom)$", fontsize=16)
 ax4.set_xlabel("$t\\ (ps)$", fontsize=16)
@@ -265,7 +274,7 @@ plt.show()
 from scipy import stats
 
 # Skip first few points for equilibration
-NSKIP = 10
+NSKIP = 1
 
 # Calculate KDE for smooth distribution
 jax_energy = onp.array(log_r['T'][NSKIP:] / 512)
@@ -276,7 +285,7 @@ plt.figure(figsize=(10, 6))
 plt.plot(x_range, kde_jax(x_range), linewidth=3, label='JAX MD', alpha=0.8)
 
 if data_lammps is not None:
-  lammps_energy = onp.array(H[NSKIP:] / 512)
+  lammps_energy = onp.array(H[NSKIP:NSTEPS] / 512)
   kde_lammps = stats.gaussian_kde(lammps_energy)
   x_range_lammps = onp.linspace(lammps_energy.min(), lammps_energy.max(), 200)
   plt.plot(x_range_lammps, kde_lammps(x_range_lammps), linewidth=3, label='LAMMPS', alpha=0.8, linestyle='--')
@@ -288,3 +297,4 @@ plt.legend(fontsize=14)
 plt.grid(True, alpha=0.3)
 plt.tight_layout()
 plt.show()
+

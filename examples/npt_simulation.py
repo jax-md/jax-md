@@ -144,11 +144,10 @@ def step_fn(i, state_and_log):
 
   # Record positions every `write_every` steps.
   pos = space.transform(box, state.position)
-  log['position'] = lax.cond(
+  log['position'] = np.where(
     i % write_every == 0,
-    lambda p: p.at[i // write_every].set(pos),
-    lambda p: p,
-    log['position'],
+    log['position'].at[i // write_every].set(pos),
+    log['position']
   )
 
   # Take a simulation step.
@@ -375,11 +374,10 @@ def step_fn(i, state_nbrs_log):
 
   # Record positions every `write_every` steps.
   pos = space.transform(box, state.position)
-  log['position'] = lax.cond(
+  log['position'] = np.where(
     i % write_every == 0,
-    lambda p: p.at[i // write_every].set(pos),
-    lambda p: p,
-    log['position'],
+    log['position'].at[i // write_every].set(pos),
+    log['position']
   )
 
   # Take a simulation step.

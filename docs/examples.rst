@@ -9,4 +9,3 @@ Examples
    examples/npt_simulation
    examples/nve_neighbor_list
    examples/minimize
-   examples/units_nve_si_sw

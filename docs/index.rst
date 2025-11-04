@@ -11,6 +11,7 @@ particular problem.
    :caption: Examples
 
    examples
+   examples_units
 
 .. toctree::
    :maxdepth: 2
