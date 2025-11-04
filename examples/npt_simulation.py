@@ -228,7 +228,7 @@ finalize_plot((2, 2))
 # If we want, we can also draw an animation of the simulation using JAX MD's renderer. We see that the system starts out fluctuating about an initial larger box. When the pressure instantaneously changes, the box compresses the system. This only works in Google Colab.
 
 # %%
-try:
+if IN_COLAB:
   from jax_md.colab_tools import renderer
 
   diameters = sigma[species, species]
@@ -241,8 +241,8 @@ try:
     {'particles': renderer.Disk(log['position'], diameters, colors)},
     resolution=(700, 700),
   )
-except (ImportError, AttributeError):
-  print('Animation renderer only available in Google Colab. Skipping.')
+else:
+  print('Renderer only available in Google Colab. Skipping.')
 
 # %% [markdown]
 # ## Larger Simulation with Neighbor Lists
@@ -465,7 +465,7 @@ finalize_plot((2, 2))
 # If we want, we can also draw an animation of the simulation using JAX MD's renderer. This only works in Google Colab.
 
 # %%
-try:
+if IN_COLAB:
   from jax_md.colab_tools import renderer
 
   diameters = sigma[species, species]
@@ -479,8 +479,8 @@ try:
     buffer_size=20,
     resolution=(700, 700),
   )
-except (ImportError, AttributeError):
-  print('Animation renderer only available in Google Colab. Skipping.')
+else:
+  print('Renderer only available in Google Colab. Skipping.')
 
 # %% [markdown]
 # ## Velocity Distribution

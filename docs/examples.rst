@@ -9,3 +9,4 @@ Examples
    examples/npt_simulation
    examples/nve_neighbor_list
    examples/minimize
+   examples/fire_minimization
