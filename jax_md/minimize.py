@@ -20,13 +20,15 @@ position R.
 
 Minimization code follows the same overall structure as optimizers in JAX.
 Optimizers return two functions:
-  init_fn:
-    Function that initializes the  state of an optimizer. Should take
-    positions as an ndarray of shape `[n, output_dimension]`. Returns a state
-    which will be a namedtuple.
-  apply_fn:
-    Function that takes a state and produces a new state after one
-    step of optimization.
+
+init_fn:
+  Function that initializes the  state of an optimizer. Should take
+  positions as an ndarray of shape `[n, output_dimension]`. Returns a state
+  which will be a namedtuple.
+
+apply_fn:
+  Function that takes a state and produces a new state after one
+  step of optimization.
 """
 
 from collections import namedtuple

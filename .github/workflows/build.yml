@@ -62,7 +62,7 @@ jobs:
     - name: Set Swap Space
       uses: pierotofy/set-swap-space@master
       with:
-       swap-size-gb: 10
+       swap-size-gb: 12
     - name: Test with pytest and generate coverage report
       run: |
         if [ "${{ matrix.test-suite }}" == "core" ]; then

@@ -20,10 +20,6 @@ For a video introducing JAX MD along with a [demo](https://colab.research.google
 To get started playing around with JAX MD check out the following colab notebooks on Google Cloud without needing to install anything. For a very simple introduction, I would recommend the Minimization example. For an example of a bunch of the features of JAX MD, check out the JAX MD cookbook.
 
 - [JAX MD Cookbook](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/jax_md_cookbook.ipynb)
-- [Minimization](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/minimization.ipynb)
-- [NVT Simulation](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/nvt_simulation.ipynb)
-- [NPT Simulation](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/npt_simulation.ipynb)
-- [NVE with Neighbor Lists](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/nve_neighbor_list.ipynb)
 - [Custom Potentials](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/customizing_potentials_cookbook.ipynb)
 - [Neural Network Potentials](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/neural_networks.ipynb)
 - [Flocking](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/flocking.ipynb)
@@ -35,8 +31,11 @@ To get started playing around with JAX MD check out the following colab notebook
 
 JAX MD also comes with self contained python scripts which you run locally if you have JAX MD installed:
 
-- [Minimization](examples/minimize.py)
+- [Fire minimization](examples/fire_minimization.py)
 - [NVE Simulation](examples/nve_simulation.py)
+- [NVT Simulation](examples/nvt_simulation.py)
+- [NPT Simulation](examples/npt_simulation.py)
+- [NVE with Neighbor Lists](examples/nve_neighbor_list.py)
 
 You can install JAX MD locally with pip,
 

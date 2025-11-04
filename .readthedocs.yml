@@ -29,7 +29,11 @@ build:
     pre_build:
       - cp -r examples docs/
       - uv run jupytext --to notebook docs/examples/*.py
+      - uv run jupytext --to notebook docs/examples/units/*.py
       - rm docs/examples/*.py
+      - rm docs/examples/units/*.py
     post_build:
       - mkdir -p $READTHEDOCS_OUTPUT/html/notebooks
+      - mkdir -p $READTHEDOCS_OUTPUT/html/notebooks/units
       - cp docs/examples/*.ipynb $READTHEDOCS_OUTPUT/html/notebooks/
+      - cp docs/examples/units/*.ipynb $READTHEDOCS_OUTPUT/html/notebooks/units/
