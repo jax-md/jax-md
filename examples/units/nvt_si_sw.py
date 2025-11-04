@@ -277,7 +277,7 @@ from scipy import stats
 NSKIP = 1
 
 # Calculate KDE for smooth distribution
-jax_energy = onp.array(log_r['T'][NSKIP:] / 512)
+jax_energy = onp.array(log_r['E'][NSKIP:] / 512)
 kde_jax = stats.gaussian_kde(jax_energy)
 x_range = onp.linspace(jax_energy.min(), jax_energy.max(), 200)
 
@@ -285,12 +285,12 @@ plt.figure(figsize=(10, 6))
 plt.plot(x_range, kde_jax(x_range), linewidth=3, label='JAX MD', alpha=0.8)
 
 if data_lammps is not None:
-  lammps_energy = onp.array(H[NSKIP:NSTEPS] / 512)
+  lammps_energy = onp.array(E[NSKIP:NSTEPS] / 512)
   kde_lammps = stats.gaussian_kde(lammps_energy)
   x_range_lammps = onp.linspace(lammps_energy.min(), lammps_energy.max(), 200)
   plt.plot(x_range_lammps, kde_lammps(x_range_lammps), linewidth=3, label='LAMMPS', alpha=0.8, linestyle='--')
 
-plt.xlabel('Total Energy (eV/atom)', fontsize=14)
+plt.xlabel('Potential Energy (eV/atom)', fontsize=14)
 plt.ylabel('Probability Density', fontsize=14)
 plt.title('Energy Distribution Comparison', fontsize=16)
 plt.legend(fontsize=14)

@@ -14,13 +14,13 @@
 # ---
 
 # %% [markdown]
-# [![Download Notebook](https://img.shields.io/badge/Download-Notebook-blue?style=for-the-badge&logo=jupyter)](https://jax-md.readthedocs.io/en/main/notebooks/units/nve_si_sw.ipynb)
-# [![Download Python Script](https://img.shields.io/badge/Download-Python_Script-green?style=for-the-badge&logo=python)](https://raw.githubusercontent.com/google/jax-md/main/examples/units/nve_si_sw.py)
+# [![Download Notebook](https://img.shields.io/badge/Download-Notebook-blue?style=for-the-badge&logo=jupyter)](https://jax-md.readthedocs.io/en/main/notebooks/units/npt_si_sw.ipynb)
+# [![Download Python Script](https://img.shields.io/badge/Download-Python_Script-green?style=for-the-badge&logo=python)](https://raw.githubusercontent.com/google/jax-md/main/examples/units/npt_si_sw.py)
 
 # %% [markdown]
-# # Metal Units (NVE Simulation)
+# # Metal Units (NPT Simulation)
 #
-# This notebook demonstrates the use of a unit system (metal units) for the simulation of the Silicon crystal containing 512 atoms in the NVE ensemble with the Stillinger-Weber potential. This notebook use lammps velocities and positions as a starting point for the simulation and for comparison.
+# This notebook demonstrates the use of a unit system (metal units) for the simulation of the Silicon crystal containing 512 atoms in the NPT ensemble with the Stillinger-Weber potential. This notebook use lammps velocities and positions as a starting point for the simulation and for comparison.
 #
 # More about the unit system https://docs.lammps.org/units.html
 
@@ -64,17 +64,21 @@ import pandas as pd
 # %%
 # LAMMPS simulation data for comparison
 import urllib.request
+
 SMOKE_TEST = os.environ.get('READTHEDOCS', False)
 
 def download_file(url, filename):
   if not os.path.exists(filename):
     urllib.request.urlretrieve(url, filename)
 
-base_url = 'https://raw.githubusercontent.com/abhijeetgangan/Silicon-data/main/Si-SW-MD/NVE-300K/'
-download_file(base_url + 'lammps_nve.dat', 'lammps_nve.dat')
-download_file(base_url + 'step_1.traj', 'step_1.traj')
+base_url = 'https://raw.githubusercontent.com/abhijeetgangan/Silicon-data/main/Si-SW-MD/NPT-300K/'
+download_file(base_url + 'lammps_npt.dat', 'lammps_npt.dat')
 
-data_lammps = pd.read_csv('lammps_nve.dat', delim_whitespace=True, header=None)
+# Download initial positions from NVE simulation
+base_url_nve = 'https://raw.githubusercontent.com/abhijeetgangan/Silicon-data/main/Si-SW-MD/NVE-300K/'
+download_file(base_url_nve + 'step_1.traj', 'step_1.traj')
+
+data_lammps = pd.read_csv('lammps_npt.dat', delim_whitespace=True, header=None)
 data_lammps = data_lammps.dropna(axis=1)
 data_lammps.columns = ['Time', 'T', 'P', 'V', 'E', 'H']
 t_l, T, P, V, E, H = data_lammps['Time'], data_lammps['T'], data_lammps['P'], data_lammps['V'], data_lammps['E'], data_lammps['H']
@@ -111,10 +115,11 @@ dt = fs
 write_every = 100
 box = latvec
 T_init = 300 * unit['temperature']
+P_init = 0.0 * unit['pressure']
 Mass = 28.0855 * unit['mass']
 key = random.PRNGKey(121)
 
-NSTEPS_SIM = 1500 if SMOKE_TEST else 50000
+NSTEPS_SIM = 1000 if SMOKE_TEST else 50000
 
 # %%
 # Logger to save data
@@ -138,34 +143,51 @@ neighbor_fn, energy_fn = energy.stillinger_weber_neighbor_list(
 energy_fn = jit(energy_fn)
 
 # %%
+# Thermostat and barostat parameters same as LAMMPS
+from typing import Dict
+
+def default_nhc_kwargs(tau: f64, overrides: Dict) -> Dict:
+  default_kwargs = {'chain_length': 3, 'chain_steps': 1, 'sy_steps': 1, 'tau': tau}
+  if overrides is None:
+    return default_kwargs
+  return {key: overrides.get(key, default_kwargs[key]) for key in default_kwargs}
+
+new_kwargs = {'chain_length': 3, 'chain_steps': 1, 'sy_steps': 1,}
+
+# %%
 # Extra capacity to prevent overflow
 nbrs = neighbor_fn.allocate(positions, box=box, extra_capacity=2)
 
-# NVE simulation
-init_fn, apply_fn = simulate.nve(energy_fn, shift, dt=dt)
+# NPT simulation
+init_fn, apply_fn = simulate.npt_nose_hoover(
+  energy_fn, shift, dt=dt, pressure=P_init, kT=T_init,
+  barostat_kwargs=default_nhc_kwargs(1000 * dt, new_kwargs),
+  thermostat_kwargs=default_nhc_kwargs(100 * dt, new_kwargs)
+)
 apply_fn = jit(apply_fn)
 state = init_fn(key, positions, box=box, neighbor=nbrs, kT=T_init, mass=Mass)
 
 # Restart from LAMMPS velocities
-state = dataclasses.replace(state, momentum=Mass * velocity * unit['velocity'])
+state = dataclasses.replace(state, momentum = Mass * velocity * unit['velocity'])
 
 # %% [markdown]
-# ## NVE Simulation
+# ## NPT Simulation
 
 # %%
 @jit
-def step_fn(i, state_nbrs):
-  state, nbrs = state_nbrs
+def step_fn(i, state_nbrs_box):
+  state, nbrs, box = state_nbrs_box
   # Take a simulation step.
   t = i * dt
-  state = apply_fn(state, neighbor=nbrs)
-  nbrs = nbrs.update(state.position, neighbor=nbrs)
-  return state, nbrs
+  state = apply_fn(state, neighbor=nbrs, kT=T_init, pressure=P_init)
+  box = simulate.npt_box(state)
+  nbrs = nbrs.update(state.position, neighbor=nbrs, box=box)
+  return state, nbrs, box
 
 
 @jit
-def outer_sim_fn(j, state_nbrs_log):
-  state, nbrs, log = state_nbrs_log
+def outer_sim_fn(j, state_nbrs_log_box):
+  state, nbrs, log, box = state_nbrs_log_box
 
   # Quantities to calculate
   K = quantity.kinetic_energy(momentum=state.momentum, mass=Mass)
@@ -174,7 +196,9 @@ def outer_sim_fn(j, state_nbrs_log):
   P = quantity.pressure(energy_fn, state.position, box, K, neighbor=nbrs)
 
   # Save the quantities
-  log['T'] = log['T'].at[j].set(K + E)
+  log['T'] = log['T'].at[j].set(
+    simulate.npt_nose_hoover_invariant(energy_fn, state, pressure=P_init, kT=T_init, neighbor=nbrs)
+  )
   log['E'] = log['E'].at[j].set(E)
   log['kT'] = log['kT'].at[j].set(kT)
   log['P'] = log['P'].at[j].set(P)
@@ -183,16 +207,18 @@ def outer_sim_fn(j, state_nbrs_log):
   debug.print('Step = {j} | Total Energy = {T}', j=j * write_every, T=K + E)
 
   @jit
-  def inner_sim_fn(i, state_nbrs):
-    return step_fn(i, state_nbrs)
+  def inner_sim_fn(i, state_nbrs_box):
+    return step_fn(i, state_nbrs_box)
 
-  state, nbrs = lax.fori_loop(0, write_every, inner_sim_fn, (state, nbrs))
+  state, nbrs, box = lax.fori_loop(0, write_every, inner_sim_fn, (state, nbrs, box))
 
-  return state, nbrs, log
+  return state, nbrs, log, box
 
 
 # %%
-state_r, nbrs_r, log_r = lax.fori_loop(0, int(NSTEPS_SIM / write_every), outer_sim_fn, (state, nbrs, log))
+state_r, nbrs_r, log_r, box_r = lax.fori_loop(
+  0, int(NSTEPS_SIM / write_every), outer_sim_fn, (state, nbrs, log, box)
+)
 
 # %%
 # Check if neighbors overflowed
@@ -205,7 +231,6 @@ print(nbrs_r.did_buffer_overflow)
 
 # %%
 NSTEPS = int(NSTEPS_SIM / write_every)
-print(NSTEPS)
 t = jnp.arange(0, NSTEPS, dtype=f64) * timestep * write_every
 
 # %%
@@ -288,3 +313,4 @@ plt.legend(fontsize=14)
 plt.grid(True, alpha=0.3)
 plt.tight_layout()
 plt.show()
+

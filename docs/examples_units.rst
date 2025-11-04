@@ -6,4 +6,5 @@ Units Examples
 
    examples/units/nve_si_sw
    examples/units/nvt_si_sw
+   examples/units/npt_si_sw
 
