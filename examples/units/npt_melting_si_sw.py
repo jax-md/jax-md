@@ -322,3 +322,44 @@ ax4.legend()
 fig.tight_layout()
 plt.show()
 
+# %% [markdown]
+# ## Radial Distribution Function (RDF)
+#
+# Calculate RDF at initial and final states
+
+# %%
+# RDF parameters
+dr = 0.1  # Bin width in Angstroms
+r_max = 10.0  # Maximum distance
+radii = jnp.arange(0, r_max, dr)
+
+# Create RDF function
+neighbor_fn_rdf, g_fn = quantity.pair_correlation_neighbor_list(
+  displacement, latvec, radii, dr, species=None
+)
+
+# %%
+# Calculate initial RDF (crystalline state)
+nbrs_rdf_init = neighbor_fn_rdf.allocate(positions, box=latvec, extra_capacity=2)
+g_r_init = g_fn(positions, neighbor=nbrs_rdf_init)
+
+# Calculate final RDF (molten state)
+nbrs_rdf_final = neighbor_fn_rdf.allocate(state_r.position, box=box_r, extra_capacity=2)
+g_r_final = g_fn(state_r.position, neighbor=nbrs_rdf_final)
+
+# %% [markdown]
+# ## Plot RDF
+
+# %%
+plt.figure(figsize=(10, 6))
+plt.plot(radii, jnp.mean(g_r_init, axis=0), lw=2, label=f'Initial (T = {T_init / unit["temperature"]:.0f} K)')
+plt.plot(radii, jnp.mean(g_r_final, axis=0), lw=2, label=f'Final (T = {log_r["kT"][-1] / unit["temperature"]:.0f} K)')
+plt.xlabel(r'$r\ (\AA)$', fontsize=14)
+plt.ylabel('g(r)', fontsize=14)
+plt.title('Radial Distribution Function', fontsize=16)
+plt.legend(fontsize=12)
+plt.grid(True, alpha=0.3)
+plt.ylim(0, None)
+plt.tight_layout()
+plt.show()
+
