@@ -4,6 +4,7 @@ Contains interaction list related functions for ReaxFF
 Author: Mehmet Cagri Kaymak
 """
 
+from functools import partial
 from jax_md import space, partition, util
 from jax_md.reaxff.reaxff_energy import calculate_bo, calculate_reaxff_energy
 from typing import Callable, Any, Tuple
@@ -682,8 +683,6 @@ def reaxff_inter_list(
 
   metric = space.metric(displacement)
   map_metric = space.map_neighbor(metric)
-  map_disp = space.map_neighbor(displacement)
-
   new_body3_mask = (
     force_field.body34_params_mask | force_field.body3_params_mask
   )
@@ -910,7 +909,10 @@ def reaxff_inter_list(
       jnp.bool_(False),
     )
 
-  def energy_fn(R, nbr_lists, init_charges=None):
+  def energy_fn(R, nbr_lists, init_charges=None, **kwargs):
+    d = partial(displacement, **kwargs)
+    map_metric = space.map_neighbor(space.metric(d))
+    map_disp = space.map_neighbor(d)
     (
       close_nbr_dist,
       far_nbr_dist,

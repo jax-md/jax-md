@@ -34,7 +34,17 @@ import os
 IN_COLAB = 'COLAB_RELEASE_TAG' in os.environ
 if IN_COLAB:
   import subprocess, sys
-  subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'git+https://github.com/jax-md/jax-md.git'])
+
+  subprocess.run(
+    [
+      sys.executable,
+      '-m',
+      'pip',
+      'install',
+      '-q',
+      'git+https://github.com/jax-md/jax-md.git',
+    ]
+  )
 
 import numpy as onp
 
@@ -58,6 +68,7 @@ import seaborn as sns
 sns.set_style(style='white')
 
 SMOKE_TEST = os.environ.get('READTHEDOCS', False)
+
 
 def format_plot(x, y):
   plt.xlabel(x, fontsize=20)
@@ -147,7 +158,7 @@ def step_fn(i, state_and_log):
   log['position'] = np.where(
     i % write_every == 0,
     log['position'].at[i // write_every].set(pos),
-    log['position']
+    log['position'],
   )
 
   # Take a simulation step.
@@ -233,7 +244,9 @@ if IN_COLAB:
 
   diameters = sigma[species, species]
   colors = np.where(
-    species[:, None], np.array([[1.0, 0.5, 0.01]]), np.array([[0.35, 0.65, 0.85]])
+    species[:, None],
+    np.array([[1.0, 0.5, 0.01]]),
+    np.array([[0.35, 0.65, 0.85]]),
   )
 
   renderer.render(
@@ -366,10 +379,14 @@ def step_fn(i, state_nbrs_log):
 
   box = simulate.npt_box(state)
   KE = quantity.kinetic_energy(momentum=state.momentum)
-  P_measured = quantity.pressure(energy_fn, state.position, box, KE, neighbor=nbrs)
+  P_measured = quantity.pressure(
+    energy_fn, state.position, box, KE, neighbor=nbrs
+  )
   log['P'] = log['P'].at[i].set(P_measured)
 
-  H = simulate.npt_nose_hoover_invariant(energy_fn, state, P(t), kT, neighbor=nbrs)
+  H = simulate.npt_nose_hoover_invariant(
+    energy_fn, state, P(t), kT, neighbor=nbrs
+  )
   log['H'] = log['H'].at[i].set(H)
 
   # Record positions every `write_every` steps.
@@ -377,7 +394,7 @@ def step_fn(i, state_nbrs_log):
   log['position'] = np.where(
     i % write_every == 0,
     log['position'].at[i // write_every].set(pos),
-    log['position']
+    log['position'],
   )
 
   # Take a simulation step.
@@ -470,7 +487,9 @@ if IN_COLAB:
 
   diameters = sigma[species, species]
   colors = np.where(
-    species[:, None], np.array([[1.0, 0.5, 0.01]]), np.array([[0.35, 0.65, 0.85]])
+    species[:, None],
+    np.array([[1.0, 0.5, 0.01]]),
+    np.array([[0.35, 0.65, 0.85]]),
   )
 
   renderer.render(

@@ -10,3 +10,4 @@ Examples
    examples/nve_neighbor_list
    examples/minimize
    examples/fire_minimization
+   examples/reaxff_nve_simulation

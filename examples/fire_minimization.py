@@ -33,12 +33,23 @@ import os
 IN_COLAB = 'COLAB_RELEASE_TAG' in os.environ
 if IN_COLAB:
   import subprocess, sys
-  subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'git+https://github.com/jax-md/jax-md.git'])
+
+  subprocess.run(
+    [
+      sys.executable,
+      '-m',
+      'pip',
+      'install',
+      '-q',
+      'git+https://github.com/jax-md/jax-md.git',
+    ]
+  )
 
 import numpy as onp
 
 import jax.numpy as np
 from jax import config
+
 config.update('jax_enable_x64', True)
 
 from jax import random
@@ -49,19 +60,23 @@ from jax_md import space, smap, energy, minimize, quantity, simulate
 import matplotlib
 import matplotlib.pyplot as plt
 import seaborn as sns
-  
+
 sns.set_style(style='white')
 
-def format_plot(x, y):  
+
+def format_plot(x, y):
   plt.grid(True)
   plt.xlabel(x, fontsize=20)
   plt.ylabel(y, fontsize=20)
-  
+
+
 def finalize_plot(shape=(1, 1)):
   plt.gcf().set_size_inches(
-    shape[0] * 1.5 * plt.gcf().get_size_inches()[1], 
-    shape[1] * 1.5 * plt.gcf().get_size_inches()[1])
+    shape[0] * 1.5 * plt.gcf().get_size_inches()[1],
+    shape[1] * 1.5 * plt.gcf().get_size_inches()[1],
+  )
   plt.tight_layout()
+
 
 # Check if running in ReadTheDocs environment
 SMOKE_TEST = os.environ.get('READTHEDOCS', False)
@@ -114,10 +129,10 @@ max_steps = 200
 
 for i in range(max_steps):
   fire_state = fire_apply(fire_state)
-  
+
   E += [energy_fn(fire_state.position)]
   trajectory += [fire_state.position]
-  
+
 R = fire_state.position
 trajectory = np.stack(trajectory)
 
@@ -129,12 +144,21 @@ trajectory = np.stack(trajectory)
 # %%
 metric = lambda R: space.distance(space.map_product(displacement)(R, R))
 dr = metric(R)
-plt.plot(np.min(dr[:N_2, :N_2] + 5 * np.eye(N_2, N_2), axis=0), 'o', 
-         label='$\\sigma_{AA}$')
-plt.plot(np.min(dr[:N_2, N_2:] + 5 * np.eye(N_2, N_2), axis=0), 'o',
-         label='$\\sigma_{AB}$')
-plt.plot(np.min(dr[N_2:, N_2:] + 5 * np.eye(N_2, N_2), axis=0), 'o',
-         label='$\\sigma_{BB}$')
+plt.plot(
+  np.min(dr[:N_2, :N_2] + 5 * np.eye(N_2, N_2), axis=0),
+  'o',
+  label='$\\sigma_{AA}$',
+)
+plt.plot(
+  np.min(dr[:N_2, N_2:] + 5 * np.eye(N_2, N_2), axis=0),
+  'o',
+  label='$\\sigma_{AB}$',
+)
+plt.plot(
+  np.min(dr[N_2:, N_2:] + 5 * np.eye(N_2, N_2), axis=0),
+  'o',
+  label='$\\sigma_{BB}$',
+)
 
 plt.legend()
 format_plot('', 'min neighbor distance')
@@ -163,14 +187,18 @@ finalize_plot((2, 2))
 # %%
 if IN_COLAB:
   from jax_md.colab_tools import renderer
-  
+
   diameter = np.where(species, 1.4, 1.0)
-  color = np.where(species[:, None], 
-                   np.array([[1.0, 0.5, 0.05]]), 
-                   np.array([[0.15, 0.45, 0.8]]))
-  renderer.render(box_size, 
-                  { 'particles': renderer.Disk(trajectory, diameter, color)},
-                  buffer_size=50)
+  color = np.where(
+    species[:, None],
+    np.array([[1.0, 0.5, 0.05]]),
+    np.array([[0.15, 0.45, 0.8]]),
+  )
+  renderer.render(
+    box_size,
+    {'particles': renderer.Disk(trajectory, diameter, color)},
+    buffer_size=50,
+  )
 
 # %% [markdown]
 # Finally, let's plot the energy trajectory that we observed during FIRE minimization.
@@ -180,4 +208,3 @@ plt.plot(E, linewidth=3)
 
 format_plot('step', '$E$')
 finalize_plot()
-
