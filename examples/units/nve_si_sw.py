@@ -33,7 +33,17 @@ import os
 IN_COLAB = 'COLAB_RELEASE_TAG' in os.environ
 if IN_COLAB:
   import subprocess, sys
-  subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'git+https://github.com/jax-md/jax-md.git'])
+
+  subprocess.run(
+    [
+      sys.executable,
+      '-m',
+      'pip',
+      'install',
+      '-q',
+      'git+https://github.com/jax-md/jax-md.git',
+    ]
+  )
 
 import jax.numpy as jnp
 import numpy as onp
@@ -64,11 +74,14 @@ import pandas as pd
 # %%
 # LAMMPS simulation data for comparison
 import urllib.request
+
 SMOKE_TEST = os.environ.get('READTHEDOCS', False)
+
 
 def download_file(url, filename):
   if not os.path.exists(filename):
     urllib.request.urlretrieve(url, filename)
+
 
 base_url = 'https://raw.githubusercontent.com/abhijeetgangan/Silicon-data/main/Si-SW-MD/NVE-300K/'
 download_file(base_url + 'lammps_nve.dat', 'lammps_nve.dat')
@@ -77,7 +90,14 @@ download_file(base_url + 'step_1.traj', 'step_1.traj')
 data_lammps = pd.read_csv('lammps_nve.dat', delim_whitespace=True, header=None)
 data_lammps = data_lammps.dropna(axis=1)
 data_lammps.columns = ['Time', 'T', 'P', 'V', 'E', 'H']
-t_l, T, P, V, E, H = data_lammps['Time'], data_lammps['T'], data_lammps['P'], data_lammps['V'], data_lammps['E'], data_lammps['H']
+t_l, T, P, V, E, H = (
+  data_lammps['Time'],
+  data_lammps['T'],
+  data_lammps['P'],
+  data_lammps['V'],
+  data_lammps['E'],
+  data_lammps['H'],
+)
 
 # %% [markdown]
 # ## Load LAMMPS Positions and Velocities
@@ -90,7 +110,13 @@ lammps_step_0 = onp.loadtxt('step_1.traj', dtype=f64)
 positions = jnp.array(lammps_step_0[:, 2:5], dtype=f64)
 # Load velocities from lammps
 velocity = jnp.array(lammps_step_0[:, 5:8], dtype=f64)
-latvec = jnp.array([[21.724, 0.000000, 0.000000], [0.00000, 21.724, 0.00000], [0.00000, 0.0000, 21.724]])
+latvec = jnp.array(
+  [
+    [21.724, 0.000000, 0.000000],
+    [0.00000, 21.724, 0.00000],
+    [0.00000, 0.0000, 21.724],
+  ]
+)
 
 # %% [markdown]
 # ## Units and Simulation Parameters
@@ -152,6 +178,7 @@ state = dataclasses.replace(state, momentum=Mass * velocity * unit['velocity'])
 # %% [markdown]
 # ## NVE Simulation
 
+
 # %%
 @jit
 def step_fn(i, state_nbrs):
@@ -192,7 +219,9 @@ def outer_sim_fn(j, state_nbrs_log):
 
 
 # %%
-state_r, nbrs_r, log_r = lax.fori_loop(0, int(NSTEPS_SIM / write_every), outer_sim_fn, (state, nbrs, log))
+state_r, nbrs_r, log_r = lax.fori_loop(
+  0, int(NSTEPS_SIM / write_every), outer_sim_fn, (state, nbrs, log)
+)
 
 # %%
 # Check if neighbors overflowed
@@ -218,8 +247,8 @@ ax1.plot(t, log_r['kT'] / unit['temperature'], lw=4, label='JAX MD')
 if data_lammps is not None:
   ax1.plot(t_l[:NSTEPS], T[:NSTEPS], lw=2, label='LAMMPS')
 ax1.set_title('Temperature', fontsize=16)
-ax1.set_ylabel("$T\\ (K)$", fontsize=16)
-ax1.set_xlabel("$t\\ (ps)$", fontsize=16)
+ax1.set_ylabel('$T\\ (K)$', fontsize=16)
+ax1.set_xlabel('$t\\ (ps)$', fontsize=16)
 ax1.legend()
 
 ax2 = plt.subplot(2, 2, 2)
@@ -227,8 +256,8 @@ ax2.plot(t, (log_r['P'] / unit['pressure']) / 10000, lw=4, label='JAX MD')
 if data_lammps is not None:
   ax2.plot(t_l[:NSTEPS], P[:NSTEPS] / 10000, lw=2, label='LAMMPS')
 ax2.set_title('Pressure', fontsize=16)
-ax2.set_ylabel("$P\\ (GPa)$", fontsize=16)
-ax2.set_xlabel("$t\\ (ps)$", fontsize=16)
+ax2.set_ylabel('$P\\ (GPa)$', fontsize=16)
+ax2.set_xlabel('$t\\ (ps)$', fontsize=16)
 ax2.legend()
 
 ax3 = plt.subplot(2, 2, 3)
@@ -236,8 +265,8 @@ ax3.plot(t, log_r['E'], lw=4, label='JAX MD')
 if data_lammps is not None:
   ax3.plot(t_l[:NSTEPS], E[:NSTEPS], lw=2, label='LAMMPS')
 ax3.set_title('Potential Energy', fontsize=16)
-ax3.set_ylabel("$E_{PE}\\ (eV)$", fontsize=16)
-ax3.set_xlabel("$t\\ (ps)$", fontsize=16)
+ax3.set_ylabel('$E_{PE}\\ (eV)$', fontsize=16)
+ax3.set_xlabel('$t\\ (ps)$', fontsize=16)
 ax3.legend()
 
 ax4 = plt.subplot(2, 2, 4)
@@ -245,11 +274,11 @@ ax4.plot(t, log_r['T'] / 512, lw=4, label='JAX MD')
 if data_lammps is not None:
   ax4.plot(t_l[:NSTEPS], H[:NSTEPS] / 512, lw=2, label='LAMMPS')
 ax4.set_title('Constant of motion', fontsize=16)
-ax4.set_ylabel("$E_{T}\\ (eV/Atom)$", fontsize=16)
-ax4.set_xlabel("$t\\ (ps)$", fontsize=16)
+ax4.set_ylabel('$E_{T}\\ (eV/Atom)$', fontsize=16)
+ax4.set_xlabel('$t\\ (ps)$', fontsize=16)
 ax4.set_ylim(
   jnp.mean(log_r['T'] / 512) - jnp.mean(log_r['T'] / 512) / 1000,
-  jnp.mean(log_r['T'] / 512) + jnp.mean(log_r['T'] / 512) / 1000
+  jnp.mean(log_r['T'] / 512) + jnp.mean(log_r['T'] / 512) / 1000,
 )
 ax4.legend()
 
@@ -279,7 +308,14 @@ if data_lammps is not None:
   lammps_energy = onp.array(E[NSKIP:NSTEPS] / 512)
   kde_lammps = stats.gaussian_kde(lammps_energy)
   x_range_lammps = onp.linspace(lammps_energy.min(), lammps_energy.max(), 200)
-  plt.plot(x_range_lammps, kde_lammps(x_range_lammps), linewidth=3, label='LAMMPS', alpha=0.8, linestyle='--')
+  plt.plot(
+    x_range_lammps,
+    kde_lammps(x_range_lammps),
+    linewidth=3,
+    label='LAMMPS',
+    alpha=0.8,
+    linestyle='--',
+  )
 
 plt.xlabel('Potential Energy (eV/atom)', fontsize=14)
 plt.ylabel('Probability Density', fontsize=14)

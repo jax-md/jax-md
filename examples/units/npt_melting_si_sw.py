@@ -33,7 +33,17 @@ import os
 IN_COLAB = 'COLAB_RELEASE_TAG' in os.environ
 if IN_COLAB:
   import subprocess, sys
-  subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'git+https://github.com/jax-md/jax-md.git'])
+
+  subprocess.run(
+    [
+      sys.executable,
+      '-m',
+      'pip',
+      'install',
+      '-q',
+      'git+https://github.com/jax-md/jax-md.git',
+    ]
+  )
 
 import jax.numpy as jnp
 import numpy as onp
@@ -69,9 +79,11 @@ import urllib.request
 
 SMOKE_TEST = os.environ.get('READTHEDOCS', False)
 
+
 def download_file(url, filename):
   if not os.path.exists(filename):
     urllib.request.urlretrieve(url, filename)
+
 
 base_url = 'https://raw.githubusercontent.com/abhijeetgangan/Silicon-data/main/Si-SW-MD/NPT-Melting/'
 download_file(base_url + 'lammps.dat', 'npt_melting.dat')
@@ -83,7 +95,13 @@ download_file(base_url_nve + 'step_1.traj', 'step_1.traj')
 data_lammps = pd.read_csv('npt_melting.dat', delim_whitespace=True, header=None)
 data_lammps = data_lammps.dropna(axis=1)
 data_lammps.columns = ['Time', 'T', 'P', 'V', 'E']
-t_l, T, P, V, E = data_lammps['Time'], data_lammps['T'], data_lammps['P'], data_lammps['V'], data_lammps['E']
+t_l, T, P, V, E = (
+  data_lammps['Time'],
+  data_lammps['T'],
+  data_lammps['P'],
+  data_lammps['V'],
+  data_lammps['E'],
+)
 
 # %% [markdown]
 # ## Load LAMMPS Positions and Velocities
@@ -96,7 +114,13 @@ lammps_step_0 = onp.loadtxt('step_1.traj', dtype=f64)
 positions = jnp.array(lammps_step_0[:, 2:5], dtype=f64)
 # Load velocities from lammps
 velocity = jnp.array(lammps_step_0[:, 5:8], dtype=f64)
-latvec = jnp.array([[21.724, 0.000000, 0.000000], [0.00000, 21.724, 0.00000], [0.00000, 0.0000, 21.724]])
+latvec = jnp.array(
+  [
+    [21.724, 0.000000, 0.000000],
+    [0.00000, 21.724, 0.00000],
+    [0.00000, 0.0000, 21.724],
+  ]
+)
 
 # %% [markdown]
 # ## Units and Simulation Parameters
@@ -117,7 +141,9 @@ dt = fs
 write_every = 100
 box = latvec
 T_init = 300 * unit['temperature']
-T_final = 330 * unit['temperature'] if SMOKE_TEST else 3300 * unit['temperature']
+T_final = (
+  330 * unit['temperature'] if SMOKE_TEST else 3300 * unit['temperature']
+)
 P_init = 0.0 * unit['pressure']
 Mass = 28.0855 * unit['mass']
 key = random.PRNGKey(121)
@@ -139,18 +165,33 @@ log = {
 # Setup the periodic boundary conditions.
 displacement, shift = space.periodic_general(latvec)
 dist_fun = space.metric(displacement)
-neighbor_fn, energy_fn = energy.stillinger_weber_neighbor_list(displacement, latvec, disable_cell_list=True)
+neighbor_fn, energy_fn = energy.stillinger_weber_neighbor_list(
+  displacement, latvec, disable_cell_list=True
+)
 energy_fn = jit(energy_fn)
+
 
 # %%
 # Thermostat and barostat parameters same as LAMMPS
 def default_nhc_kwargs(tau: f64, overrides: Dict) -> Dict:
-  default_kwargs = {'chain_length': 3, 'chain_steps': 1, 'sy_steps': 1, 'tau': tau}
+  default_kwargs = {
+    'chain_length': 3,
+    'chain_steps': 1,
+    'sy_steps': 1,
+    'tau': tau,
+  }
   if overrides is None:
     return default_kwargs
-  return {key: overrides.get(key, default_kwargs[key]) for key in default_kwargs}
+  return {
+    key: overrides.get(key, default_kwargs[key]) for key in default_kwargs
+  }
 
-new_kwargs = {'chain_length': 3, 'chain_steps': 1, 'sy_steps': 1,}
+
+new_kwargs = {
+  'chain_length': 3,
+  'chain_steps': 1,
+  'sy_steps': 1,
+}
 
 # %%
 # Extra capacity to prevent overflow
@@ -158,9 +199,13 @@ nbrs = neighbor_fn.allocate(positions, box=box, extra_capacity=4)
 
 # NPT simulation
 init_fn, apply_fn = simulate.npt_nose_hoover(
-  energy_fn, shift, dt=dt, pressure=P_init, kT=T_init,
+  energy_fn,
+  shift,
+  dt=dt,
+  pressure=P_init,
+  kT=T_init,
   barostat_kwargs=default_nhc_kwargs(1000 * dt, new_kwargs),
-  thermostat_kwargs=default_nhc_kwargs(100 * dt, new_kwargs)
+  thermostat_kwargs=default_nhc_kwargs(100 * dt, new_kwargs),
 )
 apply_fn = jit(apply_fn)
 state = init_fn(key, positions, box=box, neighbor=nbrs, kT=T_init, mass=Mass)
@@ -174,6 +219,7 @@ state = dataclasses.replace(state, momentum=Mass * velocity * unit['velocity'])
 # %% [markdown]
 # ## Heating Schedule
 
+
 # %%
 # 10K/ps heating
 @jit
@@ -182,7 +228,9 @@ def T_schedule(T_init, T_final, Nsteps, i):
   kT = ((TF - TI) / (Nsteps)) * (i) + TI
   return kT
 
+
 T_schedule = jit(partial(T_schedule, T_init, T_final, NSTEPS_SIM))
+
 
 # %%
 @jit
@@ -190,10 +238,13 @@ def step_fn(i, state_nbrs_box_j):
   state, nbrs, box, j = state_nbrs_box_j
   # Take a simulation step.
   t = i * dt
-  state = apply_fn(state, neighbor=nbrs, kT=T_schedule(j * write_every + i), pressure=P_init)
+  state = apply_fn(
+    state, neighbor=nbrs, kT=T_schedule(j * write_every + i), pressure=P_init
+  )
   box = simulate.npt_box(state)
   nbrs = nbrs.update(state.position, neighbor=nbrs, box=box)
   return state, nbrs, box, j
+
 
 @jit
 def outer_sim_fn(j, state_nbrs_log_box):
@@ -218,12 +269,17 @@ def outer_sim_fn(j, state_nbrs_log_box):
   def inner_sim_fn(i, state_nbrs_box):
     return step_fn(i, state_nbrs_box)
 
-  state, nbrs, box, j = lax.fori_loop(0, write_every, inner_sim_fn, (state, nbrs, box, j))
+  state, nbrs, box, j = lax.fori_loop(
+    0, write_every, inner_sim_fn, (state, nbrs, box, j)
+  )
 
   return state, nbrs, log, box
 
+
 # %%
-state_r, nbrs_r, log_r, box_r = lax.fori_loop(0, int(NSTEPS_SIM / write_every), outer_sim_fn, (state, nbrs, log, box))
+state_r, nbrs_r, log_r, box_r = lax.fori_loop(
+  0, int(NSTEPS_SIM / write_every), outer_sim_fn, (state, nbrs, log, box)
+)
 
 # %%
 # Check if neighbors overflowed
@@ -248,32 +304,32 @@ ax1 = plt.subplot(2, 2, 1)
 ax1.plot(t_l[:NSTEPS], T[:NSTEPS], lw=1, label='LAMMPS')
 ax1.plot(t, log_r['kT'] / unit['temperature'], lw=1, label='JAX MD')
 ax1.set_title('Temperature', fontsize=16)
-ax1.set_ylabel("$T\\ (K)$", fontsize=16)
-ax1.set_xlabel("$t\\ (ps)$", fontsize=16)
+ax1.set_ylabel('$T\\ (K)$', fontsize=16)
+ax1.set_xlabel('$t\\ (ps)$', fontsize=16)
 ax1.legend()
 
 ax2 = plt.subplot(2, 2, 2)
 ax2.plot(t_l[:NSTEPS], P[:NSTEPS] / 10000, lw=1, label='LAMMPS')
 ax2.plot(t, (log_r['P'] / unit['pressure']) / 10000, lw=1, label='JAX MD')
 ax2.set_title('Pressure', fontsize=16)
-ax2.set_ylabel("$P\\ (GPa)$", fontsize=16)
-ax2.set_xlabel("$t\\ (ps)$", fontsize=16)
+ax2.set_ylabel('$P\\ (GPa)$', fontsize=16)
+ax2.set_xlabel('$t\\ (ps)$', fontsize=16)
 ax2.legend()
 
 ax3 = plt.subplot(2, 2, 3)
 ax3.plot(t_l[:NSTEPS], E[:NSTEPS], lw=1, label='LAMMPS')
 ax3.plot(t, log_r['E'], lw=1, label='JAX MD')
 ax3.set_title('Potential Energy', fontsize=16)
-ax3.set_ylabel("$E_{PE}\\ (eV)$", fontsize=16)
-ax3.set_xlabel("$t\\ (ps)$", fontsize=16)
+ax3.set_ylabel('$E_{PE}\\ (eV)$', fontsize=16)
+ax3.set_xlabel('$t\\ (ps)$', fontsize=16)
 ax3.legend()
 
 ax4 = plt.subplot(2, 2, 4)
 ax4.plot(t_l[:NSTEPS], V[:NSTEPS], lw=1, label='LAMMPS')
 ax4.plot(t, log_r['V'], lw=1, label='JAX MD')
 ax4.set_title('Volume', fontsize=16)
-ax4.set_ylabel("$V\\  (\\AA^3)$", fontsize=16)
-ax4.set_xlabel("$t\\ (ps)$", fontsize=16)
+ax4.set_ylabel('$V\\  (\\AA^3)$', fontsize=16)
+ax4.set_xlabel('$t\\ (ps)$', fontsize=16)
 ax4.legend()
 
 fig.tight_layout()
@@ -291,32 +347,37 @@ ax1 = plt.subplot(2, 2, 1)
 ax1.plot(t_l[:NSTEPS], T[:NSTEPS], lw=1, label='LAMMPS')
 ax1.plot(t, log_r['kT'] / unit['temperature'], lw=1, label='JAX MD')
 ax1.set_title('Temperature', fontsize=16)
-ax1.set_ylabel("$T\\ (K)$", fontsize=16)
-ax1.set_xlabel("$t\\ (ps)$", fontsize=16)
+ax1.set_ylabel('$T\\ (K)$', fontsize=16)
+ax1.set_xlabel('$t\\ (ps)$', fontsize=16)
 ax1.legend()
 
 ax2 = plt.subplot(2, 2, 2)
 ax2.plot(T[:NSTEPS], P[:NSTEPS] / 10000, lw=1, label='LAMMPS')
-ax2.plot(log_r['kT'] / unit['temperature'], (log_r['P'] / unit['pressure']) / 10000, lw=1, label='JAX MD')
+ax2.plot(
+  log_r['kT'] / unit['temperature'],
+  (log_r['P'] / unit['pressure']) / 10000,
+  lw=1,
+  label='JAX MD',
+)
 ax2.set_title('Pressure', fontsize=16)
-ax2.set_ylabel("$P\\ (GPa)$", fontsize=16)
-ax2.set_xlabel("$T\\ (K)$", fontsize=16)
+ax2.set_ylabel('$P\\ (GPa)$', fontsize=16)
+ax2.set_xlabel('$T\\ (K)$', fontsize=16)
 ax2.legend()
 
 ax3 = plt.subplot(2, 2, 3)
 ax3.plot(T[:NSTEPS], E[:NSTEPS], lw=1, label='LAMMPS')
 ax3.plot(log_r['kT'] / unit['temperature'], log_r['E'], lw=1, label='JAX MD')
 ax3.set_title('Potential Energy', fontsize=16)
-ax3.set_ylabel("$E_{PE}\\ (eV)$", fontsize=16)
-ax3.set_xlabel("$T\\ (K)$", fontsize=16)
+ax3.set_ylabel('$E_{PE}\\ (eV)$', fontsize=16)
+ax3.set_xlabel('$T\\ (K)$', fontsize=16)
 ax3.legend()
 
 ax4 = plt.subplot(2, 2, 4)
 ax4.plot(T[:NSTEPS], V[:NSTEPS], lw=1, label='LAMMPS')
 ax4.plot(log_r['kT'] / unit['temperature'], log_r['V'], lw=1, label='JAX MD')
 ax4.set_title('Volume', fontsize=16)
-ax4.set_ylabel("$V\\  (\\AA^3)$", fontsize=16)
-ax4.set_xlabel("$T\\ (K)$", fontsize=16)
+ax4.set_ylabel('$V\\  (\\AA^3)$', fontsize=16)
+ax4.set_xlabel('$T\\ (K)$', fontsize=16)
 ax4.legend()
 
 fig.tight_layout()
@@ -340,11 +401,15 @@ neighbor_fn_rdf, g_fn = quantity.pair_correlation_neighbor_list(
 
 # %%
 # Calculate initial RDF (crystalline state)
-nbrs_rdf_init = neighbor_fn_rdf.allocate(positions, box=latvec, extra_capacity=2)
+nbrs_rdf_init = neighbor_fn_rdf.allocate(
+  positions, box=latvec, extra_capacity=2
+)
 g_r_init = g_fn(positions, neighbor=nbrs_rdf_init)
 
 # Calculate final RDF (molten state)
-nbrs_rdf_final = neighbor_fn_rdf.allocate(state_r.position, box=box_r, extra_capacity=2)
+nbrs_rdf_final = neighbor_fn_rdf.allocate(
+  state_r.position, box=box_r, extra_capacity=2
+)
 g_r_final = g_fn(state_r.position, neighbor=nbrs_rdf_final)
 
 # %% [markdown]
@@ -352,8 +417,18 @@ g_r_final = g_fn(state_r.position, neighbor=nbrs_rdf_final)
 
 # %%
 plt.figure(figsize=(10, 6))
-plt.plot(radii, jnp.mean(g_r_init, axis=0), lw=2, label=f'Initial (T = {T_init / unit["temperature"]:.0f} K)')
-plt.plot(radii, jnp.mean(g_r_final, axis=0), lw=2, label=f'Final (T = {log_r["kT"][-1] / unit["temperature"]:.0f} K)')
+plt.plot(
+  radii,
+  jnp.mean(g_r_init, axis=0),
+  lw=2,
+  label=f'Initial (T = {T_init / unit["temperature"]:.0f} K)',
+)
+plt.plot(
+  radii,
+  jnp.mean(g_r_final, axis=0),
+  lw=2,
+  label=f'Final (T = {log_r["kT"][-1] / unit["temperature"]:.0f} K)',
+)
 plt.xlabel(r'$r\ (\AA)$', fontsize=14)
 plt.ylabel('g(r)', fontsize=14)
 plt.title('Radial Distribution Function', fontsize=16)
@@ -362,4 +437,3 @@ plt.grid(True, alpha=0.3)
 plt.ylim(0, None)
 plt.tight_layout()
 plt.show()
-

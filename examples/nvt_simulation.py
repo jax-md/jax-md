@@ -32,7 +32,17 @@ import os
 IN_COLAB = 'COLAB_RELEASE_TAG' in os.environ
 if IN_COLAB:
   import subprocess, sys
-  subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'git+https://github.com/jax-md/jax-md.git'])
+
+  subprocess.run(
+    [
+      sys.executable,
+      '-m',
+      'pip',
+      'install',
+      '-q',
+      'git+https://github.com/jax-md/jax-md.git',
+    ]
+  )
 
 import numpy as onp
 
@@ -216,7 +226,9 @@ if IN_COLAB:
 
   diameters = sigma[species, species]
   colors = np.where(
-    species[:, None], np.array([[1.0, 0.5, 0.01]]), np.array([[0.35, 0.65, 0.85]])
+    species[:, None],
+    np.array([[1.0, 0.5, 0.01]]),
+    np.array([[0.35, 0.65, 0.85]]),
   )
 
   renderer.render(
@@ -261,7 +273,9 @@ neighbor_fn, energy_fn = energy.soft_sphere_neighbor_list(
   displacement, box_size, species=species, sigma=sigma
 )
 
-init, apply = simulate.nvt_nose_hoover(energy_fn, shift, dt, kT(0.0), tau=200 * dt)
+init, apply = simulate.nvt_nose_hoover(
+  energy_fn, shift, dt, kT(0.0), tau=200 * dt
+)
 
 nbrs = neighbor_fn.allocate(R)
 state = init(key, R, neighbor=nbrs)

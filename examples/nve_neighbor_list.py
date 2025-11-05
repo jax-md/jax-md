@@ -29,7 +29,17 @@ import os
 IN_COLAB = 'COLAB_RELEASE_TAG' in os.environ
 if IN_COLAB:
   import subprocess, sys
-  subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'git+https://github.com/jax-md/jax-md.git'])
+
+  subprocess.run(
+    [
+      sys.executable,
+      '-m',
+      'pip',
+      'install',
+      '-q',
+      'git+https://github.com/jax-md/jax-md.git',
+    ]
+  )
 
 import numpy as onp
 
@@ -57,6 +67,7 @@ import seaborn as sns
 sns.set_style(style='white')
 
 SMOKE_TEST = os.environ.get('READTHEDOCS', False)
+
 
 def format_plot(x, y):
   plt.xlabel(x, fontsize=20)
