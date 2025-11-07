@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "jax-md"
-version = "0.2.26"
+version = "0.2.27"
 description = "Differentiable, Hardware Accelerated, Molecular Dynamics"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -63,6 +63,8 @@ docs = [
     "ipykernel",
     "matplotlib",
     "seaborn",
+    "ase",
+    "tqdm",
 ]
 
 [project.urls]
