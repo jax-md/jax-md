@@ -52,9 +52,6 @@ changelog:
     - title: 🧪 Tests
       labels:
         - tests
-    - title: 🔒 Security Fixes
-      labels:
-        - security
     - title: 🏥 Package Health
       labels:
         - pkg
@@ -64,9 +61,6 @@ changelog:
     - title: 🏷️ Type Hints
       labels:
         - types
-    - title: 🧹 Linting
-      labels:
-        - lint
     - title: 🤷‍♂️ Other Changes
       labels:
         - '*'
