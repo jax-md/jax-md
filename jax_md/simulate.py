@@ -39,7 +39,7 @@ from typing import Any, Callable, TypeVar, Union, Tuple, Dict, Optional
 
 import functools
 
-from jax import grad
+from jax import grad, value_and_grad
 from jax import jit
 from jax import random
 import jax.numpy as jnp
@@ -851,20 +851,36 @@ def npt_nose_hoover(
     box_mass = jnp.array(dim * (N + 1) * kT * state.barostat.tau**2, dtype)
     return state.set(box_mass=box_mass)
 
+  def stress_fn(position, box, **kwargs) -> Tuple[Array, Array]:
+    def U(eps):
+      return energy_fn(position, box=box, perturbation=(1 + eps), **kwargs)
+
+    E, dUdV = value_and_grad(U)(0.0)
+    return E, dUdV
+
+  def force_stress_fn(position, box, **kwargs) -> Tuple[Array, Array, Array]:
+    def U(position, eps):
+      return energy_fn(position, box=box, perturbation=(1 + eps), **kwargs)
+
+    E, grad = value_and_grad(U, argnums=(0, 1))(position, 0.0)
+    F = -grad[0]
+    dUdV = grad[1]
+    return E, F, dUdV
+
   def box_force(
-    alpha, vol, box_fn, position, momentum, mass, force, pressure, **kwargs
-  ):
+    alpha,
+    vol,
+    dUdV,
+    position,
+    momentum,
+    mass,
+    pressure,
+  ) -> Array:
     N, dim = position.shape
 
-    def U(eps):
-      return energy_fn(
-        position, box=box_fn(vol), perturbation=(1 + eps), **kwargs
-      )
-
-    dUdV = grad(U)
     KE2 = util.high_precision_sum(momentum**2 / mass)
 
-    return alpha * KE2 - dUdV(0.0) - pressure * vol * dim
+    return alpha * KE2 - dUdV - pressure * vol * dim
 
   def sinhx_x(x):
     """Taylor series for sinh(x) / x as x -> 0."""
@@ -902,7 +918,8 @@ def npt_nose_hoover(
     vol, box_fn = _npt_box_info(state)
 
     alpha = 1 + 1 / N
-    G_e = box_force(alpha, vol, box_fn, R, P, M, F, _pressure, **kwargs)
+    E, dUdV = stress_fn(R, box_fn(vol), **kwargs)
+    G_e = box_force(alpha, vol, dUdV, R, P, M, _pressure)
     P_b = P_b + dt_2 * G_e
     P = exp_iL2(alpha, P, F, P_b / M_b)
 
@@ -913,10 +930,9 @@ def npt_nose_hoover(
 
     box = box_fn(vol)
     R = exp_iL1(box, R, P / M, P_b / M_b)
-    F = force_fn(R, box=box, **kwargs)
-
+    E, F, dUdV = force_stress_fn(R, box, **kwargs)
     P = exp_iL2(alpha, P, F, P_b / M_b)
-    G_e = box_force(alpha, vol, box_fn, R, P, M, F, _pressure, **kwargs)
+    G_e = box_force(alpha, vol, dUdV, R, P, M, _pressure)
     P_b = P_b + dt_2 * G_e
 
     return state.set(
