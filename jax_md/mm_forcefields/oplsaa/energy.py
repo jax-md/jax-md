@@ -11,7 +11,7 @@ from jax_md.mm_forcefields.base import NonbondedOptions, Topology
 from jax_md.mm_forcefields.nonbonded.electrostatics import CoulombHandler
 from jax_md.mm_forcefields.oplsaa.params import Parameters
 from jax_md.partition import NeighborList, NeighborListFns
-from jax_md.util import Array
+from jax_md.util import Array, safe_norm, safe_arccos, normalize
 
 
 def energy(
@@ -78,7 +78,7 @@ def energy(
 
     i, j = topology.bonds[:, 0], topology.bonds[:, 1]
     disp = vmap(displacement_fn)(positions[i], positions[j])
-    r = neighbor.safe_norm(disp)
+    r = safe_norm(disp)
     return jnp.sum(bonded.bond_k * (r - bonded.bond_r0) ** 2)
 
   def angle_energy(positions: Array) -> Array:
@@ -95,10 +95,10 @@ def energy(
     rkj = vmap(displacement_fn)(positions[k], positions[j])
 
     # Compute angle
-    rij_norm = neighbor.normalize(rij)
-    rkj_norm = neighbor.normalize(rkj)
+    rij_norm = normalize(rij)
+    rkj_norm = normalize(rkj)
     cos_theta = jnp.sum(rij_norm * rkj_norm, axis=-1)
-    theta = neighbor.safe_arccos(cos_theta)
+    theta = safe_arccos(cos_theta)
 
     return jnp.sum(bonded.angle_k * (theta - bonded.angle_theta0) ** 2)
 
@@ -118,11 +118,11 @@ def energy(
       n1 = jnp.cross(b0, b1)
       n2 = jnp.cross(b1, b2)
 
-      n1 = neighbor.normalize(n1)
-      n2 = neighbor.normalize(n2)
+      n1 = normalize(n1)
+      n2 = normalize(n2)
 
       cos_phi = jnp.sum(n1 * n2)
-      phi = neighbor.safe_arccos(cos_phi)
+      phi = safe_arccos(cos_phi)
 
       return phi
 
@@ -151,7 +151,7 @@ def energy(
       b1 = displacement_fn(p2, p1)
       b2 = displacement_fn(p3, p2)
 
-      b1_norm = neighbor.normalize(b1)
+      b1_norm = normalize(b1)
 
       v = b0 - jnp.sum(b0 * b1_norm, axis=-1, keepdims=True) * b1_norm
       w = b2 - jnp.sum(b2 * b1_norm, axis=-1, keepdims=True) * b1_norm
