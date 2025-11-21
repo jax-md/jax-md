@@ -60,23 +60,42 @@ class OPLSAAEnergyTest(absltest.TestCase):
     self.assertGreater(self.topology.n_atoms, 0)
 
   def test_energy_computation(self):
-    """Test that energy can be computed."""
+    """Test that energy can be computed and print the terms."""
     E = self.energy_fn(self.positions, self.nlist)
 
     self.assertIsInstance(E, dict)
     expected_keys = [
-      'bond',
-      'angle',
-      'torsion',
-      'improper',
-      'lj',
-      'coulomb',
-      'total',
+        'bond',
+        'angle',
+        'torsion',
+        'improper',
+        'lj',
+        'coulomb',
+        'total',
     ]
     for key in expected_keys:
-      self.assertIn(key, E)
-      self.assertIsInstance(E[key], jnp.ndarray)
-      self.assertEqual(E[key].shape, ())
+        self.assertIn(key, E)
+        self.assertIsInstance(E[key], jnp.ndarray)
+        self.assertEqual(E[key].shape, ())
+
+    # Extract energies
+    E_bond = float(E['bond'])
+    E_angle = float(E['angle'])
+    E_torsion = float(E['torsion'])
+    E_improper = float(E['improper'])
+    E_lj  = float(E['lj'])
+    E_coul = float(E['coulomb'])
+    E_total = float(E['total'])
+
+    # Print energy terms
+    print("\nEnergy terms:")
+    print(f"Bond            : {E_bond:.6f} kcal/mol")
+    print(f"Angle           : {E_angle:.6f} kcal/mol")
+    print(f"Torsion         : {E_torsion:.6f} kcal/mol")
+    print(f"Improper        : {E_improper:.6f} kcal/mol")
+    print(f"vdwl            : {E_lj:.6f} kcal/mol")
+    print(f"Coulomb total   : {E_coul:.6f} kcal/mol")
+    print(f"Total potential : {E_total:.6f} kcal/mol")
 
   def test_force_computation(self):
     """Test that forces can be computed."""
