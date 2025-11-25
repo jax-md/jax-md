@@ -33,7 +33,7 @@ class OPLSAAEnergyTest(absltest.TestCase):
     )
     box_size = coords_range + 20.0
     self.box = jnp.array([box_size[0], box_size[1], box_size[2]])
-
+    print(self.box)
     nb_options = NonbondedOptions(
       r_cut=12.0,
       dr_threshold=0.5,
