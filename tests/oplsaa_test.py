@@ -11,11 +11,12 @@ from jax_md.mm_forcefields import oplsaa
 from jax_md.mm_forcefields.nonbonded.electrostatics import PMECoulomb
 from jax_md.mm_forcefields.base import NonbondedOptions
 from jax_md import quantity
+from jax_md import test_util as jtu
 
 jax.config.parse_flags_with_absl()
 
 
-class OPLSAAEnergyTest(absltest.TestCase):
+class OPLSAAEnergyTest(jtu.JAXMDTestCase):
   """Tests for OPLSAA energy computation."""
 
   def setUp(self):
@@ -33,7 +34,6 @@ class OPLSAAEnergyTest(absltest.TestCase):
     )
     box_size = coords_range + 20.0
     self.box = jnp.array([box_size[0], box_size[1], box_size[2]])
-    print(self.box)
     nb_options = NonbondedOptions(
       r_cut=12.0,
       dr_threshold=0.5,
@@ -87,6 +87,27 @@ class OPLSAAEnergyTest(absltest.TestCase):
     E_coul = float(E['coulomb'])
     E_total = float(E['total'])
 
+    
+    E_jax = {
+      "Bond": E_bond,
+      "Angle": E_angle,
+      "Torsion": E_torsion,
+      "Improper": E_improper,
+      "vdwl": E_lj,
+      "Coulomb": E_coul,
+      "Total": E_total
+     }   
+
+    E_lammps = {
+      "Bond": 1.4015458,
+      "Angle": 0.21927227,
+      "Torsion": 0.0,
+      "Improper": 3.1140185e-05,
+      "vdwl":  11.911979,
+      "Coulomb": -1.0519856,
+      "Total": 12.480843
+     }
+
     # Print energy terms
     print("\nEnergy terms:")
     print(f"Bond            : {E_bond:.6f} kcal/mol")
@@ -96,7 +117,12 @@ class OPLSAAEnergyTest(absltest.TestCase):
     print(f"vdwl            : {E_lj:.6f} kcal/mol")
     print(f"Coulomb total   : {E_coul:.6f} kcal/mol")
     print(f"Total potential : {E_total:.6f} kcal/mol")
-
+    
+    for key in E_jax:
+        self.assertAllClose(E_jax[key], E_lammps[key], rtol=1e-1, atol=1e-1)
+        diff = E_jax[key] - E_lammps[key]
+        print(f"{key}: JAX-MD = {E_jax[key]:.6f}, LAMMPS = {E_lammps[key]:.6f}, diff = {diff:.6e}")
+  
   def test_force_computation(self):
     """Test that forces can be computed."""
 
