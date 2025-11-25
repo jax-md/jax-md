@@ -8,7 +8,7 @@ from jax import jit, grad
 import jax.numpy as jnp
 
 from jax_md.mm_forcefields import oplsaa
-from jax_md.mm_forcefields.nonbonded.electrostatics import PMECoulomb
+from jax_md.mm_forcefields.nonbonded.electrostatics import PMECoulomb, CutoffCoulomb
 from jax_md.mm_forcefields.base import NonbondedOptions
 from jax_md import quantity
 from jax_md import test_util as jtu
@@ -158,6 +158,38 @@ class OPLSAAEnergyTest(jtu.JAXMDTestCase):
 
     self.assertEqual(gradients.shape, self.positions.shape)
     self.assertTrue(jnp.all(jnp.isfinite(gradients)))
+
+  def test_stress_computation(self):
+    """Test stress computation via autodiff w.r.t. the box."""
+
+    def energy_wrt_box(box):
+        # Create a temporary wrapper around energy_fn that replaces self.box
+        # but keeps positions and neighbor list fixed
+        # Assumes energy_fn is differentiable w.r.t. box
+        # Note: energy_fn expects only (positions, nlist)
+        energy = oplsaa.energy(
+            self.topology,
+            self.parameters,
+            box,  # pass box as variable
+            CutoffCoulomb(alpha=0.3, r_cut=12.0),
+            NonbondedOptions(
+                r_cut=12.0,
+                dr_threshold=0.5,
+                scale_14_lj=0.5,
+                scale_14_coul=0.5,
+                use_soft_lj=False,
+                use_shift_lj=False,
+            ),
+        )[0](self.positions, self.nlist)
+        return energy['total']
+
+    # Compute stress = - dE/d(box) using autodiff
+    stress = -jax.grad(energy_wrt_box)(self.box)
+
+    # Check that values are finite
+    self.assertTrue(jnp.all(jnp.isfinite(stress)))
+    # Check shape (per-axis stress)
+    self.assertEqual(stress.shape, (3,))
 
 
 if __name__ == '__main__':
