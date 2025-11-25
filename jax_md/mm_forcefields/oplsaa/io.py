@@ -233,8 +233,8 @@ def load_charmm_system(
       nb_param = nonbonded_params[atom_type]
       epsilon = epsilon.at[i].set(nb_param.epsilon)
       # Convert Rmin/2 to sigma
-      sigma = sigma.at[i].set(nb_param.rmin_half * (jnp.power(2.0, 1.0 / 6.0)))
-
+      #sigma = sigma.at[i].set(nb_param.rmin_half * (jnp.power(2.0, 1.0 / 6.0)))
+      sigma = sigma.at[i].set(2.0 * nb_param.rmin_half / (2.0 ** (1.0 / 6.0)))
   # Create parameters
   parameters = create_parameters(
     bond_k=jnp.array(bond_k),
