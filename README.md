@@ -20,11 +20,6 @@ For a video introducing JAX MD along with a [demo](https://colab.research.google
 To get started playing around with JAX MD check out the following colab notebooks on Google Cloud without needing to install anything. For a very simple introduction, I would recommend the Minimization example. For an example of a bunch of the features of JAX MD, check out the JAX MD cookbook.
 
 - [JAX MD Cookbook](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/jax_md_cookbook.ipynb)
-- [Minimization](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/minimization.ipynb)
-- [NVE Simulation](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/nve_simulation.ipynb)
-- [NVT Simulation](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/nvt_simulation.ipynb)
-- [NPT Simulation](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/npt_simulation.ipynb)
-- [NVE with Neighbor Lists](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/nve_neighbor_list.ipynb)
 - [Custom Potentials](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/customizing_potentials_cookbook.ipynb)
 - [Neural Network Potentials](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/neural_networks.ipynb)
 - [Flocking](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/flocking.ipynb)
@@ -34,28 +29,25 @@ To get started playing around with JAX MD check out the following colab notebook
 - [Athermal Linear Elasticity](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/athermal_linear_elasticity.ipynb)
 - [Smash a Sand Castle](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/sand_castle.ipynb)
 
-[//]: # (TODO: uncomment the following once the JAX MD package is bumped on PyPI)
+JAX MD also comes with self contained python scripts which you run locally if you have JAX MD installed:
 
-[//]: # (You can install JAX MD locally with pip,)
+- [Fire minimization](examples/fire_minimization.py)
+- [NVE Simulation](examples/nve_simulation.py)
+- [NVT Simulation](examples/nvt_simulation.py)
+- [NPT Simulation](examples/npt_simulation.py)
+- [NVE with Neighbor Lists](examples/nve_neighbor_list.py)
 
-[//]: # (```)
+You can install JAX MD locally with pip,
 
-[//]: # (pip install jax-md --upgrade)
-
-[//]: # (```)
-
-[//]: # (If you want to build the latest version then you can grab the most recent version from head,)
-
-[//]: # (```)
-
-[//]: # (git clone https://github.com/jax-md/jax-md)
-
-[//]: # (pip install -e jax-md)
-
-[//]: # (```)
-JAX-MD can be installed locally with the following command:
 ```
-pip install https://github.com/jax-md/jax-md/archive/main.zip
+pip install jax-md --upgrade
+```
+
+If you want to build the latest version then you can grab the most recent version from head,
+
+```
+git clone https://github.com/jax-md/jax-md
+pip install -e jax-md
 ```
 
 # Overview
@@ -252,4 +244,3 @@ If you use functionalities related to `RigidBody`, please cite the following pap
   publisher={National Academy of Sciences}
 }
 ```
-

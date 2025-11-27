@@ -51,8 +51,8 @@ def calculate_reaxff_energy(
   tapered_reaxff: bool = False,
   solver_model: str = 'EEM',
 ):
-  """
-  Calculate full ReaxFF potential
+  """Calculate full ReaxFF potential.
+
   Args:
     species: An ndarray of shape `[n, ]` for the atom types.
     atomic_numbers:  An ndarray of shape `[n, ]` for the atomic numbers
@@ -331,12 +331,13 @@ def calculate_eem_charges(
   tol: float = 1e-06,
   max_solver_iter: int = 500,
 ):
-  """
-  EEM charge solver
-  If max_solver_iter is set to -1, use direct solve
+  """EEM charge solver.
+
+  If max_solver_iter is set to -1, use direct solve.
+
   Returns:
-    an array of shape [n+1,] where first n entries are the charges and
-    last entry is the electronegativity equalization value
+    An array of shape [n+1,] where first n entries are the charges and
+    last entry is the electronegativity equalization value.
   """
 
   if backprop_solve == False:

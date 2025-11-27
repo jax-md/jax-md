@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "jax-md"
-version = "0.2.26"
+version = "0.2.27"
 description = "Differentiable, Hardware Accelerated, Molecular Dynamics"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -49,6 +49,24 @@ dependencies = [
     "frozendict",
     "pymatgen",
 ]
+
+[dependency-groups]
+docs = [
+    "sphinx>=7.2.0",
+    "sphinx-rtd-theme",
+    "sphinx-book-theme",
+    "sphinx-remove-toctrees",
+    "nbsphinx",
+    "sphinx-autodoc-typehints>=1.24.0",
+    "sphinx-copybutton>=0.5.0",
+    "jupytext",
+    "ipykernel",
+    "matplotlib",
+    "seaborn",
+    "ase",
+    "tqdm",
+]
+
 [project.urls]
 Homepage = "https://github.com/google/jax-md"
 Documentation = "https://arxiv.org/abs/1912.04232"

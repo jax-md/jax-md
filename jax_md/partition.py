@@ -70,9 +70,11 @@ class CellList:
   """Stores the spatial partition of a system into a cell list.
 
   See :meth:`cell_list` for details on the construction / specification.
-  Cell list buffers all have a common shape, S, where
-    * `S = [cell_count_x, cell_count_y, cell_capacity]`
-    * `S = [cell_count_x, cell_count_y, cell_count_z, cell_capacity]`
+  Cell list buffers all have a common shape, S, where:
+
+  * `S = [cell_count_x, cell_count_y, cell_capacity]`
+  * `S = [cell_count_x, cell_count_y, cell_count_z, cell_capacity]`
+
   in two- and three-dimensions respectively. It is assumed that each cell has
   the same capacity.
 
@@ -819,7 +821,7 @@ def neighbor_list(
     box: Either a float specifying the size of the box, an array of
       shape `[spatial_dim]` specifying the box size for a cubic box in each
       spatial dimension, or a matrix of shape `[spatial_dim, spatial_dim]` that
-      is _upper triangular_ and specifies the lattice vectors of the box.
+      is upper triangular and specifies the lattice vectors of the box.
     r_cutoff: A scalar specifying the neighborhood radius.
     dr_threshold: A scalar specifying the maximum distance particles can move
       before rebuilding the neighbor list.
