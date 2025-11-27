@@ -6,7 +6,7 @@ Author: Mehmet Cagri Kaymak
 
 from functools import partial
 from jax_md import space, partition, util
-from jax_md.reaxff.reaxff_energy import calculate_bo, calculate_reaxff_energy
+from jax_md.mm_forcefields.reaxff.reaxff_energy import calculate_bo, calculate_reaxff_energy
 from typing import Callable, Any, Tuple
 import jax
 import jax.numpy as jnp
