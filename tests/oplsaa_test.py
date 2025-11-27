@@ -8,7 +8,10 @@ from jax import jit, grad
 import jax.numpy as jnp
 
 from jax_md.mm_forcefields import oplsaa
-from jax_md.mm_forcefields.nonbonded.electrostatics import PMECoulomb, CutoffCoulomb
+from jax_md.mm_forcefields.nonbonded.electrostatics import (
+  PMECoulomb,
+  CutoffCoulomb,
+)
 from jax_md.mm_forcefields.base import NonbondedOptions
 from jax_md import quantity
 from jax_md import test_util as jtu
@@ -65,64 +68,65 @@ class OPLSAAEnergyTest(jtu.JAXMDTestCase):
 
     self.assertIsInstance(E, dict)
     expected_keys = [
-        'bond',
-        'angle',
-        'torsion',
-        'improper',
-        'lj',
-        'coulomb',
-        'total',
+      'bond',
+      'angle',
+      'torsion',
+      'improper',
+      'lj',
+      'coulomb',
+      'total',
     ]
     for key in expected_keys:
-        self.assertIn(key, E)
-        self.assertIsInstance(E[key], jnp.ndarray)
-        self.assertEqual(E[key].shape, ())
+      self.assertIn(key, E)
+      self.assertIsInstance(E[key], jnp.ndarray)
+      self.assertEqual(E[key].shape, ())
 
     # Extract energies
     E_bond = float(E['bond'])
     E_angle = float(E['angle'])
     E_torsion = float(E['torsion'])
     E_improper = float(E['improper'])
-    E_lj  = float(E['lj'])
+    E_lj = float(E['lj'])
     E_coul = float(E['coulomb'])
     E_total = float(E['total'])
 
-    
     E_jax = {
-      "Bond": E_bond,
-      "Angle": E_angle,
-      "Torsion": E_torsion,
-      "Improper": E_improper,
-      "vdwl": E_lj,
-      "Coulomb": E_coul,
-      "Total": E_total
-     }   
+      'Bond': E_bond,
+      'Angle': E_angle,
+      'Torsion': E_torsion,
+      'Improper': E_improper,
+      'vdwl': E_lj,
+      'Coulomb': E_coul,
+      'Total': E_total,
+    }
 
     E_lammps = {
-      "Bond": 1.4015458,
-      "Angle": 0.21927227,
-      "Torsion": 0.0,
-      "Improper": 3.1140185e-05,
-      "vdwl":  11.911979,
-      "Coulomb": -1.0519856,
-      "Total": 12.480843
-     }
+      'Bond': 1.4015458,
+      'Angle': 0.21927227,
+      'Torsion': 0.0,
+      'Improper': 3.1140185e-05,
+      'vdwl': 11.911979,
+      'Coulomb': -1.0519856,
+      'Total': 12.480843,
+    }
 
     # Print energy terms
-    print("\nEnergy terms:")
-    print(f"Bond            : {E_bond:.6f} kcal/mol")
-    print(f"Angle           : {E_angle:.6f} kcal/mol")
-    print(f"Torsion         : {E_torsion:.6f} kcal/mol")
-    print(f"Improper        : {E_improper:.6f} kcal/mol")
-    print(f"vdwl            : {E_lj:.6f} kcal/mol")
-    print(f"Coulomb total   : {E_coul:.6f} kcal/mol")
-    print(f"Total potential : {E_total:.6f} kcal/mol")
-    
+    print('\nEnergy terms:')
+    print(f'Bond            : {E_bond:.6f} kcal/mol')
+    print(f'Angle           : {E_angle:.6f} kcal/mol')
+    print(f'Torsion         : {E_torsion:.6f} kcal/mol')
+    print(f'Improper        : {E_improper:.6f} kcal/mol')
+    print(f'vdwl            : {E_lj:.6f} kcal/mol')
+    print(f'Coulomb total   : {E_coul:.6f} kcal/mol')
+    print(f'Total potential : {E_total:.6f} kcal/mol')
+
     for key in E_jax:
-        self.assertAllClose(E_jax[key], E_lammps[key], rtol=1e-1, atol=1e-1)
-        diff = E_jax[key] - E_lammps[key]
-        print(f"{key}: JAX-MD = {E_jax[key]:.6f}, LAMMPS = {E_lammps[key]:.6f}, diff = {diff:.6e}")
-  
+      self.assertAllClose(E_jax[key], E_lammps[key], rtol=1e-1, atol=1e-1)
+      diff = E_jax[key] - E_lammps[key]
+      print(
+        f'{key}: JAX-MD = {E_jax[key]:.6f}, LAMMPS = {E_lammps[key]:.6f}, diff = {diff:.6e}'
+      )
+
   def test_force_computation(self):
     """Test that forces can be computed."""
 
@@ -163,25 +167,25 @@ class OPLSAAEnergyTest(jtu.JAXMDTestCase):
     """Test stress computation via autodiff w.r.t. the box."""
 
     def energy_wrt_box(box):
-        # Create a temporary wrapper around energy_fn that replaces self.box
-        # but keeps positions and neighbor list fixed
-        # Assumes energy_fn is differentiable w.r.t. box
-        # Note: energy_fn expects only (positions, nlist)
-        energy = oplsaa.energy(
-            self.topology,
-            self.parameters,
-            box,  # pass box as variable
-            CutoffCoulomb(alpha=0.3, r_cut=12.0),
-            NonbondedOptions(
-                r_cut=12.0,
-                dr_threshold=0.5,
-                scale_14_lj=0.5,
-                scale_14_coul=0.5,
-                use_soft_lj=False,
-                use_shift_lj=False,
-            ),
-        )[0](self.positions, self.nlist)
-        return energy['total']
+      # Create a temporary wrapper around energy_fn that replaces self.box
+      # but keeps positions and neighbor list fixed
+      # Assumes energy_fn is differentiable w.r.t. box
+      # Note: energy_fn expects only (positions, nlist)
+      energy = oplsaa.energy(
+        self.topology,
+        self.parameters,
+        box,  # pass box as variable
+        CutoffCoulomb(alpha=0.3, r_cut=12.0),
+        NonbondedOptions(
+          r_cut=12.0,
+          dr_threshold=0.5,
+          scale_14_lj=0.5,
+          scale_14_coul=0.5,
+          use_soft_lj=False,
+          use_shift_lj=False,
+        ),
+      )[0](self.positions, self.nlist)
+      return energy['total']
 
     # Compute stress = - dE/d(box) using autodiff
     stress = -jax.grad(energy_wrt_box)(self.box)
