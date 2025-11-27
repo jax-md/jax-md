@@ -110,18 +110,10 @@ class OPLSAAEnergyTest(jtu.JAXMDTestCase):
       'Total': 12.480843,
     }
 
-    # Print energy terms
-    print('\nEnergy terms:')
-    print(f'Bond            : {E_bond:.6f} kcal/mol')
-    print(f'Angle           : {E_angle:.6f} kcal/mol')
-    print(f'Torsion         : {E_torsion:.6f} kcal/mol')
-    print(f'Improper        : {E_improper:.6f} kcal/mol')
-    print(f'vdwl            : {E_lj:.6f} kcal/mol')
-    print(f'Coulomb total   : {E_coul:.6f} kcal/mol')
-    print(f'Total potential : {E_total:.6f} kcal/mol')
-
+    # NOTE: Higher tolerance for OPLSAA could be related
+    # to the libpargen (https://zarbi.chem.yale.edu/ligpargen/)
     for key in E_jax:
-      self.assertAllClose(E_jax[key], E_lammps[key], rtol=1e-1, atol=1e-1)
+      self.assertAllClose(E_jax[key], E_lammps[key], rtol=5e-2, atol=5e-2)
       diff = E_jax[key] - E_lammps[key]
       print(
         f'{key}: JAX-MD = {E_jax[key]:.6f}, LAMMPS = {E_lammps[key]:.6f}, diff = {diff:.6e}'
