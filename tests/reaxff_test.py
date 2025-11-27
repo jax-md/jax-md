@@ -5,12 +5,14 @@ import numpy as onp
 import jax.numpy as jnp
 from ase.io import read
 from jax_md import space
-from jax_md.reaxff.reaxff_interactions import reaxff_inter_list
-from jax_md.reaxff.reaxff_interactions import calculate_all_angles_and_distances
-from jax_md.reaxff.reaxff_helper import read_force_field
-from jax_md.reaxff.reaxff_forcefield import ForceField
+from jax_md.mm_forcefields.reaxff.reaxff_interactions import reaxff_inter_list
+from jax_md.mm_forcefields.reaxff.reaxff_interactions import (
+  calculate_all_angles_and_distances,
+)
+from jax_md.mm_forcefields.reaxff.reaxff_helper import read_force_field
+from jax_md.mm_forcefields.reaxff.reaxff_forcefield import ForceField
 from absl.testing import parameterized
-import jax_md.reaxff.reaxff_energy as reaxff_energy
+import jax_md.mm_forcefields.reaxff.reaxff_energy as reaxff_energy
 from jax_md.test_util import JAXMDTestCase
 import os
 import json
