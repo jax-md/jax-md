@@ -150,7 +150,7 @@ ignore = [
 known-first-party = ["jax_md"]
 
 [tool.ty]
-src = { include = ["jax_md", "tests"] }
+src = { include = ["jax_md","tests"] }
 
 [tool.ty.environment]
 python-version = "3.11"

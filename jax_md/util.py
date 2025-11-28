@@ -113,3 +113,50 @@ def maybe_downcast(x):
 
 def is_array(x: Any) -> bool:
   return isinstance(x, (jnp.ndarray, onp.ndarray))
+
+
+def safe_norm(
+  x: Array, axis: int = -1, epsilon: float = 1e-6, keepdims: bool = False
+) -> Array:
+  """Compute norm with numerical safety for gradients.
+
+  Args:
+      x: Input array.
+      axis: Axis along which to compute norm.
+      epsilon: Small value to avoid division by zero.
+      keepdims: Whether to keep reduced dimensions.
+
+  Returns:
+      Norm of x with lower bound at epsilon.
+  """
+  norm = jnp.sqrt(jnp.sum(x**2, axis=axis, keepdims=keepdims))
+  return jnp.maximum(norm, epsilon)
+
+
+def safe_arccos(x: Array, epsilon: float = 1e-6) -> Array:
+  """Compute arccos with clipping to avoid domain errors.
+
+  Args:
+      x: Input array (should be in [-1, 1]).
+      epsilon: Safety margin for clipping.
+
+  Returns:
+      arccos(x) with input clipped to valid domain.
+  """
+  x = jnp.clip(x, -1.0 + epsilon, 1.0 - epsilon)
+  return jnp.arccos(x)
+
+
+def normalize(x: Array, axis: int = -1, epsilon: float = 1e-6) -> Array:
+  """Normalize vector with numerical safety.
+
+  Args:
+      x: Input array.
+      axis: Axis along which to normalize.
+      epsilon: Small value to avoid division by zero.
+
+  Returns:
+      Normalized vector.
+  """
+  norm = safe_norm(x, axis=axis, epsilon=epsilon, keepdims=True)
+  return x / norm

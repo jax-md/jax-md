@@ -7,7 +7,7 @@ Author: Mehmet Cagri Kaymak
 import jax
 import jax.numpy as jnp
 import numpy as onp
-from jax_md.reaxff.reaxff_forcefield import ForceField
+from jax_md.mm_forcefields.reaxff.reaxff_forcefield import ForceField
 from dataclasses import fields
 from jax import custom_jvp
 from frozendict import frozendict

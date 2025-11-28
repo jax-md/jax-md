@@ -40,9 +40,9 @@ import matplotlib.pyplot as plt
 from jax_md import space, simulate, quantity
 import matplotlib.pyplot as plt
 from ase.io import read
-from jax_md.reaxff.reaxff_interactions import reaxff_inter_list
-from jax_md.reaxff.reaxff_helper import read_force_field
-from jax_md.reaxff.reaxff_forcefield import ForceField
+from jax_md.mm_forcefields.reaxff.reaxff_interactions import reaxff_inter_list
+from jax_md.mm_forcefields.reaxff.reaxff_helper import read_force_field
+from jax_md.mm_forcefields.reaxff.reaxff_forcefield import ForceField
 from jax_md.quantity import stress
 from tqdm import tqdm
 
