@@ -1,0 +1,156 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "jax-md"
+version = "0.2.27"
+description = "Differentiable, Hardware Accelerated, Molecular Dynamics"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE", "LICENSE_SHORT"]
+authors = [
+    {name = "Google", email = "jax-md-dev@google.com"}
+]
+maintainers = [
+    {name = "Google", email = "jax-md-dev@google.com"}
+]
+keywords = [
+    "molecular-dynamics",
+    "jax",
+    "differentiable",
+    "simulation",
+    "physics",
+]
+classifiers = [
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: Software Development",
+    "Topic :: Scientific/Engineering",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+]
+dependencies = [
+    "absl-py",
+    "numpy",
+    "jax>=0.5.0",
+    "jaxlib>=0.5.0",
+    "flax",
+    "jraph",
+    "einops",
+    "ml_collections",
+    "e3nn-jax",
+    "dm-haiku",
+    "optax",
+    "frozendict",
+    "pymatgen",
+]
+
+[dependency-groups]
+docs = [
+    "sphinx>=7.2.0",
+    "sphinx-rtd-theme",
+    "sphinx-book-theme",
+    "sphinx-remove-toctrees",
+    "nbsphinx",
+    "sphinx-autodoc-typehints>=1.24.0",
+    "sphinx-copybutton>=0.5.0",
+    "jupytext",
+    "ipykernel",
+    "matplotlib",
+    "seaborn",
+    "ase",
+    "tqdm",
+]
+
+[project.urls]
+Homepage = "https://github.com/google/jax-md"
+Documentation = "https://arxiv.org/abs/1912.04232"
+Repository = "https://github.com/google/jax-md"
+"Bug Tracker" = "https://github.com/google/jax-md/issues"
+Download = "https://pypi.org/project/jax-md/"
+
+[tool.hatch.build.targets.wheel]
+packages = ["jax_md"]
+
+[tool.hatch.build.targets.wheel.shared-data]
+"examples/models/*.pickle" = "examples/models"
+"examples/models/*.png" = "examples/models"
+
+[tool.coverage.run]
+source = ["jax_md"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "@abc.abstractmethod",
+    "raise NotImplementedError",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 80
+target-version = "py311"
+exclude = [
+    "notebooks",
+    "examples",
+    "docs",
+]
+indent-width = 2
+
+[tool.ruff.format]
+indent-style = "space"
+quote-style = "single"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "UP032",  # use f-string (handled by formatter)
+    "UP035",
+    "E402",
+    "E721",
+    "E731",
+    "E741",
+    "E711",
+    "E712",
+    "E722",
+    "F821",
+    "F401",
+    "F403",
+    "F405",
+    "F811",
+    "F841",
+    "I001",
+    "UP004",
+    "UP006",
+    "UP007",
+    "UP008",
+    "UP010",
+    "UP015",
+    "UP020",
+    "UP031",
+    "UP034",
+    "UP037",
+    "UP045",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["jax_md"]
+
+[tool.ty]
+src = { include = ["jax_md","tests"] }
+
+[tool.ty.environment]
+python-version = "3.11"

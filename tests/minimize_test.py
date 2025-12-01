@@ -43,32 +43,38 @@ if jax.config.jax_enable_x64:
 else:
   DTYPE = [f32]
 
+
 class DynamicsTest(test_util.JAXMDTestCase):
   # pylint: disable=g-complex-comprehension
-  @parameterized.named_parameters(test_util.cases_from_list(
+  @parameterized.named_parameters(
+    test_util.cases_from_list(
       {
-          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
-          'spatial_dimension': dim,
-          'dtype': dtype
-      } for dim in SPATIAL_DIMENSION for dtype in DTYPE))
+        'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+        'spatial_dimension': dim,
+        'dtype': dtype,
+      }
+      for dim in SPATIAL_DIMENSION
+      for dtype in DTYPE
+    )
+  )
   def test_gradient_descent(self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split, split0 = random.split(key, 3)
-      R = random.uniform(split,
-                         (PARTICLE_COUNT, spatial_dimension),
-                         dtype=dtype)
-      R0 = random.uniform(split0,
-                          (PARTICLE_COUNT, spatial_dimension),
-                          dtype=dtype)
+      R = random.uniform(
+        split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype
+      )
+      R0 = random.uniform(
+        split0, (PARTICLE_COUNT, spatial_dimension), dtype=dtype
+      )
 
       energy = lambda R, **kwargs: np.sum((R - R0) ** 2)
       _, shift_fn = space.free()
 
-      opt_init, opt_apply = minimize.gradient_descent(energy,
-                                                      shift_fn,
-                                                      f32(1e-1))
+      opt_init, opt_apply = minimize.gradient_descent(
+        energy, shift_fn, f32(1e-1)
+      )
 
       E_current = energy(R)
       dr_current = np.sum((R - R0) ** 2)
@@ -84,21 +90,28 @@ class DynamicsTest(test_util.JAXMDTestCase):
         E_current = E_new
         dr_current = dr_new
 
-  @parameterized.named_parameters(test_util.cases_from_list(
+  @parameterized.named_parameters(
+    test_util.cases_from_list(
       {
-          'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
-          'spatial_dimension': dim,
-          'dtype': dtype
-      } for dim in SPATIAL_DIMENSION for dtype in DTYPE))
+        'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
+        'spatial_dimension': dim,
+        'dtype': dtype,
+      }
+      for dim in SPATIAL_DIMENSION
+      for dtype in DTYPE
+    )
+  )
   def test_fire_descent(self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 
     for _ in range(STOCHASTIC_SAMPLES):
       key, split, split0 = random.split(key, 3)
       R = random.uniform(
-        split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+        split, (PARTICLE_COUNT, spatial_dimension), dtype=dtype
+      )
       R0 = random.uniform(
-        split0, (PARTICLE_COUNT, spatial_dimension), dtype=dtype)
+        split0, (PARTICLE_COUNT, spatial_dimension), dtype=dtype
+      )
 
       energy = lambda R, **kwargs: np.sum((R - R0) ** 2)
       _, shift_fn = space.free()
@@ -128,6 +141,7 @@ class DynamicsTest(test_util.JAXMDTestCase):
         assert dr_new.dtype == dtype
         E_current = E_new
         dr_current = dr_new
+
 
 if __name__ == '__main__':
   absltest.main()
