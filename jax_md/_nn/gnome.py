@@ -78,17 +78,20 @@ class ScaleLROnPlateau(NamedTuple):
   reduction_factor: Array
 
 
-def scale_lr_on_plateau(initial_step_size: float,
-                        max_steps_without_reduction: int,
-                        reduction_factor: float
-                        ) -> optax.GradientTransformation:
+def scale_lr_on_plateau(
+  initial_step_size: float,
+  max_steps_without_reduction: int,
+  reduction_factor: float,
+) -> optax.GradientTransformation:
   def init_fn(params):
     del params
-    return ScaleLROnPlateau(initial_step_size,
-                            jnp.inf,
-                            0,
-                            max_steps_without_reduction,
-                            reduction_factor)
+    return ScaleLROnPlateau(
+      initial_step_size,
+      jnp.inf,
+      0,
+      max_steps_without_reduction,
+      reduction_factor,
+    )
 
   def update_fn(updates, state, params=None):
     del params
@@ -117,13 +120,14 @@ def optimizer(cfg: ConfigDict) -> optax.OptState:
     schedule = optax.cosine_decay_schedule(cfg.learning_rate, total_steps)
   elif cfg.schedule == 'warmup_cosine_decay':
     schedule = optax.warmup_cosine_decay_schedule(
-        1e-7, cfg.learning_rate, warmup_steps, total_steps)
+      1e-7, cfg.learning_rate, warmup_steps, total_steps
+    )
   elif cfg.schedule == 'scale_on_plateau':
     max_plateau_steps = cfg.max_lr_plateau_epochs // cfg.epochs_per_eval
     return optax.chain(
-        optax.scale_by_adam(),
-        scale_lr_on_plateau(-cfg.learning_rate, max_plateau_steps, 0.8)
-        )
+      optax.scale_by_adam(),
+      scale_lr_on_plateau(-cfg.learning_rate, max_plateau_steps, 0.8),
+    )
   else:
     raise ValueError(f'Unknown learning rate schedule, "{cfg.schedule}".')
 
@@ -143,13 +147,14 @@ def load_model(directory: str) -> Tuple[ConfigDict, nn.Module, PyTree]:
   opt_init, _ = optimizer(c)
 
   graph = GraphsTuple(
-    ShapedArray((1, NUM_ELEMENTS), f32),    # Nodes     (nodes, features)
-    ShapedArray((1, 3), f32),   # dR        (edges, spatial)
-    ShapedArray((1,), i32),      # senders   (edges,)
-    ShapedArray((1,), i32),      # receivers (edges,)
-    ShapedArray((1, 1), f32),      # globals   (graphs,)
-    ShapedArray((1,), i32),      # n_node    (graphs,)
-    ShapedArray((1,), i32))     # n_edge    (graphs,)
+    ShapedArray((1, NUM_ELEMENTS), f32),  # Nodes     (nodes, features)
+    ShapedArray((1, 3), f32),  # dR        (edges, spatial)
+    ShapedArray((1,), i32),  # senders   (edges,)
+    ShapedArray((1,), i32),  # receivers (edges,)
+    ShapedArray((1, 1), f32),  # globals   (graphs,)
+    ShapedArray((1,), i32),  # n_node    (graphs,)
+    ShapedArray((1,), i32),
+  )  # n_edge    (graphs,)
 
   def init_opt_and_model(graph):
     key = random.PRNGKey(0)
@@ -172,4 +177,3 @@ def load_model(directory: str) -> Tuple[ConfigDict, nn.Module, PyTree]:
 
   params = tree_map(lambda x: x.astype(f32), ckpt[1])
   return c, model, params
-

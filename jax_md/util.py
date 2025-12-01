@@ -16,15 +16,19 @@
 
 from typing import Iterable, Union, Optional, Any
 
-import jax
 from jax.tree_util import register_pytree_node
-from jax.lib import xla_bridge
 import jax.numpy as jnp
 from jax import jit
 
 from functools import partial
 
 import numpy as onp
+
+# Backward compatible import for get_backend
+try:
+  from jax.extend.backend import get_backend
+except (ImportError, AttributeError):
+  from jax.lib.xla_bridge import get_backend
 
 Array = jnp.ndarray
 PyTree = Any
@@ -53,7 +57,7 @@ def check_custom_simulation_type(x: Any) -> bool:
 def static_cast(*xs):
   """Function to cast a value to the lowest dtype that can express it."""
   # NOTE(schsam): static_cast is so named because it cannot be jit.
-  if xla_bridge.get_backend().platform == 'tpu':
+  if get_backend().platform == 'tpu':
     return (jnp.array(x, jnp.float32) for x in xs)
   else:
     return (jnp.array(x, dtype=onp.min_scalar_type(x)) for x in xs)
@@ -61,9 +65,8 @@ def static_cast(*xs):
 
 def register_pytree_namedtuple(cls):
   register_pytree_node(
-      cls,
-      lambda xs: (tuple(xs), None),
-      lambda _, xs: cls(*xs))
+    cls, lambda xs: (tuple(xs), None), lambda _, xs: cls(*xs)
+  )
 
 
 def merge_dicts(a, b, ignore_unused_parameters=False):
@@ -84,9 +87,11 @@ def safe_mask(mask, fn, operand, placeholder=0):
   return jnp.where(mask, fn(masked), placeholder)
 
 
-def high_precision_sum(X: Array,
-                       axis: Optional[Union[Iterable[int], int]]=None,
-                       keepdims: bool=False):
+def high_precision_sum(
+  X: Array,
+  axis: Optional[Union[Iterable[int], int]] = None,
+  keepdims: bool = False,
+):
   """Sums over axes at 64-bit precision then casts back to original dtype."""
   if jnp.issubdtype(X.dtype, jnp.integer):
     dtyp = jnp.int64
@@ -96,7 +101,8 @@ def high_precision_sum(X: Array,
     dtyp = jnp.float64
 
   return jnp.array(
-      jnp.sum(X, axis=axis, dtype=dtyp, keepdims=keepdims), dtype=X.dtype)
+    jnp.sum(X, axis=axis, dtype=dtyp, keepdims=keepdims), dtype=X.dtype
+  )
 
 
 def maybe_downcast(x):
@@ -107,3 +113,50 @@ def maybe_downcast(x):
 
 def is_array(x: Any) -> bool:
   return isinstance(x, (jnp.ndarray, onp.ndarray))
+
+
+def safe_norm(
+  x: Array, axis: int = -1, epsilon: float = 1e-6, keepdims: bool = False
+) -> Array:
+  """Compute norm with numerical safety for gradients.
+
+  Args:
+      x: Input array.
+      axis: Axis along which to compute norm.
+      epsilon: Small value to avoid division by zero.
+      keepdims: Whether to keep reduced dimensions.
+
+  Returns:
+      Norm of x with lower bound at epsilon.
+  """
+  norm = jnp.sqrt(jnp.sum(x**2, axis=axis, keepdims=keepdims))
+  return jnp.maximum(norm, epsilon)
+
+
+def safe_arccos(x: Array, epsilon: float = 1e-6) -> Array:
+  """Compute arccos with clipping to avoid domain errors.
+
+  Args:
+      x: Input array (should be in [-1, 1]).
+      epsilon: Safety margin for clipping.
+
+  Returns:
+      arccos(x) with input clipped to valid domain.
+  """
+  x = jnp.clip(x, -1.0 + epsilon, 1.0 - epsilon)
+  return jnp.arccos(x)
+
+
+def normalize(x: Array, axis: int = -1, epsilon: float = 1e-6) -> Array:
+  """Normalize vector with numerical safety.
+
+  Args:
+      x: Input array.
+      axis: Axis along which to normalize.
+      epsilon: Small value to avoid division by zero.
+
+  Returns:
+      Normalized vector.
+  """
+  norm = safe_norm(x, axis=axis, epsilon=epsilon, keepdims=True)
+  return x / norm

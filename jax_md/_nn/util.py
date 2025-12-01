@@ -14,7 +14,6 @@
 
 """Neural Network Primitives."""
 
-
 from typing import Union, Dict, Callable, Tuple, Optional
 
 import functools
@@ -36,7 +35,9 @@ import flax.linen as nn
 
 
 Array = util.Array
-FeaturizerFn = Callable[[GraphsTuple, Array, Array, Optional[Array]], GraphsTuple]
+FeaturizerFn = Callable[
+  [GraphsTuple, Array, Array, Optional[Array]], GraphsTuple
+]
 
 f32 = jnp.float32
 
@@ -59,13 +60,13 @@ class BetaSwish(nn.Module):
 
 
 NONLINEARITY = {
-    'none': lambda x: x,
-    'relu': nn.relu,
-    'swish': lambda x: BetaSwish()(x),
-    'raw_swish': nn.swish,
-    'tanh': nn.tanh,
-    'sigmoid': nn.sigmoid,
-    'silu': nn.silu,
+  'none': lambda x: x,
+  'relu': nn.relu,
+  'swish': lambda x: BetaSwish()(x),
+  'raw_swish': nn.swish,
+  'tanh': nn.tanh,
+  'sigmoid': nn.sigmoid,
+  'silu': nn.silu,
 }
 
 
@@ -100,15 +101,16 @@ class MLP(nn.Module):
     return dense(features[-1], kernel_init=normal(1.0))(x)
 
 
-def mlp(hidden_features: Union[int, Tuple[int, ...]],
-        nonlinearity: str,
-        **kwargs) -> Callable[..., Array]:
+def mlp(
+  hidden_features: Union[int, Tuple[int, ...]], nonlinearity: str, **kwargs
+) -> Callable[..., Array]:
   if isinstance(hidden_features, int):
     hidden_features = (hidden_features,)
 
   def mlp_fn(*args):
     fn = MLP(hidden_features, nonlinearity, **kwargs)
     return jraph.concatenated_args(fn)(*args)
+
   return mlp_fn
 
 
@@ -129,6 +131,7 @@ def neighbor_list_featurizer(displacement_fn):
     dR = jnp.where(mask[:, None], dR, 1)
 
     return graph._replace(edges=dR)
+
   return featurize
 
 
@@ -157,11 +160,14 @@ class BesselEmbedding(nn.Module):
       assert len(shape) == 1
       n = shape[0]
       return jnp.arange(1, n + 1) * jnp.pi
+
     frequencies = self.param('frequencies', init_fn, (self.count,))
     bessel_fn = partial(bessel, self.outer_cutoff, frequencies)
-    bessel_fn = vmap(energy.multiplicative_isotropic_cutoff(bessel_fn,
-                                                            self.inner_cutoff,
-                                                            self.outer_cutoff))
+    bessel_fn = vmap(
+      energy.multiplicative_isotropic_cutoff(
+        bessel_fn, self.inner_cutoff, self.outer_cutoff
+      )
+    )
     return bessel_fn(rs)
 
 
@@ -171,9 +177,7 @@ class BesselEmbedding(nn.Module):
 # if no scale / shift is specified by the config. At some point, it would be
 # nice to remove this.
 
-DATASET_SHIFT_SCALE = {
-    'harder_silicon': (2.2548, 0.8825)
-}
+DATASET_SHIFT_SCALE = {'harder_silicon': (2.2548, 0.8825)}
 
 
 def get_shift_and_scale(cfg: ConfigDict) -> Tuple[float, float]:

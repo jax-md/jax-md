@@ -12,11 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Implementation of Particle Mesh Ewald sums following Essmann et al. 1995.
-
-
-
-"""
+"""Implementation of Particle Mesh Ewald sums following Essmann et al. 1995."""
 
 from functools import wraps, partial
 
@@ -29,7 +25,6 @@ import numpy as onp
 
 from jax.scipy.special import erfc  # error function
 from jax_md import space, smap, partition, quantity, util
-
 
 
 # Types
@@ -59,51 +54,48 @@ def coulomb_direct(dr: Array, charge_sq: Array, alpha: float, **kwargs) -> Array
 
 
 def coulomb_direct_pair(
-        displacement_fn: DisplacementOrMetricFn,
-        charge: Array,
-        species: Array=None,
-        alpha: float=0.35) -> Callable[[Array], Array]:
+  displacement_fn: DisplacementOrMetricFn,
+  charge: Array,
+  species: Array = None,
+  alpha: float = 0.35,
+) -> Callable[[Array], Array]:
   return smap.pair(
-      coulomb_direct,
-      space.canonicalize_displacement_or_metric(displacement_fn),
-      species=species,
-      charge_sq=(lambda q1, q2: q1 * q2, charge),
-      alpha=alpha
+    coulomb_direct,
+    space.canonicalize_displacement_or_metric(displacement_fn),
+    species=species,
+    charge_sq=(lambda q1, q2: q1 * q2, charge),
+    alpha=alpha,
   )
 
 
 def coulomb_direct_neighbor_list(
-        displacement_or_metric: DisplacementOrMetricFn,
-        box: Box,
-        charge: Array,
-        species: Array=None,
-        alpha: float=0.35,
-        cutoff: float=9.0,
-        **neighbor_kwargs) -> Tuple[NeighborFn,
-                                    Callable[[Array, NeighborList], Array]]:
-  #print("nb kw arg", neighbor_kwargs)
-  #print("custom_mask_function", custom_mask_function)
-  #sys.exit()
+  displacement_or_metric: DisplacementOrMetricFn,
+  box: Box,
+  charge: Array,
+  species: Array = None,
+  alpha: float = 0.35,
+  cutoff: float = 9.0,
+  **neighbor_kwargs,
+) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   neighbor_fn = partition.neighbor_list(
-      space.canonicalize_displacement_or_metric(displacement_or_metric),
-      box,
-      cutoff,
-      **neighbor_kwargs
+    space.canonicalize_displacement_or_metric(displacement_or_metric),
+    box,
+    cutoff,
+    **neighbor_kwargs,
   )
 
   #print("cutoff being used in nb fn", cutoff)
   #sys.exit()
   masked_energy_fn = lambda dr, **kwargs: jnp.where(
-      dr < cutoff,
-      coulomb_direct(dr, **kwargs),
-      0.)
+    dr < cutoff, coulomb_direct(dr, **kwargs), 0.0
+  )
 
   energy_fn = smap.pair_neighbor_list(
-      masked_energy_fn,
-      space.canonicalize_displacement_or_metric(displacement_or_metric),
-      species=species,
-      charge_sq=(lambda q1, q2: q1 * q2, charge),
-      alpha=alpha
+    masked_energy_fn,
+    space.canonicalize_displacement_or_metric(displacement_or_metric),
+    species=species,
+    charge_sq=(lambda q1, q2: q1 * q2, charge),
+    alpha=alpha,
   )
 
   return neighbor_fn, energy_fn
@@ -112,10 +104,9 @@ def coulomb_direct_neighbor_list(
 # Reciprocal Space code.
 
 
-def coulomb_recip_ewald(charge: Array,
-                        side_length: Array,
-                        alpha: float,
-                        g_max: float) -> Callable[[Array], Array]:
+def coulomb_recip_ewald(
+  charge: Array, side_length: Array, alpha: float, g_max: float
+) -> Callable[[Array], Array]:
   def energy_fn(position, **kwargs):
     dim = position.shape[-1]
     V = side_length**dim
@@ -126,7 +117,7 @@ def coulomb_recip_ewald(charge: Array,
     #print("dg, gmax", dg, g_max)
 
     # Just to make the sum inclusive.
-    g_range = onp.arange(0, g_max + dg/2, dg)
+    g_range = onp.arange(0, g_max + dg / 2, dg)
     g_range = onp.concatenate((-g_range[::-1], g_range[1:]))
 
     gx, gy, gz = jnp.meshgrid(g_range, g_range, g_range)
@@ -135,19 +126,21 @@ def coulomb_recip_ewald(charge: Array,
     mask = (g2 < g_max**2) & (g2 > 1e-7)
 
     Z = (4 * jnp.pi) / V
-    S2 = jnp.abs(structure_factor(g, position, charge))**2
-    fn = lambda g2: jnp.exp(-g2 / (4*alpha**2)) / g2 * S2
+    S2 = jnp.abs(structure_factor(g, position, charge)) ** 2
+    fn = lambda g2: jnp.exp(-g2 / (4 * alpha**2)) / g2 * S2
 
     return Z * util.high_precision_sum(util.safe_mask(mask, fn, g2, 1))
+
   return energy_fn
 
 
-def coulomb_recip_pme(charge: Array,
-                      box: Box,
-                      grid_points: Array,
-                      fractional_coordinates: bool=False,
-                      alpha: float=0.34
-                      ) -> Callable[[Array], Array]:
+def coulomb_recip_pme(
+  charge: Array,
+  box: Box,
+  grid_points: Array,
+  fractional_coordinates: bool = False,
+  alpha: float = 0.34,
+) -> Callable[[Array], Array]:
   _ibox = space.inverse(box)
 
   def energy_fn(R, **kwargs):
@@ -158,123 +151,106 @@ def coulomb_recip_pme(charge: Array,
     dim = R.shape[-1]
     grid_dimensions = onp.array((grid_points,) * dim)
 
-    grid = map_charges_to_grid(R, q, ibox, grid_dimensions,
-                               fractional_coordinates)
+    grid = map_charges_to_grid(
+      R, q, ibox, grid_dimensions, fractional_coordinates
+    )
     Fgrid = jnp.fft.fftn(grid)
 
     mx, my, mz = jnp.meshgrid(*[jnp.fft.fftfreq(g) for g in grid_dimensions])
     if jnp.isscalar(_box):
-      m_2 = (mx**2 + my**2 + mz**2) * (grid_dimensions[0] * ibox)**2
-      V = (1.0 * _box)**dim
+      m_2 = (mx**2 + my**2 + mz**2) * (grid_dimensions[0] * ibox) ** 2
+      V = (1.0 * _box) ** dim
     else:
-      m = (ibox[None, None, None, 0] * mx[:, :, :, None] * grid_dimensions[0] +
-           ibox[None, None, None, 1] * my[:, :, :, None] * grid_dimensions[1] +
-           ibox[None, None, None, 2] * mz[:, :, :, None] * grid_dimensions[2])
+      m = (
+        ibox[None, None, None, 0] * mx[:, :, :, None] * grid_dimensions[0]
+        + ibox[None, None, None, 1] * my[:, :, :, None] * grid_dimensions[1]
+        + ibox[None, None, None, 2] * mz[:, :, :, None] * grid_dimensions[2]
+      )
       m_2 = jnp.sum(m**2, axis=-1)
       V = jnp.linalg.det(_box)
     mask = m_2 != 0
 
-    exp_m = 1 / (2 * jnp.pi * V) * jnp.exp(-jnp.pi**2 * m_2 / alpha**2) / m_2
+    exp_m = 1 / (2 * jnp.pi * V) * jnp.exp(-(jnp.pi**2) * m_2 / alpha**2) / m_2
     return util.high_precision_sum(
-        mask * exp_m * B(mx, my, mz) * jnp.abs(Fgrid)**2)
+      mask * exp_m * B(mx, my, mz) * jnp.abs(Fgrid) ** 2
+    )
+
   return energy_fn
 
 
 # Coulomb energy functions.
 
+
 def coulomb_ewald_neighbor_list(
-        displacement_fn: Array,
-        box: Array,
-        charge: Array,
-        species: Array=None,
-        alpha: float=0.34,
-        g_max: float=5.0,
-        cutoff: float=9.0,
-        fractional_coordinates: bool=False,
-        custom_mask_function: Callable=None,
-        dr_threshold=0.0
-) -> Tuple[NeighborFn,
-           Callable[[Array, NeighborList], Array]]:
-  
-
-  nbr_box = jnp.diag(box) if (isinstance(box, jnp.ndarray) and box.ndim == 2) else box
-
-  #box = jnp.diag(box) if (isinstance(box, jnp.ndarray) and box.ndim == 1) else box
-  #print("Box shape", box)
+  displacement_fn: Array,
+  box: Array,
+  charge: Array,
+  species: Array = None,
+  alpha: float = 0.34,
+  g_max: float = 5.0,
+) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   neighbor_fn, direct_fn = coulomb_direct_neighbor_list(
-      displacement_fn, nbr_box, charge, species=species, alpha=alpha, 
-      fractional_coordinates=fractional_coordinates, cutoff=cutoff, 
-      disable_cell_list=False, format=NeighborListFormat.OrderedSparse, 
-      custom_mask_function=custom_mask_function, dr_threshold=dr_threshold)
-  #neighbor_fn, direct_fn = coulomb_direct_neighbor_list(
-  #    displacement_fn, box, charge, species=species, alpha=alpha)
-  #recip_fn = coulomb_recip_ewald(charge, box, alpha, g_max)
-
-  # print("box", box)
-
-  recip_fn = get_ewald_fun(box, charge, eps_ewald=jnp.float32(5.0e-4), r_cut=jnp.float32(.8))
+    displacement_fn, box, charge, species=species, alpha=alpha
+  )
+  recip_fn = coulomb_recip_ewald(charge, box, alpha, g_max)
 
   def total_energy(R, neighbor, **kwargs):
-    direct_nrg = direct_fn(R, neighbor=neighbor, **kwargs) * jnp.float64(138.935456)
-    #jax.debug.print("Ewald Direct Energy {direct_nrg}", direct_nrg=direct_nrg)
-    #recip_nrg = recip_fn(R, **kwargs)
-    recip_nrg = recip_fn(R)
-    #jax.debug.print("Ewald Reciprocal Energy {recip_nrg}", recip_nrg=recip_nrg)
-    return direct_nrg + recip_nrg
+    return direct_fn(R, neighbor=neighbor, **kwargs) + recip_fn(R, **kwargs)
+
   return neighbor_fn, total_energy
 
 
 def coulomb(
-        displacement_fn: DisplacementOrMetricFn,
-        box: Box,
-        charge: Array,
-        grid_points: Array,
-        species: Array=None,
-        alpha: float=0.34,
-        fractional_coordinates: bool=False
+  displacement_fn: DisplacementOrMetricFn,
+  box: Box,
+  charge: Array,
+  grid_points: Array,
+  species: Array = None,
+  alpha: float = 0.34,
+  fractional_coordinates: bool = False,
 ) -> Callable[[Array], Array]:
   direct_fn = coulomb_direct_pair(
-      displacement_fn, charge, species=species, alpha=alpha)
+    displacement_fn, charge, species=species, alpha=alpha
+  )
   recip_fn = coulomb_recip_pme(
-      charge, box, grid_points, fractional_coordinates, alpha)
+    charge, box, grid_points, fractional_coordinates, alpha
+  )
+
   def total_energy(R, **kwargs):
     return direct_fn(R, **kwargs) + recip_fn(R, **kwargs)
+
   return total_energy
 
 
 def coulomb_neighbor_list(
-        displacement_fn: DisplacementOrMetricFn,
-        box: Box,
-        charge: Array,
-        grid_points: Array,
-        species: Array=None,
-        alpha: float=0.34,
-        cutoff: float=9.0,
-        fractional_coordinates: bool=False,
-        custom_mask_function: Callable=None,
-        dr_threshold=0.0
+  displacement_fn: DisplacementOrMetricFn,
+  box: Box,
+  charge: Array,
+  grid_points: Array,
+  species: Array = None,
+  alpha: float = 0.34,
+  cutoff: float = 9.0,
+  fractional_coordinates: bool = False,
 ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
-  # print("custom mask fun", custom_mask_function)
-  # sys.exit()
-  nbr_box = jnp.diag(box) if (isinstance(box, jnp.ndarray) and box.ndim == 2) else box
-
-  box = jnp.diag(box) if (isinstance(box, jnp.ndarray) and box.ndim == 1) else box
-  #print("Box shape", box)
+  nbr_box = (
+    jnp.diag(box) if (isinstance(box, jnp.ndarray) and box.ndim == 2) else box
+  )
   neighbor_fn, direct_fn = coulomb_direct_neighbor_list(
-      displacement_fn, nbr_box, charge, species=species, alpha=alpha, 
-      fractional_coordinates=fractional_coordinates, cutoff=cutoff, 
-      disable_cell_list=False, format=NeighborListFormat.OrderedSparse, 
-      custom_mask_function=custom_mask_function, dr_threshold=dr_threshold)
+    displacement_fn,
+    nbr_box,
+    charge,
+    species=species,
+    alpha=alpha,
+    fractional_coordinates=fractional_coordinates,
+    cutoff=cutoff,
+  )
   recip_fn = coulomb_recip_pme(
-      charge, box, grid_points, fractional_coordinates, alpha)
+    charge, box, grid_points, fractional_coordinates, alpha
+  )
+
   def total_energy(R, neighbor, **kwargs):
-    direct_nrg = direct_fn(R, neighbor=neighbor, **kwargs)
-    #print("PME direct_nrg", direct_nrg * jnp.float64(138.935456))
-    recip_nrg = recip_fn(R, **kwargs)
-    #print(kwargs)
-    #print("PME recip_nrg", recip_nrg * jnp.float64(138.935456))
-    #sys.exit()
-    return direct_nrg + recip_nrg
+    return direct_fn(R, neighbor=neighbor, **kwargs) + recip_fn(R, **kwargs)
+
   return neighbor_fn, total_energy
 
 
@@ -285,8 +261,7 @@ def structure_factor(g, R, q=1):
   if isinstance(q, jnp.ndarray):
     q = q[None, :]
   return util.high_precision_sum(
-      q * jnp.exp(1j * jnp.einsum('id,jd->ij', g, R)),
-      axis=1
+    q * jnp.exp(1j * jnp.einsum('id,jd->ij', g, R)), axis=1
   )
 
 
@@ -301,11 +276,13 @@ def optimized_bspline_4(w):
   coeffs = jnp.zeros((4,))
 
   coeffs = coeffs.at[2].set(0.5 * w * w)
-  coeffs = coeffs.at[0].set(0.5 * (1.0-w) * (1.0-w))
+  coeffs = coeffs.at[0].set(0.5 * (1.0 - w) * (1.0 - w))
   coeffs = coeffs.at[1].set(1.0 - coeffs[0] - coeffs[2])
 
   coeffs = coeffs.at[3].set(w * coeffs[2] / 3.0)
-  coeffs = coeffs.at[2].set(((1.0 + w) * coeffs[1] + (3.0 - w) * coeffs[2])/3.0)
+  coeffs = coeffs.at[2].set(
+    ((1.0 + w) * coeffs[1] + (3.0 - w) * coeffs[2]) / 3.0
+  )
   coeffs = coeffs.at[0].set((1.0 - w) * coeffs[0] / 3.0)
   coeffs = coeffs.at[1].set(1.0 - coeffs[0] - coeffs[2] - coeffs[3])
 
@@ -313,12 +290,12 @@ def optimized_bspline_4(w):
 
 
 def map_charges_to_grid(
-    position: Array,
-    charge: Array,
-    inverse_box: Box,
-    grid_dimensions: Array,
-    fractional_coordinates: bool
-  ) -> Array:
+  position: Array,
+  charge: Array,
+  inverse_box: Box,
+  grid_dimensions: Array,
+  fractional_coordinates: bool,
+) -> Array:
   """Smears charges over a grid of specified dimensions."""
 
   Q = jnp.zeros(grid_dimensions)
@@ -342,13 +319,19 @@ def map_charges_to_grid(
 
     grid_pos = grid_position(u, grid_dimensions)
 
-    accum = charge * (coeffs[0, :, None, None] *
-                      coeffs[1, None, :, None] *
-                      coeffs[2, None, None, :])
+    accum = charge * (
+      coeffs[0, :, None, None]
+      * coeffs[1, None, :, None]
+      * coeffs[2, None, None, :]
+    )
     grid_pos = jnp.concatenate(
-        (jnp.broadcast_to(grid_pos[[0], :, None, None], (1, 4, 4, 4)),
-         jnp.broadcast_to(grid_pos[[1], None, :, None], (1, 4, 4, 4)),
-         jnp.broadcast_to(grid_pos[[2], None, None, :], (1, 4, 4, 4))), axis=0)
+      (
+        jnp.broadcast_to(grid_pos[[0], :, None, None], (1, 4, 4, 4)),
+        jnp.broadcast_to(grid_pos[[1], None, :, None], (1, 4, 4, 4)),
+        jnp.broadcast_to(grid_pos[[2], None, None, :], (1, 4, 4, 4)),
+      ),
+      axis=0,
+    )
     grid_pos = jnp.transpose(grid_pos, (1, 2, 3, 0))
 
     return grid_pos, accum
@@ -362,7 +345,7 @@ def map_charges_to_grid(
 
 @partial(jnp.vectorize, signature='()->()')
 def b(m, n=4):
-  assert(n == 4)
+  assert n == 4
   k = jnp.arange(n - 1)
   M = optimized_bspline_4(1.0)[1:][::-1]
   prefix = jnp.exp(2 * jnp.pi * 1j * (n - 1) * m)
@@ -374,7 +357,7 @@ def B(mx, my, mz, n=4):
   b_x = b(mx)
   b_y = b(my)
   b_z = b(mz)
-  return jnp.abs(b_x)**2 * jnp.abs(b_y)**2 * jnp.abs(b_z)**2
+  return jnp.abs(b_x) ** 2 * jnp.abs(b_y) ** 2 * jnp.abs(b_z) ** 2
 
 
 @jax.custom_jvp

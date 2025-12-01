@@ -54,7 +54,9 @@ FeaturizerFn = nn_util.FeaturizerFn
 
 get_nonlinearity_by_name = nn_util.get_nonlinearity_by_name
 partial = functools.partial
-tree_map = partial(jax.tree_util.tree_map, is_leaf=lambda x: isinstance(x, e3nn.IrrepsArray))
+tree_map = partial(
+  jax.tree_util.tree_map, is_leaf=lambda x: isinstance(x, e3nn.IrrepsArray)
+)
 
 # Code
 
@@ -104,6 +106,7 @@ class NequIPConvolution(nn.Module):
     Returns:
         Updated node features h after the convolution.
   """
+
   hidden_irreps: Irreps
   use_sc: bool
   nonlinearities: Union[str, Dict[str, str]]
@@ -111,19 +114,19 @@ class NequIPConvolution(nn.Module):
   radial_net_n_hidden: int = 64
   radial_net_n_layers: int = 2
   num_basis: int = 8
-  n_neighbors: float = 1.
+  n_neighbors: float = 1.0
   scalar_mlp_std: float = 4.0
 
   @nn.compact
   def __call__(
-      self,
-      node_features: IrrepsArray,
-      node_attributes: IrrepsArray,
-      edge_sh: Array,
-      edge_src: Array,
-      edge_dst: Array,
-      edge_embedded: Array
-      ) -> IrrepsArray:
+    self,
+    node_features: IrrepsArray,
+    node_attributes: IrrepsArray,
+    edge_sh: Array,
+    edge_src: Array,
+    edge_dst: Array,
+    edge_embedded: Array,
+  ) -> IrrepsArray:
     # Convolution outline in NequIP is:
     # Linear on nodes
     # TP + aggregate
@@ -140,8 +143,9 @@ class NequIPConvolution(nn.Module):
     for multiplicity, irrep in self.hidden_irreps:
       # need the additional Irrep() here for the build, even though irrep is
       # already of type Irrep()
-      if (Irrep(irrep).l == 0 and
-          tp_path_exists(node_features.irreps, edge_sh.irreps, irrep)):
+      if Irrep(irrep).l == 0 and tp_path_exists(
+        node_features.irreps, edge_sh.irreps, irrep
+      ):
         irreps_scalars += [(multiplicity, irrep)]
 
     irreps_scalars = Irreps(irreps_scalars)
@@ -150,8 +154,9 @@ class NequIPConvolution(nn.Module):
     for multiplicity, irrep in self.hidden_irreps:
       # need the additional Irrep() here for the build, even though irrep is
       # already of type Irrep()
-      if (Irrep(irrep).l > 0 and
-          tp_path_exists(node_features.irreps, edge_sh.irreps, irrep)):
+      if Irrep(irrep).l > 0 and tp_path_exists(
+        node_features.irreps, edge_sh.irreps, irrep
+      ):
         irreps_nonscalars += [(multiplicity, irrep)]
 
     irreps_nonscalars = Irreps(irreps_nonscalars)
@@ -179,8 +184,8 @@ class NequIPConvolution(nn.Module):
     # that is a function of the species of the central atom
     if self.use_sc:
       self_connection = FullyConnectedTensorProductE3nn(
-          h_out_irreps,
-          )(node_features, node_attributes)
+        h_out_irreps,
+      )(node_features, node_attributes)
 
     h = node_features
 
@@ -220,16 +225,17 @@ class NequIPConvolution(nn.Module):
 
     for irreps_in1, irreps_in2, irreps_out, mode, trainable in instructions:
       sorted_instructions += [
-          (irreps_in1, irreps_in2, p[irreps_out], mode, trainable)]
+        (irreps_in1, irreps_in2, p[irreps_out], mode, trainable)
+      ]
 
     # TP between spherical harmonics embedding of the edge vector
     # Y_ij(\hat{r}) and neighboring node h_j, weighted on a per-element basis
     # by the radial network R(r_ij)
     tp = FunctionalTensorProduct(
-        irreps_in1=edge_features.irreps,
-        irreps_in2=edge_sh.irreps,
-        irreps_out=irreps_after_tp,
-        instructions=sorted_instructions
+      irreps_in1=edge_features.irreps,
+      irreps_in2=edge_sh.irreps,
+      irreps_out=irreps_after_tp,
+      instructions=sorted_instructions,
     )
 
     # scalar radial network, number of output neurons is the total number of
@@ -245,18 +251,20 @@ class NequIPConvolution(nn.Module):
     # build radial MLP R(r) that maps from interatomic distances to TP weights
     # must not use bias to that R(0)=0
     fc = nn_util.MLP(
-        (self.radial_net_n_hidden,) * self.radial_net_n_layers + (n_tp_weights,),
-        self.radial_net_nonlinearity,
-        use_bias=False,
-        scalar_mlp_std=self.scalar_mlp_std
-        )
+      (self.radial_net_n_hidden,) * self.radial_net_n_layers + (n_tp_weights,),
+      self.radial_net_nonlinearity,
+      use_bias=False,
+      scalar_mlp_std=self.scalar_mlp_std,
+    )
 
     # the TP weights (v dimension) are given by the FC
     weight = fc(edge_embedded)
 
     # tp between node features that have been mapped onto edges and edge RSH
     # weighted by FC weight, we vmap over the dimension of the edges
-    edge_features = e3nn.utils.vmap(tp.left_right)(weight, edge_features, edge_sh)
+    edge_features = e3nn.utils.vmap(tp.left_right)(
+      weight, edge_features, edge_sh
+    )
     # TODO: It's not great that e3nn_jax automatically upcasts internally,
     # but this would need to be fixed at the e3nn level.
     edge_features = tree_map(lambda x: x.astype(h.dtype), edge_features)
@@ -285,12 +293,12 @@ class NequIPConvolution(nn.Module):
     # c) non-scalars to be gated
     # in this order
     gate_fn = partial(
-        e3nn.gate,
-        even_act=get_nonlinearity_by_name(self.nonlinearities['e']),
-        odd_act=get_nonlinearity_by_name(self.nonlinearities['o']),
-        even_gate_act=get_nonlinearity_by_name(self.nonlinearities['e']),
-        odd_gate_act=get_nonlinearity_by_name(self.nonlinearities['o'])
-        )
+      e3nn.gate,
+      even_act=get_nonlinearity_by_name(self.nonlinearities['e']),
+      odd_act=get_nonlinearity_by_name(self.nonlinearities['o']),
+      even_gate_act=get_nonlinearity_by_name(self.nonlinearities['e']),
+      odd_gate_act=get_nonlinearity_by_name(self.nonlinearities['o']),
+    )
 
     h = gate_fn(h)
     # TODO: Remove this once e3nn_jax doesn't upcast inputs.
@@ -338,15 +346,15 @@ class NequIPEnergyModel(nn.Module):
   sh_irreps: str
 
   num_basis: int = 8
-  r_max: float = 4.
+  r_max: float = 4.0
 
   radial_net_nonlinearity: str = 'raw_swish'
   radial_net_n_hidden: int = 64
   radial_net_n_layers: int = 2
 
-  shift: float = 0.
-  scale: float = 1.
-  n_neighbors: float = 1.
+  shift: float = 0.0
+  scale: float = 1.0
+  n_neighbors: float = 1.0
   scalar_mlp_std: float = 4.0
 
   @nn.compact
@@ -368,10 +376,8 @@ class NequIPEnergyModel(nn.Module):
     edge_sh = e3nn.spherical_harmonics(self.sh_irreps, dR, normalize=True)
 
     embedded_dr_edge = nn_util.BesselEmbedding(
-        count=self.num_basis,
-        inner_cutoff=r_max - 0.5,
-        outer_cutoff=r_max
-        )(scalar_dr_edge)
+      count=self.num_basis, inner_cutoff=r_max - 0.5, outer_cutoff=r_max
+    )(scalar_dr_edge)
 
     # embedding layer
     h_node = Linear(irreps_out=Irreps(hidden_irreps))(node_attrs)
@@ -379,22 +385,16 @@ class NequIPEnergyModel(nn.Module):
     # convolutions
     for _ in range(self.graph_net_steps):
       h_node = NequIPConvolution(
-          hidden_irreps=hidden_irreps,
-          use_sc=self.use_sc,
-          nonlinearities=self.nonlinearities,
-          radial_net_nonlinearity=self.radial_net_nonlinearity,
-          radial_net_n_hidden=self.radial_net_n_hidden,
-          radial_net_n_layers=self.radial_net_n_layers,
-          num_basis=self.num_basis,
-          n_neighbors=self.n_neighbors,
-          scalar_mlp_std=self.scalar_mlp_std
-          )(h_node,
-            node_attrs,
-            edge_sh,
-            edge_src,
-            edge_dst,
-            embedded_dr_edge
-            )
+        hidden_irreps=hidden_irreps,
+        use_sc=self.use_sc,
+        nonlinearities=self.nonlinearities,
+        radial_net_nonlinearity=self.radial_net_nonlinearity,
+        radial_net_n_hidden=self.radial_net_n_hidden,
+        radial_net_n_layers=self.radial_net_n_layers,
+        num_basis=self.num_basis,
+        n_neighbors=self.n_neighbors,
+        scalar_mlp_std=self.scalar_mlp_std,
+      )(h_node, node_attrs, edge_sh, edge_src, edge_dst, embedded_dr_edge)
 
     # output block, two Linears that decay dimensions from h to h//2 to 1
     for mul, ir in h_node.irreps:
@@ -413,26 +413,21 @@ class NequIPEnergyModel(nn.Module):
     # this aggregation follows jraph/_src/models.py
     n_graph = graph.n_node.shape[0]
     graph_idx = jnp.arange(n_graph)
-    sum_n_node = tree_util.tree_leaves(graph.nodes, is_leaf=lambda x: isinstance(x, e3nn.IrrepsArray))[0].shape[0]
+    sum_n_node = tree_util.tree_leaves(
+      graph.nodes, is_leaf=lambda x: isinstance(x, e3nn.IrrepsArray)
+    )[0].shape[0]
     node_gr_idx = jnp.repeat(
-        graph_idx,
-        graph.n_node,
-        axis=0,
-        total_repeat_length=sum_n_node
-        )
+      graph_idx, graph.n_node, axis=0, total_repeat_length=sum_n_node
+    )
 
     global_output = tree_map(
-        lambda n: jraph.segment_sum(
-            n,
-            node_gr_idx,
-            n_graph
-            ), atomic_output)
+      lambda n: jraph.segment_sum(n, node_gr_idx, n_graph), atomic_output
+    )
 
     return global_output
 
 
-def model_from_config(cfg: ConfigDict
-                      ) -> NequIPEnergyModel:
+def model_from_config(cfg: ConfigDict) -> NequIPEnergyModel:
   """Model replication of NequIP.
 
   Implementation follows the original paper by Batzner et al.
@@ -443,22 +438,22 @@ def model_from_config(cfg: ConfigDict
   shift, scale = nn_util.get_shift_and_scale(cfg)
 
   model = NequIPEnergyModel(
-      graph_net_steps=cfg.graph_net_steps,
-      use_sc=cfg.use_sc,
-      nonlinearities=cfg.nonlinearities,
-      n_elements=cfg.n_elements,
-      hidden_irreps=cfg.hidden_irreps,
-      sh_irreps=cfg.sh_irreps,
-      num_basis=cfg.num_basis,
-      r_max=cfg.r_max,
-      radial_net_nonlinearity=cfg.radial_net_nonlinearity,
-      radial_net_n_hidden=cfg.radial_net_n_hidden,
-      radial_net_n_layers=cfg.radial_net_n_layers,
-      shift=shift,
-      scale=scale,
-      n_neighbors=cfg.n_neighbors,
-      scalar_mlp_std=cfg.scalar_mlp_std,
-      )
+    graph_net_steps=cfg.graph_net_steps,
+    use_sc=cfg.use_sc,
+    nonlinearities=cfg.nonlinearities,
+    n_elements=cfg.n_elements,
+    hidden_irreps=cfg.hidden_irreps,
+    sh_irreps=cfg.sh_irreps,
+    num_basis=cfg.num_basis,
+    r_max=cfg.r_max,
+    radial_net_nonlinearity=cfg.radial_net_nonlinearity,
+    radial_net_n_hidden=cfg.radial_net_n_hidden,
+    radial_net_n_layers=cfg.radial_net_n_layers,
+    shift=shift,
+    scale=scale,
+    n_neighbors=cfg.n_neighbors,
+    scalar_mlp_std=cfg.scalar_mlp_std,
+  )
 
   return model
 
@@ -473,18 +468,17 @@ def default_config() -> ConfigDict:
   config.hidden_irreps = '128x0e + 64x1e + 4x2e'
   config.sh_irreps = '1x0e + 1x1e + 1x2e'
   config.num_basis = 8
-  config.r_max = 5.
+  config.r_max = 5.0
   config.radial_net_nonlinearity = 'raw_swish'
   config.radial_net_n_hidden = 64
   config.radial_net_n_layers = 2
 
   # average number of neighbors per atom, used to divide activations are sum
   # in the nequip convolution, helpful for internal normalization.
-  config.n_neighbors = 10.
+  config.n_neighbors = 10.0
 
   # Standard deviation used for the initializer of the weight matrix in the
   # radial scalar MLP
-  config.scalar_mlp_std = 4.
+  config.scalar_mlp_std = 4.0
 
   return config
-

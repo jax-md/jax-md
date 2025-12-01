@@ -14,11 +14,31 @@ on:
       - main
 
 jobs:
-  build:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
+    - name: Set up Python
+      run: uv python install 3.12
+    - name: Create virtual environment
+      run: uv venv --python 3.12
+    - name: Install dependencies
+      run: |
+        uv pip install .
+        uv pip install ruff
+    - name: Run ruff check
+      run: uv run ruff check .
+    - name: Run ruff format check
+      run: uv run ruff format --check .
+
+  test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.10', '3.11', '3.12']
+        python-version: ['3.11', '3.12', '3.13']
+        test-suite: ['elasticity', 'rigid_body', 'energy', 'simulate', 'nequip', 'reaxff', 'tpu', 'core']
     steps:
     - name: Cancel previous
       uses: styfle/cancel-workflow-action@0.11.0
@@ -28,48 +48,60 @@ jobs:
       run: |
         sudo apt-get -y install pandoc
     - uses: actions/checkout@v3
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-        cache: pip
-        cache-dependency-path: |
-          setup.py
+      run: uv python install ${{ matrix.python-version }}
+    - name: Create virtual environment
+      run: uv venv --python ${{ matrix.python-version }}
     - name: Install dependencies
       run: |
-        pip install --upgrade pip
-        pip install .
-        pip install .[testing]
-        pip install pytest
-        pip install pytest-xdist
-        pip install pytest-cov
-        pip install netCDF4
-        pip install ase
+        uv pip install .
+        uv pip install .[testing]
+        uv pip install pytest pytest-cov netCDF4 ase
     - name: Set Swap Space
       uses: pierotofy/set-swap-space@master
       with:
-       swap-size-gb: 10
+       swap-size-gb: 12
     - name: Test with pytest and generate coverage report
       run: |
-        JAX_ENABLE_X64=1 pytest --cov=jax_md --cov-report=xml --cov-report=term --cov-config=setup.cfg
+        if [ "${{ matrix.test-suite }}" == "core" ]; then
+          JAX_ENABLE_X64=1 uv run pytest tests --cov=jax_md --cov-report=xml --cov-report=term \
+            --ignore=tests/elasticity_test.py \
+            --ignore=tests/rigid_body_test.py \
+            --ignore=tests/energy_test.py \
+            --ignore=tests/simulate_test.py \
+            --ignore=tests/nequip_test.py \
+            --ignore=tests/reaxff_test.py \
+            --ignore=tests/tpu_test.py
+        else
+          JAX_ENABLE_X64=1 uv run pytest tests/${{ matrix.test-suite }}_test.py --cov=jax_md --cov-report=xml --cov-report=term
+        fi
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v1
+      uses: codecov/codecov-action@v4
       with:
         file: ./coverage.xml
-    # The below step just reports the success or failure of tests as a "commit status".
-    # This is needed for copybara integration.
+        flags: py${{ matrix.python-version }}-${{ matrix.test-suite }}
+        name: py${{ matrix.python-version }}-${{ matrix.test-suite }}
+        token: ${{ secrets.CODECOV_TOKEN }}
+      continue-on-error: true
+
+  # This is needed for copybara integration.
+  build-status:
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    if: always()
+    steps:
     - name: Report success or failure as github status
-      if: always()
       shell: bash
       run: |
-        status="${{ job.status }}"
-        lowercase_status=$(echo $status | tr '[:upper:]' '[:lower:]')
+        status="${{ (needs.lint.result == 'success' && needs.test.result == 'success') && 'success' || 'failure' }}"
         curl -sS --request POST \
         --url https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.sha }} \
         --header 'authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' \
         --header 'content-type: application/json' \
         --data '{
-           "state": "'$lowercase_status'",
+           "state": "'$status'",
            "target_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
            "description": "'$status'",
            "context": "github-actions/Build"
