@@ -179,16 +179,11 @@ def soft_sphere_neighbor_list(
   per_particle: bool = False,
   fractional_coordinates: bool = False,
   format: NeighborListFormat = partition.OrderedSparse,
-  neighbor_list_fn: Optional[Callable] = None,
-  pair_neighbor_list_fn: Optional[Callable] = None,
+  neighbor_list_fn: Callable = partition.neighbor_list,
+  pair_neighbor_list_fn: Callable = smap.pair_neighbor_list,
   **neighbor_kwargs,
 ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   """Convenience wrapper to compute :ref:`soft spheres <soft-sphere>` using a neighbor list."""
-  if neighbor_list_fn is None:
-    neighbor_list_fn = partition.neighbor_list
-  if pair_neighbor_list_fn is None:
-    pair_neighbor_list_fn = smap.pair_neighbor_list
-
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
   alpha = maybe_downcast(alpha)
@@ -282,17 +277,11 @@ def lennard_jones_neighbor_list(
   per_particle: bool = False,
   fractional_coordinates: bool = False,
   format: partition.NeighborListFormat = partition.OrderedSparse,
-  neighbor_list_fn: Optional[Callable] = None,
-  pair_neighbor_list_fn: Optional[Callable] = None,
+  neighbor_list_fn: Callable = partition.neighbor_list,
+  pair_neighbor_list_fn: Callable = smap.pair_neighbor_list,
   **neighbor_kwargs,
 ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   """Convenience wrapper to compute :ref:`Lennard-Jones <lj-pot>` using a neighbor list."""
-  # Use defaults if not specified
-  if neighbor_list_fn is None:
-    neighbor_list_fn = partition.neighbor_list
-  if pair_neighbor_list_fn is None:
-    pair_neighbor_list_fn = smap.pair_neighbor_list
-
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
   r_onset = maybe_downcast(r_onset) * jnp.max(sigma)
@@ -389,16 +378,11 @@ def morse_neighbor_list(
   per_particle: bool = False,
   fractional_coordinates: bool = False,
   format: partition.NeighborListFormat = partition.OrderedSparse,
-  neighbor_list_fn: Optional[Callable] = None,
-  pair_neighbor_list_fn: Optional[Callable] = None,
+  neighbor_list_fn: Callable = partition.neighbor_list,
+  pair_neighbor_list_fn: Callable = smap.pair_neighbor_list,
   **neighbor_kwargs,
 ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   """Convenience wrapper to compute :ref:`Morse <morse-pot>` using a neighbor list."""
-  if neighbor_list_fn is None:
-    neighbor_list_fn = partition.neighbor_list
-  if pair_neighbor_list_fn is None:
-    pair_neighbor_list_fn = smap.pair_neighbor_list
-
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
   alpha = maybe_downcast(alpha)
@@ -681,6 +665,8 @@ def bks_neighbor_list(
   dr_threshold: float = 0.8,
   fractional_coordinates: bool = False,
   format: partition.NeighborListFormat = partition.OrderedSparse,
+  neighbor_list_fn: Callable = partition.neighbor_list,
+  pair_neighbor_list_fn: Callable = smap.pair_neighbor_list,
   **neighbor_kwargs,
 ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   """Convenience wrapper to compute :ref:`BKS energy <bks-pot>` using a neighbor list."""
@@ -691,7 +677,7 @@ def bks_neighbor_list(
   repulsive_coeff = maybe_downcast(repulsive_coeff)
   dr_threshold = maybe_downcast(dr_threshold)
 
-  neighbor_fn = partition.neighbor_list(
+  neighbor_fn = neighbor_list_fn(
     displacement_or_metric,
     box_size,
     cutoff,
@@ -701,7 +687,7 @@ def bks_neighbor_list(
     **neighbor_kwargs,
   )
 
-  energy_fn = smap.pair_neighbor_list(
+  energy_fn = pair_neighbor_list_fn(
     bks,
     space.canonicalize_displacement_or_metric(displacement_or_metric),
     species=species,
@@ -713,6 +699,7 @@ def bks_neighbor_list(
     repulsive_coeff=repulsive_coeff,
     coulomb_alpha=coulomb_alpha,
     cutoff=cutoff,
+    fractional_coordinates=fractional_coordinates,
   )
 
   return neighbor_fn, energy_fn
@@ -782,6 +769,8 @@ def bks_silica_neighbor_list(
   dr_threshold: float = 1.0,
   fractional_coordinates: bool = False,
   format: partition.NeighborListFormat = partition.OrderedSparse,
+  neighbor_list_fn: Callable = partition.neighbor_list,
+  pair_neighbor_list_fn: Callable = smap.pair_neighbor_list,
   **neighbor_kwargs,
 ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   """Convenience wrapper to compute :ref:`BKS energy <bks-pot>` using neighbor lists."""
@@ -794,6 +783,8 @@ def bks_silica_neighbor_list(
     dr_threshold=dr_threshold,
     fractional_coordinates=fractional_coordinates,
     format=format,
+    neighbor_list_fn=neighbor_list_fn,
+    pair_neighbor_list_fn=pair_neighbor_list_fn,
     **kwargs,
   )
   N_0 = jnp.sum(species == 0)
@@ -948,6 +939,7 @@ def stillinger_weber_neighbor_list(
   dr_threshold: float = 0.5,
   fractional_coordinates: bool = False,
   format: NeighborListFormat = partition.Dense,
+  neighbor_list_fn: Callable = partition.neighbor_list,
   **neighbor_kwargs,
 ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   """Convenience wrapper to compute :ref:`Stillinger-Weber <sw-pot>`
@@ -956,11 +948,12 @@ def stillinger_weber_neighbor_list(
   two_body_fn = partial(_sw_radial_interaction, sigma, B, cutoff)
   three_body_fn = partial(_sw_angle_interaction, gamma, sigma, cutoff)
 
-  neighbor_fn = partition.neighbor_list(
+  neighbor_fn = neighbor_list_fn(
     displacement,
     box_size,
     cutoff,
     dr_threshold,
+    fractional_coordinates=fractional_coordinates,
     format=format,
     **neighbor_kwargs,
   )
@@ -1297,6 +1290,7 @@ def tersoff_neighbor_list(
   disable_cell_list: bool = False,
   fractional_coordinates: bool = True,
   format: NeighborListFormat = partition.Dense,
+  neighbor_list_fn: Callable = partition.neighbor_list,
   **neighbor_kwargs,
 ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   """Computes the Tersoff potential.
@@ -1356,7 +1350,7 @@ def tersoff_neighbor_list(
   # define a neighbor function.
   # TODO: other neighbor list construction method will be implemented.
   if format is partition.Dense:
-    neighbor_fn = partition.neighbor_list(
+    neighbor_fn = neighbor_list_fn(
       displacement,
       box_size,
       params['R'] + params['D'],
@@ -1394,6 +1388,7 @@ def tersoff_from_lammps_parameters_neighbor_list(
   f: TextIO,
   dr_threshold: float = 0.5,
   fractional_coordinates=True,
+  neighbor_list_fn: Callable = partition.neighbor_list,
   **neighbor_kwargs,
 ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   """Convenience wrapper to compute Tersoff energy with LAMMPS parameters."""
@@ -1403,6 +1398,7 @@ def tersoff_from_lammps_parameters_neighbor_list(
     load_lammps_tersoff_parameters(f),
     dr_threshold=dr_threshold,
     fractional_coordinates=fractional_coordinates,
+    neighbor_list_fn=neighbor_list_fn,
     **neighbor_kwargs,
   )
 
@@ -1590,6 +1586,7 @@ def edip_neighbor_list(
   dr_threshold: f64 = 0.0,
   fractional_coordinates: bool = True,
   format: NeighborListFormat = partition.Dense,
+  neighbor_list_fn: Callable = partition.neighbor_list,
   **neighbor_kwargs,
 ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   two_body_fn = partial(
@@ -1611,7 +1608,7 @@ def edip_neighbor_list(
     mu,
   )
 
-  neighbor_fn = partition.neighbor_list(
+  neighbor_fn = neighbor_list_fn(
     displacement,
     box_size,
     cutoff,
@@ -1820,17 +1817,19 @@ def eam_neighbor_list(
   axis: Optional[Tuple[int, ...]] = None,
   fractional_coordinates: bool = True,
   format: partition.NeighborListFormat = partition.Sparse,
+  neighbor_list_fn: Callable = partition.neighbor_list,
   **neighbor_kwargs,
 ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   """Convenience wrapper to compute :ref:`EAM <eam-pot>` using a neighbor list."""
   metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
 
-  neighbor_fn = partition.neighbor_list(
+  neighbor_fn = neighbor_list_fn(
     displacement_or_metric,
     box_size,
     cutoff,
     dr_threshold,
     mask_self=False,
+    fractional_coordinates=fractional_coordinates,
     format=format,
     **neighbor_kwargs,
   )
@@ -1874,6 +1873,7 @@ def eam_from_lammps_parameters_neighbor_list(
   axis=None,
   dr_threshold: float = 0.5,
   fractional_coordinates=True,
+  neighbor_list_fn: Callable = partition.neighbor_list,
   **neighbor_kwargs,
 ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   """Convenience wrapper to compute :ref:`EAM energy <eam-pot>`
@@ -1883,6 +1883,8 @@ def eam_from_lammps_parameters_neighbor_list(
     box_size,
     *load_lammps_eam_parameters(f),
     dr_threshold=dr_threshold,
+    fractional_coordinates=fractional_coordinates,
+    neighbor_list_fn=neighbor_list_fn,
     **neighbor_kwargs,
   )
 
@@ -1931,6 +1933,7 @@ def behler_parrinello_neighbor_list(
   dr_threshold: float = 0.5,
   fractional_coordinates: bool = False,
   format: partition.NeighborListFormat = partition.Sparse,
+  neighbor_list_fn: Callable = partition.neighbor_list,
   **neighbor_kwargs,
 ) -> Tuple[
   NeighborFn, nn.InitFn, Callable[[PyTree, Array, NeighborList], Array]
@@ -1944,7 +1947,7 @@ def behler_parrinello_neighbor_list(
   if 'cutoff_distance' in sym_kwargs:
     cutoff_distance = sym_kwargs['cutoff_distance']
 
-  neighbor_fn = partition.neighbor_list(
+  neighbor_fn = neighbor_list_fn(
     displacement,
     box_size,
     cutoff_distance,
@@ -2103,6 +2106,7 @@ def graph_network_neighbor_list(
   mlp_kwargs: Optional[Dict[str, Any]] = None,
   fractional_coordinates: bool = False,
   format: partition.NeighborListFormat = partition.Sparse,
+  neighbor_list_fn: Callable = partition.neighbor_list,
   **neighbor_kwargs,
 ) -> Tuple[
   NeighborFn, nn.InitFn, Callable[[PyTree, Array, NeighborList], Array]
@@ -2185,7 +2189,7 @@ def graph_network_neighbor_list(
     net = EnergyGraphNet(n_recurrences, mlp_sizes, mlp_kwargs, format)
     return net(graph)  # pytype: disable=wrong-arg-count
 
-  neighbor_fn = partition.neighbor_list(
+  neighbor_fn = neighbor_list_fn(
     displacement_fn,
     box_size,
     r_cutoff,
@@ -2201,12 +2205,17 @@ def graph_network_neighbor_list(
 
 
 def nequip_neighbor_list(
-  displacement_fn, box, cfg: ConfigDict = None, atoms=None, **nl_kwargs
+  displacement_fn,
+  box,
+  cfg: ConfigDict = None,
+  atoms=None,
+  neighbor_list_fn: Callable = partition.neighbor_list,
+  **nl_kwargs,
 ):
   cfg = nequip.default_config() if cfg is None else cfg
   model = nequip.model_from_config(cfg)
 
-  neighbor_fn = partition.neighbor_list(
+  neighbor_fn = neighbor_list_fn(
     displacement_fn, box, cfg.r_max, format=partition.Sparse, **nl_kwargs
   )
 
@@ -2232,12 +2241,17 @@ def nequip_neighbor_list(
 
 
 def load_gnome_model_neighbor_list(
-  displacement_fn, box, directory, atoms=None, **nl_kwargs
+  displacement_fn,
+  box,
+  directory,
+  atoms=None,
+  neighbor_list_fn: Callable = partition.neighbor_list,
+  **nl_kwargs,
 ):
   """Load a gnome model from a checkpoint."""
   cfg, model, params = gnome.load_model(directory)
 
-  neighbor_fn = partition.neighbor_list(
+  neighbor_fn = neighbor_list_fn(
     displacement_fn, box, cfg.r_max, format=partition.Sparse, **nl_kwargs
   )
 
