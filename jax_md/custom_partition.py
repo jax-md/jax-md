@@ -870,7 +870,6 @@ def _compute_displacements(
 
 
 def neighbor_list_featurizer(
-  box: Array,  # [dim, dim]
   fractional_coordinates: bool = True,
 ):
   r"""Returns a featurizer function for multi-image neighbor lists.
@@ -884,8 +883,11 @@ def neighbor_list_featurizer(
 
     \mathbf{d}_{ij}^{\mathbf{s}} = \mathbf{r}_j + \mathbf{s} \cdot \mathbf{T} - \mathbf{r}_i
 
+  The box matrix :math:`\mathbf{T}` is taken from the neighbor list itself
+  (``neighbor.box``), ensuring consistency between the integer shifts and
+  the coordinate transformation.
+
   Args:
-    box: Affine transformation (see ``periodic_general``). Shape ``[dim, dim]``.
     fractional_coordinates: If True, positions are in fractional coordinates.
 
   Returns:
@@ -901,11 +903,10 @@ def neighbor_list_featurizer(
 
     .. code-block:: python
 
-       featurizer = neighbor_list_featurizer(box, fractional_coordinates=True)
+       featurizer = neighbor_list_featurizer(fractional_coordinates=True)
        dR = featurizer(positions, nbrs)  # Shape: [capacity, dim]
        dr = jnp.linalg.norm(dR, axis=-1)  # Shape: [capacity]
   """
-  box = jnp.asarray(box)  # [dim, dim]
 
   def featurize(
     position: Array,  # [N, dim]
@@ -913,6 +914,7 @@ def neighbor_list_featurizer(
     **kwargs,
   ) -> Array:  # [capacity, dim]
     """Compute displacement vectors from positions + neighbor list."""
+    box = neighbor.box  # [dim, dim] - use neighbor list's box for consistency
     N = position.shape[0]
     mask = neighbor_list_multi_image_mask(neighbor)  # [capacity]
 
