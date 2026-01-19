@@ -953,7 +953,6 @@ def stillinger_weber_neighbor_list(
     box_size,
     cutoff,
     dr_threshold,
-    fractional_coordinates=fractional_coordinates,
     format=format,
     **neighbor_kwargs,
   )
@@ -1829,7 +1828,6 @@ def eam_neighbor_list(
     cutoff,
     dr_threshold,
     mask_self=False,
-    fractional_coordinates=fractional_coordinates,
     format=format,
     **neighbor_kwargs,
   )
@@ -1883,7 +1881,6 @@ def eam_from_lammps_parameters_neighbor_list(
     box_size,
     *load_lammps_eam_parameters(f),
     dr_threshold=dr_threshold,
-    fractional_coordinates=fractional_coordinates,
     neighbor_list_fn=neighbor_list_fn,
     **neighbor_kwargs,
   )

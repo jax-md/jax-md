@@ -681,19 +681,31 @@ def neighbor_list_multi_image(
   shifts_real = shifts @ box.T  # [num_shifts, dim]
   zero_shift_idx = int(jnp.argmin(jnp.sum(shifts**2, axis=1)))
 
-  # Estimate capacity: count shifts within 2*r_cutoff (can contribute neighbors)
+  # Estimate capacity based on cutoff volume and density
   shift_distances = jnp.linalg.norm(shifts_real, axis=1)  # [num_shifts]
   num_effective = int(jnp.sum(shift_distances < r_cutoff * 2)) + 1
 
-  if use_dense:
-    # Dense: max_neighbors per atom = N * effective_shifts * multiplier
-    max_neighbors = max(int(n_atoms * num_effective * capacity_multiplier), 50)
-    capacity = max_neighbors
+  # Estimate neighbors per atom using sphere volume / box volume * N
+  box_volume = jnp.abs(jnp.linalg.det(box))
+  dim = box.shape[0]
+  if dim == 3:
+    sphere_volume = 4.0 / 3.0 * jnp.pi * r_cutoff**3
+  elif dim == 2:
+    sphere_volume = jnp.pi * r_cutoff**2
   else:
-    # Sparse: total edges = N^2 * effective_shifts * multiplier
-    capacity = max(
-      int(n_atoms * n_atoms * num_effective * capacity_multiplier), n_atoms * 50
-    )
+    sphere_volume = 2.0 * r_cutoff  # 1D
+  # Expected neighbors = density * sphere_volume * num_shifts
+  density = n_atoms / box_volume
+  expected_neighbors = float(density * sphere_volume * num_effective)
+  # Add safety margin
+  neighbors_per_atom = max(int(expected_neighbors * capacity_multiplier), 50)
+
+  if use_dense:
+    # Dense: max_neighbors per atom
+    capacity = neighbors_per_atom
+  else:
+    # Sparse: total edges = N * neighbors_per_atom
+    capacity = max(n_atoms * neighbors_per_atom, n_atoms * 50)
     if use_ordered:
       capacity = capacity // 2 + n_atoms  # Ordered stores ~half the edges
 
@@ -770,6 +782,9 @@ def neighbor_list_multi_image(
     max_disp_sq = jnp.max(jnp.sum((pos_new - pos_old) ** 2, axis=-1))
     return max_disp_sq >= threshold_sq
 
+  # Choose update strategy at function creation time (not trace time)
+  use_threshold = dr_threshold > 0
+
   def neighbor_list_fn(
     position: Array,  # [N, dim]
     neighbors: Optional[NeighborListMultiImage] = None,
@@ -782,8 +797,7 @@ def neighbor_list_multi_image(
       return build_fn(position)
 
     # Check if rebuild needed based on displacement threshold
-    # Since max_disp_sq is a traced value, we use lax.cond to avoid recompilation
-    if dr_threshold > 0:
+    if use_threshold:
       return jax.lax.cond(
         check_needs_rebuild(position, neighbors.reference_position),
         build_fn,  # True branch: rebuild
