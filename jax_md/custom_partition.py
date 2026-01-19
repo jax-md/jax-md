@@ -755,6 +755,21 @@ def neighbor_list_multi_image(
         update_fn_ref[0],
       )
 
+  @jax.jit
+  def check_needs_rebuild(
+    position: Array,  # [N, dim]
+    reference_position: Array,  # [N, dim]
+  ) -> Array:  # scalar bool
+    """Check if maximum displacement exceeds threshold."""
+    if fractional_coordinates:
+      pos_new = position @ box.T  # [N, dim]
+      pos_old = reference_position @ box.T
+    else:
+      pos_new = position
+      pos_old = reference_position
+    max_disp_sq = jnp.max(jnp.sum((pos_new - pos_old) ** 2, axis=-1))
+    return max_disp_sq >= threshold_sq
+
   def neighbor_list_fn(
     position: Array,  # [N, dim]
     neighbors: Optional[NeighborListMultiImage] = None,
@@ -767,17 +782,14 @@ def neighbor_list_multi_image(
       return build_fn(position)
 
     # Check if rebuild needed based on displacement threshold
+    # Since max_disp_sq is a traced value, we use lax.cond to avoid recompilation
     if dr_threshold > 0:
-      if fractional_coordinates:
-        pos_new = position @ box.T  # [N, dim]
-        pos_old = neighbors.reference_position @ box.T
-      else:
-        pos_new = position
-        pos_old = neighbors.reference_position
-      max_disp_sq = jnp.max(jnp.sum((pos_new - pos_old) ** 2, axis=-1))
-
-      if max_disp_sq < threshold_sq:
-        return neighbors  # Skip rebuild
+      return jax.lax.cond(
+        check_needs_rebuild(position, neighbors.reference_position),
+        build_fn,  # True branch: rebuild
+        lambda pos: neighbors,  # False branch: return existing
+        position,
+      )
 
     return build_fn(position)
 
@@ -789,3 +801,134 @@ def neighbor_list_multi_image(
     return neighbor_list_fn(position, None, **kwargs)
 
   return NeighborListMultiImageFns(allocate_fn, neighbor_list_fn)
+
+
+def neighbor_list_multi_image_mask(
+  neighbors: NeighborListMultiImage,
+) -> Array:  # [capacity]
+  r"""Compute a boolean mask for valid edges in a neighbor list.
+
+  This is equivalent to ``jax_md.partition.neighbor_list_mask``. An edge is
+  valid if its receiver index is less than ``N`` (invalid edges are padded
+  with index ``N``).
+
+  Args:
+    neighbors: A ``NeighborListMultiImage`` (Sparse or OrderedSparse format).
+
+  Returns:
+    Boolean mask. Shape ``[capacity]``. True indicates a valid edge.
+  """
+  N = len(neighbors.reference_position)
+  return neighbors.idx[0] < N  # [capacity]
+
+
+def _compute_displacements(
+  position: Array,  # [N, dim]
+  neighbors: NeighborListMultiImage,
+  fractional_coordinates: bool = True,
+) -> Array:  # [capacity, dim]
+  r"""Compute displacement vectors for all edges in a neighbor list.
+
+  For each edge from receiver :math:`i` to sender :math:`j` with shift
+  :math:`\mathbf{s}`, computes:
+
+  .. math::
+
+    \mathbf{d}_{ij}^{\mathbf{s}} = \mathbf{r}_j + \mathbf{s} \cdot \mathbf{T} - \mathbf{r}_i
+
+  where :math:`\mathbf{T}` is the box matrix.
+
+  Args:
+    position: Atom positions. Shape ``[N, dim]``.
+    neighbors: A ``NeighborListMultiImage`` (Sparse or OrderedSparse format).
+    fractional_coordinates: If True, positions are in fractional coordinates.
+
+  Returns:
+    Displacement vectors in Cartesian coordinates. Shape ``[capacity, dim]``.
+    Invalid edges are set to zero. Use ``neighbor_list_mask(neighbors)`` to
+    filter valid edges.
+  """
+  box = neighbors.box  # [dim, dim]
+  N = position.shape[0]
+  mask = neighbor_list_multi_image_mask(neighbors)  # [capacity]
+
+  if fractional_coordinates:
+    position_real = position @ box.T  # [N, dim]
+  else:
+    position_real = position
+
+  # Safe indexing for padding (clip to valid range)
+  i_safe = jnp.clip(neighbors.receivers, 0, N - 1)  # [capacity]
+  j_safe = jnp.clip(neighbors.senders, 0, N - 1)  # [capacity]
+  shifts_real = neighbors.shifts @ box.T  # [capacity, dim]
+
+  # Displacement: r_j + shift - r_i
+  dR = (
+    position_real[j_safe] + shifts_real - position_real[i_safe]
+  )  # [capacity, dim]
+  return jnp.where(mask[:, None], dR, 0.0)
+
+
+def neighbor_list_featurizer(
+  box: Array,  # [dim, dim]
+  fractional_coordinates: bool = True,
+):
+  r"""Returns a featurizer function for multi-image neighbor lists.
+
+  This mirrors ``jax_md.nn.util.neighbor_list_featurizer`` but works with
+  ``NeighborListMultiImage`` which stores explicit shift vectors.
+
+  The returned function computes displacement vectors:
+
+  .. math::
+
+    \mathbf{d}_{ij}^{\mathbf{s}} = \mathbf{r}_j + \mathbf{s} \cdot \mathbf{T} - \mathbf{r}_i
+
+  Args:
+    box: Affine transformation (see ``periodic_general``). Shape ``[dim, dim]``.
+    fractional_coordinates: If True, positions are in fractional coordinates.
+
+  Returns:
+    A featurizer function with signature:
+    ``featurize(position, neighbor, **kwargs) -> displacements``
+
+    - Input ``position``: Shape ``[N, dim]``.
+    - Input ``neighbor``: A ``NeighborListMultiImage``.
+    - Output: Displacement vectors. Shape ``[capacity, dim]``.
+      Invalid edges are set to unit vectors (to avoid NaN in normalization).
+
+  Example:
+
+    .. code-block:: python
+
+       featurizer = neighbor_list_featurizer(box, fractional_coordinates=True)
+       dR = featurizer(positions, nbrs)  # Shape: [capacity, dim]
+       dr = jnp.linalg.norm(dR, axis=-1)  # Shape: [capacity]
+  """
+  box = jnp.asarray(box)  # [dim, dim]
+
+  def featurize(
+    position: Array,  # [N, dim]
+    neighbor: NeighborListMultiImage,
+    **kwargs,
+  ) -> Array:  # [capacity, dim]
+    """Compute displacement vectors from positions + neighbor list."""
+    N = position.shape[0]
+    mask = neighbor_list_multi_image_mask(neighbor)  # [capacity]
+
+    if fractional_coordinates:
+      pos_real = position @ box.T  # [N, dim]
+    else:
+      pos_real = position
+
+    i_safe = jnp.clip(neighbor.receivers, 0, N - 1)  # [capacity]
+    j_safe = jnp.clip(neighbor.senders, 0, N - 1)  # [capacity]
+    shifts_real = neighbor.shifts @ box.T  # [capacity, dim]
+
+    dR = pos_real[j_safe] + shifts_real - pos_real[i_safe]  # [capacity, dim]
+    # Set invalid edges to unit vector to avoid NaN in normalization
+    dR = jnp.where(mask[:, None], dR, 1.0)
+
+    return dR
+
+  return featurize
