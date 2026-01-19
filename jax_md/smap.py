@@ -145,6 +145,42 @@ def _kwargs_to_bond_parameters(
   return kwargs
 
 
+def _apply_combinator(indices: Array, param: Parameter, combinator: Callable):
+  """Combine per-particle parameters into per-interaction parameters."""
+  def _combine_leaf(p):
+    if util.is_array(p) and p.ndim >= 1:
+      args = [p[indices[:, i]] for i in range(indices.shape[1])]
+      return vmap(lambda *xs: combinator(*xs))(*args)
+    return p
+
+  if isinstance(param, ParameterTree):
+    if param.mapping is ParameterTreeMapping.PerParticle:
+      return tree_map(_combine_leaf, param.tree)
+    elif param.mapping in (ParameterTreeMapping.Global, ParameterTreeMapping.PerBond):
+      return param.tree
+    else:
+      raise ValueError(
+        'Combinators for bonds/angles/torsions require PerParticle mapping when using ParameterTree. '
+        f'Found {param.mapping}.'
+      )
+  return _combine_leaf(param)
+
+
+def _kwargs_to_interaction_parameters(
+  indices: Array,
+  interaction_type: Optional[Array],
+  kwargs: Dict[str, Parameter],
+  combinators: Dict[str, Callable],
+) -> Dict[str, Array]:
+  """Extract parameters for bond/angle/torsion with optional combinators."""
+  for k, v in kwargs.items():
+    if k in combinators:
+      kwargs[k] = _apply_combinator(indices, v, combinators[k])
+    elif interaction_type is not None:
+      kwargs[k] = _get_bond_type_parameters(v, interaction_type)
+  return kwargs
+
+
 def bond(
   fn: Callable[..., Array],
   displacement_or_metric: DisplacementOrMetricFn,
@@ -184,6 +220,9 @@ def bond(
 
         1. a scalar
         2. an ndarray of shape `[b]`.
+        3. a tuple `(combinator, params)` where `params` is per-particle
+           (shape `[n]` or ParameterTree PerParticle) and `combinator`
+           maps the two endpoint parameters to a bond parameter.
 
       If bond type information is provided then the parameters should be
       specified as either
@@ -192,6 +231,7 @@ def bond(
         2. an ndarray of shape `[max_bond_type]`.
         3. a ParameterTree containing a PyTree of parameters and a mapping. See
            ParameterTree for details.
+        4. a tuple `(combinator, params)` as above (bond types ignored).
   Returns:
     A function `fn_mapped`. Note that `fn_mapped` can take arguments bonds and
     `bond_types` which will be bonds that are specified dynamically. This will
@@ -205,6 +245,7 @@ def bond(
   # displacement between two vectors to one that acts on two lists of vectors.
   # Thus, we apply a single application of vmap.
 
+  kwargs, combinators = _split_params_and_combinators(kwargs)
   merge_dicts = partial(
     util.merge_dicts, ignore_unused_parameters=ignore_unused_parameters
   )
@@ -213,7 +254,7 @@ def bond(
     Ra = R[bonds[:, 0]]
     Rb = R[bonds[:, 1]]
     _kwargs = merge_dicts(static_kwargs, dynamic_kwargs)
-    _kwargs = _kwargs_to_bond_parameters(bond_types, _kwargs)
+    _kwargs = _kwargs_to_interaction_parameters(bonds, bond_types, _kwargs, combinators)
     # NOTE(schsam): This pattern is needed due to JAX issue #912.
     d = vmap(partial(displacement_or_metric, **dynamic_kwargs), 0, 0)
     dr = d(Ra, Rb)
@@ -379,6 +420,108 @@ def _split_params_and_combinators(kwargs):
     else:
       params[k] = v
   return params, combinators
+
+
+def angle(
+  fn: Callable[..., Array],
+  displacement_or_metric: DisplacementOrMetricFn,
+  static_angles: Optional[Array] = None,
+  static_angle_types: Optional[Array] = None,
+  ignore_unused_parameters: bool = False,
+  **kwargs,
+) -> Callable[..., PyTree]:
+  """Promotes a function acting on a single angle to a set of angles.
+
+  The mapped function passes two displacement vectors (i->j and k->j) to `fn`.
+  Parameters can be provided per-angle via `static_angle_types` similar to `bond`.
+  Parameters can also be provided as `(combinator, params)` where `params` are
+  per-particle and `combinator` maps the three endpoint parameters to an
+  angle-specific value.
+  """
+  kwargs, combinators = _split_params_and_combinators(kwargs)
+  merge_dicts = partial(
+    util.merge_dicts, ignore_unused_parameters=ignore_unused_parameters
+  )
+
+  def compute_fn(R, angles, angle_types, static_kwargs, dynamic_kwargs):
+    Ra = R[angles[:, 0]]
+    Rb = R[angles[:, 1]]
+    Rc = R[angles[:, 2]]
+    _kwargs = merge_dicts(static_kwargs, dynamic_kwargs)
+    _kwargs = _kwargs_to_interaction_parameters(angles, angle_types, _kwargs, combinators)
+    disp = vmap(partial(displacement_or_metric, **dynamic_kwargs))
+    rij = disp(Ra, Rb)
+    rkj = disp(Rc, Rb)
+    return high_precision_sum(fn(rij, rkj, **_kwargs))
+
+  def mapped_fn(
+    R: Array,
+    angles: Optional[Array] = None,
+    angle_types: Optional[Array] = None,
+    **dynamic_kwargs,
+  ):
+    accum = f32(0)
+    if angles is not None:
+      accum = accum + compute_fn(R, angles, angle_types, kwargs, dynamic_kwargs)
+    if static_angles is not None:
+      accum = accum + compute_fn(
+        R, static_angles, static_angle_types, kwargs, dynamic_kwargs
+      )
+    return accum
+
+  return mapped_fn
+
+
+def torsion(
+  fn: Callable[..., Array],
+  displacement_or_metric: DisplacementOrMetricFn,
+  static_torsions: Optional[Array] = None,
+  static_torsion_types: Optional[Array] = None,
+  ignore_unused_parameters: bool = False,
+  **kwargs,
+) -> Callable[..., PyTree]:
+  """Promotes a function acting on a single torsion (dihedral) to many.
+
+  The mapped function passes three bond vectors (p1-p0, p2-p1, p3-p2) to `fn`.
+  Parameters can be provided per-torsion via `static_torsion_types` similar to `bond`.
+  Parameters can also be provided as `(combinator, params)` where `params` are
+  per-particle and `combinator` maps the four endpoint parameters to a
+  torsion-specific value.
+  """
+  kwargs, combinators = _split_params_and_combinators(kwargs)
+  merge_dicts = partial(
+    util.merge_dicts, ignore_unused_parameters=ignore_unused_parameters
+  )
+
+  def compute_fn(R, torsions, torsion_types, static_kwargs, dynamic_kwargs):
+    p0 = R[torsions[:, 0]]
+    p1 = R[torsions[:, 1]]
+    p2 = R[torsions[:, 2]]
+    p3 = R[torsions[:, 3]]
+    _kwargs = merge_dicts(static_kwargs, dynamic_kwargs)
+    _kwargs = _kwargs_to_interaction_parameters(torsions, torsion_types, _kwargs, combinators)
+    disp = vmap(partial(displacement_or_metric, **dynamic_kwargs), 0, 0)
+    b0 = disp(p1, p0)
+    b1 = disp(p2, p1)
+    b2 = disp(p3, p2)
+    return high_precision_sum(fn(b0, b1, b2, **_kwargs))
+
+  def mapped_fn(
+    R: Array,
+    torsions: Optional[Array] = None,
+    torsion_types: Optional[Array] = None,
+    **dynamic_kwargs,
+  ):
+    accum = f32(0)
+    if torsions is not None:
+      accum = accum + compute_fn(R, torsions, torsion_types, kwargs, dynamic_kwargs)
+    if static_torsions is not None:
+      accum = accum + compute_fn(
+        R, static_torsions, static_torsion_types, kwargs, dynamic_kwargs
+      )
+    return accum
+
+  return mapped_fn
 
 
 def pair(
