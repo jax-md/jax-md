@@ -1,7 +1,8 @@
+import jax
 import jax.numpy as jnp
 from jax_md import dataclasses
 from jax_md.partition import NeighborListFormat
-from typing import Callable, Tuple, Union
+from typing import Callable, Tuple, Union, Optional
 
 # Type aliases
 Array = jnp.ndarray
@@ -31,9 +32,9 @@ class NeighborListMultiImage:
     idx: For Sparse: tuple (receivers, senders). For Dense: array (N, max_neighbors).
       Invalid entries are padded with index N (number of atoms).
     shifts: Integer shift vectors. Sparse: (capacity, dim). Dense: (N, max_neighbors, dim).
-      The real-space shift is `shifts @ box`.
+      The real-space shift is ``shifts @ box.T``.
     reference_position: Positions when the list was built, shape (N, dim).
-    box: Box matrix with rows as lattice vectors, shape (dim, dim).
+    box: An affine transformation; see ``jax_md.space.periodic_general``.
     format: NeighborListFormat.Sparse, OrderedSparse, or Dense.
     max_occupancy: For Sparse: total capacity. For Dense: max_neighbors.
     update_fn: Function to update the neighbor list.
@@ -45,7 +46,7 @@ class NeighborListMultiImage:
   idx: Union[Tuple[Array, Array], Array]
   # Sparse/OrderedSparse: Array[capacity, dim]
   # Dense: Array[N, max_neighbors, dim]
-  shifts: Array  # real-space shift = shifts @ box
+  shifts: Array  # real-space shift = shifts @ box.T
   reference_position: Array  # [N, dim]
   box: Array  # [dim, dim]
   format: NeighborListFormat = dataclasses.static_field()
@@ -159,7 +160,7 @@ def _compute_shift_ranges(
   construction with periodic boundary conditions.
 
   Args:
-    box: Box matrix with rows as lattice vectors. Shape ``[dim, dim]``.
+    box: Affine transformation (see ``periodic_general``). Shape ``[dim, dim]``.
     r_cutoff: Interaction cutoff distance (scalar).
     pbc: Boolean array indicating which directions are periodic.
       Shape ``[dim]``. Non-periodic directions get zero shifts.
@@ -182,3 +183,609 @@ def _compute_shift_ranges(
   ranges = [jnp.arange(-n, n + 1) for n in n_max_int]  # List of [2*n+1]
   grids = jnp.meshgrid(*ranges, indexing='ij')
   return jnp.stack([g.ravel() for g in grids], axis=-1)  # [num_shifts, dim]
+
+
+def _compute_distances_sq(
+  position: Array,  # [N, dim]
+  box: Array,  # [dim, dim]
+  shifts_real: Array,  # [num_shifts, dim]
+  fractional_coordinates: bool,
+) -> Array:  # [num_shifts, N, N]
+  r"""Compute squared distances for all (shift, i, j) combinations.
+
+  For each shift :math:`\mathbf{s}` and atom pair :math:`(i, j)`:
+
+  .. math::
+
+    d_{ij}^{\mathbf{s}2} = \|\mathbf{r}_j + \mathbf{s} \cdot \mathbf{T} - \mathbf{r}_i\|^2
+
+  Args:
+    position: Atom positions. Shape ``[N, dim]``.
+    box: Box matrix. Shape ``[dim, dim]``.
+    shifts_real: Real-space shifts. Shape ``[num_shifts, dim]``.
+    fractional_coordinates: If True, positions are fractional.
+
+  Returns:
+    Squared distances. Shape ``[num_shifts, N, N]``.
+  """
+  if fractional_coordinates:
+    position_real = position @ box.T  # [N, dim]
+  else:
+    position_real = position
+
+  D_all = (
+    position_real[None, None, :, :]  # [1, 1, N, dim]
+    + shifts_real[:, None, None, :]  # [num_shifts, 1, 1, dim]
+    - position_real[None, :, None, :]  # [1, N, 1, dim]
+  )  # [num_shifts, N, N, dim]
+
+  return jnp.sum(D_all**2, axis=-1)  # [num_shifts, N, N]
+
+
+def _compute_pairwise_mask(
+  position: Array,  # [N, dim]
+  box: Array,  # [dim, dim]
+  shifts_real: Array,  # [num_shifts, dim]
+  zero_shift_idx: int,
+  r_cutoff: float,
+  fractional_coordinates: bool,
+) -> Array:  # [num_shifts, N, N]
+  r"""Compute boolean mask for pairs within cutoff across all shifts.
+
+  For each shift vector :math:`\mathbf{s}` and atom pair :math:`(i, j)`,
+  computes whether the distance is within the cutoff:
+
+  .. math::
+
+    \|\mathbf{r}_j + \mathbf{s} \cdot \mathbf{T} - \mathbf{r}_i\| < r_\text{cut}
+
+  Self-interactions (:math:`i = j` with zero shift) are excluded.
+
+  Args:
+    position: Atom positions. Shape ``[N, dim]``.
+    box: Affine transformation (see ``periodic_general``). Shape ``[dim, dim]``.
+    shifts_real: Real-space shift vectors. Shape ``[num_shifts, dim]``.
+    zero_shift_idx: Index of the zero shift in ``shifts_real``.
+    r_cutoff: Cutoff distance (scalar).
+    fractional_coordinates: If True, positions are fractional.
+
+  Returns:
+    Boolean mask. Shape ``[num_shifts, N, N]``. Entry ``[s, i, j]`` is True
+    if atom ``j`` with shift ``s`` is a neighbor of atom ``i``.
+  """
+  N = position.shape[0]
+  num_shifts = shifts_real.shape[0]
+
+  # Compute squared distances using shared helper
+  dist_sq = _compute_distances_sq(
+    position, box, shifts_real, fractional_coordinates
+  )  # [num_shifts, N, N]
+  within_cutoff = dist_sq < r_cutoff**2  # [num_shifts, N, N]
+
+  # Exclude self-interactions (i == j with zero shift)
+  self_mask = jnp.eye(N, dtype=bool)  # [N, N]
+  zero_shift_mask = jnp.arange(num_shifts) == zero_shift_idx  # [num_shifts]
+  self_interaction = zero_shift_mask[:, None, None] & self_mask[None, :, :]
+  within_cutoff = within_cutoff & ~self_interaction  # [num_shifts, N, N]
+
+  return within_cutoff
+
+
+def _scatter_to_sparse(
+  valid_mask: Array,  # [num_shifts, N, N]
+  shifts: Array,  # [num_shifts, dim]
+  capacity: int,
+  N: int,
+) -> Tuple[Array, Array, Array, Array]:
+  r"""Scatter valid pairs into fixed-size sparse arrays.
+
+  Uses cumulative sum for compaction of valid entries.
+
+  Args:
+    valid_mask: Boolean mask indicating valid pairs. Shape ``[num_shifts, N, N]``.
+    shifts: Integer shift vectors. Shape ``[num_shifts, dim]``.
+    capacity: Maximum number of edges to store.
+    N: Number of atoms.
+
+  Returns:
+    Tuple ``(senders, receivers, edge_shifts, n_valid)``:
+
+    - ``senders``: Shape ``[capacity]``. Padded with ``N``.
+    - ``receivers``: Shape ``[capacity]``. Padded with ``N``.
+    - ``edge_shifts``: Shape ``[capacity, dim]``.
+    - ``n_valid``: Total number of valid pairs (scalar).
+  """
+  num_shifts = shifts.shape[0]
+  dim = shifts.shape[1]
+
+  valid_flat = valid_mask.ravel()  # [num_shifts * N * N]
+
+  # Create index grids
+  s_grid, i_grid, j_grid = jnp.meshgrid(
+    jnp.arange(num_shifts), jnp.arange(N), jnp.arange(N), indexing='ij'
+  )  # each [num_shifts, N, N]
+  s_flat, i_flat, j_flat = s_grid.ravel(), i_grid.ravel(), j_grid.ravel()
+
+  # Compact using cumsum
+  n_valid = jnp.sum(valid_flat)
+  cumsum = jnp.cumsum(valid_flat) - 1  # [num_shifts * N * N]
+
+  # Pre-allocate with padding index = N
+  senders = N * jnp.ones(capacity, dtype=i32)  # [capacity]
+  receivers = N * jnp.ones(capacity, dtype=i32)  # [capacity]
+  edge_shifts = jnp.zeros(
+    (capacity, dim), dtype=shifts.dtype
+  )  # [capacity, dim]
+
+  # Scatter valid entries
+  write_idx = jnp.where(valid_flat, cumsum, capacity)
+  write_mask = valid_flat & (cumsum < capacity)
+
+  senders = senders.at[write_idx].set(
+    jnp.where(write_mask, j_flat, N), mode='drop'
+  )
+  receivers = receivers.at[write_idx].set(
+    jnp.where(write_mask, i_flat, N), mode='drop'
+  )
+
+  shift_vals = shifts[s_flat]  # [num_shifts * N * N, dim]
+  shift_vals_masked = jnp.where(write_mask[:, None], shift_vals, 0)
+  edge_shifts = edge_shifts.at[write_idx].set(shift_vals_masked, mode='drop')
+
+  return senders, receivers, edge_shifts, n_valid
+
+
+def _build_neighbor_list_sparse(
+  position: Array,  # [N, dim]
+  box: Array,  # [dim, dim]
+  shifts: Array,  # [num_shifts, dim]
+  shifts_real: Array,  # [num_shifts, dim]
+  zero_shift_idx: int,
+  r_cutoff: float,
+  capacity: int,
+  fractional_coordinates: bool,
+  update_fn: Callable,
+) -> NeighborListMultiImage:
+  r"""Build neighbor list in Sparse format.
+
+  Stores **both directions** for each pair: if :math:`(i, j)` is a neighbor,
+  both :math:`i \to j` and :math:`j \to i` are stored. Required for GNNs
+  and asymmetric potentials.
+
+  Args:
+    position: Atom positions. Shape ``[N, dim]``.
+    box: Box matrix. Shape ``[dim, dim]``.
+    shifts: Integer shift vectors. Shape ``[num_shifts, dim]``.
+    shifts_real: Real-space shifts (``shifts @ box.T``). Shape ``[num_shifts, dim]``.
+    zero_shift_idx: Index of the zero shift vector.
+    r_cutoff: Cutoff distance.
+    capacity: Maximum edges to store.
+    fractional_coordinates: If True, positions are fractional.
+    update_fn: Function to update the neighbor list.
+
+  Returns:
+    NeighborListMultiImage with ``format=Sparse``:
+
+    - ``idx``: ``(receivers, senders)`` each shape ``[capacity]``.
+    - ``shifts``: Shape ``[capacity, dim]``.
+  """
+  within_cutoff = _compute_pairwise_mask(
+    position, box, shifts_real, zero_shift_idx, r_cutoff, fractional_coordinates
+  )  # [num_shifts, N, N]
+
+  N = position.shape[0]
+  senders, receivers, edge_shifts, n_valid = _scatter_to_sparse(
+    within_cutoff, shifts, capacity, N
+  )
+
+  return NeighborListMultiImage(
+    idx=(receivers, senders),
+    shifts=edge_shifts,
+    reference_position=position,
+    box=box,
+    format=NeighborListFormat.Sparse,
+    did_buffer_overflow=(n_valid > capacity),
+    max_occupancy=capacity,
+    update_fn=update_fn,
+  )
+
+
+def _build_neighbor_list_orderedsparse(
+  position: Array,  # [N, dim]
+  box: Array,  # [dim, dim]
+  shifts: Array,  # [num_shifts, dim]
+  shifts_real: Array,  # [num_shifts, dim]
+  zero_shift_idx: int,
+  r_cutoff: float,
+  capacity: int,
+  fractional_coordinates: bool,
+  update_fn: Callable,
+) -> NeighborListMultiImage:
+  r"""Build neighbor list in OrderedSparse format.
+
+  Stores **one direction** per pair to avoid double-counting. Uses 2x less
+  memory than Sparse format.
+
+  **Ordering rules:**
+
+  - **Zero shift** (:math:`\mathbf{s} = \mathbf{0}`): Store only :math:`i < j`.
+  - **Non-zero shift**: A shift is "canonical" if its first non-zero component
+    is positive. Only canonical shifts are stored.
+
+  Args:
+    position: Atom positions. Shape ``[N, dim]``.
+    box: Box matrix. Shape ``[dim, dim]``.
+    shifts: Integer shift vectors. Shape ``[num_shifts, dim]``.
+    shifts_real: Real-space shifts (``shifts @ box.T``). Shape ``[num_shifts, dim]``.
+    zero_shift_idx: Index of the zero shift vector.
+    r_cutoff: Cutoff distance.
+    capacity: Maximum edges to store.
+    fractional_coordinates: If True, positions are fractional.
+    update_fn: Function to update the neighbor list.
+
+  Returns:
+    NeighborListMultiImage with ``format=OrderedSparse``:
+
+    - ``idx``: ``(receivers, senders)`` each shape ``[capacity]``.
+    - ``shifts``: Shape ``[capacity, dim]``.
+  """
+  N = position.shape[0]
+  num_shifts = shifts.shape[0]
+
+  within_cutoff = _compute_pairwise_mask(
+    position, box, shifts_real, zero_shift_idx, r_cutoff, fractional_coordinates
+  )  # [num_shifts, N, N]
+
+  # Apply ordering to eliminate double-counting
+  i_idx = jnp.arange(N)[None, :, None]  # [1, N, 1]
+  j_idx = jnp.arange(N)[None, None, :]  # [1, 1, N]
+  zero_shift_mask = jnp.arange(num_shifts) == zero_shift_idx  # [num_shifts]
+
+  def is_shift_canonical(s):
+    """Check if shift is canonical (first non-zero component positive)."""
+    nonzero_mask = s != 0
+    first_nonzero_idx = jnp.argmax(nonzero_mask)
+    first_val = s[first_nonzero_idx]
+    is_zero = jnp.all(s == 0)
+    return jnp.where(is_zero, True, first_val > 0)
+
+  shift_is_canonical = jax.vmap(is_shift_canonical)(shifts)  # [num_shifts]
+
+  # Keep mask: zero shift -> i < j, non-zero -> canonical shifts only
+  keep_mask = jnp.where(
+    zero_shift_mask[:, None, None],
+    i_idx < j_idx,
+    shift_is_canonical[:, None, None],
+  )  # [num_shifts, N, N]
+
+  within_cutoff = within_cutoff & keep_mask
+
+  senders, receivers, edge_shifts, n_valid = _scatter_to_sparse(
+    within_cutoff, shifts, capacity, N
+  )
+
+  return NeighborListMultiImage(
+    idx=(receivers, senders),
+    shifts=edge_shifts,
+    reference_position=position,
+    box=box,
+    format=NeighborListFormat.OrderedSparse,
+    did_buffer_overflow=(n_valid > capacity),
+    max_occupancy=capacity,
+    update_fn=update_fn,
+  )
+
+
+def _build_neighbor_list_dense(
+  position: Array,  # [N, dim]
+  box: Array,  # [dim, dim]
+  shifts: Array,  # [num_shifts, dim]
+  shifts_real: Array,  # [num_shifts, dim]
+  zero_shift_idx: int,
+  r_cutoff: float,
+  max_neighbors: int,
+  fractional_coordinates: bool,
+  update_fn: Callable,
+) -> NeighborListMultiImage:
+  r"""Build neighbor list in Dense format.
+
+  Dense format stores neighbors per atom as a ``[N, max_neighbors]`` array,
+  enabling efficient three-body potential computation via vectorized operations.
+
+  For each atom :math:`i`, finds the closest ``max_neighbors`` atoms :math:`j`
+  (with shifts :math:`\mathbf{s}`) satisfying:
+
+  .. math::
+
+    \|\mathbf{r}_j + \mathbf{s} \cdot \mathbf{T} - \mathbf{r}_i\| < r_\text{cut}
+
+  Uses ``argsort`` to select top-k neighbors per atom.
+
+  Args:
+    position: Atom positions. Shape ``[N, dim]``.
+    box: Affine transformation (see ``periodic_general``). Shape ``[dim, dim]``.
+    shifts: Integer shift vectors. Shape ``[num_shifts, dim]``.
+    shifts_real: Real-space shifts (``shifts @ box.T``). Shape ``[num_shifts, dim]``.
+    zero_shift_idx: Index of the zero shift vector.
+    r_cutoff: Cutoff distance (scalar).
+    max_neighbors: Maximum neighbors per atom.
+    fractional_coordinates: If True, positions are fractional.
+    update_fn: Function to update the neighbor list.
+
+  Returns:
+    NeighborListMultiImage with ``format=Dense``:
+
+    - ``idx``: Neighbor indices. Shape ``[N, max_neighbors]``. Padded with ``N``.
+    - ``shifts``: Shift vectors. Shape ``[N, max_neighbors, dim]``.
+  """
+  N = position.shape[0]
+  num_shifts = shifts.shape[0]
+
+  # Compute squared distances for all (shift, i, j)
+  dist_sq = _compute_distances_sq(
+    position, box, shifts_real, fractional_coordinates
+  )  # [num_shifts, N, N]
+
+  # Valid neighbors: within cutoff, excluding self (i==j with zero shift)
+  within_cutoff = dist_sq < r_cutoff**2  # [num_shifts, N, N]
+  self_mask = jnp.eye(N, dtype=bool)  # [N, N]
+  zero_shift_mask = jnp.arange(num_shifts) == zero_shift_idx  # [num_shifts]
+  self_interaction = zero_shift_mask[:, None, None] & self_mask[None, :, :]
+  valid = within_cutoff & ~self_interaction  # [num_shifts, N, N]
+
+  # Reshape to per-atom view: [N, num_shifts * N]
+  # Transpose [num_shifts, N, N] -> [N, num_shifts, N] -> [N, num_shifts * N]
+  valid_per_atom = valid.transpose(1, 0, 2).reshape(N, num_shifts * N)
+  dist_sq_per_atom = dist_sq.transpose(1, 0, 2).reshape(N, num_shifts * N)
+
+  # Set invalid distances to inf for sorting
+  dist_for_sort = jnp.where(valid_per_atom, dist_sq_per_atom, jnp.inf)
+
+  # Select top-k closest neighbors per atom via argsort
+  top_k_flat_idx = jnp.argsort(dist_for_sort, axis=-1)[
+    :, :max_neighbors
+  ]  # [N, max_neighbors]
+
+  # Decode flat index -> (shift_idx, j)
+  neighbor_shift_idx = top_k_flat_idx // N  # [N, max_neighbors]
+  neighbor_j = top_k_flat_idx % N  # [N, max_neighbors]
+
+  # Gather shift vectors
+  neighbor_shifts = shifts[neighbor_shift_idx]  # [N, max_neighbors, dim]
+
+  # Check which entries are actually valid (not inf padding)
+  gathered_valid = jnp.take_along_axis(
+    valid_per_atom, top_k_flat_idx, axis=-1
+  )  # [N, max_neighbors]
+
+  # Replace invalid entries with padding sentinel N
+  neighbor_idx = jnp.where(gathered_valid, neighbor_j, N)  # [N, max_neighbors]
+  neighbor_shifts = jnp.where(
+    gathered_valid[:, :, None], neighbor_shifts, 0
+  )  # [N, max_neighbors, dim]
+
+  # Check for overflow
+  total_valid_per_atom = jnp.sum(valid_per_atom, axis=-1)  # [N]
+  did_overflow = jnp.any(total_valid_per_atom > max_neighbors)
+
+  return NeighborListMultiImage(
+    idx=neighbor_idx,
+    shifts=neighbor_shifts,
+    reference_position=position,
+    box=box,
+    format=NeighborListFormat.Dense,
+    did_buffer_overflow=did_overflow,
+    max_occupancy=max_neighbors,
+    update_fn=update_fn,
+  )
+
+
+def neighbor_list_multi_image(
+  displacement_or_metric,  # Ignored, for API compatibility
+  box: Array,  # [dim, dim]
+  r_cutoff: float,
+  dr_threshold: float = 0.0,
+  capacity_multiplier: float = 1.25,
+  pbc: Optional[Array] = None,  # [dim]
+  fractional_coordinates: bool = True,
+  ordered: bool = False,
+  format: NeighborListFormat = NeighborListFormat.Sparse,
+  n_atoms: int = None,
+  **kwargs,
+) -> NeighborListMultiImageFns:
+  r"""Returns functions to build neighbor lists for small periodic boxes.
+
+  This function mirrors the API of ``jax_md.partition.neighbor_list`` but
+  correctly handles small boxes where :math:`r_\text{cut} > L/2` by
+  explicitly enumerating periodic images. Works for any dimension.
+
+  **Algorithm:**
+
+  For each lattice direction :math:`i`, computes the number of shifts needed:
+
+  .. math::
+
+    n_i = \lceil r_\text{cut} / h_i \rceil
+
+  where :math:`h_i` is the perpendicular height of the box along direction
+  :math:`i`. Then enumerates all integer shift vectors
+  :math:`\mathbf{s} \in [-n_1, n_1] \times \ldots \times [-n_d, n_d]` and finds
+  pairs :math:`(i, j)` with:
+
+  .. math::
+
+    \|\mathbf{r}_j + \mathbf{s} \cdot \mathbf{T} - \mathbf{r}_i\| < r_\text{cut}
+
+  **Usage:**
+
+  .. code-block:: python
+
+     from jax_md.custom_partition import neighbor_list_multi_image
+
+     neighbor_fn = neighbor_list_multi_image(None, box, r_cutoff, n_atoms=N)
+     nbrs = neighbor_fn.allocate(R)
+
+     for _ in range(steps):
+       nbrs = nbrs.update(state.position)
+       if nbrs.did_buffer_overflow:
+         nbrs = neighbor_fn.allocate(state.position)
+       state = apply_fn(state, nbrs)
+
+  Args:
+    displacement_or_metric: Ignored. Accepted for API compatibility with
+      ``partition.neighbor_list``. Multi-image computes displacements using
+      explicit lattice shifts.
+    box: Affine transformation (see ``jax_md.space.periodic_general``).
+      Shape ``[dim, dim]``. Columns are lattice vectors.
+    r_cutoff: Interaction cutoff distance (scalar).
+    dr_threshold: Maximum distance atoms can move before rebuilding.
+      Set to 0 to always rebuild. Uses :math:`d_\text{max} < d_\text{thresh}/2`
+      as the skip condition.
+    capacity_multiplier: Safety factor for neighbor list capacity.
+    pbc: Boolean array indicating periodic directions. Shape ``[dim]``.
+      Default: all True.
+    fractional_coordinates: If True, positions are in fractional coordinates.
+    ordered: If True, use OrderedSparse format (one direction per pair).
+      Uses 2x less memory. Ignored for Dense format.
+    format: Neighbor list format:
+
+      - ``Sparse``: Edge list ``(receivers, senders)``. Shape ``[capacity]``.
+      - ``OrderedSparse``: Like Sparse but only :math:`i < j` pairs.
+      - ``Dense``: Per-atom neighbors. Shape ``[N, max_neighbors]``.
+
+    n_atoms: Number of atoms (required).
+    **kwargs: Additional arguments (ignored, for API compatibility).
+
+  Returns:
+    ``NeighborListMultiImageFns`` with:
+
+    - ``allocate(position)``: Create new neighbor list from positions ``[N, dim]``.
+    - ``update(position, neighbors)``: Update existing neighbor list.
+  """
+  del displacement_or_metric  # Unused - multi-image uses explicit shifts
+
+  if n_atoms is None:
+    raise ValueError('n_atoms is required for neighbor_list_multi_image')
+
+  box = jnp.asarray(box)  # [dim, dim]
+  dim = box.shape[0]
+  use_dense = format is NeighborListFormat.Dense
+  use_ordered = ordered or (format is NeighborListFormat.OrderedSparse)
+
+  if pbc is None:
+    pbc = jnp.ones(dim, dtype=bool)
+  pbc = jnp.asarray(pbc)  # [dim]
+
+  # Pre-compute shift vectors using reciprocal lattice heights
+  shifts = _compute_shift_ranges(box, r_cutoff, pbc)  # [num_shifts, dim]
+  shifts_real = shifts @ box.T  # [num_shifts, dim]
+  zero_shift_idx = int(jnp.argmin(jnp.sum(shifts**2, axis=1)))
+
+  # Estimate capacity: count shifts within 2*r_cutoff (can contribute neighbors)
+  shift_distances = jnp.linalg.norm(shifts_real, axis=1)  # [num_shifts]
+  num_effective = int(jnp.sum(shift_distances < r_cutoff * 2)) + 1
+
+  if use_dense:
+    # Dense: max_neighbors per atom = N * effective_shifts * multiplier
+    max_neighbors = max(int(n_atoms * num_effective * capacity_multiplier), 50)
+    capacity = max_neighbors
+  else:
+    # Sparse: total edges = N^2 * effective_shifts * multiplier
+    capacity = max(
+      int(n_atoms * n_atoms * num_effective * capacity_multiplier), n_atoms * 50
+    )
+    if use_ordered:
+      capacity = capacity // 2 + n_atoms  # Ordered stores ~half the edges
+
+  # Displacement threshold for skipping rebuild
+  threshold_sq = (dr_threshold / 2.0) ** 2
+
+  # Placeholder for circular reference in NeighborListMultiImage.update
+  def update_fn_placeholder(position, neighbors, **kwargs):
+    raise NotImplementedError()
+
+  update_fn_ref = [update_fn_placeholder]
+
+  # Create build function based on format
+  if use_dense:
+
+    @jax.jit
+    def build_fn(pos):  # pos: [N, dim]
+      return _build_neighbor_list_dense(
+        pos,
+        box,
+        shifts,
+        shifts_real,
+        zero_shift_idx,
+        r_cutoff,
+        capacity,
+        fractional_coordinates,
+        update_fn_ref[0],
+      )
+
+  elif use_ordered:
+
+    @jax.jit
+    def build_fn(pos):  # pos: [N, dim]
+      return _build_neighbor_list_orderedsparse(
+        pos,
+        box,
+        shifts,
+        shifts_real,
+        zero_shift_idx,
+        r_cutoff,
+        capacity,
+        fractional_coordinates,
+        update_fn_ref[0],
+      )
+
+  else:
+
+    @jax.jit
+    def build_fn(pos):  # pos: [N, dim]
+      return _build_neighbor_list_sparse(
+        pos,
+        box,
+        shifts,
+        shifts_real,
+        zero_shift_idx,
+        r_cutoff,
+        capacity,
+        fractional_coordinates,
+        update_fn_ref[0],
+      )
+
+  def neighbor_list_fn(
+    position: Array,  # [N, dim]
+    neighbors: Optional[NeighborListMultiImage] = None,
+    **kwargs,
+  ) -> NeighborListMultiImage:
+    """Build or update neighbor list."""
+    position = jnp.asarray(position)
+
+    if neighbors is None:
+      return build_fn(position)
+
+    # Check if rebuild needed based on displacement threshold
+    if dr_threshold > 0:
+      if fractional_coordinates:
+        pos_new = position @ box.T  # [N, dim]
+        pos_old = neighbors.reference_position @ box.T
+      else:
+        pos_new = position
+        pos_old = neighbors.reference_position
+      max_disp_sq = jnp.max(jnp.sum((pos_new - pos_old) ** 2, axis=-1))
+
+      if max_disp_sq < threshold_sq:
+        return neighbors  # Skip rebuild
+
+    return build_fn(position)
+
+  # Close the circular reference
+  update_fn_ref[0] = neighbor_list_fn
+
+  def allocate_fn(position: Array, **kwargs) -> NeighborListMultiImage:
+    """Allocate a new neighbor list from positions [N, dim]."""
+    return neighbor_list_fn(position, None, **kwargs)
+
+  return NeighborListMultiImageFns(allocate_fn, neighbor_list_fn)
