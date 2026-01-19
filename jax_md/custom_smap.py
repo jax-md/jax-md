@@ -62,8 +62,9 @@ def pair_neighbor_list_multi_image(
   **Format handling:**
 
   - ``Sparse``: Both :math:`i \\to j` and :math:`j \\to i` are stored, so
-    energies are divided by 2.
+    energies are divided by 2. Supports per-particle energies.
   - ``OrderedSparse``: Only one direction per pair, no division needed.
+    Does **not** support per-particle energies (raises ``ValueError``).
 
   Args:
     pair_fn: A function that computes pairwise energies from distances.
@@ -75,7 +76,8 @@ def pair_neighbor_list_multi_image(
     fractional_coordinates: If True, positions are in fractional coordinates.
     reduce_axis: Axis over which to reduce the energy. If ``None`` (default),
       sums all pair energies to a scalar. If specified, returns per-atom
-      energies of shape ``[N]``.
+      energies of shape ``[N]``. **Note:** Per-atom energies are not supported
+      with ``OrderedSparse`` format (raises ``ValueError``).
     **static_kwargs: Static parameters passed to the pair function (e.g.,
       ``sigma``, ``epsilon``). Can be overridden at call time.
 
@@ -174,6 +176,16 @@ def pair_neighbor_list_multi_image(
       return util.high_precision_sum(pair_energies) / normalization
     else:
       # Per-particle energy: sum over neighbors for each atom
+      # OrderedSparse only stores one direction per pair, so segment_sum would
+      # assign energy only to the receiver (sender gets nothing). This gives
+      # incorrect per-particle energies. Use Sparse format instead.
+      if neighbor.format is NeighborListFormat.OrderedSparse:
+        raise ValueError(
+          'Cannot compute per-particle energies with OrderedSparse format. '
+          'OrderedSparse stores only one direction per pair, so segment_sum '
+          'would assign the full pair energy to the receiver atom only. '
+          'Use Sparse format for per-particle energies.'
+        )
       particle_energies = ops.segment_sum(
         pair_energies * mask, neighbor.receivers, N
       )  # [N]
