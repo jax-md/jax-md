@@ -855,10 +855,15 @@ def neighbor_list(
   r_cutoff = lax.stop_gradient(r_cutoff)
   dr_threshold = lax.stop_gradient(dr_threshold)
 
-  box = f32(box)
+  if box is not None:
+    box = f32(box)
 
-  cutoff = r_cutoff + dr_threshold
-  cutoff_sq = cutoff**2
+  if r_cutoff is None:
+    cutoff = jnp.inf
+    cutoff_sq = jnp.inf
+  else:
+    cutoff = r_cutoff + dr_threshold
+    cutoff_sq = cutoff**2
   threshold_sq = (dr_threshold / f32(2)) ** 2
   metric_sq = _displacement_or_metric_to_metric_sq(displacement_or_metric)
 
@@ -985,18 +990,10 @@ def neighbor_list(
         idx = cell_list_candidate_fn(cl.id_buffer, position.shape)
         cl_capacity = cl.cell_capacity
 
-      #print("custom mask fn", custom_mask_function)
-      #sys.exit()
       if mask_self:
         idx = mask_self_fn(idx)
       if custom_mask_function is not None:
-        #print("Custom Mask fn")
-        #sys.exit()
         idx = custom_mask_function(idx)
-      #import sys
-      #jnp.set_printoptions(threshold=sys.maxsize, suppress=True)
-      #print("Mask Fn IDX", idx[0])
-      #sys.exit()
 
       if is_sparse(format):
         idx, occupancy = prune_neighbor_list_sparse(position, idx, **kwargs)
