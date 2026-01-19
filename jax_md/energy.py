@@ -179,16 +179,23 @@ def soft_sphere_neighbor_list(
   per_particle: bool = False,
   fractional_coordinates: bool = False,
   format: NeighborListFormat = partition.OrderedSparse,
+  neighbor_list_fn: Optional[Callable] = None,
+  pair_neighbor_list_fn: Optional[Callable] = None,
   **neighbor_kwargs,
 ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   """Convenience wrapper to compute :ref:`soft spheres <soft-sphere>` using a neighbor list."""
+  if neighbor_list_fn is None:
+    neighbor_list_fn = partition.neighbor_list
+  if pair_neighbor_list_fn is None:
+    pair_neighbor_list_fn = smap.pair_neighbor_list
+
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
   alpha = maybe_downcast(alpha)
   list_cutoff = jnp.max(sigma)
   dr_threshold = maybe_downcast(dr_threshold)
 
-  neighbor_fn = partition.neighbor_list(
+  neighbor_fn = neighbor_list_fn(
     displacement_or_metric,
     box_size,
     list_cutoff,
@@ -197,7 +204,7 @@ def soft_sphere_neighbor_list(
     format=format,
     **neighbor_kwargs,
   )
-  energy_fn = smap.pair_neighbor_list(
+  energy_fn = pair_neighbor_list_fn(
     soft_sphere,
     space.canonicalize_displacement_or_metric(displacement_or_metric),
     ignore_unused_parameters=True,
@@ -206,6 +213,7 @@ def soft_sphere_neighbor_list(
     epsilon=epsilon,
     alpha=alpha,
     reduce_axis=(1,) if per_particle else None,
+    fractional_coordinates=fractional_coordinates,
   )
 
   return neighbor_fn, energy_fn
@@ -274,16 +282,24 @@ def lennard_jones_neighbor_list(
   per_particle: bool = False,
   fractional_coordinates: bool = False,
   format: partition.NeighborListFormat = partition.OrderedSparse,
+  neighbor_list_fn: Optional[Callable] = None,
+  pair_neighbor_list_fn: Optional[Callable] = None,
   **neighbor_kwargs,
 ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   """Convenience wrapper to compute :ref:`Lennard-Jones <lj-pot>` using a neighbor list."""
+  # Use defaults if not specified
+  if neighbor_list_fn is None:
+    neighbor_list_fn = partition.neighbor_list
+  if pair_neighbor_list_fn is None:
+    pair_neighbor_list_fn = smap.pair_neighbor_list
+
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
   r_onset = maybe_downcast(r_onset) * jnp.max(sigma)
   r_cutoff = maybe_downcast(r_cutoff) * jnp.max(sigma)
   dr_threshold = maybe_downcast(dr_threshold)
 
-  neighbor_fn = partition.neighbor_list(
+  neighbor_fn = neighbor_list_fn(
     displacement_or_metric,
     box_size,
     r_cutoff,
@@ -292,7 +308,7 @@ def lennard_jones_neighbor_list(
     format=format,
     **neighbor_kwargs,
   )
-  energy_fn = smap.pair_neighbor_list(
+  energy_fn = pair_neighbor_list_fn(
     multiplicative_isotropic_cutoff(lennard_jones, r_onset, r_cutoff),
     space.canonicalize_displacement_or_metric(displacement_or_metric),
     ignore_unused_parameters=True,
@@ -300,6 +316,7 @@ def lennard_jones_neighbor_list(
     sigma=sigma,
     epsilon=epsilon,
     reduce_axis=(1,) if per_particle else None,
+    fractional_coordinates=fractional_coordinates,
   )
 
   return neighbor_fn, energy_fn
@@ -372,9 +389,16 @@ def morse_neighbor_list(
   per_particle: bool = False,
   fractional_coordinates: bool = False,
   format: partition.NeighborListFormat = partition.OrderedSparse,
+  neighbor_list_fn: Optional[Callable] = None,
+  pair_neighbor_list_fn: Optional[Callable] = None,
   **neighbor_kwargs,
 ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
   """Convenience wrapper to compute :ref:`Morse <morse-pot>` using a neighbor list."""
+  if neighbor_list_fn is None:
+    neighbor_list_fn = partition.neighbor_list
+  if pair_neighbor_list_fn is None:
+    pair_neighbor_list_fn = smap.pair_neighbor_list
+
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
   alpha = maybe_downcast(alpha)
@@ -382,7 +406,7 @@ def morse_neighbor_list(
   r_cutoff = maybe_downcast(r_cutoff)
   dr_threshold = maybe_downcast(dr_threshold)
 
-  neighbor_fn = partition.neighbor_list(
+  neighbor_fn = neighbor_list_fn(
     displacement_or_metric,
     box_size,
     r_cutoff,
@@ -391,7 +415,7 @@ def morse_neighbor_list(
     format=format,
     **neighbor_kwargs,
   )
-  energy_fn = smap.pair_neighbor_list(
+  energy_fn = pair_neighbor_list_fn(
     multiplicative_isotropic_cutoff(morse, r_onset, r_cutoff),
     space.canonicalize_displacement_or_metric(displacement_or_metric),
     ignore_unused_parameters=True,
@@ -400,6 +424,7 @@ def morse_neighbor_list(
     epsilon=epsilon,
     alpha=alpha,
     reduce_axis=(1,) if per_particle else None,
+    fractional_coordinates=fractional_coordinates,
   )
 
   return neighbor_fn, energy_fn

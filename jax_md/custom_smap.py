@@ -27,9 +27,11 @@ i32 = jnp.int32
 
 def pair_neighbor_list_multi_image(
   pair_fn: Callable[..., Array],
+  displacement_or_metric=None,  # Ignored, for API compatibility with smap.pair_neighbor_list
   species: Optional[Array] = None,  # [N] or None
-  fractional_coordinates: bool = True,
   reduce_axis: Optional[Tuple[int, ...]] = None,
+  ignore_unused_parameters: bool = False,  # For API compatibility
+  fractional_coordinates: bool = True,
   **static_kwargs,
 ) -> Callable[[Array, NeighborListMultiImage], Array]:
   r"""Creates a function for pair potentials using multi-image neighbors.
@@ -37,6 +39,13 @@ def pair_neighbor_list_multi_image(
   This function is analogous to ``jax_md.smap.pair_neighbor_list`` but works
   with ``NeighborListMultiImage`` to correctly handle small periodic boxes
   where :math:`r_\text{cut} > L/2`.
+
+  **API Compatibility:**
+
+  The ``displacement_or_metric`` parameter is accepted but ignored (for
+  signature compatibility with ``smap.pair_neighbor_list``). Multi-image
+  neighbor lists compute displacements using the box stored in the neighbor
+  list, so no displacement function is needed.
 
   For each edge :math:`(i, j)` with shift :math:`\mathbf{s}`, computes:
 
@@ -113,6 +122,9 @@ def pair_neighbor_list_multi_image(
        force_fn = jax.grad(lambda R, nbrs: -lj_energy(R, nbrs))
        F = force_fn(positions, nbrs)  # Shape: [N, dim]
   """
+  # These parameters are accepted for API compatibility but not used.
+  # Multi-image uses the box from the neighbor list, not a displacement function.
+  del displacement_or_metric, ignore_unused_parameters
 
   def energy_fn(
     R: Array,  # [N, dim]
