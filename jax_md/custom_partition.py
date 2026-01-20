@@ -173,7 +173,7 @@ def _compute_shift_ranges(
   inv_box_T = jnp.linalg.inv(box).T  # [dim, dim]
   # Perpendicular heights of the box
   heights = 1.0 / jnp.linalg.norm(inv_box_T, axis=0)  # [dim]
-  # Number of shifts needed per direction
+  # Number of shifts needed per direction.
   n_max = jnp.ceil(r_cutoff / heights).astype(i32)  # [dim]
   n_max = jnp.where(pbc, n_max, 0)  # [dim], zero for non-periodic
 
@@ -241,6 +241,8 @@ def _compute_pairwise_mask(
 
   Self-interactions (:math:`i = j` with zero shift) are excluded.
 
+  Uses ``vmap`` over shifts for better memory locality and fused computation.
+
   Args:
     position: Atom positions. Shape ``[N, dim]``.
     box: Affine transformation (see ``periodic_general``). Shape ``[dim, dim]``.
@@ -255,12 +257,24 @@ def _compute_pairwise_mask(
   """
   N = position.shape[0]
   num_shifts = shifts_real.shape[0]
+  cutoff_sq = r_cutoff**2
 
-  # Compute squared distances using shared helper
-  dist_sq = _compute_distances_sq(
-    position, box, shifts_real, fractional_coordinates
-  )  # [num_shifts, N, N]
-  within_cutoff = dist_sq < r_cutoff**2  # [num_shifts, N, N]
+  # Convert to real coordinates if needed
+  if fractional_coordinates:
+    position_real = position @ box.T  # [N, dim]
+  else:
+    position_real = position
+
+  # Fused distance and mask computation per shift using vmap
+  def mask_for_shift(shift):  # shift: [dim]
+    # D[i,j] = r_j + shift - r_i
+    D = (
+      position_real[None, :, :] + shift - position_real[:, None, :]
+    )  # [N, N, dim]
+    dist_sq = jnp.sum(D**2, axis=-1)  # [N, N]
+    return dist_sq < cutoff_sq
+
+  within_cutoff = jax.vmap(mask_for_shift)(shifts_real)  # [num_shifts, N, N]
 
   # Exclude self-interactions (i == j with zero shift)
   self_mask = jnp.eye(N, dtype=bool)  # [N, N]
@@ -580,6 +594,178 @@ def _build_neighbor_list_dense(
   )
 
 
+def estimate_max_neighbors(
+  r_cutoff: float,
+  atomic_density: float = 0.1,
+  safety_factor: float = 2.0,
+  dim: int = 3,
+) -> int:
+  r"""Estimate maximum neighbors per atom from atomic density.
+
+  Quick estimation when you don't have box/n_atoms information. Uses:
+
+  .. math::
+
+    N_\text{neighbors} = \text{safety\_factor} \cdot \rho \cdot V_\text{sphere}
+
+  where :math:`\rho` is the atomic density and :math:`V_\text{sphere}` is the
+  volume of a sphere with radius ``r_cutoff``.
+
+  Args:
+    r_cutoff: Interaction cutoff distance (scalar).
+    atomic_density: Atomic density in atoms per unit volume. Default: 0.1.
+      Common values: ~0.03 for gases, ~0.1 for liquids, ~0.15 for solids.
+    safety_factor: Multiplier for safety margin. Default: 2.0.
+    dim: Spatial dimension. Default: 3.
+
+  Returns:
+    Estimated maximum neighbors per atom.
+
+  Example:
+
+    .. code-block:: python
+
+       from jax_md.custom_partition import (
+           neighbor_list_multi_image,
+           estimate_max_neighbors,
+       )
+
+       max_nbrs = estimate_max_neighbors(r_cutoff=2.5, atomic_density=0.1)
+       neighbor_fn = neighbor_list_multi_image(None, box, r_cutoff, max_neighbors=max_nbrs)
+
+  See Also:
+    ``estimate_max_neighbors_from_box``: More accurate estimation when box and
+    n_atoms are known, accounts for multiple periodic images.
+  """
+  if r_cutoff <= 0:
+    return 0
+
+  if dim > 3:
+    raise ValueError(f'dim must be 1, 2, or 3, got {dim}')
+
+  # Compute sphere volume based on dimension
+  if dim == 3:
+    sphere_volume = 4.0 / 3.0 * jnp.pi * r_cutoff**3
+  elif dim == 2:
+    sphere_volume = jnp.pi * r_cutoff**2
+  else:  # dim == 1
+    sphere_volume = 2.0 * r_cutoff
+
+  expected_neighbors = safety_factor * atomic_density * sphere_volume
+  return max(int(jnp.ceil(expected_neighbors)), 1)
+
+
+def estimate_max_neighbors_from_box(
+  box: Array,  # [dim, dim]
+  r_cutoff: float,
+  n_atoms: int,
+  safety_factor: float = 2.0,
+  pbc: Optional[Array] = None,  # [dim]
+) -> int:
+  r"""Estimate maximum neighbors per atom from box and atom count.
+
+  Accurate estimation for multi-image neighbor lists, supporting both fully
+  periodic and mixed boundary conditions.
+
+  .. math::
+
+    N_\text{neighbors} = \text{safety\_factor} \cdot \rho \cdot V_\text{eff}
+
+  where :math:`\rho = N / V_\text{box}` is the number density and
+  :math:`V_\text{eff}` is the effective cutoff volume (sphere for fully
+  periodic, capped for non-periodic directions).
+
+  For non-periodic directions, the cutoff is capped at the box length since
+  atoms beyond the box boundary don't exist. This reduces the effective
+  cutoff volume and thus the expected neighbor count.
+
+  Args:
+    box: Affine transformation (see ``jax_md.space.periodic_general``).
+      Shape ``[dim, dim]``. Columns are lattice vectors.
+    r_cutoff: Interaction cutoff distance (scalar).
+    n_atoms: Number of atoms in the system.
+    safety_factor: Multiplier for safety margin. Default: 2.0.
+    pbc: Boolean array indicating periodic directions. Shape ``[dim]``.
+      Default: all True. For non-periodic directions, the cutoff is capped
+      at the box length in that direction.
+
+  Returns:
+    Estimated maximum neighbors per atom.
+
+  Raises:
+    ValueError: If spatial dimension is not 1, 2, or 3.
+
+  Example:
+
+    .. code-block:: python
+
+       from jax_md.custom_partition import (
+           neighbor_list_multi_image,
+           estimate_max_neighbors_from_box,
+       )
+
+       # Fully periodic
+       max_nbrs = estimate_max_neighbors_from_box(box, r_cutoff, n_atoms=N)
+
+       # Mixed: periodic in x,y but not z
+       max_nbrs = estimate_max_neighbors_from_box(
+           box, r_cutoff, n_atoms=N, pbc=[True, True, False]
+       )
+       neighbor_fn = neighbor_list_multi_image(
+           None, box, r_cutoff, max_neighbors=max_nbrs, pbc=[True, True, False]
+       )
+
+  See Also:
+    ``estimate_max_neighbors``: Quick estimation when box is not available.
+  """
+  if r_cutoff <= 0:
+    return 0
+
+  box = jnp.asarray(box)
+  dim = box.shape[0]
+
+  if dim > 3:
+    raise ValueError(f'dim must be 1, 2, or 3, got {dim}')
+
+  if pbc is None:
+    pbc = jnp.ones(dim, dtype=bool)
+  pbc = jnp.asarray(pbc)
+
+  # Compute density from box
+  box_volume = float(jnp.abs(jnp.linalg.det(box)))
+  density = n_atoms / box_volume
+
+  # For non-periodic directions, cap the effective cutoff at the box length.
+  # This is because atoms can only exist within the box in non-periodic directions.
+  # Compute box lengths along each axis (diagonal for orthorhombic, more complex otherwise)
+  box_lengths = jnp.linalg.norm(
+    box, axis=0
+  )  # [dim] - length of each lattice vector
+
+  # Effective cutoff per direction: r_cutoff if periodic, min(r_cutoff, L) if not
+  r_eff = jnp.where(pbc, r_cutoff, jnp.minimum(r_cutoff, box_lengths))
+
+  # For computing effective volume, use the minimum effective cutoff
+  # This is conservative (may overestimate slightly for anisotropic boxes)
+  r_eff_min = float(jnp.min(r_eff))
+
+  # Compute sphere/circle/line volume based on dimension using effective cutoff
+  if dim == 3:
+    sphere_volume = 4.0 / 3.0 * jnp.pi * r_eff_min**3
+  elif dim == 2:
+    sphere_volume = jnp.pi * r_eff_min**2
+  else:  # dim == 1
+    sphere_volume = 2.0 * r_eff_min
+
+  # For multi-image neighbor lists, when r_cutoff > L/2, the cutoff sphere
+  # extends into multiple periodic images. However, the atoms in those images
+  # are the same physical atoms, just translated. The expected neighbor count
+  # is still density * sphere_volume (the number of atoms within the sphere),
+  # regardless of how many images are involved.
+  expected_neighbors = safety_factor * density * sphere_volume
+  return max(int(jnp.ceil(expected_neighbors)), 1)
+
+
 def neighbor_list_multi_image(
   displacement_or_metric,  # Ignored, for API compatibility
   box: Array,  # [dim, dim]
@@ -590,7 +776,7 @@ def neighbor_list_multi_image(
   fractional_coordinates: bool = True,
   ordered: bool = False,
   format: NeighborListFormat = NeighborListFormat.Sparse,
-  n_atoms: int = None,
+  max_neighbors: Optional[int] = None,
   **kwargs,
 ) -> NeighborListMultiImageFns:
   r"""Returns functions to build neighbor lists for small periodic boxes.
@@ -620,9 +806,22 @@ def neighbor_list_multi_image(
 
   .. code-block:: python
 
-     from jax_md.custom_partition import neighbor_list_multi_image
+     from jax_md.custom_partition import (
+         neighbor_list_multi_image,
+         estimate_max_neighbors,
+     )
 
-     neighbor_fn = neighbor_list_multi_image(None, box, r_cutoff, n_atoms=N)
+     # Basic usage: uses default max_neighbors=100
+     neighbor_fn = neighbor_list_multi_image(None, box, r_cutoff)
+     nbrs = neighbor_fn.allocate(R)
+
+     # With explicit max_neighbors
+     neighbor_fn = neighbor_list_multi_image(None, box, r_cutoff, max_neighbors=50)
+
+     # Use estimate_max_neighbors for density-based estimation
+     max_nbrs = estimate_max_neighbors(box, r_cutoff, n_atoms=N)
+     neighbor_fn = neighbor_list_multi_image(None, box, r_cutoff, max_neighbors=max_nbrs)
+
      nbrs = neighbor_fn.allocate(R)
 
      for _ in range(steps):
@@ -653,7 +852,8 @@ def neighbor_list_multi_image(
       - ``OrderedSparse``: Like Sparse but only :math:`i < j` pairs.
       - ``Dense``: Per-atom neighbors. Shape ``[N, max_neighbors]``.
 
-    n_atoms: Number of atoms (required).
+    max_neighbors: Maximum neighbors per atom. Default: 100. Use
+      ``estimate_max_neighbors()`` for density-based estimation.
     **kwargs: Additional arguments (ignored, for API compatibility).
 
   Returns:
@@ -664,8 +864,8 @@ def neighbor_list_multi_image(
   """
   del displacement_or_metric  # Unused - multi-image uses explicit shifts
 
-  if n_atoms is None:
-    raise ValueError('n_atoms is required for neighbor_list_multi_image')
+  # Configuration constants
+  DEFAULT_MAX_NEIGHBORS = 256  # Default max neighbors per atom if not specified
 
   box = jnp.asarray(box)  # [dim, dim]
   dim = box.shape[0]
@@ -681,33 +881,11 @@ def neighbor_list_multi_image(
   shifts_real = shifts @ box.T  # [num_shifts, dim]
   zero_shift_idx = int(jnp.argmin(jnp.sum(shifts**2, axis=1)))
 
-  # Estimate capacity based on cutoff volume and density
-  shift_distances = jnp.linalg.norm(shifts_real, axis=1)  # [num_shifts]
-  num_effective = int(jnp.sum(shift_distances < r_cutoff * 2)) + 1
-
-  # Estimate neighbors per atom using sphere volume / box volume * N
-  box_volume = jnp.abs(jnp.linalg.det(box))
-  dim = box.shape[0]
-  if dim == 3:
-    sphere_volume = 4.0 / 3.0 * jnp.pi * r_cutoff**3
-  elif dim == 2:
-    sphere_volume = jnp.pi * r_cutoff**2
+  # Compute neighbors_per_atom from max_neighbors or default
+  if max_neighbors is not None:
+    neighbors_per_atom = int(max_neighbors * capacity_multiplier)
   else:
-    sphere_volume = 2.0 * r_cutoff  # 1D
-  # Expected neighbors = density * sphere_volume * num_shifts
-  density = n_atoms / box_volume
-  expected_neighbors = float(density * sphere_volume * num_effective)
-  # Add safety margin
-  neighbors_per_atom = max(int(expected_neighbors * capacity_multiplier), 50)
-
-  if use_dense:
-    # Dense: max_neighbors per atom
-    capacity = neighbors_per_atom
-  else:
-    # Sparse: total edges = N * neighbors_per_atom
-    capacity = max(n_atoms * neighbors_per_atom, n_atoms * 50)
-    if use_ordered:
-      capacity = capacity // 2 + n_atoms  # Ordered stores ~half the edges
+    neighbors_per_atom = int(DEFAULT_MAX_NEIGHBORS * capacity_multiplier)
 
   # Displacement threshold for skipping rebuild
   threshold_sq = (dr_threshold / 2.0) ** 2
@@ -718,54 +896,76 @@ def neighbor_list_multi_image(
 
   update_fn_ref = [update_fn_placeholder]
 
-  # Create build function based on format
-  if use_dense:
+  # Cache for JIT-compiled build functions per capacity
+  # This avoids recompilation when N stays constant across calls
+  build_fn_cache = {}
 
-    @jax.jit
-    def build_fn(pos):  # pos: [N, dim]
-      return _build_neighbor_list_dense(
-        pos,
-        box,
-        shifts,
-        shifts_real,
-        zero_shift_idx,
-        r_cutoff,
-        capacity,
-        fractional_coordinates,
-        update_fn_ref[0],
-      )
+  def compute_capacity(N: int) -> int:
+    """Compute capacity from number of atoms."""
+    if use_dense:
+      return neighbors_per_atom
+    else:
+      cap = N * neighbors_per_atom
+      if use_ordered:
+        cap = cap // 2 + N  # Ordered stores ~half the edges
+      return cap
 
-  elif use_ordered:
+  def get_build_fn(capacity: int):
+    """Get or create JIT-compiled build function for given capacity."""
+    if capacity in build_fn_cache:
+      return build_fn_cache[capacity]
 
-    @jax.jit
-    def build_fn(pos):  # pos: [N, dim]
-      return _build_neighbor_list_orderedsparse(
-        pos,
-        box,
-        shifts,
-        shifts_real,
-        zero_shift_idx,
-        r_cutoff,
-        capacity,
-        fractional_coordinates,
-        update_fn_ref[0],
-      )
+    # Create build function for this capacity
+    if use_dense:
 
-  else:
+      @jax.jit
+      def build_fn(pos):  # pos: [N, dim]
+        return _build_neighbor_list_dense(
+          pos,
+          box,
+          shifts,
+          shifts_real,
+          zero_shift_idx,
+          r_cutoff,
+          capacity,
+          fractional_coordinates,
+          update_fn_ref[0],
+        )
 
-    @jax.jit
-    def build_fn(pos):  # pos: [N, dim]
-      return _build_neighbor_list_sparse(
-        pos,
-        box,
-        shifts,
-        shifts_real,
-        zero_shift_idx,
-        r_cutoff,
-        capacity,
-        fractional_coordinates,
-        update_fn_ref[0],
-      )
+    elif use_ordered:
+
+      @jax.jit
+      def build_fn(pos):  # pos: [N, dim]
+        return _build_neighbor_list_orderedsparse(
+          pos,
+          box,
+          shifts,
+          shifts_real,
+          zero_shift_idx,
+          r_cutoff,
+          capacity,
+          fractional_coordinates,
+          update_fn_ref[0],
+        )
+
+    else:
+
+      @jax.jit
+      def build_fn(pos):  # pos: [N, dim]
+        return _build_neighbor_list_sparse(
+          pos,
+          box,
+          shifts,
+          shifts_real,
+          zero_shift_idx,
+          r_cutoff,
+          capacity,
+          fractional_coordinates,
+          update_fn_ref[0],
+        )
+
+    build_fn_cache[capacity] = build_fn
+    return build_fn
 
   @jax.jit
   def check_needs_rebuild(
@@ -785,6 +985,18 @@ def neighbor_list_multi_image(
   # Choose update strategy at function creation time (not trace time)
   use_threshold = dr_threshold > 0
 
+  def allocate_fn(position: Array, **kwargs) -> NeighborListMultiImage:
+    """Allocate a new neighbor list from positions [N, dim].
+
+    Computes capacity based on position.shape[0] and caches the JIT-compiled
+    build function for efficient reuse with the same N.
+    """
+    position = jnp.asarray(position)
+    N = position.shape[0]
+    capacity = compute_capacity(N)
+    build_fn = get_build_fn(capacity)
+    return build_fn(position)
+
   def neighbor_list_fn(
     position: Array,  # [N, dim]
     neighbors: Optional[NeighborListMultiImage] = None,
@@ -794,7 +1006,12 @@ def neighbor_list_multi_image(
     position = jnp.asarray(position)
 
     if neighbors is None:
-      return build_fn(position)
+      # First call: allocate with capacity computed from position
+      return allocate_fn(position, **kwargs)
+
+    # Update: reuse existing capacity from neighbor list
+    capacity = neighbors.max_occupancy
+    build_fn = get_build_fn(capacity)
 
     # Check if rebuild needed based on displacement threshold
     if use_threshold:
@@ -809,10 +1026,6 @@ def neighbor_list_multi_image(
 
   # Close the circular reference
   update_fn_ref[0] = neighbor_list_fn
-
-  def allocate_fn(position: Array, **kwargs) -> NeighborListMultiImage:
-    """Allocate a new neighbor list from positions [N, dim]."""
-    return neighbor_list_fn(position, None, **kwargs)
 
   return NeighborListMultiImageFns(allocate_fn, neighbor_list_fn)
 
