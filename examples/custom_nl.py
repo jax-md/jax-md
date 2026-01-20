@@ -314,6 +314,7 @@ neighbor_fn_sw, energy_fn_sw = energy.stillinger_weber_neighbor_list(
   neighbor_list_fn=neighbor_list_multi_image,
   max_neighbors=estimate_max_neighbors(r_cutoff_sw, atomic_density=0.15, dim=3),
   format=partition.Dense,
+  fractional_coordinates=True,
 )
 
 nbrs_sw = neighbor_fn_sw.allocate(R_sw)
