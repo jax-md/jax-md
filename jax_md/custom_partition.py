@@ -1,6 +1,6 @@
 import jax
 import jax.numpy as jnp
-from jax_md import dataclasses
+from jax_md import dataclasses, partition, space
 from jax_md.partition import NeighborListFormat
 from typing import Callable, Tuple, Union, Optional
 
@@ -876,8 +876,11 @@ def neighbor_list_multi_image(
     pbc = jnp.ones(dim, dtype=bool)
   pbc = jnp.asarray(pbc)  # [dim]
 
+  # Add dr_threshold as a "skin" buffer to the cutoff for neighbor search.
+  search_cutoff = r_cutoff + dr_threshold
+
   # Pre-compute shift vectors using reciprocal lattice heights
-  shifts = _compute_shift_ranges(box, r_cutoff, pbc)  # [num_shifts, dim]
+  shifts = _compute_shift_ranges(box, search_cutoff, pbc)  # [num_shifts, dim]
   shifts_real = shifts @ box.T  # [num_shifts, dim]
   zero_shift_idx = int(jnp.argmin(jnp.sum(shifts**2, axis=1)))
 
@@ -926,7 +929,7 @@ def neighbor_list_multi_image(
           shifts,
           shifts_real,
           zero_shift_idx,
-          r_cutoff,
+          search_cutoff,
           capacity,
           fractional_coordinates,
           update_fn_ref[0],
@@ -942,7 +945,7 @@ def neighbor_list_multi_image(
           shifts,
           shifts_real,
           zero_shift_idx,
-          r_cutoff,
+          search_cutoff,
           capacity,
           fractional_coordinates,
           update_fn_ref[0],
@@ -958,7 +961,7 @@ def neighbor_list_multi_image(
           shifts,
           shifts_real,
           zero_shift_idx,
-          r_cutoff,
+          search_cutoff,
           capacity,
           fractional_coordinates,
           update_fn_ref[0],
@@ -985,15 +988,30 @@ def neighbor_list_multi_image(
   # Choose update strategy at function creation time (not trace time)
   use_threshold = dr_threshold > 0
 
-  def allocate_fn(position: Array, **kwargs) -> NeighborListMultiImage:
+  def allocate_fn(
+    position: Array, extra_capacity: int = 0, **kwargs
+  ) -> NeighborListMultiImage:
     """Allocate a new neighbor list from positions [N, dim].
 
     Computes capacity based on position.shape[0] and caches the JIT-compiled
     build function for efficient reuse with the same N.
+
+    Args:
+      position: Atom positions. Shape ``[N, dim]``.
+      extra_capacity: Additional capacity to add (multiplied by N for Sparse).
+        Use this to recover from buffer overflow.
+
+    Returns:
+      New neighbor list.
     """
     position = jnp.asarray(position)
     N = position.shape[0]
-    capacity = compute_capacity(N)
+    base_capacity = compute_capacity(N)
+    # For sparse formats, extra_capacity is per-atom; for dense it's absolute
+    if use_dense:
+      capacity = base_capacity + extra_capacity
+    else:
+      capacity = base_capacity + N * extra_capacity
     build_fn = get_build_fn(capacity)
     return build_fn(position)
 
@@ -1058,6 +1076,62 @@ def neighbor_list_multi_image_mask(
   return neighbors.idx[0] < N  # [capacity]
 
 
+def graph_featurizer(displacement_fn):
+  """Create graph featurizer for multi-image neighbor lists.
+
+  Converts a NeighborListMultiImage to a jraph.GraphsTuple with displacement
+  vectors as edge features. Uses explicit lattice shifts instead of MIC.
+
+  This has the same signature as ``jax_md._nn.util.neighbor_list_featurizer``
+  so it can be used as a drop-in replacement for multi-image neighbor lists.
+
+  Args:
+    displacement_fn: Displacement function (ignored - uses neighbor.box instead).
+
+  Returns:
+    featurize(atoms, positions, neighbor) -> GraphsTuple
+
+  Example:
+    >>> from jax_md.custom_partition import neighbor_list_multi_image, graph_featurizer
+    >>> neighbor_fn = neighbor_list_multi_image(None, box, r_cutoff)
+    >>> featurizer = graph_featurizer(displacement_fn)  # displacement_fn is ignored
+    >>> nbrs = neighbor_fn.allocate(positions)
+    >>> graph = featurizer(atoms, positions, nbrs)
+  """
+  del displacement_fn  # Not used - we use neighbor.box for multi-image
+
+  def featurize(atoms, positions: Array, neighbor: NeighborListMultiImage):
+    """Convert neighbor list to graph with displacement edges.
+
+    Args:
+      atoms: Node features dict (e.g., {'species': ..., 'positions': ...}).
+      positions: Atom positions (fractional), shape (N, dim).
+      neighbor: Multi-image neighbor list.
+
+    Returns:
+      GraphsTuple with displacement vectors as edges.
+    """
+    graph = partition.to_jraph(neighbor, nodes=atoms)
+    mask = neighbor_list_multi_image_mask(neighbor)
+
+    # Use box from neighbor list for consistency with shifts
+    box = neighbor.box
+
+    # Get positions and compute displacements with explicit shifts
+    pos_real = space.transform(box, positions)
+    Ra = pos_real[neighbor.receivers]
+    Rb = pos_real[neighbor.senders]
+    shifts_real = space.transform(box, neighbor.shifts)
+
+    # dR = R_j + shift - R_i
+    dR = Rb + shifts_real - Ra
+    dR = jnp.where(mask[:, None], dR, 1.0)  # Set masked edges to displacement 1
+
+    return graph._replace(edges=dR)
+
+  return featurize
+
+
 def _compute_displacements(
   position: Array,  # [N, dim]
   neighbors: NeighborListMultiImage,
@@ -1074,6 +1148,9 @@ def _compute_displacements(
 
   where :math:`\mathbf{T}` is the box matrix.
 
+  Uses ``space.transform`` for coordinate conversion so that gradients w.r.t.
+  fractional inputs are real-space gradients (see ``space.transform_jvp``).
+
   Args:
     position: Atom positions. Shape ``[N, dim]``.
     neighbors: A ``NeighborListMultiImage`` (Sparse or OrderedSparse format).
@@ -1089,84 +1166,17 @@ def _compute_displacements(
   mask = neighbor_list_multi_image_mask(neighbors)  # [capacity]
 
   if fractional_coordinates:
-    position_real = position @ box.T  # [N, dim]
+    position_real = space.transform(box, position)  # [N, dim]
   else:
     position_real = position
 
   # Safe indexing for padding (clip to valid range)
   i_safe = jnp.clip(neighbors.receivers, 0, N - 1)  # [capacity]
   j_safe = jnp.clip(neighbors.senders, 0, N - 1)  # [capacity]
-  shifts_real = neighbors.shifts @ box.T  # [capacity, dim]
+  shifts_real = space.transform(box, neighbors.shifts)  # [capacity, dim]
 
   # Displacement: r_j + shift - r_i
   dR = (
     position_real[j_safe] + shifts_real - position_real[i_safe]
   )  # [capacity, dim]
   return jnp.where(mask[:, None], dR, 0.0)
-
-
-def neighbor_list_featurizer(
-  fractional_coordinates: bool = True,
-):
-  r"""Returns a featurizer function for multi-image neighbor lists.
-
-  This mirrors ``jax_md.nn.util.neighbor_list_featurizer`` but works with
-  ``NeighborListMultiImage`` which stores explicit shift vectors.
-
-  The returned function computes displacement vectors:
-
-  .. math::
-
-    \mathbf{d}_{ij}^{\mathbf{s}} = \mathbf{r}_j + \mathbf{s} \cdot \mathbf{T} - \mathbf{r}_i
-
-  The box matrix :math:`\mathbf{T}` is taken from the neighbor list itself
-  (``neighbor.box``), ensuring consistency between the integer shifts and
-  the coordinate transformation.
-
-  Args:
-    fractional_coordinates: If True, positions are in fractional coordinates.
-
-  Returns:
-    A featurizer function with signature:
-    ``featurize(position, neighbor, **kwargs) -> displacements``
-
-    - Input ``position``: Shape ``[N, dim]``.
-    - Input ``neighbor``: A ``NeighborListMultiImage``.
-    - Output: Displacement vectors. Shape ``[capacity, dim]``.
-      Invalid edges are set to unit vectors (to avoid NaN in normalization).
-
-  Example:
-
-    .. code-block:: python
-
-       featurizer = neighbor_list_featurizer(fractional_coordinates=True)
-       dR = featurizer(positions, nbrs)  # Shape: [capacity, dim]
-       dr = jnp.linalg.norm(dR, axis=-1)  # Shape: [capacity]
-  """
-
-  def featurize(
-    position: Array,  # [N, dim]
-    neighbor: NeighborListMultiImage,
-    **kwargs,
-  ) -> Array:  # [capacity, dim]
-    """Compute displacement vectors from positions + neighbor list."""
-    box = neighbor.box  # [dim, dim] - use neighbor list's box for consistency
-    N = position.shape[0]
-    mask = neighbor_list_multi_image_mask(neighbor)  # [capacity]
-
-    if fractional_coordinates:
-      pos_real = position @ box.T  # [N, dim]
-    else:
-      pos_real = position
-
-    i_safe = jnp.clip(neighbor.receivers, 0, N - 1)  # [capacity]
-    j_safe = jnp.clip(neighbor.senders, 0, N - 1)  # [capacity]
-    shifts_real = neighbor.shifts @ box.T  # [capacity, dim]
-
-    dR = pos_real[j_safe] + shifts_real - pos_real[i_safe]  # [capacity, dim]
-    # Set invalid edges to unit vector to avoid NaN in normalization
-    dR = jnp.where(mask[:, None], dR, 1.0)
-
-    return dR
-
-  return featurize

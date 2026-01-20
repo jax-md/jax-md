@@ -2207,8 +2207,29 @@ def nequip_neighbor_list(
   cfg: ConfigDict = None,
   atoms=None,
   neighbor_list_fn: Callable = partition.neighbor_list,
+  featurizer_fn: Callable = nn.util.neighbor_list_featurizer,
   **nl_kwargs,
 ):
+  """Convenience wrapper to compute NequIP energy using a neighbor list.
+
+  Args:
+    displacement_fn: Displacement function from `jax_md.space`.
+    box: Box matrix with columns as lattice vectors, shape (dim, dim).
+    cfg: NequIP configuration. If None, uses default config.
+    atoms: One-hot encoding of atom types.
+    neighbor_list_fn: Neighbor list constructor. Can be `partition.neighbor_list`
+      (default, uses MIC) or `custom_partition.neighbor_list_multi_image` for
+      small boxes where r_cut > L/2.
+    featurizer_fn: Function to create a featurizer. Signature:
+      `featurizer_fn(displacement_fn) -> featurize(atoms, position, neighbor)`.
+      Defaults to `nn.util.neighbor_list_featurizer` for standard MIC.
+      Use `custom_partition.graph_featurizer` with `neighbor_list_multi_image`
+      for correct multi-image displacement computation.
+    **nl_kwargs: Additional kwargs for neighbor list (e.g., `fractional_coordinates`).
+
+  Returns:
+    Tuple of (neighbor_fn, init_fn, energy_fn).
+  """
   cfg = nequip.default_config() if cfg is None else cfg
   model = nequip.model_from_config(cfg)
 
@@ -2216,7 +2237,7 @@ def nequip_neighbor_list(
     displacement_fn, box, cfg.r_max, format=partition.Sparse, **nl_kwargs
   )
 
-  featurizer = nn.util.neighbor_list_featurizer(displacement_fn)
+  featurizer = featurizer_fn(displacement_fn)
 
   def init_fn(key, position, neighbor, **kwargs):
     _atoms = kwargs.pop('atoms', atoms)
@@ -2243,16 +2264,41 @@ def load_gnome_model_neighbor_list(
   directory,
   atoms=None,
   neighbor_list_fn: Callable = partition.neighbor_list,
+  featurizer_fn: Callable = nn.util.neighbor_list_featurizer,
   **nl_kwargs,
 ):
-  """Load a gnome model from a checkpoint."""
+  """Load a gnome model from a checkpoint.
+
+  Args:
+    displacement_fn: Displacement function from `jax_md.space`.
+    box: Box matrix with columns as lattice vectors, shape (dim, dim).
+    directory: Directory containing the gnome model checkpoint.
+    atoms: One-hot encoding of atom types.
+    neighbor_list_fn: Neighbor list constructor. Can be `partition.neighbor_list`
+      (default, uses MIC) or `custom_partition.neighbor_list_multi_image` for
+      small boxes where r_cut > L/2.
+    featurizer_fn: Function to create a featurizer. Signature:
+      `featurizer_fn(displacement_fn) -> featurize(atoms, position, neighbor)`.
+      Defaults to `nn.util.neighbor_list_featurizer` for standard MIC.
+      Use `custom_partition.graph_featurizer` with `neighbor_list_multi_image`
+      for correct multi-image displacement computation.
+    **nl_kwargs: Additional kwargs for neighbor list (e.g., `fractional_coordinates`).
+
+  Returns:
+    Tuple of (neighbor_fn, energy_fn).
+
+  Note:
+    When using `neighbor_list_multi_image`, you must also use a compatible
+    featurizer (e.g., `custom_partition.graph_featurizer`) to correctly compute
+    displacements using the stored shifts instead of MIC.
+  """
   cfg, model, params = gnome.load_model(directory)
 
   neighbor_fn = neighbor_list_fn(
     displacement_fn, box, cfg.r_max, format=partition.Sparse, **nl_kwargs
   )
 
-  featurizer = nn.util.neighbor_list_featurizer(displacement_fn)
+  featurizer = featurizer_fn(displacement_fn)
 
   def energy_fn(position, neighbor, **kwargs):
     _atoms = kwargs.pop('atoms', atoms)
