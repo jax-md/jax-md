@@ -1002,7 +1002,16 @@ def neighbor_list_multi_image(
     neighbors: Optional[NeighborListMultiImage] = None,
     **kwargs,
   ) -> NeighborListMultiImage:
-    """Build or update neighbor list."""
+    """Build or update neighbor list.
+
+    Args:
+      position: Atom positions. Shape ``[N, dim]``.
+      neighbors: Existing neighbor list, or None to allocate new.
+      **kwargs: Additional arguments (unused, for API compatibility).
+
+    Returns:
+      Updated neighbor list.
+    """
     position = jnp.asarray(position)
 
     if neighbors is None:

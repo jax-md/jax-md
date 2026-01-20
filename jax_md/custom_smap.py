@@ -180,7 +180,8 @@ def pair_neighbor_list_multi_image(
 
       # Compute pair energies
       pair_energies = pair_fn(dr, **merged_kwargs)  # [capacity]
-      pair_energies = jnp.where(mask, pair_energies, 0.0)  # [capacity]
+      zero = jnp.zeros((), dtype=pair_energies.dtype)
+      pair_energies = jnp.where(mask, pair_energies, zero)  # [capacity]
 
       # Normalization: OrderedSparse stores one direction, Sparse stores both
       normalization = (
@@ -251,7 +252,8 @@ def pair_neighbor_list_multi_image(
 
       # Compute pair energies
       pair_energies = pair_fn(dr, **merged_kwargs)  # [N, max_neighbors]
-      pair_energies = jnp.where(mask, pair_energies, 0.0)  # [N, max_neighbors]
+      zero = jnp.zeros((), dtype=pair_energies.dtype)
+      pair_energies = jnp.where(mask, pair_energies, zero)  # [N, max_neighbors]
 
       # Dense stores both directions, so divide by 2
       normalization = 2.0
