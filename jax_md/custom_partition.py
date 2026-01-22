@@ -1,3 +1,5 @@
+from functools import partial
+
 import jax
 import jax.numpy as jnp
 from jax_md import dataclasses, partition, space
@@ -1076,7 +1078,7 @@ def neighbor_list_multi_image_mask(
   return neighbors.idx[0] < N  # [capacity]
 
 
-def graph_featurizer(displacement_fn):
+def graph_featurizer(displacement_fn=None):
   """Create graph featurizer for multi-image neighbor lists.
 
   Converts a NeighborListMultiImage to a jraph.GraphsTuple with displacement
@@ -1086,27 +1088,40 @@ def graph_featurizer(displacement_fn):
   so it can be used as a drop-in replacement for multi-image neighbor lists.
 
   Args:
-    displacement_fn: Displacement function (ignored - uses neighbor.box instead).
+    displacement_fn: Displacement function from ``space.free()``. Must use free
+      boundary conditions since periodicity is handled via explicit shifts.
+      If None, defaults to ``space.free()[0]``.
 
   Returns:
-    featurize(atoms, positions, neighbor) -> GraphsTuple
+    featurize(atoms, positions, neighbor, **kwargs) -> GraphsTuple
+
+  Raises:
+    ValueError: If displacement_fn is not from ``space.free()``.
 
   Example:
+    >>> from jax_md import space
     >>> from jax_md.custom_partition import neighbor_list_multi_image, graph_featurizer
+    >>> displacement_fn, _ = space.free()
     >>> neighbor_fn = neighbor_list_multi_image(None, box, r_cutoff)
-    >>> featurizer = graph_featurizer(displacement_fn)  # displacement_fn is ignored
+    >>> featurizer = graph_featurizer(displacement_fn)
     >>> nbrs = neighbor_fn.allocate(positions)
     >>> graph = featurizer(atoms, positions, nbrs)
   """
-  del displacement_fn  # Not used - we use neighbor.box for multi-image
+  if displacement_fn is None:
+    displacement_fn, _ = space.free()
 
-  def featurize(atoms, positions: Array, neighbor: NeighborListMultiImage):
+  def featurize(
+    atoms, positions: Array, neighbor: NeighborListMultiImage, **kwargs
+  ):
     """Convert neighbor list to graph with displacement edges.
 
     Args:
       atoms: Node features dict (e.g., {'species': ..., 'positions': ...}).
       positions: Atom positions (fractional), shape (N, dim).
       neighbor: Multi-image neighbor list.
+      **kwargs: Additional arguments:
+        - ``box``: Override box for coordinate transformation (for NPT).
+        - ``perturbation``: Strain perturbation for stress via ``quantity.stress``.
 
     Returns:
       GraphsTuple with displacement vectors as edges.
@@ -1114,8 +1129,8 @@ def graph_featurizer(displacement_fn):
     graph = partition.to_jraph(neighbor, nodes=atoms)
     mask = neighbor_list_multi_image_mask(neighbor)
 
-    # Use box from neighbor list for consistency with shifts
-    box = neighbor.box
+    # Use box from kwargs if provided, else from neighbor list
+    box = kwargs.pop('box', neighbor.box)
 
     # Get positions and compute displacements with explicit shifts
     pos_real = space.transform(box, positions)
@@ -1123,9 +1138,13 @@ def graph_featurizer(displacement_fn):
     Rb = pos_real[neighbor.senders]
     shifts_real = space.transform(box, neighbor.shifts)
 
-    # dR = R_j + shift - R_i
-    dR = Rb + shifts_real - Ra
-    dR = jnp.where(mask[:, None], dR, 1.0)  # Set masked edges to displacement 1
+    # dR = (R_j + shift) - R_i, using displacement_fn which handles perturbation
+    Rb_shifted = Rb + shifts_real
+    d = jax.vmap(partial(displacement_fn, **kwargs))
+    dR = d(Ra, Rb_shifted)
+
+    # Set masked edges to displacement 1
+    dR = jnp.where(mask[:, None], dR, 1.0)
 
     return graph._replace(edges=dR)
 
