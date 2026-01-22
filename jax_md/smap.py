@@ -147,6 +147,7 @@ def _kwargs_to_bond_parameters(
 
 def _apply_combinator(indices: Array, param: Parameter, combinator: Callable):
   """Combine per-particle parameters into per-interaction parameters."""
+
   def _combine_leaf(p):
     if util.is_array(p) and p.ndim >= 1:
       args = [p[indices[:, i]] for i in range(indices.shape[1])]
@@ -156,7 +157,10 @@ def _apply_combinator(indices: Array, param: Parameter, combinator: Callable):
   if isinstance(param, ParameterTree):
     if param.mapping is ParameterTreeMapping.PerParticle:
       return tree_map(_combine_leaf, param.tree)
-    elif param.mapping in (ParameterTreeMapping.Global, ParameterTreeMapping.PerBond):
+    elif param.mapping in (
+      ParameterTreeMapping.Global,
+      ParameterTreeMapping.PerBond,
+    ):
       return param.tree
     else:
       raise ValueError(
@@ -254,7 +258,9 @@ def bond(
     Ra = R[bonds[:, 0]]
     Rb = R[bonds[:, 1]]
     _kwargs = merge_dicts(static_kwargs, dynamic_kwargs)
-    _kwargs = _kwargs_to_interaction_parameters(bonds, bond_types, _kwargs, combinators)
+    _kwargs = _kwargs_to_interaction_parameters(
+      bonds, bond_types, _kwargs, combinators
+    )
     # NOTE(schsam): This pattern is needed due to JAX issue #912.
     d = vmap(partial(displacement_or_metric, **dynamic_kwargs), 0, 0)
     dr = d(Ra, Rb)
@@ -448,7 +454,9 @@ def angle(
     Rb = R[angles[:, 1]]
     Rc = R[angles[:, 2]]
     _kwargs = merge_dicts(static_kwargs, dynamic_kwargs)
-    _kwargs = _kwargs_to_interaction_parameters(angles, angle_types, _kwargs, combinators)
+    _kwargs = _kwargs_to_interaction_parameters(
+      angles, angle_types, _kwargs, combinators
+    )
     disp = vmap(partial(displacement_or_metric, **dynamic_kwargs))
     rij = disp(Ra, Rb)
     rkj = disp(Rc, Rb)
@@ -499,7 +507,9 @@ def torsion(
     p2 = R[torsions[:, 2]]
     p3 = R[torsions[:, 3]]
     _kwargs = merge_dicts(static_kwargs, dynamic_kwargs)
-    _kwargs = _kwargs_to_interaction_parameters(torsions, torsion_types, _kwargs, combinators)
+    _kwargs = _kwargs_to_interaction_parameters(
+      torsions, torsion_types, _kwargs, combinators
+    )
     disp = vmap(partial(displacement_or_metric, **dynamic_kwargs), 0, 0)
     b0 = disp(p1, p0)
     b1 = disp(p2, p1)
@@ -514,7 +524,9 @@ def torsion(
   ):
     accum = f32(0)
     if torsions is not None:
-      accum = accum + compute_fn(R, torsions, torsion_types, kwargs, dynamic_kwargs)
+      accum = accum + compute_fn(
+        R, torsions, torsion_types, kwargs, dynamic_kwargs
+      )
     if static_torsions is not None:
       accum = accum + compute_fn(
         R, static_torsions, static_torsion_types, kwargs, dynamic_kwargs

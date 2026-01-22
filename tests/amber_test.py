@@ -65,28 +65,27 @@ Per-test TODO
 
 import os
 import sys
-import time
-from types import SimpleNamespace
-from functools import partial
-from typing import Optional
-from absl.testing import absltest, parameterized
 
 import jax
+from absl.testing import absltest, parameterized
 
-jax.config.update("jax_enable_x64", True)
+jax.config.update('jax_enable_x64', True)
 import jax.numpy as jnp
 import jax.scipy.optimize as jsp_opt
 import numpy as np
 
-from jax_md import partition, util, simulate, quantity, energy
-from jax_md import space
-from jax_md import minimize
-from jax_md.mm_forcefields.oplsaa import energy as opls_energy
-from jax_md.mm_forcefields.amber import energy as amber_energy
-from jax_md.mm_forcefields.amber import constraints as amber_constraints
-from jax_md.mm_forcefields.io.openmm import load_amber_system, load_charmm_system, convert_openmm_system, virtual_site_apply_positions, virtual_site_fix_state
-from jax_md.mm_forcefields.nonbonded import electrostatics
+from jax_md import partition, quantity, simulate, space
 from jax_md import test_util as jtu
+from jax_md.mm_forcefields.amber import constraints as amber_constraints
+from jax_md.mm_forcefields.amber import energy as amber_energy
+from jax_md.mm_forcefields.io.openmm import (
+  convert_openmm_system,
+  load_amber_system,
+  load_charmm_system,
+  virtual_site_apply_positions,
+  virtual_site_fix_state,
+)
+from jax_md.mm_forcefields.nonbonded import electrostatics
 
 jax.config.parse_flags_with_absl()
 
@@ -99,9 +98,14 @@ except ImportError:
   app = None
   unit = None
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "amber_data")
+DATA_DIR = os.path.join(os.path.dirname(__file__), 'data', 'amber_data')
 # Keep per-test summaries behind an env var so CI logs stay readable
-_VERBOSE_TESTS = os.environ.get("VERBOSE_TESTS", "").strip().lower() not in ("", "0", "false", "no")
+_VERBOSE_TESTS = os.environ.get('VERBOSE_TESTS', '').strip().lower() not in (
+  '',
+  '0',
+  'false',
+  'no',
+)
 
 
 def _vprint(*args, **kwargs):
@@ -110,12 +114,12 @@ def _vprint(*args, **kwargs):
 
 
 # Constants
-_KB_KCAL_MOL_K = (unit.BOLTZMANN_CONSTANT_kB * unit.AVOGADRO_CONSTANT_NA).value_in_unit(
-  unit.kilocalorie_per_mole / unit.kelvin
-)
-_AKMA_TO_FS = (1.0 * (unit.dalton * unit.angstrom**2 / unit.kilocalorie_per_mole) ** 0.5).value_in_unit(
-  unit.femtosecond
-)
+_KB_KCAL_MOL_K = (
+  unit.BOLTZMANN_CONSTANT_kB * unit.AVOGADRO_CONSTANT_NA
+).value_in_unit(unit.kilocalorie_per_mole / unit.kelvin)
+_AKMA_TO_FS = (
+  1.0 * (unit.dalton * unit.angstrom**2 / unit.kilocalorie_per_mole) ** 0.5
+).value_in_unit(unit.femtosecond)
 _FS_TO_AKMA = 1.0 / _AKMA_TO_FS
 # atmospheres -> (kcal/mol)/A^3:
 #   1 atm = 101325 Pa = 101325 J/m^3
@@ -132,7 +136,7 @@ def _min_and_heat():
   return
 
 
-def _openmm_energy_force(system, positions, platform_name: str = "Reference"):
+def _openmm_energy_force(system, positions, platform_name: str = 'Reference'):
   """Compute OpenMM potential energy, broken down by Force.
 
   NOTE .setIncludeDirectSpace and .setReciprocalSpaceForceGroup can be used
@@ -162,8 +166,12 @@ def _openmm_energy_force(system, positions, platform_name: str = "Reference"):
     energy_terms[key] = np.float64(nrg)
 
   state = context.getState(getEnergy=True, getForces=True)
-  energy_terms['etotal'] = np.float64(state.getPotentialEnergy().value_in_unit(unit.kilocalories_per_mole))
-  forces = state.getForces(asNumpy=True).value_in_unit(unit.kilocalories_per_mole/unit.angstrom)
+  energy_terms['etotal'] = np.float64(
+    state.getPotentialEnergy().value_in_unit(unit.kilocalories_per_mole)
+  )
+  forces = state.getForces(asNumpy=True).value_in_unit(
+    unit.kilocalories_per_mole / unit.angstrom
+  )
 
   return energy_terms, np.array(forces)
 
@@ -171,7 +179,9 @@ def _openmm_energy_force(system, positions, platform_name: str = "Reference"):
 def _make_coulomb_handler(nb_method, r_cut, recip_alpha, recip_grid):
   """Pick a coulomb handler consistent with how we built the OpenMM system."""
   if nb_method == app.PME:
-    return electrostatics.PMECoulomb(r_cut=r_cut, alpha=recip_alpha, grid_size=recip_grid)
+    return electrostatics.PMECoulomb(
+      r_cut=r_cut, alpha=recip_alpha, grid_size=recip_grid
+    )
   if nb_method == app.Ewald:
     return electrostatics.EwaldCoulomb(r_cut=r_cut)
   return electrostatics.CutoffCoulomb(r_cut=r_cut)
@@ -183,9 +193,11 @@ def _charmm_read_params(filename):
   parFiles = ()
   with open(filename, 'r') as f:
     for line in f:
-      if '!' in line: line = line.split('!')[0]
+      if '!' in line:
+        line = line.split('!')[0]
       parfile = line.strip()
-      if len(parfile) != 0: parFiles += ( os.path.join(base_path, parfile), )
+      if len(parfile) != 0:
+        parFiles += (os.path.join(base_path, parfile),)
 
   return parFiles
 
@@ -194,59 +206,124 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
   @parameterized.product(
     system_info=[
       # RAMP1 system generated with a variety of solvent types
-      ("RAMP1_AMBER/RAMP1_gas.prmtop", "RAMP1_AMBER/RAMP1_gas.inpcrd", app.NoCutoff),
-      ("RAMP1_AMBER/RAMP1_opc_box.prmtop", "RAMP1_AMBER/RAMP1_opc_box.inpcrd", app.PME),
-      ("RAMP1_AMBER/RAMP1_opc_oct.prmtop", "RAMP1_AMBER/RAMP1_opc_oct.inpcrd", app.PME),
-      ("RAMP1_AMBER/RAMP1_spce_box.prmtop", "RAMP1_AMBER/RAMP1_spce_box.inpcrd", app.PME),
-      ("RAMP1_AMBER/RAMP1_tip3p_box.prmtop", "RAMP1_AMBER/RAMP1_tip3p_box.inpcrd", app.PME),
-      #("RAMP1_AMBER/RAMP1_tip3p_box.prmtop", "RAMP1_AMBER/RAMP1_tip3p_box.inpcrd", app.CutoffPeriodic),
-      #("RAMP1_AMBER/RAMP1_tip3p_box.prmtop", "RAMP1_AMBER/RAMP1_tip3p_box.inpcrd", app.Ewald),
-      ("RAMP1_AMBER/RAMP1_tip3p_oct.prmtop", "RAMP1_AMBER/RAMP1_tip3p_oct.inpcrd", app.PME),
-      ("RAMP1_AMBER/RAMP1_tip4pew_box.prmtop", "RAMP1_AMBER/RAMP1_tip4pew_box.inpcrd", app.PME),
-
+      (
+        'RAMP1_AMBER/RAMP1_gas.prmtop',
+        'RAMP1_AMBER/RAMP1_gas.inpcrd',
+        app.NoCutoff,
+      ),
+      (
+        'RAMP1_AMBER/RAMP1_opc_box.prmtop',
+        'RAMP1_AMBER/RAMP1_opc_box.inpcrd',
+        app.PME,
+      ),
+      (
+        'RAMP1_AMBER/RAMP1_opc_oct.prmtop',
+        'RAMP1_AMBER/RAMP1_opc_oct.inpcrd',
+        app.PME,
+      ),
+      (
+        'RAMP1_AMBER/RAMP1_spce_box.prmtop',
+        'RAMP1_AMBER/RAMP1_spce_box.inpcrd',
+        app.PME,
+      ),
+      (
+        'RAMP1_AMBER/RAMP1_tip3p_box.prmtop',
+        'RAMP1_AMBER/RAMP1_tip3p_box.inpcrd',
+        app.PME,
+      ),
+      # ("RAMP1_AMBER/RAMP1_tip3p_box.prmtop", "RAMP1_AMBER/RAMP1_tip3p_box.inpcrd", app.CutoffPeriodic),
+      # ("RAMP1_AMBER/RAMP1_tip3p_box.prmtop", "RAMP1_AMBER/RAMP1_tip3p_box.inpcrd", app.Ewald),
+      (
+        'RAMP1_AMBER/RAMP1_tip3p_oct.prmtop',
+        'RAMP1_AMBER/RAMP1_tip3p_oct.inpcrd',
+        app.PME,
+      ),
+      (
+        'RAMP1_AMBER/RAMP1_tip4pew_box.prmtop',
+        'RAMP1_AMBER/RAMP1_tip4pew_box.inpcrd',
+        app.PME,
+      ),
       # GAFF molecule in vacuum
-      ("sustiva.prmtop", "sustiva.rst7", app.NoCutoff),
-
+      ('sustiva.prmtop', 'sustiva.rst7', app.NoCutoff),
       # AMBER benchmark systems from Amber20_Benchmark_Suite
       # https://ambermd.org/GPUPerformance.php
-      ("Amber20_Benchmark_Suite/PME/Topologies/JAC.prmtop", "Amber20_Benchmark_Suite/PME/Coordinates/JAC.inpcrd", app.PME),
-      #("Amber20_Benchmark_Suite/PME/Topologies/FactorIX.prmtop", "Amber20_Benchmark_Suite/PME/Coordinates/FactorIX.inpcrd", app.PME), # incompatible with omm due to negative periodicity
-      #("Amber20_Benchmark_Suite/PME/Topologies/Cellulose.prmtop", "Amber20_Benchmark_Suite/PME/Coordinates/Cellulose.inpcrd", app.PME), # OOM issues
-      #("Amber20_Benchmark_Suite/PME/Topologies/STMV.prmtop", "Amber20_Benchmark_Suite/PME/Coordinates/STMV.inpcrd", app.PME), # OOM issues
-
+      (
+        'Amber20_Benchmark_Suite/PME/Topologies/JAC.prmtop',
+        'Amber20_Benchmark_Suite/PME/Coordinates/JAC.inpcrd',
+        app.PME,
+      ),
+      # ("Amber20_Benchmark_Suite/PME/Topologies/FactorIX.prmtop", "Amber20_Benchmark_Suite/PME/Coordinates/FactorIX.inpcrd", app.PME), # incompatible with omm due to negative periodicity
+      # ("Amber20_Benchmark_Suite/PME/Topologies/Cellulose.prmtop", "Amber20_Benchmark_Suite/PME/Coordinates/Cellulose.inpcrd", app.PME), # OOM issues
+      # ("Amber20_Benchmark_Suite/PME/Topologies/STMV.prmtop", "Amber20_Benchmark_Suite/PME/Coordinates/STMV.inpcrd", app.PME), # OOM issues
       # RAMP1 in solvent - CHARMM system generated with CHARMM-GUI
-      ("RAMP1_CHARMM/openmm/step3_input.crd", "RAMP1_CHARMM/openmm/step3_input.psf", "RAMP1_CHARMM/openmm/toppar.str", "RAMP1_CHARMM/openmm/sysinfo.dat", app.PME, False, False),
-      ("RAMP1_CHARMM/openmm/step3_input.crd", "RAMP1_CHARMM/openmm/step3_input.psf", "RAMP1_CHARMM/openmm/toppar.str", "RAMP1_CHARMM/openmm/sysinfo.dat", app.PME, True, True),
+      (
+        'RAMP1_CHARMM/openmm/step3_input.crd',
+        'RAMP1_CHARMM/openmm/step3_input.psf',
+        'RAMP1_CHARMM/openmm/toppar.str',
+        'RAMP1_CHARMM/openmm/sysinfo.dat',
+        app.PME,
+        False,
+        False,
+      ),
+      (
+        'RAMP1_CHARMM/openmm/step3_input.crd',
+        'RAMP1_CHARMM/openmm/step3_input.psf',
+        'RAMP1_CHARMM/openmm/toppar.str',
+        'RAMP1_CHARMM/openmm/sysinfo.dat',
+        app.PME,
+        True,
+        True,
+      ),
     ]
   )
   def test_energy_force(self, system_info):
-    #neighbor_format = partition.NeighborListFormat.OrderedSparse
+    # neighbor_format = partition.NeighborListFormat.OrderedSparse
 
     if len(system_info) == 3:
       prmtop_name, inpcrd_name, nb_method = system_info
       prmtop_file = os.path.join(DATA_DIR, prmtop_name)
       inpcrd_file = os.path.join(DATA_DIR, inpcrd_name)
-      omm_system, omm_topology, omm_positions, omm_box_vectors = load_amber_system(prmtop_file, inpcrd_file, nb_method)
+      omm_system, omm_topology, omm_positions, omm_box_vectors = (
+        load_amber_system(prmtop_file, inpcrd_file, nb_method)
+      )
       use_switch = False
       use_lrc = False
     elif len(system_info) == 7:
-      crd_name, psf_name, param_name, sys_info, nb_method, use_switch, use_lrc = system_info
+      (
+        crd_name,
+        psf_name,
+        param_name,
+        sys_info,
+        nb_method,
+        use_switch,
+        use_lrc,
+      ) = system_info
       crd_file = os.path.join(DATA_DIR, crd_name)
       psf_file = os.path.join(DATA_DIR, psf_name)
       param_file = os.path.join(DATA_DIR, param_name)
       param_files = _charmm_read_params(param_file)
       if sys_info is not None:
         sys_info_file = os.path.join(DATA_DIR, sys_info)
-      omm_system, omm_topology, omm_positions, omm_box_vectors = load_charmm_system(crd_file, psf_file, param_files, nb_method, sys_info_file)
+      omm_system, omm_topology, omm_positions, omm_box_vectors = (
+        load_charmm_system(
+          crd_file, psf_file, param_files, nb_method, sys_info_file
+        )
+      )
 
     # If switching is selected for a CHARMM system, include it in the NonbondedForce
     if use_switch and nb_method is not app.NoCutoff:
-      switch_distance = .5 * unit.nanometer
+      switch_distance = 0.5 * unit.nanometer
       for force in omm_system.getForces():
-        if isinstance(force, openmm.NonbondedForce) or isinstance(force, openmm.CustomNonbondedForce):
+        if isinstance(force, openmm.NonbondedForce) or isinstance(
+          force, openmm.CustomNonbondedForce
+        ):
           r_cut = force.getCutoffDistance()
-          if switch_distance.value_in_unit(unit.nanometer) >= r_cut.value_in_unit(unit.nanometer):
-            raise ValueError('switchDistance is too large compared to the cutoff!')
+          if switch_distance.value_in_unit(
+            unit.nanometer
+          ) >= r_cut.value_in_unit(unit.nanometer):
+            raise ValueError(
+              'switchDistance is too large compared to the cutoff!'
+            )
           force.setUseSwitchingFunction(True)
           force.setSwitchingDistance(switch_distance)
 
@@ -260,9 +337,17 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     #       force.setUseLongRangeCorrection(True)
 
     # Convert system to JAX structures
-    mm = convert_openmm_system(omm_system, omm_topology, omm_positions, omm_box_vectors, format=partition.NeighborListFormat.OrderedSparse)
+    mm = convert_openmm_system(
+      omm_system,
+      omm_topology,
+      omm_positions,
+      omm_box_vectors,
+      format=partition.NeighborListFormat.OrderedSparse,
+    )
 
-    coulomb = _make_coulomb_handler(nb_method, mm.nb_options.r_cut, mm.recip_alpha, mm.recip_grid)
+    coulomb = _make_coulomb_handler(
+      nb_method, mm.nb_options.r_cut, mm.recip_alpha, mm.recip_grid
+    )
 
     energy_fn, neighbor_fn, _, _ = amber_energy(
       mm.params,
@@ -281,27 +366,32 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     # print("\njax energy", energy_dict["etotal"], energy_dict["etotal"]*4.184)
     # print("\nomm energy", ref_terms["etotal"], ref_terms["etotal"]*4.184)
 
-    self.assertAllClose(energy_dict["etotal"], ref_terms["etotal"], rtol=1e-4, atol=0.0)
+    self.assertAllClose(
+      energy_dict['etotal'], ref_terms['etotal'], rtol=1e-4, atol=0.0
+    )
 
     def total_energy_fn(pos, nlist):
       E = energy_fn(pos, nlist)
       return E['etotal']
+
     grad_fn = jax.grad(total_energy_fn)
     gradients = -grad_fn(mm.positions, nlist)
 
     self.assertEqual(gradients.shape, mm.positions.shape)
     self.assertTrue(jnp.all(jnp.isfinite(gradients)))
-    #self.assertAllClose(gradients, omm_frcs, rtol=1e-4, atol=0.0)
+    # self.assertAllClose(gradients, omm_frcs, rtol=1e-4, atol=0.0)
 
     # Optional per-case summary to help spot regressions at a glance.
     label = str(system_info[0])
     if len(system_info) == 3:
-      label = f"AMBER {prmtop_name} ({nb_method})"
+      label = f'AMBER {prmtop_name} ({nb_method})'
     elif len(system_info) == 7:
-      label = f"CHARMM {crd_name} switch={use_switch} lrc={use_lrc} ({nb_method})"
+      label = (
+        f'CHARMM {crd_name} switch={use_switch} lrc={use_lrc} ({nb_method})'
+      )
 
-    e_jax = float(jax.device_get(energy_dict["etotal"]))
-    e_omm = float(ref_terms["etotal"])
+    e_jax = float(jax.device_get(energy_dict['etotal']))
+    e_omm = float(ref_terms['etotal'])
     dE = e_jax - e_omm
 
     frc = jnp.asarray(omm_frcs, dtype=gradients.dtype)
@@ -311,12 +401,11 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     rms_rel = float(rms_abs / (jnp.sqrt(jnp.mean(frc**2)) + 1e-12))
 
     _vprint(
-      "[E/F] "
-      f"{label}  "
-      f"E_jax={e_jax:.6f} E_omm={e_omm:.6f} dE={dE:.3e} kcal/mol  "
-      f"F_err: max_abs={max_abs:.3e} rms_abs={rms_abs:.3e} rms_rel={rms_rel:.3e}"
+      '[E/F] '
+      f'{label}  '
+      f'E_jax={e_jax:.6f} E_omm={e_omm:.6f} dE={dE:.3e} kcal/mol  '
+      f'F_err: max_abs={max_abs:.3e} rms_abs={rms_abs:.3e} rms_rel={rms_rel:.3e}'
     )
-
 
   """
   Notes:
@@ -331,10 +420,19 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     but also must be done in any function called in jax.grad to ensure
     correct forces under AD.
   """
+
   @parameterized.product(
     system_info=[
-      ("RAMP1_AMBER/RAMP1_opc_box.prmtop", "RAMP1_AMBER/RAMP1_opc_box.inpcrd", app.PME),
-      ("RAMP1_AMBER/RAMP1_opc_oct.prmtop", "RAMP1_AMBER/RAMP1_opc_oct.inpcrd", app.PME),
+      (
+        'RAMP1_AMBER/RAMP1_opc_box.prmtop',
+        'RAMP1_AMBER/RAMP1_opc_box.inpcrd',
+        app.PME,
+      ),
+      (
+        'RAMP1_AMBER/RAMP1_opc_oct.prmtop',
+        'RAMP1_AMBER/RAMP1_opc_oct.inpcrd',
+        app.PME,
+      ),
     ],
   )
   def test_virtual_sites(self, system_info):
@@ -350,10 +448,14 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     prmtop_file = os.path.join(DATA_DIR, prmtop_name)
     inpcrd_file = os.path.join(DATA_DIR, inpcrd_name)
 
-    load_kwargs = {'constraints':None, 'removeCMMotion':False, 'rigidWater':False}
+    load_kwargs = {
+      'constraints': None,
+      'removeCMMotion': False,
+      'rigidWater': False,
+    }
 
-    omm_system, omm_topology, omm_positions, omm_box_vectors = load_amber_system(
-      prmtop_file, inpcrd_file, nb_method, **load_kwargs
+    omm_system, omm_topology, omm_positions, omm_box_vectors = (
+      load_amber_system(prmtop_file, inpcrd_file, nb_method, **load_kwargs)
     )
 
     if nb_method == app.NoCutoff:
@@ -405,7 +507,9 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     grad_fn = jax.grad(scalar_energy_fn)
 
     init_fn, apply_fn = simulate.nve(energy_fn_jit, shift_fn, dt)
-    state = init_fn(jax.random.PRNGKey(0), mm.positions, mass=mm.masses, kT=kT, nbr_list=nbrs)
+    state = init_fn(
+      jax.random.PRNGKey(0), mm.positions, mass=mm.masses, kT=kT, nbr_list=nbrs
+    )
     state = virtual_site_fix_state(
       state,
       mm.virtual_sites,
@@ -418,7 +522,9 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     vs_pos_jax = state.position
 
     # neighbor list is stale after virtual site update
-    first_step_jax = energy_fn_jit(vs_pos_jax, nbr_list=nbrs, params=mm.params)*4.184
+    first_step_jax = (
+      energy_fn_jit(vs_pos_jax, nbr_list=nbrs, params=mm.params) * 4.184
+    )
     first_step_jax_grads = -grad_fn(vs_pos_jax, nbr_list=nbrs, params=mm.params)
 
     # NOTE example of how dynamics loop has to work to avoid discontinuities
@@ -444,7 +550,7 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     # kE = quantity.kinetic_energy(momentum=state.momentum, mass=state.mass)
     # temp = quantity.temperature(momentum=state.momentum, mass=state.mass)/_KB_KCAL_MOL_K
     # jax.debug.print("{step}, {pE}, {kE}, {pEkE}, {temp}", step=step, pE=pE*4.184, kE=kE*4.184, pEkE=(pE+kE)*4.184, temp=temp)
-    
+
     # for i in range(iter_count):
     #   new_state, nbrs = jax.lax.fori_loop(0, n_steps_inner, body_fn, (state, nbrs))
     #   if jnp.any(nbrs.did_buffer_overflow):
@@ -461,13 +567,19 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     platform = openmm.Platform.getPlatformByName('Reference')
     properties = {}
     integrator = openmm.VerletIntegrator(1.0 * unit.femtosecond)
-    sim = app.Simulation(omm_topology, omm_system, integrator, platform, properties)
+    sim = app.Simulation(
+      omm_topology, omm_system, integrator, platform, properties
+    )
     sim.context.setPositions(omm_positions)
-    
+
     # NOTE Virtual site positions aren't automatically updated
     # this is required to get good 0th step agreement
     sim.context.computeVirtualSites()
-    vs_pos_omm = sim.context.getState(positions=True).getPositions(asNumpy=True).value_in_unit(unit.angstrom)
+    vs_pos_omm = (
+      sim.context.getState(positions=True)
+      .getPositions(asNumpy=True)
+      .value_in_unit(unit.angstrom)
+    )
 
     # If fractional coordinates are used, convert OMM positions
     if mm.nb_options.fractional_coordinates:
@@ -478,17 +590,25 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
 
     # NOTE will not work as expected due to extra DoF with virtual sites
     sim.context.setVelocitiesToTemperature(target_temp * unit.kelvin)
-    sim.reporters.append(app.StateDataReporter(sys.stdout, n_steps_inner, 
-                                              step=True,
-                                              potentialEnergy=True,
-                                              kineticEnergy=True,
-                                              totalEnergy=True,
-                                              temperature=True,
-                                              ))
+    sim.reporters.append(
+      app.StateDataReporter(
+        sys.stdout,
+        n_steps_inner,
+        step=True,
+        potentialEnergy=True,
+        kineticEnergy=True,
+        totalEnergy=True,
+        temperature=True,
+      )
+    )
 
     omm_state = sim.context.getState(getEnergy=True, getForces=True)
-    first_step_omm = omm_state.getPotentialEnergy().value_in_unit(unit.kilojoules_per_mole)
-    first_step_omm_grads = omm_state.getForces(asNumpy=True).value_in_unit(unit.kilocalories_per_mole/unit.angstrom)
+    first_step_omm = omm_state.getPotentialEnergy().value_in_unit(
+      unit.kilojoules_per_mole
+    )
+    first_step_omm_grads = omm_state.getForces(asNumpy=True).value_in_unit(
+      unit.kilocalories_per_mole / unit.angstrom
+    )
 
     self.assertAllClose(first_step_jax, first_step_omm, rtol=1e-4, atol=0.0)
     # NOTE basic force comparisons need to get worked out first, but keep in
@@ -507,33 +627,36 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     rms_rel_f = float(rms_abs_f / (jnp.sqrt(jnp.mean(frc**2)) + 1e-12))
 
     _vprint(
-      "[vsites] "
-      f"{prmtop_name}  "
-      f"pos_err: max_abs={max_abs_pos:.3e} rms_abs={rms_abs_pos:.3e}  "
-      f"E0_jax={first_step_jax:.6f} E0_omm={first_step_omm:.6f} kJ/mol  "
-      f"F0_err: max_abs={max_abs_f:.3e} rms_abs={rms_abs_f:.3e} rms_rel={rms_rel_f:.3e}"
+      '[vsites] '
+      f'{prmtop_name}  '
+      f'pos_err: max_abs={max_abs_pos:.3e} rms_abs={rms_abs_pos:.3e}  '
+      f'E0_jax={first_step_jax:.6f} E0_omm={first_step_omm:.6f} kJ/mol  '
+      f'F0_err: max_abs={max_abs_f:.3e} rms_abs={rms_abs_f:.3e} rms_rel={rms_rel_f:.3e}'
     )
-
 
   def test_nve(self):
     """NVE stability / energy drift check for a small vacuum system."""
     # if openmm is None:
     #   self.skipTest('OpenMM is not installed.')
 
-    dt = 1.0 # fs
+    dt = 1.0  # fs
     dt_jax = dt * _FS_TO_AKMA
     dt_omm = dt * unit.femtosecond
     n_steps = 10000
     target_temp = 300.0
     kT = target_temp * _KB_KCAL_MOL_K
 
-    prmtop_file = os.path.join(DATA_DIR, "sustiva.prmtop")
-    inpcrd_file = os.path.join(DATA_DIR, "sustiva.rst7")
+    prmtop_file = os.path.join(DATA_DIR, 'sustiva.prmtop')
+    inpcrd_file = os.path.join(DATA_DIR, 'sustiva.rst7')
 
     # NOTE unconstrained reference system to avoid deleting bond force for O-H
-    load_kwargs = {'constraints': None, 'removeCMMotion': False, 'rigidWater': False}
-    omm_system, omm_topology, omm_positions, omm_box_vectors = load_amber_system(
-      prmtop_file, inpcrd_file, app.NoCutoff, **load_kwargs
+    load_kwargs = {
+      'constraints': None,
+      'removeCMMotion': False,
+      'rigidWater': False,
+    }
+    omm_system, omm_topology, omm_positions, omm_box_vectors = (
+      load_amber_system(prmtop_file, inpcrd_file, app.NoCutoff, **load_kwargs)
     )
 
     mm = convert_openmm_system(
@@ -544,9 +667,15 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
       format=partition.NeighborListFormat.OrderedSparse,
     )
 
-    coulomb = _make_coulomb_handler(app.NoCutoff, mm.nb_options.r_cut, mm.recip_alpha, mm.recip_grid)
+    coulomb = _make_coulomb_handler(
+      app.NoCutoff, mm.nb_options.r_cut, mm.recip_alpha, mm.recip_grid
+    )
     energy_fn, neighbor_fn, _, shift_fn = amber_energy(
-      mm.params, mm.topology, mm.box_vectors, coulomb_options=coulomb, nb_options=mm.nb_options
+      mm.params,
+      mm.topology,
+      mm.box_vectors,
+      coulomb_options=coulomb,
+      nb_options=mm.nb_options,
     )
 
     nlist = neighbor_fn.allocate(mm.positions)
@@ -574,7 +703,9 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
       etot = pe + ke
       return (state, nlist), etot
 
-    (_, _), etot_series = jax.lax.scan(step, (state, nlist), xs=None, length=n_steps)
+    (_, _), etot_series = jax.lax.scan(
+      step, (state, nlist), xs=None, length=n_steps
+    )
     etot_series = np.asarray(jax.device_get(etot_series))
     self.assertTrue(np.all(np.isfinite(etot_series)))
 
@@ -584,7 +715,7 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     self.assertLess(jax_drift_abs, 5.0)
 
     integrator = openmm.VerletIntegrator(dt_omm)
-    platform = openmm.Platform.getPlatformByName("Reference")
+    platform = openmm.Platform.getPlatformByName('Reference')
     sim = app.Simulation(omm_topology, omm_system, integrator, platform)
     sim.context.setPositions(omm_positions)
     sim.context.setVelocitiesToTemperature(target_temp * unit.kelvin, 0)
@@ -608,9 +739,9 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     self.assertLess(omm_drift_abs, 5.0)
 
     _vprint(
-      "[NVE drift] "
-      f"JAX abs={jax_drift_abs:.6f} rms={jax_drift_rms:.6f}  "
-      f"OpenMM abs={omm_drift_abs:.6f} rms={omm_drift_rms:.6f}  "
+      '[NVE drift] '
+      f'JAX abs={jax_drift_abs:.6f} rms={jax_drift_rms:.6f}  '
+      f'OpenMM abs={omm_drift_abs:.6f} rms={omm_drift_rms:.6f}  '
     )
 
   def test_nvt(self):
@@ -622,20 +753,24 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     if openmm is None:
       self.skipTest('OpenMM is not installed.')
 
-    dt = 1.0 # fs
+    dt = 1.0  # fs
     dt_jax = dt * _FS_TO_AKMA
     dt_omm = dt * unit.femtosecond
-    burn_in = 200 # TODO remove
+    burn_in = 200  # TODO remove
     n_steps = 10000
     target_temp = 300.0
     kT = target_temp * _KB_KCAL_MOL_K
 
-    prmtop_file = os.path.join(DATA_DIR, "sustiva.prmtop")
-    inpcrd_file = os.path.join(DATA_DIR, "sustiva.rst7")
+    prmtop_file = os.path.join(DATA_DIR, 'sustiva.prmtop')
+    inpcrd_file = os.path.join(DATA_DIR, 'sustiva.rst7')
 
-    load_kwargs = {'constraints': None, 'removeCMMotion': False, 'rigidWater': False}
-    omm_system, omm_topology, omm_positions, omm_box_vectors = load_amber_system(
-      prmtop_file, inpcrd_file, app.NoCutoff, **load_kwargs
+    load_kwargs = {
+      'constraints': None,
+      'removeCMMotion': False,
+      'rigidWater': False,
+    }
+    omm_system, omm_topology, omm_positions, omm_box_vectors = (
+      load_amber_system(prmtop_file, inpcrd_file, app.NoCutoff, **load_kwargs)
     )
 
     mm = convert_openmm_system(
@@ -646,9 +781,15 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
       format=partition.NeighborListFormat.OrderedSparse,
     )
 
-    coulomb = _make_coulomb_handler(app.NoCutoff, mm.nb_options.r_cut, mm.recip_alpha, mm.recip_grid)
+    coulomb = _make_coulomb_handler(
+      app.NoCutoff, mm.nb_options.r_cut, mm.recip_alpha, mm.recip_grid
+    )
     energy_fn, neighbor_fn, _, shift_fn = amber_energy(
-      mm.params, mm.topology, mm.box_vectors, coulomb_options=coulomb, nb_options=mm.nb_options
+      mm.params,
+      mm.topology,
+      mm.box_vectors,
+      coulomb_options=coulomb,
+      nb_options=mm.nb_options,
     )
 
     nlist = neighbor_fn.allocate(mm.positions)
@@ -659,7 +800,9 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     energy_fn_jit = jax.jit(scalar_energy_fn)
 
     gamma = 0.5
-    init_fn, apply_fn = simulate.nvt_langevin(energy_fn_jit, shift_fn, dt_jax, kT=kT, gamma=gamma)
+    init_fn, apply_fn = simulate.nvt_langevin(
+      energy_fn_jit, shift_fn, dt_jax, kT=kT, gamma=gamma
+    )
     state = init_fn(
       jax.random.PRNGKey(0),
       mm.positions,
@@ -687,16 +830,22 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
 
     # This is intentionally a loose comparison because the stochastic dynamics
     # will not match step-by-step and OpenMM/JAX use different RNG
-    friction = gamma / ((unit.dalton * unit.angstrom**2 / unit.kilocalorie_per_mole) ** 0.5)
-    integrator = openmm.LangevinIntegrator(target_temp * unit.kelvin, friction, dt_omm)
-    platform = openmm.Platform.getPlatformByName("Reference")
+    friction = gamma / (
+      (unit.dalton * unit.angstrom**2 / unit.kilocalorie_per_mole) ** 0.5
+    )
+    integrator = openmm.LangevinIntegrator(
+      target_temp * unit.kelvin, friction, dt_omm
+    )
+    platform = openmm.Platform.getPlatformByName('Reference')
     sim = app.Simulation(omm_topology, omm_system, integrator, platform)
     sim.context.setPositions(omm_positions)
     sim.context.setVelocitiesToTemperature(target_temp * unit.kelvin, 0)
 
     n_particles = omm_system.getNumParticles()
     dof = 3 * n_particles
-    R_kcal = unit.MOLAR_GAS_CONSTANT_R.value_in_unit(unit.kilocalorie_per_mole / unit.kelvin)
+    R_kcal = unit.MOLAR_GAS_CONSTANT_R.value_in_unit(
+      unit.kilocalorie_per_mole / unit.kelvin
+    )
 
     sample_stride = 10
     n_samples = n_steps // sample_stride
@@ -711,16 +860,18 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
 
     self.assertTrue(np.all(np.isfinite(temps_omm)))
     mean_T_omm = float(np.mean(temps_omm[burn_in_samples:]))
-    rms_T_omm = float(np.sqrt(np.mean((temps_omm[burn_in_samples:] - mean_T_omm) ** 2)))
+    rms_T_omm = float(
+      np.sqrt(np.mean((temps_omm[burn_in_samples:] - mean_T_omm) ** 2))
+    )
     self.assertGreater(mean_T_omm, 0.0)
     self.assertLess(abs(mean_T_omm - target_temp), 75.0)
 
     self.assertLess(abs(mean_T - mean_T_omm), 100.0)
     _vprint(
-      "[NVT temp] "
-      f"JAX mean={mean_T:.3f}K rms={rms_T:.3f}K  "
-      f"OpenMM mean={mean_T_omm:.3f}K rms={rms_T_omm:.3f}K  "
-      f"(dt={dt:.3f} fs, stride={sample_stride}, friction={friction.value_in_unit(unit.picosecond**-1):.6f} 1/ps)"
+      '[NVT temp] '
+      f'JAX mean={mean_T:.3f}K rms={rms_T:.3f}K  '
+      f'OpenMM mean={mean_T_omm:.3f}K rms={rms_T_omm:.3f}K  '
+      f'(dt={dt:.3f} fs, stride={sample_stride}, friction={friction.value_in_unit(unit.picosecond**-1):.6f} 1/ps)'
     )
 
   def test_npt(self):
@@ -735,12 +886,16 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
       self.skipTest('OpenMM is not installed.')
 
     # Use a solvated, periodic Amber system with PME.
-    prmtop_file = os.path.join(DATA_DIR, "RAMP1_AMBER/RAMP1_tip3p_box.prmtop")
-    inpcrd_file = os.path.join(DATA_DIR, "RAMP1_AMBER/RAMP1_tip3p_box.inpcrd")
+    prmtop_file = os.path.join(DATA_DIR, 'RAMP1_AMBER/RAMP1_tip3p_box.prmtop')
+    inpcrd_file = os.path.join(DATA_DIR, 'RAMP1_AMBER/RAMP1_tip3p_box.inpcrd')
 
-    load_kwargs = {'constraints': None, 'removeCMMotion': False, 'rigidWater': False}
-    omm_system, omm_topology, omm_positions, omm_box_vectors = load_amber_system(
-      prmtop_file, inpcrd_file, app.PME, **load_kwargs
+    load_kwargs = {
+      'constraints': None,
+      'removeCMMotion': False,
+      'rigidWater': False,
+    }
+    omm_system, omm_topology, omm_positions, omm_box_vectors = (
+      load_amber_system(prmtop_file, inpcrd_file, app.PME, **load_kwargs)
     )
 
     mm = convert_openmm_system(
@@ -751,7 +906,7 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
       format=partition.NeighborListFormat.OrderedSparse,
     )
     if mm.box_vectors is None:
-      raise ValueError("NPT test requires a periodic system with box vectors.")
+      raise ValueError('NPT test requires a periodic system with box vectors.')
 
     # JAX-MD NPT currently expects periodic_general and uses
     # fractional coordinates in the unit cube.
@@ -762,12 +917,22 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     pos0_frac = space.transform(space.inverse(box0), pos0_cart)
     pos0_frac = jnp.mod(pos0_frac, 1.0)
 
-    nb_options = mm.nb_options._replace(use_periodic_general=True, fractional_coordinates=True)
-    mm = mm._replace(positions=pos0_frac, box_vectors=box0, nb_options=nb_options)
+    nb_options = mm.nb_options._replace(
+      use_periodic_general=True, fractional_coordinates=True
+    )
+    mm = mm._replace(
+      positions=pos0_frac, box_vectors=box0, nb_options=nb_options
+    )
 
-    coulomb = _make_coulomb_handler(app.PME, mm.nb_options.r_cut, mm.recip_alpha, mm.recip_grid)
+    coulomb = _make_coulomb_handler(
+      app.PME, mm.nb_options.r_cut, mm.recip_alpha, mm.recip_grid
+    )
     energy_fn, neighbor_fn, _, shift_fn = amber_energy(
-      mm.params, mm.topology, mm.box_vectors, coulomb_options=coulomb, nb_options=mm.nb_options
+      mm.params,
+      mm.topology,
+      mm.box_vectors,
+      coulomb_options=coulomb,
+      nb_options=mm.nb_options,
     )
 
     nbrs = neighbor_fn.allocate(mm.positions, box=mm.box_vectors)
@@ -799,7 +964,9 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
 
     pressure = 1.0 * _ATM_TO_KCAL_MOL_ANG3
 
-    init_fn, apply_fn = simulate.npt_nose_hoover(energy_fn_jit, shift_fn, dt_jax, pressure, kT)
+    init_fn, apply_fn = simulate.npt_nose_hoover(
+      energy_fn_jit, shift_fn, dt_jax, pressure, kT
+    )
     state = init_fn(
       jax.random.PRNGKey(0),
       mm.positions,
@@ -817,7 +984,9 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
       nbrs = nbrs.update(state.position, box=box)
       overflow = jnp.any(nbrs.did_buffer_overflow)
 
-      state = apply_fn(state, pressure=pressure, kT=kT, nbr_list=nbrs, params=mm.params)
+      state = apply_fn(
+        state, pressure=pressure, kT=kT, nbr_list=nbrs, params=mm.params
+      )
 
       box_new = simulate.npt_box(state)
       vol = jnp.linalg.det(box_new)
@@ -845,23 +1014,27 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     self.assertGreater(float(np.min(vols)), 0.1 * vol0)
 
     _vprint(
-      "[NPT sanity] "
-      f"dUdeps={float(jax.device_get(dUdeps)):.6e}  "
-      f"V0={vol0:.6e}A^3  "
-      f"V[min,max]=[{float(np.min(vols)):.6e},{float(np.max(vols)):.6e}]A^3  "
-      f"T[mean,rms]=[{float(np.mean(temps)):.3f},{float(np.sqrt(np.mean((temps-np.mean(temps))**2))):.3f}]K  "
-      f"overflow={bool(np.any(overflows))}"
+      '[NPT sanity] '
+      f'dUdeps={float(jax.device_get(dUdeps)):.6e}  '
+      f'V0={vol0:.6e}A^3  '
+      f'V[min,max]=[{float(np.min(vols)):.6e},{float(np.max(vols)):.6e}]A^3  '
+      f'T[mean,rms]=[{float(np.mean(temps)):.3f},{float(np.sqrt(np.mean((temps - np.mean(temps)) ** 2))):.3f}]K  '
+      f'overflow={bool(np.any(overflows))}'
     )
 
   def test_geometry_optimization(self):
     """Geometry optimization comparison vs OpenMM."""
 
-    prmtop_file = os.path.join(DATA_DIR, "sustiva.prmtop")
-    inpcrd_file = os.path.join(DATA_DIR, "sustiva.rst7")
+    prmtop_file = os.path.join(DATA_DIR, 'sustiva.prmtop')
+    inpcrd_file = os.path.join(DATA_DIR, 'sustiva.rst7')
 
-    load_kwargs = {'constraints': None, 'removeCMMotion': False, 'rigidWater': False}
-    omm_system, omm_topology, omm_positions, omm_box_vectors = load_amber_system(
-      prmtop_file, inpcrd_file, app.NoCutoff, **load_kwargs
+    load_kwargs = {
+      'constraints': None,
+      'removeCMMotion': False,
+      'rigidWater': False,
+    }
+    omm_system, omm_topology, omm_positions, omm_box_vectors = (
+      load_amber_system(prmtop_file, inpcrd_file, app.NoCutoff, **load_kwargs)
     )
 
     mm = convert_openmm_system(
@@ -872,9 +1045,15 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
       format=partition.NeighborListFormat.OrderedSparse,
     )
 
-    coulomb = _make_coulomb_handler(app.NoCutoff, mm.nb_options.r_cut, mm.recip_alpha, mm.recip_grid)
+    coulomb = _make_coulomb_handler(
+      app.NoCutoff, mm.nb_options.r_cut, mm.recip_alpha, mm.recip_grid
+    )
     energy_fn, neighbor_fn, _, shift_fn = amber_energy(
-      mm.params, mm.topology, mm.box_vectors, coulomb_options=coulomb, nb_options=mm.nb_options
+      mm.params,
+      mm.topology,
+      mm.box_vectors,
+      coulomb_options=coulomb,
+      nb_options=mm.nb_options,
     )
 
     tol_omm = 10.0 * unit.kilojoule_per_mole / unit.nanometer
@@ -887,28 +1066,36 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
       omm_topology,
       omm_system,
       openmm.VerletIntegrator(1.0 * unit.femtosecond),
-      openmm.Platform.getPlatformByName("Reference"),
+      openmm.Platform.getPlatformByName('Reference'),
     )
     sim.context.setPositions(omm_positions)
     sim.minimizeEnergy(tolerance=tol_omm, maxIterations=200)
-    st_omm = sim.context.getState(getEnergy=True, getForces=True, getPositions=True)
-    pos_omm_min = np.asarray(st_omm.getPositions(asNumpy=True).value_in_unit(unit.angstrom))
-    e_omm_min = float(st_omm.getPotentialEnergy().value_in_unit(unit.kilocalories_per_mole))
+    st_omm = sim.context.getState(
+      getEnergy=True, getForces=True, getPositions=True
+    )
+    pos_omm_min = np.asarray(
+      st_omm.getPositions(asNumpy=True).value_in_unit(unit.angstrom)
+    )
+    e_omm_min = float(
+      st_omm.getPotentialEnergy().value_in_unit(unit.kilocalories_per_mole)
+    )
 
     f_omm = np.asarray(
-      st_omm.getForces(asNumpy=True).value_in_unit(unit.kilocalorie_per_mole / unit.angstrom)
+      st_omm.getForces(asNumpy=True).value_in_unit(
+        unit.kilocalorie_per_mole / unit.angstrom
+      )
     )
     f_omm_rms_component = float(np.sqrt(np.mean(f_omm**2)))
     f_omm_rms_magnitude = float(np.sqrt(np.mean(np.sum(f_omm**2, axis=1))))
 
-    # check that JAX energies are the same 
+    # check that JAX energies are the same
     pos_omm_min_jnp = jnp.asarray(pos_omm_min, dtype=mm.positions.dtype)
 
     # start from OpenMM coordinates to avoid falling into another local minimum
     nlist = neighbor_fn.allocate(pos_omm_min_jnp)
 
     def jax_energy(pos: jnp.ndarray) -> jnp.ndarray:
-      return energy_fn(pos, nlist, params=mm.params)["etotal"]
+      return energy_fn(pos, nlist, params=mm.params)['etotal']
 
     def obj(x: jnp.ndarray) -> jnp.ndarray:
       return jax_energy(jnp.reshape(x, mm.positions.shape))
@@ -919,21 +1106,25 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     res = jsp_opt.minimize(
       obj,
       x0,
-      method="BFGS",
-      options={"maxiter": 200, "gtol": gtol, "norm": 2},
+      method='BFGS',
+      options={'maxiter': 200, 'gtol': gtol, 'norm': 2},
     )
 
     success = bool(np.asarray(jax.device_get(res.success)))
     self.assertTrue(success)
 
     x_opt = res.x
-    pos_jax_min = np.asarray(jax.device_get(jnp.reshape(x_opt, mm.positions.shape)))
+    pos_jax_min = np.asarray(
+      jax.device_get(jnp.reshape(x_opt, mm.positions.shape))
+    )
     e_jax_min = float(jax.device_get(res.fun))
 
     # Cross-evaluate: OpenMM energy at the JAX-minimized coordinates.
     sim.context.setPositions(pos_jax_min * unit.angstrom)
     st_at_jax = sim.context.getState(getEnergy=True)
-    e_omm_at_jax = float(st_at_jax.getPotentialEnergy().value_in_unit(unit.kilocalories_per_mole))
+    e_omm_at_jax = float(
+      st_at_jax.getPotentialEnergy().value_in_unit(unit.kilocalories_per_mole)
+    )
     self.assertAlmostEqual(e_jax_min, e_omm_at_jax, places=2)
 
     f_jax = np.asarray(jax.device_get(res.jac))
@@ -941,14 +1132,13 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     self.assertLess(f_jax_rms_component, tol_component * 2.0)
 
     _vprint(
-      "[MIN] "
-      f"OpenMM={e_omm_min:.6f} kcal/mol  "
-      f"JAX={e_jax_min:.6f} kcal/mol  "
-      f"RMS(F_comp): JAX={f_jax_rms_component:.6f} OpenMM={f_omm_rms_component:.6f}  "
-      f"RMS(|F_i|): OpenMM={f_omm_rms_magnitude:.6f}  "
-      f"tol_comp={tol_component:.6f}"
+      '[MIN] '
+      f'OpenMM={e_omm_min:.6f} kcal/mol  '
+      f'JAX={e_jax_min:.6f} kcal/mol  '
+      f'RMS(F_comp): JAX={f_jax_rms_component:.6f} OpenMM={f_omm_rms_component:.6f}  '
+      f'RMS(|F_i|): OpenMM={f_omm_rms_magnitude:.6f}  '
+      f'tol_comp={tol_component:.6f}'
     )
-
 
   def test_ions(self):
     """
@@ -965,8 +1155,8 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
 
     # mass is exact, other parameters probably aren't physically reasonable
     ion_params = {
-      "Na": {"q": +1.0, "mass_da": 22.99, "sigma_nm": 0.25, "eps_kj_mol": 0.10},
-      "Cl": {"q": -1.0, "mass_da": 35.45, "sigma_nm": 0.40, "eps_kj_mol": 0.10},
+      'Na': {'q': +1.0, 'mass_da': 22.99, 'sigma_nm': 0.25, 'eps_kj_mol': 0.10},
+      'Cl': {'q': -1.0, 'mass_da': 35.45, 'sigma_nm': 0.40, 'eps_kj_mol': 0.10},
     }
 
     system = openmm.System()
@@ -979,14 +1169,14 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     for i in range(n_rep):
       for j in range(n_rep):
         for k in range(n_rep):
-          sym = "Na" if ((i + j + k) % 2 == 0) else "Cl"
+          sym = 'Na' if ((i + j + k) % 2 == 0) else 'Cl'
           p = ion_params[sym]
 
-          system.addParticle(p["mass_da"])
+          system.addParticle(p['mass_da'])
           force.addParticle(
-            p["q"] * unit.elementary_charge,
-            p["sigma_nm"] * unit.nanometer,
-            p["eps_kj_mol"] * unit.kilojoule_per_mole,
+            p['q'] * unit.elementary_charge,
+            p['sigma_nm'] * unit.nanometer,
+            p['eps_kj_mol'] * unit.kilojoule_per_mole,
           )
 
           res = top.addResidue(sym, chain)
@@ -996,7 +1186,9 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
           pos_nm.append(openmm.Vec3(i, j, k) * lattice_constant_nm)
 
     system.addForce(force)
-    positions = unit.Quantity(pos_nm, unit.nanometer) # conversion function expects quantities
+    positions = unit.Quantity(
+      pos_nm, unit.nanometer
+    )  # conversion function expects quantities
 
     mm = convert_openmm_system(
       system,
@@ -1006,7 +1198,9 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
       format=partition.NeighborListFormat.OrderedSparse,
     )
 
-    coulomb = _make_coulomb_handler(nb_method, mm.nb_options.r_cut, mm.recip_alpha, mm.recip_grid)
+    coulomb = _make_coulomb_handler(
+      nb_method, mm.nb_options.r_cut, mm.recip_alpha, mm.recip_grid
+    )
     energy_fn, neighbor_fn, _, _ = amber_energy(
       mm.params,
       mm.topology,
@@ -1019,22 +1213,26 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     energy_dict = energy_fn(mm.positions, nlist)
 
     def etotal_fn(pos):
-      return energy_fn(pos, nlist)["etotal"]
+      return energy_fn(pos, nlist)['etotal']
 
     jax_forces = -jax.grad(etotal_fn)(mm.positions)
 
     integrator = openmm.VerletIntegrator(1.0 * unit.femtosecond)
-    platform = openmm.Platform.getPlatformByName("Reference")
+    platform = openmm.Platform.getPlatformByName('Reference')
     context = openmm.Context(system, integrator, platform)
     context.setPositions(positions)
     state = context.getState(getEnergy=True, getForces=True)
-    omm_pe = state.getPotentialEnergy().value_in_unit(unit.kilocalories_per_mole)
-    omm_forces = state.getForces(asNumpy=True).value_in_unit(unit.kilocalorie_per_mole / unit.angstrom)
+    omm_pe = state.getPotentialEnergy().value_in_unit(
+      unit.kilocalories_per_mole
+    )
+    omm_forces = state.getForces(asNumpy=True).value_in_unit(
+      unit.kilocalorie_per_mole / unit.angstrom
+    )
     omm_forces = jnp.asarray(np.asarray(omm_forces), dtype=mm.positions.dtype)
 
-    self.assertTrue(jnp.isfinite(energy_dict["etotal"]))
+    self.assertTrue(jnp.isfinite(energy_dict['etotal']))
     self.assertTrue(jnp.all(jnp.isfinite(jax_forces)))
-    self.assertAllClose(energy_dict["etotal"], omm_pe, rtol=1e-5, atol=0.0)
+    self.assertAllClose(energy_dict['etotal'], omm_pe, rtol=1e-5, atol=0.0)
     self.assertAllClose(jax_forces, omm_forces, rtol=1e-5, atol=0.0)
 
     df = jax_forces - omm_forces
@@ -1042,11 +1240,11 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     rms_abs = float(jnp.sqrt(jnp.mean(df**2)))
     rms_rel = float(rms_abs / (jnp.sqrt(jnp.mean(omm_forces**2)) + 1e-12))
     _vprint(
-      "[ions] "
-      f"n={int(mm.positions.shape[0])} lattice_nm={lattice_constant_nm} rep={n_rep}  "
-      f"E_jax={float(jax.device_get(energy_dict['etotal'])):.6f} "
-      f"E_omm={float(omm_pe):.6f} kcal/mol  "
-      f"F_err: max_abs={max_abs:.3e} rms_abs={rms_abs:.3e} rms_rel={rms_rel:.3e}"
+      '[ions] '
+      f'n={int(mm.positions.shape[0])} lattice_nm={lattice_constant_nm} rep={n_rep}  '
+      f'E_jax={float(jax.device_get(energy_dict["etotal"])):.6f} '
+      f'E_omm={float(omm_pe):.6f} kcal/mol  '
+      f'F_err: max_abs={max_abs:.3e} rms_abs={rms_abs:.3e} rms_rel={rms_rel:.3e}'
     )
 
   def test_constraints(self):
@@ -1054,23 +1252,29 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
       self.skipTest('OpenMM is not installed.')
 
     # protein + rigid water + HBond constraints.
-    prmtop_file = os.path.join(DATA_DIR, "RAMP1_AMBER/RAMP1_tip3p_box.prmtop")
-    inpcrd_file = os.path.join(DATA_DIR, "RAMP1_AMBER/RAMP1_tip3p_box.inpcrd")
+    prmtop_file = os.path.join(DATA_DIR, 'RAMP1_AMBER/RAMP1_tip3p_box.prmtop')
+    inpcrd_file = os.path.join(DATA_DIR, 'RAMP1_AMBER/RAMP1_tip3p_box.inpcrd')
 
-    load_kwargs = {'constraints': app.HBonds, 'removeCMMotion': False, 'rigidWater': True}
-    omm_system, omm_topology, omm_positions, omm_box_vectors = load_amber_system(
-      prmtop_file, inpcrd_file, app.PME, **load_kwargs
+    load_kwargs = {
+      'constraints': app.HBonds,
+      'removeCMMotion': False,
+      'rigidWater': True,
+    }
+    omm_system, omm_topology, omm_positions, omm_box_vectors = (
+      load_amber_system(prmtop_file, inpcrd_file, app.PME, **load_kwargs)
     )
 
     # OpenMM reference constrained positions
     tol = 1e-6
     integrator = openmm.VerletIntegrator(1.0 * unit.femtosecond)
-    platform = openmm.Platform.getPlatformByName("Reference")
+    platform = openmm.Platform.getPlatformByName('Reference')
     sim = app.Simulation(omm_topology, omm_system, integrator, platform)
     sim.context.setPositions(omm_positions)
     sim.context.applyConstraints(tol)
     pos_omm_constrained = np.asarray(
-      sim.context.getState(getPositions=True).getPositions(asNumpy=True).value_in_unit(unit.angstrom)
+      sim.context.getState(getPositions=True)
+      .getPositions(asNumpy=True)
+      .value_in_unit(unit.angstrom)
     )
 
     mm = convert_openmm_system(
@@ -1161,26 +1365,26 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     n_settle = int(settle_data.atom1.shape[0])
     n_ccma = int(ccma_data.idx.shape[0])
     _vprint(
-      "[constraints] "
-      f"n_constraints={n_constraints} n_settle={n_settle} n_ccma={n_ccma} tol={tol:g}"
+      '[constraints] '
+      f'n_constraints={n_constraints} n_settle={n_settle} n_ccma={n_ccma} tol={tol:g}'
     )
     _vprint(
-      "[constraints] "
-      "OpenMM abs|d-d0|: "
-      f"init max={max_omm_init:.3e} mean={mean_omm_init:.3e} rms={rms_omm_init:.3e}  "
-      f"after max={max_omm:.3e} mean={mean_omm:.3e} rms={rms_omm:.3e}"
+      '[constraints] '
+      'OpenMM abs|d-d0|: '
+      f'init max={max_omm_init:.3e} mean={mean_omm_init:.3e} rms={rms_omm_init:.3e}  '
+      f'after max={max_omm:.3e} mean={mean_omm:.3e} rms={rms_omm:.3e}'
     )
     _vprint(
-      "[constraints] "
-      "JAX abs|d-d0|: "
-      f"init max={max_jax_init:.3e} mean={mean_jax_init:.3e} rms={rms_jax_init:.3e}  "
-      f"after max={max_jax:.3e} mean={mean_jax:.3e} rms={rms_jax:.3e}"
+      '[constraints] '
+      'JAX abs|d-d0|: '
+      f'init max={max_jax_init:.3e} mean={mean_jax_init:.3e} rms={rms_jax_init:.3e}  '
+      f'after max={max_jax:.3e} mean={mean_jax:.3e} rms={rms_jax:.3e}'
     )
     pos_delta = pos_jax - jnp.asarray(pos_omm_constrained, dtype=pos0.dtype)
     _vprint(
-      "[constraints] "
-      f"pos diff vs OpenMM: max_abs={float(jnp.max(jnp.abs(pos_delta))):.3e} "
-      f"rms_abs={float(jnp.sqrt(jnp.mean(pos_delta**2))):.3e}"
+      '[constraints] '
+      f'pos diff vs OpenMM: max_abs={float(jnp.max(jnp.abs(pos_delta))):.3e} '
+      f'rms_abs={float(jnp.sqrt(jnp.mean(pos_delta**2))):.3e}'
     )
 
 

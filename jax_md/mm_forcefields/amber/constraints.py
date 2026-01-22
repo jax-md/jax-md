@@ -1,4 +1,4 @@
-""" This module implements common distance constraint algorithms.
+"""This module implements common distance constraint algorithms.
 
 References:
 SHAKE - Ryckaert (1977)
@@ -24,8 +24,8 @@ import jax.numpy as jnp
 import numpy as onp
 
 from jax_md import dataclasses
-from jax_md.util import Array, normalize
 from jax_md.mm_forcefields.reaxff.reaxff_helper import safe_sqrt
+from jax_md.util import Array, normalize
 
 
 def settle(
@@ -177,7 +177,11 @@ def prepare_settle_ccma(
       continue
     partners = list(settle_adj[a].keys())
     b, c = partners[0], partners[1]
-    if len(settle_adj[b]) != 2 or len(settle_adj[c]) != 2 or c not in settle_adj[b]:
+    if (
+      len(settle_adj[b]) != 2
+      or len(settle_adj[c]) != 2
+      or c not in settle_adj[b]
+    ):
       settle_adj[a].clear()
       continue
     if a < b and a < c:
@@ -224,7 +228,9 @@ def prepare_settle_ccma(
     settle_edges.add(tuple(sorted((int(c2), int(c3)))))
   if settle_edges:
     edge_keys = [tuple(sorted((int(x), int(y)))) for x, y in idx]
-    ccma_keep = onp.asarray([ek not in settle_edges for ek in edge_keys], dtype=onp.bool_)
+    ccma_keep = onp.asarray(
+      [ek not in settle_edges for ek in edge_keys], dtype=onp.bool_
+    )
     ccma_idx = idx[ccma_keep]
     ccma_dist = dist[ccma_keep]
   else:
@@ -275,7 +281,9 @@ def ccma_apply_positions(
 
   # Reference bond vectors r_ij and their squared norms
   # TODO using metric would be nice, but you need both disps and dists
-  r_ij = jax.vmap(lambda a, b: displacement_fn(a, b, **box_kwargs))(pos[i], pos[j])
+  r_ij = jax.vmap(lambda a, b: displacement_fn(a, b, **box_kwargs))(
+    pos[i], pos[j]
+  )
   d_ij2 = jnp.sum(r_ij * r_ij, axis=1)
   dist2 = dist * dist
 
@@ -291,7 +299,9 @@ def ccma_apply_positions(
 
   def body_fn(state):
     it, pos_p, _ = state
-    rp_ij = jax.vmap(lambda a, b: displacement_fn(a, b, **box_kwargs))(pos_p[i], pos_p[j])
+    rp_ij = jax.vmap(lambda a, b: displacement_fn(a, b, **box_kwargs))(
+      pos_p[i], pos_p[j]
+    )
     rp2 = jnp.sum(rp_ij * rp_ij, axis=1)
     rrpr = jnp.sum(rp_ij * r_ij, axis=1)
 
@@ -307,7 +317,9 @@ def ccma_apply_positions(
     dR_sum = jax.ops.segment_sum(dR_all, atom_ids, num_segments=pos.shape[0])
 
     pos_p = shift_fn(pos_p, dR_sum, **box_kwargs)
-    converged = jnp.all(jnp.logical_and(rp2 >= lower * dist2, rp2 <= upper * dist2))
+    converged = jnp.all(
+      jnp.logical_and(rp2 >= lower * dist2, rp2 <= upper * dist2)
+    )
     return (it + 1, pos_p, converged)
 
   _, pos_out, _ = jax.lax.while_loop(cond_fn, body_fn, (0, pos, False))
@@ -337,7 +349,9 @@ def ccma_apply_velocities(
 
   inv_mass = jnp.where(masses > 0, 1.0 / masses, 0.0)
 
-  r_ij = jax.vmap(lambda a, b: displacement_fn(a, b, **box_kwargs))(pos[i], pos[j])
+  r_ij = jax.vmap(lambda a, b: displacement_fn(a, b, **box_kwargs))(
+    pos[i], pos[j]
+  )
   d_ij2 = jnp.sum(r_ij * r_ij, axis=1)
   reduced_mass = 0.5 / (inv_mass[i] + inv_mass[j] + 1e-30)
 
@@ -397,9 +411,15 @@ def settle_apply_positions(
   apos2 = pos[a2]
 
   # Predicted displacements from original positions
-  xp0 = jax.vmap(lambda a, b: displacement_fn(a, b, **box_kwargs))(pos_p[a0], apos0)
-  xp1 = jax.vmap(lambda a, b: displacement_fn(a, b, **box_kwargs))(pos_p[a1], apos1)
-  xp2 = jax.vmap(lambda a, b: displacement_fn(a, b, **box_kwargs))(pos_p[a2], apos2)
+  xp0 = jax.vmap(lambda a, b: displacement_fn(a, b, **box_kwargs))(
+    pos_p[a0], apos0
+  )
+  xp1 = jax.vmap(lambda a, b: displacement_fn(a, b, **box_kwargs))(
+    pos_p[a1], apos1
+  )
+  xp2 = jax.vmap(lambda a, b: displacement_fn(a, b, **box_kwargs))(
+    pos_p[a2], apos2
+  )
 
   # Bond vectors in the original configuration
   b0 = jax.vmap(lambda a, b: displacement_fn(a, b, **box_kwargs))(apos1, apos0)
@@ -411,7 +431,9 @@ def settle_apply_positions(
   inv_total = 1.0 / (m0 + m1 + m2)
 
   # Center of mass of the displacement vectors
-  xcom = (xp0 * m0[:, None] + (b0 + xp1) * m1[:, None] + (c0 + xp2) * m2[:, None]) * inv_total[:, None]
+  xcom = (
+    xp0 * m0[:, None] + (b0 + xp1) * m1[:, None] + (c0 + xp2) * m2[:, None]
+  ) * inv_total[:, None]
 
   a1v = xp0 - xcom
   b1v = b0 + xp1 - xcom
@@ -467,8 +489,12 @@ def settle_apply_positions(
   yc2d = -rb * cosphi + rc * sinpsi * sinphi
 
   xb2d2 = xb2d * xb2d
-  hh2 = 4.0 * xb2d2 + (yb2d - yc2d) * (yb2d - yc2d) + (zb1d - zc1d) * (zb1d - zc1d)
-  deltx = 2.0 * xb2d + safe_sqrt(4.0 * xb2d2 - hh2 + settle.distance2 * settle.distance2)
+  hh2 = (
+    4.0 * xb2d2 + (yb2d - yc2d) * (yb2d - yc2d) + (zb1d - zc1d) * (zb1d - zc1d)
+  )
+  deltx = 2.0 * xb2d + safe_sqrt(
+    4.0 * xb2d2 - hh2 + settle.distance2 * settle.distance2
+  )
   xb2d = xb2d - 0.5 * deltx
 
   alpha = xb2d * (xb0d - xc0d) + yb0d * yb2d + yc0d * yc2d
@@ -506,9 +532,25 @@ def settle_apply_positions(
   yc3 = trns21 * xc3d + trns22 * yc3d + trns23 * zc3d
   zc3 = trns31 * xc3d + trns32 * yc3d + trns33 * zc3d
 
-  xp0_new = jnp.stack([xcom[:, 0] + xa3, xcom[:, 1] + ya3, xcom[:, 2] + za3], axis=1)
-  xp1_new = jnp.stack([xcom[:, 0] + xb3 - b0[:, 0], xcom[:, 1] + yb3 - b0[:, 1], xcom[:, 2] + zb3 - b0[:, 2]], axis=1)
-  xp2_new = jnp.stack([xcom[:, 0] + xc3 - c0[:, 0], xcom[:, 1] + yc3 - c0[:, 1], xcom[:, 2] + zc3 - c0[:, 2]], axis=1)
+  xp0_new = jnp.stack(
+    [xcom[:, 0] + xa3, xcom[:, 1] + ya3, xcom[:, 2] + za3], axis=1
+  )
+  xp1_new = jnp.stack(
+    [
+      xcom[:, 0] + xb3 - b0[:, 0],
+      xcom[:, 1] + yb3 - b0[:, 1],
+      xcom[:, 2] + zb3 - b0[:, 2],
+    ],
+    axis=1,
+  )
+  xp2_new = jnp.stack(
+    [
+      xcom[:, 0] + xc3 - c0[:, 0],
+      xcom[:, 1] + yc3 - c0[:, 1],
+      xcom[:, 2] + zc3 - c0[:, 2],
+    ],
+    axis=1,
+  )
 
   # Apply displacements to original positions and scatter back into pos_p
   new0 = shift_fn(apos0, xp0_new, **box_kwargs)
@@ -579,26 +621,29 @@ def settle_apply_velocities(
   # Port of ReferenceSETTLEAlgorithm::applyToVelocities
   mABCinv = 1.0 / (mA * mB * mC)
   denom = (
-    (((s2A * mB + s2B * mA) * mC +
-      (s2A * mB * mB + 2.0 * (cA * cB * cC + 1.0) * mA * mB + s2B * mA * mA)) * mC +
-     s2C * mA * mB * (mA + mB)) * mABCinv
-  )
+    (
+      (s2A * mB + s2B * mA) * mC
+      + (s2A * mB * mB + 2.0 * (cA * cB * cC + 1.0) * mA * mB + s2B * mA * mA)
+    )
+    * mC
+    + s2C * mA * mB * (mA + mB)
+  ) * mABCinv
 
   tab = (
-    ((cB * cC * mA - cA * mB - cA * mC) * vCA +
-     (cA * cC * mB - cB * mC - cB * mA) * vBC +
-     (s2C * mA * mA * mB * mB * mABCinv + (mA + mB + mC)) * vAB) / denom
-  )
+    (cB * cC * mA - cA * mB - cA * mC) * vCA
+    + (cA * cC * mB - cB * mC - cB * mA) * vBC
+    + (s2C * mA * mA * mB * mB * mABCinv + (mA + mB + mC)) * vAB
+  ) / denom
   tbc = (
-    ((cA * cB * mC - cC * mB - cC * mA) * vCA +
-     (s2A * mB * mB * mC * mC * mABCinv + (mA + mB + mC)) * vBC +
-     (cA * cC * mB - cB * mA - cB * mC) * vAB) / denom
-  )
+    (cA * cB * mC - cC * mB - cC * mA) * vCA
+    + (s2A * mB * mB * mC * mC * mABCinv + (mA + mB + mC)) * vBC
+    + (cA * cC * mB - cB * mA - cB * mC) * vAB
+  ) / denom
   tca = (
-    ((s2B * mA * mA * mC * mC * mABCinv + (mA + mB + mC)) * vCA +
-     (cA * cB * mC - cC * mB - cC * mA) * vBC +
-     (cB * cC * mA - cA * mB - cA * mC) * vAB) / denom
-  )
+    (s2B * mA * mA * mC * mC * mABCinv + (mA + mB + mC)) * vCA
+    + (cA * cB * mC - cC * mB - cC * mA) * vBC
+    + (cB * cC * mA - cA * mB - cA * mC) * vAB
+  ) / denom
 
   v0_new = v0 + (eAB * tab[:, None] - eCA * tca[:, None]) * inv_m0[:, None]
   v1_new = v1 + (eBC * tbc[:, None] - eAB * tab[:, None]) * inv_m1[:, None]

@@ -125,7 +125,9 @@ class NonbondedOptions(NamedTuple):
   use_shift_lj: bool = False
   scale_14_lj: float = 0.5
   scale_14_coul: float = 0.5
-  nb_format: NeighborListFormat = NeighborListFormat.Dense # TODO make all optional
+  nb_format: NeighborListFormat = (
+    NeighborListFormat.Dense
+  )  # TODO make all optional
   use_pbc: bool = True
   use_periodic_general: bool = False
   fractional_coordinates: bool = False
@@ -133,22 +135,26 @@ class NonbondedOptions(NamedTuple):
   disp_coef: float = 0.0
   r_switch: float = 0.0
 
+
 # Common combinators for nonbonded mixing
 # TODO add waldman-hagler and other combining rules if necessary
 def combine_lorentz(v1, v2):
   """Lorentz mixing (arithmetic mean)."""
   return 0.5 * (v1 + v2)
 
+
 def combine_berthelot(v1, v2):
   """Berthelot mixing rule (geometric mean)."""
   return safe_sqrt(v1 * v2)
+
 
 def combine_product(q1, q2):
   """Simple product rule."""
   return q1 * q2
 
+
 def compute_angle(dr_12, dr_32):
-  '''
+  """
   Calculate the angle between 3 points
 
   Args:
@@ -156,28 +162,29 @@ def compute_angle(dr_12, dr_32):
   Returns:
 
   Raises:
-  '''
+  """
 
   d_12 = jnp.linalg.norm(dr_12 + 1e-7)
   d_32 = jnp.linalg.norm(dr_32 + 1e-7)
   cos_angle = jnp.dot(dr_12, dr_32) / (d_12 * d_32)
   return safe_mask((cos_angle < 1) & (cos_angle > -1), jnp.arccos, cos_angle)
 
+
 def compute_dihedral(v1, v2, v3):
-  '''
+  """
   Calculate the dihedral angle between 4 points
   Praxeolitic formula
   Taken from: https://stackoverflow.com/questions/20305272/dihedral-torsion-angle-from-four-points-in-cartesian-coordinates-in-python
-  
+
   Args:
 
   Returns:
 
   Raises:
-  '''
+  """
 
   # using displacements instead of positions avoids periodicity issues
-  b0 = -1.0*(v1)
+  b0 = -1.0 * (v1)
   b1 = v2
   b2 = v3
 
@@ -190,37 +197,46 @@ def compute_dihedral(v1, v2, v3):
   #   = b0 minus component that aligns with b1
   # w = projection of b2 onto plane perpendicular to b1
   #   = b2 minus component that aligns with b1
-  v = b0 - jnp.dot(b0, b1)*b1
-  w = b2 - jnp.dot(b2, b1)*b1
+  v = b0 - jnp.dot(b0, b1) * b1
+  w = b2 - jnp.dot(b2, b1) * b1
 
   # angle between v and w in a plane is the torsion angle
   # v and w may not be normalized but that's fine since tan is y/x
   x = jnp.dot(v, w)
   y = jnp.dot(jnp.cross(b1, v), w)
-  r = jnp.arctan2(y, x+1e-10)
+  r = jnp.arctan2(y, x + 1e-10)
 
   return r
 
+
 # Cutoff / switching utilities
+
 
 # TODO based off of multiplicative_isotropic_cut but may need some changes
 def hard_cutoff(fn, r_cut):
   """Zero out interactions beyond r_cut."""
+
   # TODO double where needed? why mask?
   def smooth_fn(dr):
     return jnp.where(dr < r_cut, 1, 0)
+
   @wraps(fn)
   def cutoff_fn(dr, *args, **kwargs):
     return smooth_fn(dr) * fn(dr, *args, **kwargs)
+
   return cutoff_fn
+
 
 def force_switch(fn, r_on, r_off):
   """Apply switching according to CHARMM convention from r_on to r_off."""
+
   def smooth_fn(dr):
     s = jnp.clip((dr - r_on) / (r_off - r_on), 0.0, 1.0)
-    switch = 1 - 10*s**3 + 15*s**4 - 6*s**5
+    switch = 1 - 10 * s**3 + 15 * s**4 - 6 * s**5
     return switch
+
   @wraps(fn)
   def cutoff_fn(dr, *args, **kwargs):
     return smooth_fn(dr) * fn(dr, *args, **kwargs)
+
   return cutoff_fn

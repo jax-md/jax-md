@@ -84,7 +84,7 @@ def create_parameters(
     exc_epsilon=exc_epsilon,
     nbfix_acoef=nbfix_acoef,
     nbfix_bcoef=nbfix_bcoef,
-    )
+  )
 
   return Parameters(bonded=bonded, nonbonded=nonbonded)
 

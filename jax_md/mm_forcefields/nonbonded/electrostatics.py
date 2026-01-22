@@ -8,15 +8,16 @@ This module provides coulomb energy functions that support:
 
 from functools import partial
 from typing import Callable
+
 import jax.numpy as jnp
 import numpy as onp
-from jax import vmap, custom_jvp
+from jax import custom_jvp, vmap
 from jax.scipy.special import erf, erfc
-from jax_md import space, smap
-from jax_md.util import Array, high_precision_sum
-from jax_md.partition import NeighborList
-from jax_md.mm_forcefields.base import combine_product
 
+from jax_md import smap, space
+from jax_md.mm_forcefields.base import combine_product
+from jax_md.partition import NeighborList
+from jax_md.util import Array, high_precision_sum
 
 # Conversion factor: e²/Å to kcal/mol
 COULOMB_CONSTANT = 332.06371  # kcal·Å/(mol·e²)
@@ -75,20 +76,28 @@ class CutoffCoulomb(CoulombHandler):
     if self.use_erfc:
       energy *= erfc(self.alpha * r)
     return energy
-  
-  def prepare_smap(self, charges, box, exc_charge_prod, displacement_fn, cutoff_fn, fractional_coordinates):
+
+  def prepare_smap(
+    self,
+    charges,
+    box,
+    exc_charge_prod,
+    displacement_fn,
+    cutoff_fn,
+    fractional_coordinates,
+  ):
     def pair_energy_map(dr, charge_sq, **unused_kwargs):
       """Compute pairwise coulomb energy."""
       energy = COULOMB_CONSTANT * (charge_sq / dr)
       if self.use_erfc:
         energy *= erfc(self.alpha * dr)
       return energy
-    
+
     def pair_plain_map(dr, charge_sq, **unused_kwargs):
       """Compute pairwise coulomb energy."""
       energy = COULOMB_CONSTANT * (charge_sq / dr)
       return energy
-    
+
     pair_coul_fn = smap.pair_neighbor_list(
       cutoff_fn(pair_energy_map),
       space.canonicalize_displacement_or_metric(displacement_fn),
@@ -105,11 +114,12 @@ class CutoffCoulomb(CoulombHandler):
 
     return (pair_coul_fn, bond_coul_fn)
 
-  def energy_smap(self,
+  def energy_smap(
+    self,
     positions: Array,
     charges: Array,
     nlist: NeighborList,
-    #box: Array,
+    # box: Array,
     box_kwarg: any,
     exc_pairs: Array,
     exc_charge_prod: Array,
@@ -119,7 +129,9 @@ class CutoffCoulomb(CoulombHandler):
     pair_coul_fn, bond_coul_fn = coulomb_fns
 
     energy = pair_coul_fn(positions, nlist, charge_sq=charges, **box_kwarg)
-    e_exceptions = bond_coul_fn(positions, exc_pairs, charge_sq=exc_charge_prod, **box_kwarg)
+    e_exceptions = bond_coul_fn(
+      positions, exc_pairs, charge_sq=exc_charge_prod, **box_kwarg
+    )
 
     return energy, e_exceptions
 
@@ -302,6 +314,7 @@ class EwaldCoulomb(CoulombHandler):
     e_self = self.self_energy(charges)
     return e_real + e_recip + e_self
 
+
 # TODO custom jvp's and class methods don't seem to work well together
 @custom_jvp
 def transform_gradients(box, coords):
@@ -315,6 +328,7 @@ def _(primals, tangents):
   box, coords = primals
   dbox, dcoords = tangents
   return coords, space.transform(dbox, coords) + space.transform(box, dcoords)
+
 
 class PMECoulomb(CoulombHandler):
   """Particle Mesh Ewald for coulomb interactions."""
@@ -356,18 +370,23 @@ class PMECoulomb(CoulombHandler):
     # Elevate order 2 -> 3 (divide by 2)
     div = 0.5
     coeffs = coeffs.at[2].set(div * w * coeffs[1])
-    coeffs = coeffs.at[1].set(div * ((w + 1.0) * coeffs[0] + (2.0 - w) * coeffs[1]))
+    coeffs = coeffs.at[1].set(
+      div * ((w + 1.0) * coeffs[0] + (2.0 - w) * coeffs[1])
+    )
     coeffs = coeffs.at[0].set(div * (1.0 - w) * coeffs[0])
 
     # Elevate order 3 -> 4 (divide by 3)
     div = 1.0 / 3.0
     coeffs = coeffs.at[3].set(div * w * coeffs[2])
-    coeffs = coeffs.at[2].set(div * ((w + 1.0) * coeffs[1] + (3.0 - w) * coeffs[2]))
-    coeffs = coeffs.at[1].set(div * ((w + 2.0) * coeffs[0] + (2.0 - w) * coeffs[1]))
+    coeffs = coeffs.at[2].set(
+      div * ((w + 1.0) * coeffs[1] + (3.0 - w) * coeffs[2])
+    )
+    coeffs = coeffs.at[1].set(
+      div * ((w + 2.0) * coeffs[0] + (2.0 - w) * coeffs[1])
+    )
     coeffs = coeffs.at[0].set(div * (1.0 - w) * coeffs[0])
 
     return coeffs
-  
 
   @staticmethod
   @partial(jnp.vectorize, signature='()->(p)')
@@ -388,26 +407,37 @@ class PMECoulomb(CoulombHandler):
     # Elevate order 2 -> 3 (divide by 2)
     div = 0.5
     coeffs = coeffs.at[2].set(div * w * coeffs[1])
-    coeffs = coeffs.at[1].set(div * ((w + 1.0) * coeffs[0] + (2.0 - w) * coeffs[1]))
+    coeffs = coeffs.at[1].set(
+      div * ((w + 1.0) * coeffs[0] + (2.0 - w) * coeffs[1])
+    )
     coeffs = coeffs.at[0].set(div * (1.0 - w) * coeffs[0])
 
     # Elevate order 3 -> 4 (divide by 3)
     div = 1.0 / 3.0
     coeffs = coeffs.at[3].set(div * w * coeffs[2])
-    coeffs = coeffs.at[2].set(div * ((w + 1.0) * coeffs[1] + (3.0 - w) * coeffs[2]))
-    coeffs = coeffs.at[1].set(div * ((w + 2.0) * coeffs[0] + (2.0 - w) * coeffs[1]))
+    coeffs = coeffs.at[2].set(
+      div * ((w + 1.0) * coeffs[1] + (3.0 - w) * coeffs[2])
+    )
+    coeffs = coeffs.at[1].set(
+      div * ((w + 2.0) * coeffs[0] + (2.0 - w) * coeffs[1])
+    )
     coeffs = coeffs.at[0].set(div * (1.0 - w) * coeffs[0])
 
     # Elevate order 4 -> 5 (divide by 4).
     div = 0.25
     coeffs = coeffs.at[4].set(div * w * coeffs[3])
-    coeffs = coeffs.at[3].set(div * ((w + 1.0) * coeffs[2] + (4.0 - w) * coeffs[3]))
-    coeffs = coeffs.at[2].set(div * ((w + 2.0) * coeffs[1] + (3.0 - w) * coeffs[2]))
-    coeffs = coeffs.at[1].set(div * ((w + 3.0) * coeffs[0] + (2.0 - w) * coeffs[1]))
+    coeffs = coeffs.at[3].set(
+      div * ((w + 1.0) * coeffs[2] + (4.0 - w) * coeffs[3])
+    )
+    coeffs = coeffs.at[2].set(
+      div * ((w + 2.0) * coeffs[1] + (3.0 - w) * coeffs[2])
+    )
+    coeffs = coeffs.at[1].set(
+      div * ((w + 3.0) * coeffs[0] + (2.0 - w) * coeffs[1])
+    )
     coeffs = coeffs.at[0].set(div * (1.0 - w) * coeffs[0])
 
     return coeffs
-  
 
   @staticmethod
   def map_charges_to_grid(
@@ -452,9 +482,15 @@ class PMECoulomb(CoulombHandler):
       )
       grid_pos = jnp.concatenate(
         (
-          jnp.broadcast_to(grid_pos[[0], :, None, None], (1, order, order, order)),
-          jnp.broadcast_to(grid_pos[[1], None, :, None], (1, order, order, order)),
-          jnp.broadcast_to(grid_pos[[2], None, None, :], (1, order, order, order)),
+          jnp.broadcast_to(
+            grid_pos[[0], :, None, None], (1, order, order, order)
+          ),
+          jnp.broadcast_to(
+            grid_pos[[1], None, :, None], (1, order, order, order)
+          ),
+          jnp.broadcast_to(
+            grid_pos[[2], None, None, :], (1, order, order, order)
+          ),
         ),
         axis=0,
       )
@@ -467,7 +503,6 @@ class PMECoulomb(CoulombHandler):
     ac = jnp.reshape(ac, (-1,))
 
     return Q.at[gp[:, 0], gp[:, 1], gp[:, 2]].add(ac)
-
 
   @staticmethod
   @partial(jnp.vectorize, signature='()->()')
@@ -525,7 +560,7 @@ class PMECoulomb(CoulombHandler):
         *[jnp.fft.fftfreq(int(g)) for g in grid_dimensions], indexing='ij'
       )
 
-      if jnp.isscalar(_box) or getattr(_box, "ndim", 0) == 0:
+      if jnp.isscalar(_box) or getattr(_box, 'ndim', 0) == 0:
         m_2 = (mx**2 + my**2 + mz**2) * (grid_dimensions[0] * ibox) ** 2
         V = (1.0 * _box) ** dim
       elif _box.ndim == 1:
@@ -547,7 +582,7 @@ class PMECoulomb(CoulombHandler):
         V = jnp.linalg.det(_box)
 
       mask = m_2 != 0
-      # NOTE m_2 = 0 at the (0,0,0) mode - this can lead to nan gradients 
+      # NOTE m_2 = 0 at the (0,0,0) mode - this can lead to nan gradients
       # during autodiff with dx/dV - this masking may still not be safe
       m_2 = jnp.where(mask, m_2, 1.0)
       exp_m = (
@@ -674,7 +709,8 @@ class PMECoulomb(CoulombHandler):
 
     return 0.5 * jnp.sum(energy)
 
-  def prepare_smap(self,
+  def prepare_smap(
+    self,
     charges: Array,
     box: Array,
     exc_charge_prod: Array,
@@ -687,21 +723,21 @@ class PMECoulomb(CoulombHandler):
     # robust masking scheme to avoid bad energy/forces
     def pair_plain_map(dr, charge_sq, **unused_kwargs):
       """Compute pairwise coulomb energy."""
-      dr = jnp.where(jnp.isclose(dr, 0.), 1, dr)
+      dr = jnp.where(jnp.isclose(dr, 0.0), 1, dr)
       energy = COULOMB_CONSTANT * (charge_sq / dr)
       return energy
-    
+
     def pair_energy_map(dr, charge_sq, **unused_kwargs):
       """Compute pairwise coulomb energy."""
-      dr = jnp.where(jnp.isclose(dr, 0.), 1, dr)
+      dr = jnp.where(jnp.isclose(dr, 0.0), 1, dr)
       energy = COULOMB_CONSTANT * (charge_sq / dr)
       energy *= erfc(self.alpha * dr)
       return energy
-    
+
     def pair_correction(dr, charge_sq, **unused_kwargs):
-      dr = jnp.where(jnp.isclose(dr, 0.), 1, dr)
+      dr = jnp.where(jnp.isclose(dr, 0.0), 1, dr)
       return -(COULOMB_CONSTANT * charge_sq * erf(self.alpha * dr) / dr)
-    
+
     ### Real space contribution
     pair_coul_fn = smap.pair_neighbor_list(
       cutoff_fn(pair_energy_map),
@@ -713,17 +749,19 @@ class PMECoulomb(CoulombHandler):
     ### Reciprocal space contribution
     # TODO it may make more sense to separate dynamic parameters from the
     # generator as they're passed by closure into the step function
-    recip_fn = self.coulomb_recip_pme(charges,
-                                      box,
-                                      self.grid_size,
-                                      fractional_coordinates=fractional_coordinates,
-                                      alpha=self.alpha)
+    recip_fn = self.coulomb_recip_pme(
+      charges,
+      box,
+      self.grid_size,
+      fractional_coordinates=fractional_coordinates,
+      alpha=self.alpha,
+    )
 
     ### Remove exceptions implicitly included in reciprocal term
     bond_corr_fn = smap.bond(
       pair_correction,
       space.canonicalize_displacement_or_metric(displacement_fn),
-      charge_sq=(combine_product, None)
+      charge_sq=(combine_product, None),
     )
 
     ### Modified (or zero) coulomb interaction for exceptions
@@ -735,8 +773,8 @@ class PMECoulomb(CoulombHandler):
 
     return pair_coul_fn, recip_fn, bond_corr_fn, bond_coul_fn
 
-
-  def energy_smap(self,
+  def energy_smap(
+    self,
     positions: Array,
     charges: Array,
     nlist: NeighborList,
@@ -747,12 +785,14 @@ class PMECoulomb(CoulombHandler):
     coulomb_fns: any = None,
   ) -> Array:
     pair_coul_fn, recip_fn, bond_corr_fn, bond_coul_fn = coulomb_fns
-    
+
     ### Real space contribution
     e_real = pair_coul_fn(positions, nlist, charge_sq=charges, **box_kwarg)
 
     ### Reciprocal space contribution
-    e_recip = COULOMB_CONSTANT * recip_fn(positions, charge=charges, **box_kwarg)
+    e_recip = COULOMB_CONSTANT * recip_fn(
+      positions, charge=charges, **box_kwarg
+    )
 
     ### Self energy contribution
     e_self = self.self_energy(charges)
@@ -761,7 +801,9 @@ class PMECoulomb(CoulombHandler):
     e_corr = bond_corr_fn(positions, exc_pairs, charge_sq=charges, **box_kwarg)
 
     ### Modified (or zero) coulomb interaction for exceptions
-    e_exceptions = bond_coul_fn(positions, exc_pairs, charge_sq=exc_charge_prod, **box_kwarg)
+    e_exceptions = bond_coul_fn(
+      positions, exc_pairs, charge_sq=exc_charge_prod, **box_kwarg
+    )
 
     total_e = e_real + e_recip + e_self + e_corr
     return total_e, e_exceptions

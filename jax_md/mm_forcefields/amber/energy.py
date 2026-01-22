@@ -13,23 +13,30 @@ Conventions (unless otherwise stated):
   - Angles/dihedrals are in radians
 """
 
+from functools import partial
 from typing import Any
-from functools import wraps, partial
 
 import jax
 import jax.numpy as jnp
 import numpy as onp
 import scipy
-from jax_md.mm_forcefields.base import (hard_cutoff, force_switch, combine_lorentz,
-                                        combine_berthelot, compute_angle, compute_dihedral)
-from jax_md import dataclasses, space, smap, util, partition
+
+from jax_md import dataclasses, partition, smap, space, util
 from jax_md.mm_forcefields import neighbor
-from jax_md.mm_forcefields.base import NonbondedOptions
+from jax_md.mm_forcefields.base import (
+  NonbondedOptions,
+  combine_berthelot,
+  combine_lorentz,
+  compute_angle,
+  compute_dihedral,
+  force_switch,
+  hard_cutoff,
+)
 from jax_md.mm_forcefields.nonbonded.electrostatics import (
-    CoulombHandler,
-    PMECoulomb,
-    EwaldCoulomb,
-    CutoffCoulomb,
+  CoulombHandler,
+  CutoffCoulomb,
+  EwaldCoulomb,
+  PMECoulomb,
 )
 
 
@@ -52,10 +59,11 @@ class FEOptions(object):
     sc_mask: Mask values marking softcore/alchemical atoms
   """
 
-  vdw_scaling=None
-  coul_scaling=None
-  ti_mask=1.0
-  sc_mask=1.0
+  vdw_scaling = None
+  coul_scaling = None
+  ti_mask = 1.0
+  sc_mask = 1.0
+
 
 # Types
 
@@ -71,6 +79,7 @@ NeighborFn = partition.NeighborFn
 NeighborList = partition.NeighborList
 NeighborListFormat = partition.NeighborListFormat
 
+
 def space_selector(nb_options, box_vectors):
   """
   Pick the displacement/shift functions based on NB/PBC settings
@@ -81,17 +90,17 @@ def space_selector(nb_options, box_vectors):
   wrapped_space = nb_options.wrapped_space
 
   if not use_pbc:
-      disp_fn, shift_fn = space.free()
+    disp_fn, shift_fn = space.free()
   elif use_periodic_general:
-      disp_fn, shift_fn = space.periodic_general(
-          box_vectors,
-          fractional_coordinates=fractional_coordinates,
-          wrapped=wrapped_space
-      )
+    disp_fn, shift_fn = space.periodic_general(
+      box_vectors,
+      fractional_coordinates=fractional_coordinates,
+      wrapped=wrapped_space,
+    )
   else:
-      disp_fn, shift_fn = space.periodic(box_vectors,
-                                          wrapped=wrapped_space)
+    disp_fn, shift_fn = space.periodic(box_vectors, wrapped=wrapped_space)
   return disp_fn, shift_fn
+
 
 def _create_dense_mask(n_atoms, exc_pairs):
   receivers = jnp.concatenate((exc_pairs[:, 0], exc_pairs[:, 1]))
@@ -103,7 +112,7 @@ def _create_dense_mask(n_atoms, exc_pairs):
   N = n_atoms
   count = jax.ops.segment_sum(jnp.ones(len(receivers), jnp.int32), receivers, N)
   max_count = jnp.max(count)
-  offset = jnp.tile(jnp.arange(max_count), N)[:len(senders)]
+  offset = jnp.tile(jnp.arange(max_count), N)[: len(senders)]
   hashes = senders * max_count + offset
   dense_idx = N * jnp.ones((N * max_count,), jnp.int32)
   exclusions_dense = dense_idx.at[hashes].set(receivers).reshape((N, max_count))
@@ -123,18 +132,24 @@ def _create_dense_mask(n_atoms, exc_pairs):
       topology.n_atoms
     """
     # TODO unique is assumed here, not clear from the algorithm if the junk fill values matter
-    idx = jax.vmap(lambda idx_r, mask_r: jnp.where(jnp.isin(idx_r, mask_r), n_atoms, idx_r), in_axes=(0,0))(idx, exclusions_dense)
+    idx = jax.vmap(
+      lambda idx_r, mask_r: jnp.where(jnp.isin(idx_r, mask_r), n_atoms, idx_r),
+      in_axes=(0, 0),
+    )(idx, exclusions_dense)
     return idx
+
   return mask_fn
 
 
-def energy(params,
-          topology,
-          box_vectors,
-          coulomb_options = CoulombHandler(),
-          nb_options = NonbondedOptions(),
-          fe_options = FEOptions(),
-          precision = None):
+def energy(
+  params,
+  topology,
+  box_vectors,
+  coulomb_options=CoulombHandler(),
+  nb_options=NonbondedOptions(),
+  fe_options=FEOptions(),
+  precision=None,
+):
   """
   Generate a JAX compatible potential energy function to evaluate the AMBER
   forcefield.
@@ -163,7 +178,9 @@ def energy(params,
   # leaves of passed dataclasses are correct type
 
   if precision is not None:
-    raise NotImplementedError("Precision handling is currently not implemented, double precision assumed")
+    raise NotImplementedError(
+      'Precision handling is currently not implemented, double precision assumed'
+    )
   # if precision == "double":
   #   wp_float = np.float64
   #   wp_int = np.int32
@@ -179,18 +196,18 @@ def energy(params,
   disp_fn, shift_fn = space_selector(nb_options, box_vectors)
 
   if isinstance(coulomb_options, PMECoulomb):
-    coulomb_method = "PME"
+    coulomb_method = 'PME'
   elif isinstance(coulomb_options, EwaldCoulomb):
-    coulomb_method = "Ewald"
+    coulomb_method = 'Ewald'
   elif isinstance(coulomb_options, CutoffCoulomb):
-    coulomb_method = "Cutoff"
+    coulomb_method = 'Cutoff'
   else:
-    coulomb_method = "NoCutoff"
+    coulomb_method = 'NoCutoff'
   coulomb = coulomb_options
 
   # Precompute CMAP coefficients with OpenMM's conventions
   cmap_precomp = None
-  if getattr(bonded.cmap_maps, "size", 0) != 0:
+  if getattr(bonded.cmap_maps, 'size', 0) != 0:
     cmap_precomp = cmap_setup(bonded.cmap_maps)
 
   ### Mapped function creation
@@ -235,7 +252,9 @@ def energy(params,
   )
 
   if nb_options.r_switch is not None:
-    vdw_cutoff_fn = partial(force_switch, r_on=nb_options.r_switch, r_off=nb_options.r_cut)
+    vdw_cutoff_fn = partial(
+      force_switch, r_on=nb_options.r_switch, r_off=nb_options.r_cut
+    )
     ele_cutoff_fn = partial(hard_cutoff, r_cut=nb_options.r_cut)
   elif nb_options.r_cut is not None:
     vdw_cutoff_fn = partial(hard_cutoff, r_cut=nb_options.r_cut)
@@ -246,7 +265,7 @@ def energy(params,
 
   # TODO this probably isn't the best way of flagging this
   if len(topology.nbfix_atom_type) != 0:
-    use_nbfix=True
+    use_nbfix = True
     pair_lj_fn = smap.pair_neighbor_list(
       vdw_cutoff_fn(lennard_jones_ab),
       space.canonicalize_displacement_or_metric(disp_fn),
@@ -262,7 +281,7 @@ def energy(params,
       epsilon=None,
     )
   else:
-    use_nbfix=False
+    use_nbfix = False
     pair_lj_fn = smap.pair_neighbor_list(
       vdw_cutoff_fn(lennard_jones),
       space.canonicalize_displacement_or_metric(disp_fn),
@@ -298,12 +317,11 @@ def energy(params,
     box_vectors if nb_options.use_pbc else None,
     nb_options.r_cut,
     nb_options.dr_threshold,
-    custom_mask_function = mask_fn,
+    custom_mask_function=mask_fn,
     fractional_coordinates=nb_options.fractional_coordinates,
     format=nb_options.nb_format,
     disable_cell_list=not nb_options.use_pbc,
   )
-
 
   def energy_fn(positions, nbr_list, cl_lambda=0.0, **kwargs):
     """
@@ -319,7 +337,6 @@ def energy(params,
       kwargs: kwargs to pass through dynamic structures. Note that this
         may not always be safe and can cause recompilation or runtime
         errors.
-      
 
     Returns:
       A dictionary of energies in kcal/mol.
@@ -346,12 +363,12 @@ def energy(params,
     # this cause issues. It also isn't clear if there's a tolerance beyond which
     # an error should be thrown.
     if nb_options.use_periodic_general:
-      box_kwarg = {"box":_box}
+      box_kwarg = {'box': _box}
     else:
-      box_kwarg = {"side":_box}
+      box_kwarg = {'side': _box}
     space_kwarg = dict(box_kwarg)
     if perturbation is not None:
-      space_kwarg["perturbation"] = perturbation
+      space_kwarg['perturbation'] = perturbation
 
     # NOTE most of these functions should work in the case there are no entries
     # into the respective indexing array, but if there are dummy entries as
@@ -369,12 +386,19 @@ def energy(params,
     result_dict['angle_pot'] = angle_pot
 
     torsion_pot = torsion_energy_mapped(
-      positions, k=bonded.torsion_k, phase=bonded.torsion_gamma, period=bonded.torsion_n, **space_kwarg
+      positions,
+      k=bonded.torsion_k,
+      phase=bonded.torsion_gamma,
+      period=bonded.torsion_n,
+      **space_kwarg,
     )
     result_dict['torsion_pot'] = torsion_pot
 
     improper_pot = improper_energy_mapped(
-      positions, k=bonded.improper_k, theta0=bonded.improper_gamma, **space_kwarg
+      positions,
+      k=bonded.improper_k,
+      theta0=bonded.improper_gamma,
+      **space_kwarg,
     )
     result_dict['improper_pot'] = improper_pot
 
@@ -396,25 +420,49 @@ def energy(params,
       topology.exc_pairs,
       nonbonded.exc_charge_prod,
       return_components=True,
-      coulomb_fns = mapped_coul_fns,
+      coulomb_fns=mapped_coul_fns,
     )
 
     ### Lennard Jones Interaction
     # TODO using 2 smap functions over the neighbor list for coulomb and then LJ
     # may have some negative performance implications, need to test under JIT
     if use_nbfix:
-      lj_pot = pair_lj_fn(positions, nbr_list, a=nonbonded.nbfix_acoef, b=nonbonded.nbfix_bcoef, **space_kwarg)
-      lj_exc_pot = bond_lj_fn(positions, topology.exc_pairs, sigma=nonbonded.exc_sigma, epsilon=nonbonded.exc_epsilon, **space_kwarg)
+      lj_pot = pair_lj_fn(
+        positions,
+        nbr_list,
+        a=nonbonded.nbfix_acoef,
+        b=nonbonded.nbfix_bcoef,
+        **space_kwarg,
+      )
+      lj_exc_pot = bond_lj_fn(
+        positions,
+        topology.exc_pairs,
+        sigma=nonbonded.exc_sigma,
+        epsilon=nonbonded.exc_epsilon,
+        **space_kwarg,
+      )
     else:
-      lj_pot = pair_lj_fn(positions, nbr_list, sigma=nonbonded.sigma, epsilon=nonbonded.epsilon, **space_kwarg)
-      lj_exc_pot = bond_lj_fn(positions, topology.exc_pairs, sigma=nonbonded.exc_sigma, epsilon=nonbonded.exc_epsilon, **space_kwarg)
+      lj_pot = pair_lj_fn(
+        positions,
+        nbr_list,
+        sigma=nonbonded.sigma,
+        epsilon=nonbonded.epsilon,
+        **space_kwarg,
+      )
+      lj_exc_pot = bond_lj_fn(
+        positions,
+        topology.exc_pairs,
+        sigma=nonbonded.exc_sigma,
+        epsilon=nonbonded.exc_epsilon,
+        **space_kwarg,
+      )
 
     # Calculate Dispersion Correction term
     # TODO note that this will be incorrect if parameters change
     # TODO this seems like it may be incorrect for switching functions
     # custom nonbonded terms, nbfix LRC, or other situations besides
     # standard 12-6 LJ with no modifications
-    if coulomb_method == "PME":
+    if coulomb_method == 'PME':
       box_for_volume = _box
       if perturbation is not None:
         box_for_volume = box_for_volume * perturbation
@@ -435,7 +483,15 @@ def energy(params,
     nb_pot = lj_pot + coul_pot + lj_exc_pot + coul_exc_pot
     result_dict['nb_pot'] = nb_pot
 
-    etotal = bond_pot + angle_pot + torsion_pot + improper_pot + cmap_pot + nb_pot + disp_pot
+    etotal = (
+      bond_pot
+      + angle_pot
+      + torsion_pot
+      + improper_pot
+      + cmap_pot
+      + nb_pot
+      + disp_pot
+    )
     result_dict['etotal'] = etotal
 
     return result_dict
@@ -534,7 +590,7 @@ def lennard_jones(dr, sigma, epsilon, **unused_kwargs):
     LJ energy
   """
   # TODO is this masking necessary, or should it be handled by smap?
-  dr = jnp.where(jnp.isclose(dr, 0.), 1, dr)
+  dr = jnp.where(jnp.isclose(dr, 0.0), 1, dr)
   idr = sigma / dr
   idr2 = idr * idr
   idr6 = idr2 * idr2 * idr2
@@ -554,7 +610,7 @@ def lennard_jones_ab(dr, a, b, **unused_kwargs):
     LJ energy
   """
   # TODO is this masking necessary, or should it be handled by smap?
-  dr = jnp.where(jnp.isclose(dr, 0.), 1, dr)
+  dr = jnp.where(jnp.isclose(dr, 0.0), 1, dr)
   dr2 = dr * dr
   dr6 = dr2 * dr2 * dr2
   return (a / dr6) ** 2 - (b / dr6)
@@ -578,7 +634,7 @@ def lennard_jones_softcore(dr, sigma, epsilon, cl_lambda, alpha=0.5):
     Softcore LJ energy (kcal/mol)
   """
   # TODO is this masking necessary, or should it be handled by smap?
-  dr = jnp.where(jnp.isclose(dr, 0.), 1, dr)
+  dr = jnp.where(jnp.isclose(dr, 0.0), 1, dr)
   idr = dr / sigma
   idr2 = idr * idr
   idr6 = idr2 * idr2 * idr2
@@ -605,7 +661,7 @@ def coulomb_softcore(dr, charge_sq, cl_lambda, alpha=0.5):
     kcal/mol if needed).
   """
   # TODO is this masking necessary, or should it be handled by smap?
-  dr = jnp.where(jnp.isclose(dr, 0.), 1, dr)
+  dr = jnp.where(jnp.isclose(dr, 0.0), 1, dr)
   soft_r = jnp.sqrt(dr * dr + alpha * (1.0 - cl_lambda) ** 2)
   return cl_lambda * charge_sq / soft_r
 
@@ -662,10 +718,10 @@ def cmap_setup(cmap_maps):
 
   maps_np = onp.asarray(cmap_maps, dtype=onp.float64)
   if maps_np.ndim == 2:
-      maps_np = maps_np[None, ...]
+    maps_np = maps_np[None, ...]
   n_maps, n_x, n_y = maps_np.shape
   if n_x != n_y:
-      raise ValueError("CMAP maps must be square.")
+    raise ValueError('CMAP maps must be square.')
 
   size = int(n_x)
   delta = float(2.0 * onp.pi / size)
@@ -673,7 +729,9 @@ def cmap_setup(cmap_maps):
   # Match OpenMM's energy indexing convention
   maps_np = onp.transpose(maps_np, (0, 2, 1))
 
-  x = onp.asarray([i * 2.0 * onp.pi / size for i in range(size + 1)], dtype=onp.float64)
+  x = onp.asarray(
+    [i * 2.0 * onp.pi / size for i in range(size + 1)], dtype=onp.float64
+  )
 
   # General form of the 4x4 Hermite basis matrix
   # e.g. https://mrl.cs.nyu.edu/~perlin/courses/spring2020/2020_04_02/
@@ -681,10 +739,10 @@ def cmap_setup(cmap_maps):
   # but is arranged in a way that is more explicit
   H = onp.array(
     [
-        [1.0, 0.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0, 0.0],
-        [-3.0, 3.0, -2.0, -1.0],
-        [2.0, -2.0, 1.0, 1.0],
+      [1.0, 0.0, 0.0, 0.0],
+      [0.0, 0.0, 1.0, 0.0],
+      [-3.0, 3.0, -2.0, -1.0],
+      [2.0, -2.0, 1.0, 1.0],
     ],
     dtype=onp.float64,
   )
@@ -702,21 +760,21 @@ def cmap_setup(cmap_maps):
     for j in range(size):
       y[:size] = energy_grid[:, j]
       y[size] = energy_grid[0, j]
-      cs = scipy.interpolate.CubicSpline(x, y, bc_type="periodic")
+      cs = scipy.interpolate.CubicSpline(x, y, bc_type='periodic')
       d1[:, j] = cs(x[:size], 1)
 
     # dE/dpsi at knots (periodic spline along psi for each phi_i)
     for i in range(size):
       y[:size] = energy_grid[i, :]
       y[size] = energy_grid[i, 0]
-      cs = scipy.interpolate.CubicSpline(x, y, bc_type="periodic")
+      cs = scipy.interpolate.CubicSpline(x, y, bc_type='periodic')
       d2[i, :] = cs(x[:size], 1)
 
     # Cross derivative d^2E/(dphi dpsi): spline dE/dpsi along phi
     for j in range(size):
       y[:size] = d2[:, j]
       y[size] = d2[0, j]
-      cs = scipy.interpolate.CubicSpline(x, y, bc_type="periodic")
+      cs = scipy.interpolate.CubicSpline(x, y, bc_type='periodic')
       d12[:, j] = cs(x[:size], 1)
 
     # Finally create the bicubic patch coefficients
@@ -746,108 +804,112 @@ def cmap_setup(cmap_maps):
         fxy11 = d12[nexti, nextj] * delta * delta
 
         G = onp.array(
-            [
-                [f00, f01, fy00, fy01],
-                [f10, f11, fy10, fy11],
-                [fx00, fx01, fxy00, fxy01],
-                [fx10, fx11, fxy10, fxy11],
-            ],
-            dtype=onp.float64,
+          [
+            [f00, f01, fy00, fy01],
+            [f10, f11, fy10, fy11],
+            [fx00, fx01, fxy00, fxy01],
+            [fx10, fx11, fxy10, fxy11],
+          ],
+          dtype=onp.float64,
         )
         A = H @ G @ H.T
         patch = i + size * j
-        coeff_np[m, patch, :] = A.reshape((16,), order="C")
+        coeff_np[m, patch, :] = A.reshape((16,), order='C')
 
   return (
-      jnp.asarray(coeff_np, dtype=jnp.float64),
-      f64(delta),
-      int(size),
+    jnp.asarray(coeff_np, dtype=jnp.float64),
+    f64(delta),
+    int(size),
   )
 
 
 def _cmap_eval_bicubic(map_id, phi, psi, cmap_precomp):
-    """
-    Evaluate CMAP energy using OpenMM-compatible bicubic coefficients
+  """
+  Evaluate CMAP energy using OpenMM-compatible bicubic coefficients
 
-    Args:
-      map_id: Integer map index
-      phi: First dihedral angle in radians, wrapped into [0, 2pi)
-      psi: Second dihedral angle in radians, wrapped into [0, 2pi)
-      cmap_precomp: Output of cmap_setup()
+  Args:
+    map_id: Integer map index
+    phi: First dihedral angle in radians, wrapped into [0, 2pi)
+    psi: Second dihedral angle in radians, wrapped into [0, 2pi)
+    cmap_precomp: Output of cmap_setup()
 
-    Returns:
-      CMAP correction energy for a single torsion pair
-    """
-    coeff, delta, size = cmap_precomp
-    delta = jnp.asarray(delta, dtype=coeff.dtype)
-    u = phi / delta
-    v = psi / delta
-    s = jnp.minimum(u.astype(jnp.int32), size - 1)
-    t = jnp.minimum(v.astype(jnp.int32), size - 1)
-    da = u - s.astype(coeff.dtype)
-    db = v - t.astype(coeff.dtype)
-    patch = s + size * t
-    c = coeff[map_id, patch]  # [16]
+  Returns:
+    CMAP correction energy for a single torsion pair
+  """
+  coeff, delta, size = cmap_precomp
+  delta = jnp.asarray(delta, dtype=coeff.dtype)
+  u = phi / delta
+  v = psi / delta
+  s = jnp.minimum(u.astype(jnp.int32), size - 1)
+  t = jnp.minimum(v.astype(jnp.int32), size - 1)
+  da = u - s.astype(coeff.dtype)
+  db = v - t.astype(coeff.dtype)
+  patch = s + size * t
+  c = coeff[map_id, patch]  # [16]
 
-    # Horner evaluation from ReferenceCMAPTorsionIxn
-    e = jnp.asarray(0.0, dtype=coeff.dtype)
-    for i in range(3, -1, -1):
-        base = ((c[i * 4 + 3] * db + c[i * 4 + 2]) * db + c[i * 4 + 1]) * db + c[i * 4 + 0]
-        e = da * e + base
-    return e
+  # Horner evaluation from ReferenceCMAPTorsionIxn
+  e = jnp.asarray(0.0, dtype=coeff.dtype)
+  for i in range(3, -1, -1):
+    base = ((c[i * 4 + 3] * db + c[i * 4 + 2]) * db + c[i * 4 + 1]) * db + c[
+      i * 4 + 0
+    ]
+    e = da * e + base
+  return e
 
 
 # rough analogue to the implementation in CMAPTorsionForce
 def cmap_energy(positions, cmap_atoms, cmap_map_id, cmap_precomp, disp_fn):
-    """
-    Compute CMAP torsion correction energy
+  """
+  Compute CMAP torsion correction energy
 
-    Args:
-      positions: Particle positions
-      cmap_atoms: Array of CMAP torsion atom indices with shape (M, 8)
-      cmap_map_id: Optional array of length M selecting which map to use for
-        each torsion
-      cmap_precomp: Output of cmap_setup()
-      disp_fn: Displacement function consistent with the simulation space
+  Args:
+    positions: Particle positions
+    cmap_atoms: Array of CMAP torsion atom indices with shape (M, 8)
+    cmap_map_id: Optional array of length M selecting which map to use for
+      each torsion
+    cmap_precomp: Output of cmap_setup()
+    disp_fn: Displacement function consistent with the simulation space
 
-    Returns:
-      Total CMAP energy in kcal/mol
-    """
-    # TODO no longer robust to check none
-    if cmap_atoms is None:
-        return f64(0.0)
-    if getattr(cmap_atoms, "size", 0) == 0:
-        return f64(0.0)
-    if cmap_precomp is None:
-        return f64(0.0)
+  Returns:
+    Total CMAP energy in kcal/mol
+  """
+  # TODO no longer robust to check none
+  if cmap_atoms is None:
+    return f64(0.0)
+  if getattr(cmap_atoms, 'size', 0) == 0:
+    return f64(0.0)
+  if cmap_precomp is None:
+    return f64(0.0)
 
-    ids = cmap_map_id
-    if ids is None:
-        ids = jnp.zeros((cmap_atoms.shape[0],), dtype=jnp.int32)
+  ids = cmap_map_id
+  if ids is None:
+    ids = jnp.zeros((cmap_atoms.shape[0],), dtype=jnp.int32)
 
-    atoms_a = cmap_atoms[:, 0:4]
-    atoms_b = cmap_atoms[:, 4:8]
+  atoms_a = cmap_atoms[:, 0:4]
+  atoms_b = cmap_atoms[:, 4:8]
 
-    pa = positions[atoms_a] # [M,4,3]
-    pb = positions[atoms_b]
+  pa = positions[atoms_a]  # [M,4,3]
+  pb = positions[atoms_b]
 
-    # TODO this is essentially pairs of 4 body interactions
-    # is there an idiomatic way of expressing this with smap?
+  # TODO this is essentially pairs of 4 body interactions
+  # is there an idiomatic way of expressing this with smap?
 
-    d0a = jax.vmap(disp_fn)(pa[:, 0], pa[:, 1])
-    d1a = jax.vmap(disp_fn)(pa[:, 2], pa[:, 1])
-    d2a = jax.vmap(disp_fn)(pa[:, 2], pa[:, 3])
-    phi = jax.vmap(compute_dihedral)(d0a, d1a, d2a)
+  d0a = jax.vmap(disp_fn)(pa[:, 0], pa[:, 1])
+  d1a = jax.vmap(disp_fn)(pa[:, 2], pa[:, 1])
+  d2a = jax.vmap(disp_fn)(pa[:, 2], pa[:, 3])
+  phi = jax.vmap(compute_dihedral)(d0a, d1a, d2a)
 
-    d0b = jax.vmap(disp_fn)(pb[:, 0], pb[:, 1])
-    d1b = jax.vmap(disp_fn)(pb[:, 2], pb[:, 1])
-    d2b = jax.vmap(disp_fn)(pb[:, 2], pb[:, 3])
-    psi = jax.vmap(compute_dihedral)(d0b, d1b, d2b)
+  d0b = jax.vmap(disp_fn)(pb[:, 0], pb[:, 1])
+  d1b = jax.vmap(disp_fn)(pb[:, 2], pb[:, 1])
+  d2b = jax.vmap(disp_fn)(pb[:, 2], pb[:, 3])
+  psi = jax.vmap(compute_dihedral)(d0b, d1b, d2b)
 
-    # OpenMM wraps CMAP angles into [0, 2pi) before patch lookup
-    phi_omm = _wrap_angle_0_2pi(phi)
-    psi_omm = _wrap_angle_0_2pi(psi)
+  # OpenMM wraps CMAP angles into [0, 2pi) before patch lookup
+  phi_omm = _wrap_angle_0_2pi(phi)
+  psi_omm = _wrap_angle_0_2pi(psi)
 
-    e = jax.vmap(_cmap_eval_bicubic, in_axes=(0,0,0,None))(ids, phi_omm, psi_omm, cmap_precomp)
+  e = jax.vmap(_cmap_eval_bicubic, in_axes=(0, 0, 0, None))(
+    ids, phi_omm, psi_omm, cmap_precomp
+  )
 
-    return util.high_precision_sum(e)
+  return util.high_precision_sum(e)

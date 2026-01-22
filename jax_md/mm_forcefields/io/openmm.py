@@ -1,7 +1,8 @@
 """OpenMM-based loader that converts arbitrary MM inputs into mm_forcefields types."""
-import os, sys
-from typing import NamedTuple, Optional, Tuple
+
+import os
 from functools import partial
+from typing import NamedTuple, Optional
 
 import jax
 import jax.numpy as jnp
@@ -26,7 +27,7 @@ try:
 except ImportError:  # pragma: no cover
   parmed = None
 
-from jax_md import partition, space, util, simulate
+from jax_md import partition, simulate, space, util
 from jax_md.mm_forcefields.base import (
   BondedParameters,
   NonbondedOptions,
@@ -49,13 +50,16 @@ class VirtualSiteData(NamedTuple):
   """
 
   is_virtual_site: jnp.ndarray  # (N,) bool
-  vsite_type: jnp.ndarray  # (N,) int32: 0 none, 1 two-avg, 2 three-avg, 3 oop, 4 local
+  vsite_type: (
+    jnp.ndarray
+  )  # (N,) int32: 0 none, 1 two-avg, 2 three-avg, 3 oop, 4 local
   parent_idx: jnp.ndarray  # (N, 3) int32, padded with -1
   weights: jnp.ndarray  # (N, 4) float, interpretation depends on type
   origin_weights: jnp.ndarray  # (N, 3) float (LocalCoordinatesSite)
   x_weights: jnp.ndarray  # (N, 3) float (LocalCoordinatesSite)
   y_weights: jnp.ndarray  # (N, 3) float (LocalCoordinatesSite)
   local_position: jnp.ndarray  # (N, 3) float, Angstrom (LocalCoordinatesSite)
+
 
 # TODO consider if this can be cleaned up
 class OpenMMSystem(NamedTuple):
@@ -87,27 +91,29 @@ _ANG_TO_NM = 1.0 / _NM_TO_ANG
 # TODO test more rigorously to make sure these error messages occur as expected
 def _maybe_import_omm():
   if openmm is None or app is None or unit is None:
-    raise ImportError("openmm is required to use the OpenMM loader.")
+    raise ImportError('openmm is required to use the OpenMM loader.')
 
 
 def _maybe_import_ommff():
   if SystemGenerator is None:
-    raise ImportError("openmmforcefields is required to use the OpenMM loader.")
+    raise ImportError('openmmforcefields is required to use the OpenMM loader.')
 
 
 def _maybe_import_parmed():
   if parmed is None:
-    raise ImportError("parmed is required to use the ParmEd loader.")
+    raise ImportError('parmed is required to use the ParmEd loader.')
 
 
 def load_amber_system(prmtop_path, inpcrd_path, nb_method=None, **kwargs):
   """Load Amber inputs and build an OpenMM System."""
   _maybe_import_omm()
   if not (os.path.exists(prmtop_path) and os.path.exists(inpcrd_path)):
-    raise FileNotFoundError(f"Missing input files {prmtop_path}/{inpcrd_path}")
+    raise FileNotFoundError(f'Missing input files {prmtop_path}/{inpcrd_path}')
   inpcrd = app.AmberInpcrdFile(inpcrd_path)
   positions = inpcrd.getPositions(asNumpy=True)
-  prmtop = app.AmberPrmtopFile(prmtop_path, periodicBoxVectors=inpcrd.boxVectors)
+  prmtop = app.AmberPrmtopFile(
+    prmtop_path, periodicBoxVectors=inpcrd.boxVectors
+  )
   if nb_method is None:
     nb_method = app.PME if inpcrd.boxVectors is not None else app.NoCutoff
   system = prmtop.createSystem(nonbondedMethod=nb_method, **kwargs)
@@ -120,33 +126,41 @@ def _charmm_read_box(psf, filename):
   with open(filename, 'r') as f:
     try:
       import json
+
       sysinfo = json.load(f)
       boxlx, boxly, boxlz = map(float, sysinfo['dimensions'][:3])
     except:
       for line in f:
         segments = line.split('=')
-        if segments[0].strip() == "BOXLX": boxlx = float(segments[1])
-        if segments[0].strip() == "BOXLY": boxly = float(segments[1])
-        if segments[0].strip() == "BOXLZ": boxlz = float(segments[1])
-  psf.setBox(boxlx*unit.angstroms, boxly*unit.angstroms, boxlz*unit.angstroms)
+        if segments[0].strip() == 'BOXLX':
+          boxlx = float(segments[1])
+        if segments[0].strip() == 'BOXLY':
+          boxly = float(segments[1])
+        if segments[0].strip() == 'BOXLZ':
+          boxlz = float(segments[1])
+  psf.setBox(
+    boxlx * unit.angstroms, boxly * unit.angstroms, boxlz * unit.angstroms
+  )
   return psf
 
 
-def load_charmm_system(crd_path, psf_path, param_paths, nb_method=None, sys_info=None, **kwargs):
+def load_charmm_system(
+  crd_path, psf_path, param_paths, nb_method=None, sys_info=None, **kwargs
+):
   # param_paths is list of files with extensions such as par, prm, top, rtf, inp, and str
   _maybe_import_omm()
   crd_extension = os.path.splitext(crd_path)[-1]
-  if crd_extension == ".pdb":
+  if crd_extension == '.pdb':
     crd = app.PDBFile(crd_path)
     positions = crd.getPositions(asNumpy=True)
-  elif crd_extension == ".crd":
+  elif crd_extension == '.crd':
     crd = app.CharmmCrdFile(crd_path)
     positions = crd.positions
-  elif crd_extension == ".rst":
+  elif crd_extension == '.rst':
     crd = app.CharmmRstFile(crd_path)
     positions = crd.positions
   else:
-    raise ValueError("CHARMM coordinate files must end in .pdb, .crd, or .rst")
+    raise ValueError('CHARMM coordinate files must end in .pdb, .crd, or .rst')
   psf = app.CharmmPsfFile(psf_path)
   if sys_info is not None:
     psf = _charmm_read_box(psf, sys_info)
@@ -161,8 +175,11 @@ def load_gromacs_system(gro_path, top_path, nb_method=None, **kwargs):
   _maybe_import_omm()
   gro = app.GromacsGroFile(gro_path)
   positions = gro.getPositions(asNumpy=True)
-  top = app.GromacsTopFile(top_path, periodicBoxVectors=gro.getPeriodicBoxVectors(),
-          includeDir='/usr/local/gromacs/share/gromacs/top')
+  top = app.GromacsTopFile(
+    top_path,
+    periodicBoxVectors=gro.getPeriodicBoxVectors(),
+    includeDir='/usr/local/gromacs/share/gromacs/top',
+  )
   if nb_method is None:
     nb_method = app.PME if gro.boxVectors is not None else app.NoCutoff
   system = top.createSystem(nonbondedMethod=nb_method, **kwargs)
@@ -186,7 +203,7 @@ def load_generator_system(
   nb_method=None,
   molecules=None,
   forcefield_files=None,
-  small_molecule_forcefield="gaff-2.11",
+  small_molecule_forcefield='gaff-2.11',
   generator_kwargs=None,
   create_system_kwargs=None,
 ):
@@ -212,7 +229,9 @@ def load_generator_system(
 
   if generator is None:
     if SystemGenerator is None:  # pragma: no cover
-      raise ImportError("openmmforcefields is required for generator-based loading.")
+      raise ImportError(
+        'openmmforcefields is required for generator-based loading.'
+      )
     generator_kwargs = generator_kwargs or {}
     generator = SystemGenerator(
       forcefields=forcefield_files or [],
@@ -248,7 +267,7 @@ def load_parmed_system(structure, param_files=None, nb_method=None, **kwargs):
   # TODO better error guards
   # what combination of crd/prm/top are needed?
   structure = parmed.load_file(structure_path, param_files)  # type: ignore
-  box_vectors = getattr(structure, "box_vectors", None)
+  box_vectors = getattr(structure, 'box_vectors', None)
   if nb_method is None:
     nb_method = app.PME if box_vectors is not None else app.NoCutoff
 
@@ -270,7 +289,7 @@ def convert_openmm_system(
   r_cut: float = None,
   dr_threshold: float = 0.0,
   format: partition.NeighborListFormat = partition.NeighborListFormat.OrderedSparse,
-  precision: str = "double"
+  precision: str = 'double',
 ) -> OpenMMSystem:
   """Convert an OpenMM System/Topology into mm_forcefields structures.
 
@@ -289,14 +308,14 @@ def convert_openmm_system(
   """
   _maybe_import_omm()
 
-  if precision == "double":
+  if precision == 'double':
     wp_float = np.float64
     wp_int = np.int32
-  elif precision == "single":
+  elif precision == 'single':
     wp_float = np.float32
     wp_int = np.int32
   else:
-    raise ValueError("Invalid option provided for precision")
+    raise ValueError('Invalid option provided for precision')
 
   pos = np.asarray(positions.value_in_unit(unit.angstrom), dtype=wp_float)
 
@@ -315,19 +334,19 @@ def convert_openmm_system(
   vsite_y_weights = np.zeros((n_atoms, 3), dtype=wp_float)
   vsite_local_position = np.zeros((n_atoms, 3), dtype=wp_float)
 
-  two_avg_cls = getattr(openmm, "TwoParticleAverageSite", None)
-  three_avg_cls = getattr(openmm, "ThreeParticleAverageSite", None)
-  oop_cls = getattr(openmm, "OutOfPlaneSite", None)
-  local_cls = getattr(openmm, "LocalCoordinatesSite", None)
+  two_avg_cls = getattr(openmm, 'TwoParticleAverageSite', None)
+  three_avg_cls = getattr(openmm, 'ThreeParticleAverageSite', None)
+  oop_cls = getattr(openmm, 'OutOfPlaneSite', None)
+  local_cls = getattr(openmm, 'LocalCoordinatesSite', None)
   # TODO Also implement symmetry site later if applicable
 
   def _vec3_to_ang(vec3):
-    if hasattr(vec3, "value_in_unit"):
+    if hasattr(vec3, 'value_in_unit'):
       return np.asarray(vec3.value_in_unit(unit.angstrom), dtype=wp_float)
     return _NM_TO_ANG * np.asarray(vec3, dtype=wp_float)
 
   def _vec3_to_arr(vec3):
-    if hasattr(vec3, "value_in_unit"):
+    if hasattr(vec3, 'value_in_unit'):
       return np.asarray(vec3.value_in_unit(unit.dimensionless), dtype=wp_float)
     return np.asarray(vec3, dtype=wp_float)
 
@@ -346,18 +365,20 @@ def convert_openmm_system(
         vsite_type[idx] = 1
         vsite_parent_idx[idx, 0] = virtual_site.getParticle(0)
         vsite_parent_idx[idx, 1] = virtual_site.getParticle(1)
-        if hasattr(virtual_site, "getWeight"):
+        if hasattr(virtual_site, 'getWeight'):
           vsite_weights[idx, 0] = float(virtual_site.getWeight(0))
           vsite_weights[idx, 1] = float(virtual_site.getWeight(1))
         else:
           vsite_weights[idx, 0] = float(virtual_site.getWeight1())
           vsite_weights[idx, 1] = float(virtual_site.getWeight2())
-      elif three_avg_cls is not None and isinstance(virtual_site, three_avg_cls):
+      elif three_avg_cls is not None and isinstance(
+        virtual_site, three_avg_cls
+      ):
         vsite_type[idx] = 2
         vsite_parent_idx[idx, 0] = virtual_site.getParticle(0)
         vsite_parent_idx[idx, 1] = virtual_site.getParticle(1)
         vsite_parent_idx[idx, 2] = virtual_site.getParticle(2)
-        if hasattr(virtual_site, "getWeight"):
+        if hasattr(virtual_site, 'getWeight'):
           vsite_weights[idx, 0] = float(virtual_site.getWeight(0))
           vsite_weights[idx, 1] = float(virtual_site.getWeight(1))
           vsite_weights[idx, 2] = float(virtual_site.getWeight(2))
@@ -371,7 +392,7 @@ def convert_openmm_system(
         vsite_parent_idx[idx, 1] = virtual_site.getParticle(1)
         vsite_parent_idx[idx, 2] = virtual_site.getParticle(2)
         # OpenMM OutOfPlaneSite uses weights: w12, w13, wCross.
-        if hasattr(virtual_site, "getWeight12"):
+        if hasattr(virtual_site, 'getWeight12'):
           vsite_weights[idx, 0] = float(virtual_site.getWeight12())
           vsite_weights[idx, 1] = float(virtual_site.getWeight13())
           vsite_weights[idx, 2] = float(virtual_site.getWeightCross())
@@ -385,16 +406,21 @@ def convert_openmm_system(
         vsite_parent_idx[idx, 0] = int(virtual_site.getOriginParticle())
         vsite_parent_idx[idx, 1] = int(virtual_site.getXParticle())
         vsite_parent_idx[idx, 2] = int(virtual_site.getYParticle())
-        vsite_origin_weights[idx] = _vec3_to_arr(virtual_site.getOriginWeights())
+        vsite_origin_weights[idx] = _vec3_to_arr(
+          virtual_site.getOriginWeights()
+        )
         vsite_x_weights[idx] = _vec3_to_arr(virtual_site.getXWeights())
         vsite_y_weights[idx] = _vec3_to_arr(virtual_site.getYWeights())
-        vsite_local_position[idx] = _vec3_to_ang(virtual_site.getLocalPosition())
+        vsite_local_position[idx] = _vec3_to_ang(
+          virtual_site.getLocalPosition()
+        )
       else:
-        raise ValueError(f"Unknown virtual type site {type(virtual_site)}")
-
+        raise ValueError(f'Unknown virtual type site {type(virtual_site)}')
 
   if vs_types:
-    print("[WARNING] Virtual site support is incomplete and can result in incorrect energies, forces, and physical quantities")
+    print(
+      '[WARNING] Virtual site support is incomplete and can result in incorrect energies, forces, and physical quantities'
+    )
 
   # TODO might be better to load arrays into dict as they're created
   # and then have a function that constructs the dataclasses with appropriate
@@ -466,7 +492,9 @@ def convert_openmm_system(
         i, j, r0, k = force.getBondParameters(idx)
         bonds_this[idx] = (i, j)
         bond_r0_this[idx] = r0.value_in_unit(unit.angstrom)
-        bond_k_this[idx] = k.value_in_unit(unit.kilocalorie_per_mole / unit.angstrom**2)
+        bond_k_this[idx] = k.value_in_unit(
+          unit.kilocalorie_per_mole / unit.angstrom**2
+        )
       # Ensures Urey-Bradley terms are handled correctly
       bonds_arr = np.concatenate((bonds_arr, bonds_this), axis=0)
       bond_r0 = np.concatenate((bond_r0, bond_r0_this), axis=0)
@@ -480,7 +508,9 @@ def convert_openmm_system(
         i, j, k, theta0, k_val = force.getAngleParameters(idx)
         angles_arr[idx] = (i, j, k)
         angle_theta0[idx] = theta0.value_in_unit(unit.radian)
-        angle_k[idx] = k_val.value_in_unit(unit.kilocalorie_per_mole / unit.radian**2)
+        angle_k[idx] = k_val.value_in_unit(
+          unit.kilocalorie_per_mole / unit.radian**2
+        )
     elif isinstance(force, openmm.PeriodicTorsionForce):
       num_torsions = force.getNumTorsions()
       torsions_arr = np.zeros((num_torsions, 4), dtype=wp_int)
@@ -514,14 +544,18 @@ def convert_openmm_system(
 
       # Exception params
       num_exceptions = force.getNumExceptions()
-      exc_pairs_arr = np.zeros((num_exceptions,2), dtype=wp_int)
+      exc_pairs_arr = np.zeros((num_exceptions, 2), dtype=wp_int)
       exc_charge_prod_arr = np.zeros((num_exceptions,), dtype=wp_float)
       exc_sigma_arr = np.zeros((num_exceptions,), dtype=wp_float)
       exc_epsilon_arr = np.zeros((num_exceptions,), dtype=wp_float)
       for idx in range(force.getNumExceptions()):
-        i, j, charge_prod, sigma_exc, eps_exc = force.getExceptionParameters(idx)
+        i, j, charge_prod, sigma_exc, eps_exc = force.getExceptionParameters(
+          idx
+        )
         exc_pairs_arr[idx] = (i, j)
-        exc_charge_prod_arr[idx] = charge_prod.value_in_unit(unit.elementary_charge**2)
+        exc_charge_prod_arr[idx] = charge_prod.value_in_unit(
+          unit.elementary_charge**2
+        )
         exc_sigma_arr[idx] = sigma_exc.value_in_unit(unit.angstrom)
         exc_epsilon_arr[idx] = eps_exc.value_in_unit(unit.kilocalorie_per_mole)
 
@@ -541,14 +575,23 @@ def convert_openmm_system(
         recip_alpha = alpha.value_in_unit(unit.angstrom**-1)
         recip_grid = np.asarray([int(nx), int(ny), int(nz)], dtype=wp_int)
 
-        if (recip_alpha == 0.0) or (int(nx) == 0) or (int(ny) == 0) or (int(nz) == 0):
+        if (
+          (recip_alpha == 0.0)
+          or (int(nx) == 0)
+          or (int(ny) == 0)
+          or (int(nz) == 0)
+        ):
           integrator = openmm.VerletIntegrator(1.0 * unit.femtosecond)
-          platform = openmm.Platform.getPlatformByName("Reference")
+          platform = openmm.Platform.getPlatformByName('Reference')
           context = openmm.Context(system, integrator, platform)
           context.setPositions(positions)
-          alpha_ctx, nx_ctx, ny_ctx, nz_ctx = force.getPMEParametersInContext(context)
+          alpha_ctx, nx_ctx, ny_ctx, nz_ctx = force.getPMEParametersInContext(
+            context
+          )
           recip_alpha = float(alpha_ctx) / _NM_TO_ANG
-          recip_grid = np.asarray([int(nx_ctx), int(ny_ctx), int(nz_ctx)], dtype=wp_int)
+          recip_grid = np.asarray(
+            [int(nx_ctx), int(ny_ctx), int(nz_ctx)], dtype=wp_int
+          )
 
       if nb_method is not openmm.NonbondedForce.NoCutoff:
         use_pbc = True
@@ -584,7 +627,10 @@ def convert_openmm_system(
       # may lead to convergence issues with the custom force correction approach
       # for now, the assumption is nbfix terms and a dispersion correction won't be enabled at the same time
       # and that the dispersion correction is only for a 12-6 potential
-      if force.getUseDispersionCorrection() and nb_method is not openmm.NonbondedForce.NoCutoff:
+      if (
+        force.getUseDispersionCorrection()
+        and nb_method is not openmm.NonbondedForce.NoCutoff
+      ):
         disp_coefs = np.stack([sigma_arr, epsilon_arr], axis=1)
         values, count = np.unique(disp_coefs, axis=0, return_counts=True)
         sigma2 = values[:, 0] * values[:, 0]
@@ -593,9 +639,15 @@ def convert_openmm_system(
         sum1 = np.sum(count_s * values[:, 1] * sigma6 * sigma6)
         sum2 = np.sum(count_s * values[:, 1] * sigma6)
 
-        sig_mesh = np.triu(np.array(np.meshgrid(values[:, 0], values[:, 0])), k=1).T.reshape(-1, 2)
-        eps_mesh = np.triu(np.array(np.meshgrid(values[:, 1], values[:, 1])), k=1).T.reshape(-1, 2)
-        count_mesh = np.triu(np.array(np.meshgrid(count, count)), k=1).T.reshape(-1, 2)
+        sig_mesh = np.triu(
+          np.array(np.meshgrid(values[:, 0], values[:, 0])), k=1
+        ).T.reshape(-1, 2)
+        eps_mesh = np.triu(
+          np.array(np.meshgrid(values[:, 1], values[:, 1])), k=1
+        ).T.reshape(-1, 2)
+        count_mesh = np.triu(
+          np.array(np.meshgrid(count, count)), k=1
+        ).T.reshape(-1, 2)
 
         sig_c = 0.5 * np.sum(sig_mesh, axis=1)
         eps_c = np.sqrt(eps_mesh[:, 0] * eps_mesh[:, 1])
@@ -614,8 +666,16 @@ def convert_openmm_system(
         sum2 = sum2 / denom
         sum3 = sum3 / denom
 
-        disp_coef = 8 * n_atoms * n_atoms * np.pi * (
-          sum1 / (9 * np.power(r_cut, 9)) - sum2 / (3 * np.power(r_cut, 3)) + sum3
+        disp_coef = (
+          8
+          * n_atoms
+          * n_atoms
+          * np.pi
+          * (
+            sum1 / (9 * np.power(r_cut, 9))
+            - sum2 / (3 * np.power(r_cut, 3))
+            + sum3
+          )
         )
     elif isinstance(force, openmm.CMAPTorsionForce):
       num_maps = force.getNumMaps()
@@ -627,29 +687,34 @@ def convert_openmm_system(
       for idx in range(num_maps):
         size, energies = force.getMapParameters(idx)
         if size != map_size:
-          raise ValueError("All CMAP maps must have the same size")
+          raise ValueError('All CMAP maps must have the same size')
         cmap_maps_arr[idx] = np.array(
           energies.value_in_unit(unit.kilocalorie_per_mole), dtype=wp_float
         ).reshape((size, size))
 
       # Extract map indices and phi/psi pairs
       cmap_map_id_arr = np.zeros((num_cmap_torsions,), dtype=wp_int)
-      cmap_atoms_arr = np.zeros((num_cmap_torsions,8), dtype=wp_int)
+      cmap_atoms_arr = np.zeros((num_cmap_torsions, 8), dtype=wp_int)
       for t in range(num_cmap_torsions):
         (
           map_idx,
-          a1, a2, a3, a4,
-          b1, b2, b3, b4,
+          a1,
+          a2,
+          a3,
+          a4,
+          b1,
+          b2,
+          b3,
+          b4,
         ) = force.getTorsionParameters(t)
         cmap_map_id_arr[t] = map_idx
-        cmap_atoms_arr[t] = (a1, a2, a3, a4,
-                               b1, b2, b3, b4)
+        cmap_atoms_arr[t] = (a1, a2, a3, a4, b1, b2, b3, b4)
     elif isinstance(force, openmm.CustomTorsionForce):
       energy_function = force.getEnergyFunction()
       # TODO probably a better way to search for custom force definitions
-      if "min(dtheta" not in energy_function or "theta0" not in energy_function:
+      if 'min(dtheta' not in energy_function or 'theta0' not in energy_function:
         raise NotImplementedError(
-          f"Unsupported CustomTorsionForce energy function: {energy_function}"
+          f'Unsupported CustomTorsionForce energy function: {energy_function}'
         )
 
       num_impropers = force.getNumTorsions()
@@ -664,11 +729,14 @@ def convert_openmm_system(
         improper_theta0[idx] = theta0
     elif isinstance(force, openmm.CustomNonbondedForce):
       energy_function = force.getEnergyFunction()
-      if "acoef(type1, type2)" not in energy_function or "bcoef(type1, type2)" not in energy_function:
+      if (
+        'acoef(type1, type2)' not in energy_function
+        or 'bcoef(type1, type2)' not in energy_function
+      ):
         raise NotImplementedError(
-          f"Unsupported CustomTorsionForce energy function: {energy_function}"
+          f'Unsupported CustomTorsionForce energy function: {energy_function}'
         )
-      
+
       # Extract relevant options from force object
       # TODO there should probably be better error handling if there
       # is a mismatch between the normal and custom nb forces for
@@ -679,8 +747,10 @@ def convert_openmm_system(
         if r_cut is None:
           r_cut = force.getCutoffDistance().value_in_unit(unit.angstrom)
       if force.getUseLongRangeCorrection():
-        raise NotImplementedError("General long range corrections for CustomNonbondedForce is not yet supported")
-      
+        raise NotImplementedError(
+          'General long range corrections for CustomNonbondedForce is not yet supported'
+        )
+
       # Extract per-particle type indices
       num_particles = force.getNumParticles()
       nbfix_atom_type_arr = np.zeros((num_particles,), dtype=wp_int)
@@ -693,8 +763,10 @@ def convert_openmm_system(
         name = force.getTabulatedFunctionName(fi)
         fn = force.getTabulatedFunction(fi)
         xsize, ysize, values = fn.getFunctionParameters()
-        mat = np.asarray(values, dtype=wp_float).reshape((int(xsize), int(ysize)), order="F")
-        if name == "acoef":
+        mat = np.asarray(values, dtype=wp_float).reshape(
+          (int(xsize), int(ysize)), order='F'
+        )
+        if name == 'acoef':
           nbfix_acoef_table = mat * (10**6) * np.sqrt(_KJ_TO_KCAL)
         else:
           nbfix_bcoef_table = mat * (10**6) * _KJ_TO_KCAL
@@ -702,7 +774,7 @@ def convert_openmm_system(
       # TODO unsure if this needs to be handled or can safely be ignored and left to the user to turn on
       pass
     else:
-      raise NotImplementedError(f"{force} is not yet supported.")
+      raise NotImplementedError(f'{force} is not yet supported.')
 
   # Extract holonomic distance constraints.
   #
@@ -756,7 +828,7 @@ def convert_openmm_system(
     torsion_k=jnp.asarray(torsion_k),
     torsion_n=jnp.asarray(torsion_n),
     torsion_gamma=jnp.asarray(torsion_phase),
-    improper_k = jnp.asarray(improper_k),
+    improper_k=jnp.asarray(improper_k),
     improper_n=None,
     improper_gamma=jnp.asarray(improper_theta0),
     cmap_maps=jnp.asarray(cmap_maps_arr),
@@ -791,16 +863,24 @@ def convert_openmm_system(
     disp_coef=disp_coef,
     r_switch=r_switch,
   )
-  
+
   return OpenMMSystem(
     jnp.asarray(pos, dtype=jnp.float64),
     topology,
     params,
-    jnp.asarray(box_vectors, dtype=jnp.float64) if box_vectors is not None else None,
+    jnp.asarray(box_vectors, dtype=jnp.float64)
+    if box_vectors is not None
+    else None,
     nb_options,
-    jnp.asarray(recip_alpha, dtype=jnp.float64) if recip_alpha is not None else None,
-    jnp.asarray(recip_grid, dtype=jnp.int32) if recip_grid is not None else None,
-    jnp.asarray(ewald_error_tolerance, dtype=jnp.float64) if ewald_error_tolerance is not None else None,
+    jnp.asarray(recip_alpha, dtype=jnp.float64)
+    if recip_alpha is not None
+    else None,
+    jnp.asarray(recip_grid, dtype=jnp.int32)
+    if recip_grid is not None
+    else None,
+    jnp.asarray(ewald_error_tolerance, dtype=jnp.float64)
+    if ewald_error_tolerance is not None
+    else None,
     jnp.asarray(masses, dtype=jnp.float64),
     VirtualSiteData(
       is_virtual_site=jnp.asarray(is_virtual_site),
@@ -816,8 +896,10 @@ def convert_openmm_system(
     jnp.asarray(constraint_dist_arr, dtype=jnp.float64),
   )
 
+
 def get_ewald_parameters():
   return
+
 
 def virtual_site_apply_positions(
   pos: jnp.ndarray,
@@ -920,7 +1002,12 @@ def virtual_site_apply_positions(
   zhat = jnp.cross(xhat, yhat)
 
   local = virtual_sites.local_position
-  r_local = origin_delta + local[:, 0:1] * xhat + local[:, 1:2] * yhat + local[:, 2:3] * zhat
+  r_local = (
+    origin_delta
+    + local[:, 0:1] * xhat
+    + local[:, 1:2] * yhat
+    + local[:, 2:3] * zhat
+  )
   r_local = shift_fn(p0, r_local, **box_kwargs)
   out = jnp.where((t == 4)[:, None], r_local, out)
 
@@ -957,14 +1044,18 @@ def virtual_site_fix_state(
 
   # simulate.nve canonicalizes mass to shape (N, 1) for broadcasting.
   mass = state.mass
-  if hasattr(mass, "ndim") and mass.ndim == 2:
+  if hasattr(mass, 'ndim') and mass.ndim == 2:
     mask = is_vs[:, None]
   else:
     mask = is_vs
 
   # Any positive dummy mass works here since we zero momentum for virtual sites.
   safe_mass = jnp.where(mask, jnp.ones_like(mass), mass)
-  safe_momentum = jnp.where(mask, jnp.zeros_like(state.momentum), state.momentum)
+  safe_momentum = jnp.where(
+    mask, jnp.zeros_like(state.momentum), state.momentum
+  )
   safe_force = jnp.where(mask, jnp.zeros_like(state.force), state.force)
 
-  return state.set(position=pos, mass=safe_mass, momentum=safe_momentum, force=safe_force)
+  return state.set(
+    position=pos, mass=safe_mass, momentum=safe_momentum, force=safe_force
+  )
