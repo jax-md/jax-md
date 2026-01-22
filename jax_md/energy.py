@@ -122,6 +122,24 @@ def soft_sphere(
 
   Finite ranged repulsive interaction between soft spheres.
 
+  This implements the overlap potential commonly used in jamming and soft
+  matter studies:
+
+  .. math::
+    U(r) = \\frac{\\epsilon}{\\alpha} \\left(1 - \\frac{r}{\\sigma}\\right)^\\alpha
+    \\quad \\text{for } r < \\sigma
+
+  and :math:`U(r) = 0` for :math:`r \\geq \\sigma`.
+
+  Note: This is distinct from the inverse power law potential
+  :math:`U(r) = \\epsilon (\\sigma/r)^\\alpha` used in some fluid simulations.
+
+  Reference:
+    O'Hern, C. S., Silbert, L. E., Liu, A. J., & Nagel, S. R. (2003).
+    Jamming at zero temperature and zero applied stress: The epitome of
+    disorder. *Physical Review E*, 68(1), 011306.
+    https://doi.org/10.1103/PhysRevE.68.011306
+
   Args:
     dr: An ndarray of shape `[n, m]` of pairwise distances between particles.
     sigma: Particle diameter. Should either be a floating point scalar or an
