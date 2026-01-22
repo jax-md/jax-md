@@ -267,6 +267,49 @@ for name, fmt in formats:
 E_ref = energies['Dense']
 for name, E in energies.items():
   assert abs(E - E_ref) < 1e-5, f'{name} energy mismatch: {E} vs {E_ref}'
+
+# %% [markdown]
+# ### Forces and Stress Computation
+#
+# We can compute forces using `quantity.force` and stress using `quantity.stress`.
+# The multi-image neighbor list with `graph_featurizer` supports the `perturbation`
+# kwarg required for stress calculation.
+
+# %%
+# Use Sparse format for force/stress computation
+neighbor_fn_lj, energy_fn_lj = energy.lennard_jones_neighbor_list(
+  displacement_fn,
+  box,
+  sigma=sigma,
+  epsilon=epsilon,
+  r_onset=r_onset / sigma,
+  r_cutoff=r_cutoff / sigma,
+  fractional_coordinates=True,
+  neighbor_list_fn=neighbor_list_multi_image,
+  pair_neighbor_list_fn=pair_neighbor_list_multi_image,
+  max_neighbors=max_nbrs,
+  format=partition.Sparse,
+)
+
+# Perturb positions slightly from equilibrium to get non-zero forces
+key = random.PRNGKey(42)
+R_perturbed = R + random.normal(key, R.shape) * 0.01
+
+nbrs_lj = neighbor_fn_lj.allocate(R_perturbed)
+E_lj = float(energy_fn_lj(R_perturbed, nbrs_lj))
+
+# Compute forces
+force_fn = quantity.force(energy_fn_lj)
+F = force_fn(R_perturbed, neighbor=nbrs_lj)
+max_force = float(jnp.max(jnp.abs(F)))
+print(f'Perturbed energy: {E_lj:.6f}')
+print(f'Max force magnitude: {max_force:.6f}')
+
+# Compute stress (3x3 tensor)
+stress = quantity.stress(energy_fn_lj, R_perturbed, box, neighbor=nbrs_lj)
+print(f'Stress tensor (diagonal): [{stress[0,0]:.4f}, {stress[1,1]:.4f}, {stress[2,2]:.4f}]')
+print(f'Pressure: {-jnp.trace(stress) / 3:.6f}')
+
 # %% [markdown]
 # ## Example 2: Stillinger-Weber (Three-Body Potential)
 #

@@ -10,6 +10,10 @@ image convention.
 """
 
 from typing import Callable, Tuple, Optional
+import functools
+from functools import partial
+
+import jax
 import jax.numpy as jnp
 from jax import ops
 from jax_md import partition, space, util
@@ -27,7 +31,7 @@ i32 = jnp.int32
 
 def pair_neighbor_list_multi_image(
   pair_fn: Callable[..., Array],
-  displacement_or_metric=None,  # Ignored, for API compatibility with smap.pair_neighbor_list
+  displacement_fn,
   species: Optional[Array] = None,  # [N] or None
   reduce_axis: Optional[Tuple[int, ...]] = None,
   ignore_unused_parameters: bool = False,  # For API compatibility
@@ -40,12 +44,12 @@ def pair_neighbor_list_multi_image(
   with ``NeighborListMultiImage`` to correctly handle small periodic boxes
   where :math:`r_\text{cut} > L/2`.
 
-  **API Compatibility:**
+  **Displacement Function:**
 
-  The ``displacement_or_metric`` parameter is accepted but ignored (for
-  signature compatibility with ``smap.pair_neighbor_list``). Multi-image
-  neighbor lists compute displacements using the box stored in the neighbor
-  list, so no displacement function is needed.
+  Always uses ``space.free()`` for displacement computation since periodicity
+  is handled via explicit lattice shifts. The ``displacement_fn`` parameter is
+  ignored (for API compatibility with ``smap.pair_neighbor_list``). Supports
+  ``perturbation`` kwarg for stress calculation via ``quantity.stress``.
 
   For each edge :math:`(i, j)` with shift :math:`\mathbf{s}`, computes:
 
@@ -84,6 +88,7 @@ def pair_neighbor_list_multi_image(
     pair_fn: A function that computes pairwise energies from distances.
       Examples: ``energy.lennard_jones``, ``energy.morse``, ``energy.soft_sphere``.
       Signature: ``(dr: Array[capacity], **kwargs) -> Array[capacity]``.
+    displacement_fn: Ignored. Always uses ``space.free()`` internally.
     species: Optional species array. Shape ``[N]``. If provided, kwargs like
       ``sigma`` and ``epsilon`` should have shape ``[max_species, max_species]``
       and will be indexed per-pair.
@@ -127,9 +132,10 @@ def pair_neighbor_list_multi_image(
        force_fn = jax.grad(lambda R, nbrs: -lj_energy(R, nbrs))
        F = force_fn(positions, nbrs)  # Shape: [N, dim]
   """
-  # These parameters are accepted for API compatibility but not used.
-  # Multi-image uses the box from the neighbor list, not a displacement function.
-  del displacement_or_metric, ignore_unused_parameters
+  # Use space.free() displacement which handles perturbation via kwargs
+  # Delete the passed displacement_fn since it is ignored.
+  del displacement_fn
+  displacement_fn, _ = space.free()
 
   def energy_fn(
     R: Array,  # [N, dim]
@@ -161,7 +167,12 @@ def pair_neighbor_list_multi_image(
       i_safe = jnp.clip(neighbor.receivers, 0, N - 1)  # [capacity]
       j_safe = jnp.clip(neighbor.senders, 0, N - 1)  # [capacity]
       shifts_real = space.transform(box, neighbor.shifts)  # [capacity, dim]
-      dR = R_real[j_safe] + shifts_real - R_real[i_safe]  # [capacity, dim]
+
+      # Use displacement function which handles perturbation naturally
+      Ra = R_real[i_safe]  # [capacity, dim]
+      Rb_shifted = R_real[j_safe] + shifts_real  # [capacity, dim]
+      d = jax.vmap(partial(displacement_fn, **merged_kwargs))
+      dR = d(Ra, Rb_shifted)  # [capacity, dim]
 
       # Compute scalar distances
       dr = space.distance(dR)  # [capacity]
@@ -227,9 +238,23 @@ def pair_neighbor_list_multi_image(
         shifts.shape
       )  # [N, max_neighbors, dim]
 
-      # Compute displacements: r_j + shift - r_i
+      # Compute displacements using displacement function (handles perturbation)
       # R_real[:, None, :] broadcasts to [N, 1, dim]
-      dR = R_neigh + shifts_real - R_real[:, None, :]  # [N, max_neighbors, dim]
+      Ra = jnp.broadcast_to(
+        R_real[:, None, :], R_neigh.shape
+      )  # [N, max_neighbors, dim]
+      Rb_shifted = R_neigh + shifts_real  # [N, max_neighbors, dim]
+
+      # Flatten for vmap, compute displacements, reshape back
+      Ra_flat = Ra.reshape(-1, Ra.shape[-1])  # [N*max_neighbors, dim]
+      Rb_flat = Rb_shifted.reshape(
+        -1, Rb_shifted.shape[-1]
+      )  # [N*max_neighbors, dim]
+      d = jax.vmap(partial(displacement_fn, **merged_kwargs))
+      dR_flat = d(Ra_flat, Rb_flat)  # [N*max_neighbors, dim]
+      dR = dR_flat.reshape(
+        idx.shape[0], idx.shape[1], -1
+      )  # [N, max_neighbors, dim]
 
       # Compute scalar distances
       dr = space.distance(dR)  # [N, max_neighbors]
