@@ -11,3 +11,4 @@ Examples
    examples/minimize
    examples/fire_minimization
    examples/reaxff_nve_simulation
+   examples/custom_nl
