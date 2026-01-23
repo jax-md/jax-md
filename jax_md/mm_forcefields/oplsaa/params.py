@@ -2,7 +2,7 @@
 
 from jax_md.mm_forcefields.base import BondedParameters, NonbondedParameters
 from jax_md.util import Array
-from typing import NamedTuple
+from typing import NamedTuple, Optional
 
 
 class Parameters(NamedTuple):
@@ -31,6 +31,12 @@ def create_parameters(
   charges: Array,
   sigma: Array,
   epsilon: Array,
+  cmap_maps: Optional[Array] = None,
+  exc_charge_prod: Optional[Array] = None,
+  exc_sigma: Optional[Array] = None,
+  exc_epsilon: Optional[Array] = None,
+  nbfix_acoef: Optional[Array] = None,
+  nbfix_bcoef: Optional[Array] = None,
 ) -> Parameters:
   """Create OPLSAA parameters.
 
@@ -48,6 +54,9 @@ def create_parameters(
       charges: Partial charges (e).
       sigma: LJ sigma parameters (Å).
       epsilon: LJ epsilon parameters (kcal/mol).
+      cmap_maps: CMAP energy maps (kcal/mol).
+      nbfix_acoef: LJ A coefficient for NBFIX pairs. #TODO unit?
+      nbfix_bcoef: LJ B coefficient for NBFIX pairs. #TODO unit?
 
   Returns:
       Parameters object.
@@ -63,9 +72,19 @@ def create_parameters(
     improper_k=improper_k,
     improper_n=improper_n,
     improper_gamma=improper_gamma,
+    cmap_maps=cmap_maps,
   )
 
-  nonbonded = NonbondedParameters(charges=charges, sigma=sigma, epsilon=epsilon)
+  nonbonded = NonbondedParameters(
+    charges=charges,
+    sigma=sigma,
+    epsilon=epsilon,
+    exc_charge_prod=exc_charge_prod,
+    exc_sigma=exc_sigma,
+    exc_epsilon=exc_epsilon,
+    nbfix_acoef=nbfix_acoef,
+    nbfix_bcoef=nbfix_bcoef,
+  )
 
   return Parameters(bonded=bonded, nonbonded=nonbonded)
 

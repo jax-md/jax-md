@@ -855,10 +855,15 @@ def neighbor_list(
   r_cutoff = lax.stop_gradient(r_cutoff)
   dr_threshold = lax.stop_gradient(dr_threshold)
 
-  box = f32(box)
+  if box is not None:
+    box = f32(box)
 
-  cutoff = r_cutoff + dr_threshold
-  cutoff_sq = cutoff**2
+  if r_cutoff is None:
+    cutoff = jnp.inf
+    cutoff_sq = jnp.inf
+  else:
+    cutoff = r_cutoff + dr_threshold
+    cutoff_sq = cutoff**2
   threshold_sq = (dr_threshold / f32(2)) ** 2
   metric_sq = _displacement_or_metric_to_metric_sq(displacement_or_metric)
 

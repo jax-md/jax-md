@@ -1,0 +1,208 @@
+read rtf card append
+* Topology for nano-ligand
+*
+36 1
+
+AUTOGENERATE ANGLE DIHE
+
+RESI TMAET            1.00 ! C5H14N tetramethylammonium ethyl analog
+GROUP
+ATOM C1   CG331    -0.27 !
+ATOM H11  HGA3      0.09 !
+ATOM H12  HGA3      0.09 !
+ATOM H13  HGA3      0.09 !                 |
+GROUP                    !             H41-C4 -
+ATOM C2   CG324    -0.10 !                 |
+ATOM H21  HGP5      0.25 !           -C3---N---C5-     (+)
+ATOM H22  HGP5      0.25 !            |    |   |
+ATOM N1    NG3P0    -0.60!                 C2
+ATOM C3   CG334    -0.35 !                 |
+ATOM H31  HGP5      0.25 !                -C1-
+ATOM H32  HGP5      0.25 !                 |
+ATOM H33  HGP5      0.25 !
+ATOM C4   CG334    -0.35 !
+ATOM H41  HGP5      0.25 !
+ATOM H42  HGP5      0.25 !
+ATOM H43  HGP5      0.25 !
+ATOM C5   CG334    -0.35 !
+ATOM H51  HGP5      0.25 !
+ATOM H52  HGP5      0.25 !
+ATOM H53  HGP5      0.25 !
+BOND N1 C2 N1 C5 N1 C3 N1 C4
+BOND C2 H21 C2 H22 C1 C2
+BOND C5 H51 C5 H52 C5 H53
+BOND C3 H31 C3 H32 C3 H33
+BOND C4 H41 C4 H42 C4 H43
+BOND C1 H11 C1 H12 C1 H13
+! ab-initio HF/6-31G* structure
+IC C4    N1     C2    C1     1.4967  107.80  180.00  115.98   1.5217
+IC C1    C2    N1     C5     1.5217  115.98  -61.05  111.12   1.4950
+IC C1    C2    N1     C3     1.5217  115.98   61.05  111.12   1.4950
+IC C4    N1     C2    H21    1.4967  107.80   57.27  105.76   1.0809
+IC C4    N1     C2    H22    1.4967  107.80  -57.27  105.76   1.0809
+IC C2    N1     C5    H51    1.5176  111.12 -174.50  108.75   1.0795
+IC C2    N1     C5    H52    1.5176  111.12   65.81  109.69   1.0773
+IC C2    N1     C5    H53    1.5176  111.12  -54.79  109.07   1.0797
+IC C2    N1     C3    H31    1.5176  111.12  174.50  108.75   1.0795
+IC C2    N1     C3    H32    1.5176  111.12  -65.81  109.69   1.0773
+IC C2    N1     C3    H33    1.5176  111.12   54.79  109.07   1.0797
+IC C2    N1     C4    H41    1.5176  107.80  180.00  109.11   1.0793
+IC C2    N1     C4    H42    1.5176  107.80   60.03  109.12   1.0793
+IC C2    N1     C4    H43    1.5176  107.80  -60.03  109.12   1.0793
+IC N1     C2    C1    H12    1.5176  115.98  180.00  107.05   1.0836
+IC N1     C2    C1    H11    1.5176  115.98   62.29  112.91   1.0820
+IC N1     C2    C1    H13    1.5176  115.98  -62.29  112.91   1.0820
+
+RESI EAMTI            1.000 ! param penalty=  11.500 ; charge penalty=  11.215
+GROUP                     !
+ATOM   C1 CG331   -0.270  !
+ATOM  H11 HGA3    0.090   !
+ATOM  H12 HGA3    0.090   !
+ATOM  H13 HGA3    0.090   !
+GROUP
+ATOM   C2 CG324   0.130   !
+ATOM  H21 HGA2    0.090   !
+ATOM  H23 HGA2    0.090   !
+ATOM   N1 NG3P3   -0.30   !
+ATOM  HN1 HGP2    0.330   !
+ATOM  HN2 HGP2    0.330   !
+ATOM  HN3 HGP2    0.330
+BOND N1   HN3  N1  HN1  N1   HN2  N1  C2   C2  H21  C2  H23
+BOND C2  C1   C1  H11  C1  H12  C1  H13
+IC   C1     C2     N1     HN3     1.5280  110.00  180.00  109.50   1.0400
+IC   HN3    C2     *N1    HN1     1.0400  109.50  120.00  109.50   1.0400
+IC   HN3    C2     *N1    HN2     1.0400  109.50 -120.00  109.50   1.0400
+IC    HN1     C2     *N1    HN2        1.0140  112.10  120.00  112.10   1.0140
+IC    HN2     N1     C2     C1         1.0140  112.10  180.00  112.20   1.5280
+IC    C1      N1     *C2    H21        1.5280  112.20  120.00  109.50   1.1110
+IC    H21     N1     *C2    H23        1.1110  109.50  120.00  109.50   1.1110
+IC    N1      C2     C1     H12        1.4740  112.20  180.00  110.10   1.1110
+IC    H12     C2     *C1    H13        1.1110  110.10  120.00  110.10   1.1110
+IC    H12     C2     *C1    H11        1.1110  110.10 -120.00  110.10   1.1110
+IC    H11     C2     *C1    H13       1.1110  110.10 -120.00  110.10   1.1110
+
+
+RESI EAMT            0.000 ! param penalty=  11.500 ; charge penalty=  11.215
+GROUP                     !
+ATOM   C1 CG331   -0.270  !
+ATOM  H11 HGA3    0.090   !
+ATOM  H12 HGA3    0.090   !
+ATOM  H13 HGA3    0.090   !
+GROUP
+ATOM   C2 CG321    0.100   !
+ATOM  H21 HGA2    0.090   !
+ATOM  H23 HGA2    0.090   !
+ATOM   N1 NG321   -0.860   !
+ATOM  HN1 HGPAM2    0.290   !
+ATOM  HN2 HGPAM2    0.290   !
+BOND N1  HN1  N1   HN2  N1  C2   C2  H21  C2  H23
+BOND C2  C1   C1  H11  C1  H12  C1  H13
+IC    HN1     C2     *N1    HN2        1.0140  112.10  180.00  112.10   1.0140
+IC    HN2     N1     C2     C1         1.0140  112.10  180.00  112.20   1.5280
+IC    C1      N1     *C2    H21        1.5280  112.20  120.00  109.50   1.1110
+IC    H21     N1     *C2    H23        1.1110  109.50  120.00  109.50   1.1110
+IC    N1      C2     C1     H12        1.4740  112.20  180.00  110.10   1.1110
+IC    H12     C2     *C1    H13        1.1110  110.10  120.00  110.10   1.1110
+IC    H12     C2     *C1    H11        1.1110  110.10 -120.00  110.10   1.1110
+IC    H11     C2     *C1    H13       1.1110  110.10 -120.00  110.10   1.1110
+
+RESI THDLK          0.00 ! CH4S methanethiol, DZUNG NGUYEN
+GROUP
+ATOM S1  SG311     -0.23 !   H3     H4
+ATOM HS1 HGP3      0.16 !
+ATOM C1  CG321     -0.11 !     /    \
+ATOM H11 HGA2       0.09 !     \
+ATOM H12 HGA2       0.09 ! H2--CM--S
+ATOM C2  CG331     -0.27 !     /    \
+ATOM H21 HGA3       0.09 !   H1
+ATOM H22 HGA3       0.09 !     \
+ATOM H23 HGA3       0.09 ! H2--CM--S
+BOND HS1 S1  S1  C1  C1 H11  C1 H12
+BOND C1  C2  C2 H21  C2  H22   C2   H23
+IC    HS1     S1      C1    C2      1.3250   95.00  180.00  114.50   1.5280
+IC    C2      S1     *C1    H11     1.5280  114.50  120.00  111.30   1.1110
+IC    H11     S1     *C1    H12     1.1110  111.30  120.00  111.30   1.1110
+IC    S1      C1      C2    H22     1.8180  112.20  180.00  110.10   1.1110
+IC    H22     C1     *C2    H23     1.1110  110.10  120.00  110.10   1.1110
+IC    H22     C1     *C2    H21     1.1110  110.10 -120.00  110.10   1.1110
+IC    H21     C1     *C2    H23     1.1110  110.10 -120.00  110.10   1.1110
+PATC FIRS NONE LAST NONE
+
+RESI THSLK          0.00 ! CH4S methanethiol, DZUNG NGUYEN
+GROUP
+ATOM H11 HGA3       0.09 !   H1
+ATOM H12 HGA3       0.09 !     \
+ATOM H13 HGA3       0.09 ! H2--CM--S
+ATOM C1 CG331      -0.20 !     /    \
+ATOM S1  SG311     -0.23 !   H3     H4
+ATOM HS1 HGP3       0.16
+BOND C1 H11  C1 H12  C1 H13
+BOND C1 S1  S1 HS1
+IC   H11   S1    *C1   H12    1.1110  110.10  120.00  110.10   1.1110
+IC   H11   S1    *C1   H13    1.1110  110.10 -120.00  110.10   1.1110
+IC   H12   C1    S1    HS1   1.1110  111.30  180.00   95.00   1.3250
+IC   S1   H11    *C1   H12    1.8160  111.30  120.00  108.40   1.1110
+IC   H12   H11    *C1   H13    1.1110  108.40 -120.00  108.40   1.1110
+IC   H11   C1    S1    HS1   1.1110  111.30   60.00   95.00   1.3250
+PATC FIRS NONE LAST NONE
+
+
+END
+
+read param card flex append
+* synthetic polymer parameter
+*
+BONDS
+ANGLES
+CG301  CG321  CG324    58.35    110.50   11.16   2.56100 ! from CG311 CG321 CG324, PENALTY= 1.2
+NG2S1  CG321  SG311    58.00    114.50  ! from CG321 CG321 SG311, penalty= 69
+NG311  CG321  SG311    58.00    114.50  ! from CG321 CG321 SG311, penalty= 39
+OG301  CG321  SG311    58.00    114.50  ! from CG321 CG321 SG311, penalty= 45
+DIHEDRALS
+CG311  CG321  CG324  HGP5       0.1950  3     0.00! from CG311 CG321 CG324 HGA2, penalty= 11
+NG2S1  CG321  SG311  HGP3       0.2400  1     0.00! from CG321 CG321 SG311 HGP3, penalty= 69
+NG2S1  CG321  SG311  HGP3       0.1500  2     0.00! from CG321 CG321 SG311 HGP3, penalty= 69
+NG2S1  CG321  SG311  HGP3       0.2700  3     0.00! from CG321 CG321 SG311 HGP3, penalty= 69
+CG301  CG321  CG321  SG311      0.1950  3     0.00! from CG311 CG321 CG321 SG311, penalty= 1.2
+SG311  CG321  NG2S1  CG2O1      1.8000  1     0.00! from CG321 CG321 NG2S1 CG2O1, penalty= 113
+NG311  CG321  SG311  HGP3       0.2400  1     0.00! from CG321 CG321 SG311 HGP3, penalty= 39
+NG311  CG321  SG311  HGP3       0.1500  2     0.00! from CG321 CG321 SG311 HGP3, penalty= 39
+NG311  CG321  SG311  HGP3       0.2700  3     0.00! from CG321 CG321 SG311 HGP3, penalty= 39
+CG2O5  CG311  CG321  CG324      0.1950  3     0.00! from CG2O1 CG321 CG321 CG314, penalty= 7.6
+CG301  CG321  CG324  HGA2       0.1950  3     0.00! from CG301 CG321 CG321 HGA2, penalty= 1
+SG311  CG321  NG311  CG321      2.5000  1   180.00! from NG311 CG321 NG311 CG2R61, penalty= 183.5
+SG311  CG321  NG311  CG321      1.5000  2     0.00! from NG311 CG321 NG311 CG2R61, penalty= 183.5
+SG311  CG321  NG311  CG321      0.5000  3     0.00! from NG311 CG321 NG311 CG2R61, penalty= 183.5
+OG301  CG321  CG321  SG311      0.8000  3     0.00! from SG311 CG321 CG324 NG3P2, penalty= 40
+CG324  CG321  CG321  SG311      0.1950  3     0.00! from CG314 CG321 CG321 SG311, penalty= 0.6
+CG301  CG321  CG324  HGP5       0.1950  3     0.00! from CG301 CG321 CG321 HGA2, penalty= 12
+CG301  CG321  CG324  NG3P0      1.0000  3     0.00! from CG311 CG321 CG324 NG3P1, penalty= 2.4
+CG2O1  CG311  CG321  CG324      0.1950  3     0.00! from CG2O1 CG321 CG321 CG314, penalty= 4.6
+CG2R61 CG311  CG321  CG324      0.0400  3     0.00! from CG2R61 CG321 CG321 CG321, penalty= 21
+OG301  CG321  SG311  HGP3       0.2400  1     0.00! from CG321 CG321 SG311 HGP3, penalty= 45
+OG301  CG321  SG311  HGP3       0.1500  2     0.00! from CG321 CG321 SG311 HGP3, penalty= 45
+OG301  CG321  SG311  HGP3       0.2700  3     0.00! from CG321 CG321 SG311 HGP3, penalty= 45
+CG301  CG321  CG324  NG3P3      0.1950  3     0.00! from CG321 CG321 CG324 NG3P3, penalty= 1.8
+CG311  CG321  CG324  NG3P0      1.0000  3     0.00! from CG311 CG321 CG324 NG3P1, penalty= 1.2
+CG2O3  CG311  CG321  CG324      0.1950  3     0.00! from CG2O3 CG321 CG321 CG314, penalty= 4.6
+CG2O2  CG301  CG321  CG324      0.1950  3     0.00! from CG2O1 CG321 CG321 CG314, penalty= 15.1
+NG311  CG321  CG321  SG311      0.8000  3     0.00! from SG311 CG321 CG324 NG3P2, penalty= 37
+CG2D1  CG321  CG321  CG324      0.1400  1   180.00! from CG2D1 CG321 CG321 CG321, penalty= 17
+CG2D1  CG321  CG321  CG324      0.1700  2     0.00! from CG2D1 CG321 CG321 CG321, penalty= 17
+CG2D1  CG321  CG321  CG324      0.0500  3   180.00! from CG2D1 CG321 CG321 CG321, penalty= 17
+CG331  CG311  CG321  CG324      0.2000  3     0.00! from CG331 CG311 CG321 CG314, penalty= 0.6
+CG2D1  CG321  CG321  SG311      0.2000  3     0.00! from CG2O1 CG311 CG321 SG311, penalty= 33
+CG2O2  CG311  CG321  CG324      0.1950  3     0.00! from CG2O1 CG321 CG321 CG314, penalty= 7.1
+SG311  CG321  NG2S1  HGP1       0.0000  1     0.00! from CG321 CG321 NG2S1 HGP1, penalty= 113
+CG321  CG301  CG321  CG324      0.2000  3     0.00! from CG321 CG311 CG321 CG324, penalty= 8
+SG311  CG321  OG301  CG321      0.5700  1     0.00! from CG321 CG321 OG301 CG321, penalty= 113
+SG311  CG321  OG301  CG321      0.2900  2     0.00! from CG321 CG321 OG301 CG321, penalty= 113
+SG311  CG321  OG301  CG321      0.4300  3     0.00! from CG321 CG321 OG301 CG321, penalty= 113
+CG331  CG301  CG321  CG324      0.2000  3     0.00! from CG331 CG311 CG321 CG314, penalty= 8.6
+CG1N1  CG311  CG321  CG324      0.2000  3     0.00! from NG2S1 CG311 CG321 CG324, penalty= 34
+CG2O1  CG321  CG321  CG324      0.1950  3     0.00! from CG2O1 CG321 CG321 CG314, penalty= 0.6
+SG311  CG321  NG311  HGPAM1     1.7000  2     0.00! from NG311 CG321 NG311 HGPAM1, penalty= 110
+SG311  CG321  NG311  HGPAM1     0.3000  3     0.00! from NG311 CG321 NG311 HGPAM1, penalty= 110
+IMPROPERS
+END
+RETURN
