@@ -14,7 +14,7 @@ Conventions (unless otherwise stated):
 """
 
 from functools import partial
-from typing import Any
+from typing import Any, Callable, Optional
 
 import jax
 import jax.numpy as jnp
@@ -25,6 +25,7 @@ from jax_md import dataclasses, partition, smap, space, util
 from jax_md.mm_forcefields import neighbor
 from jax_md.mm_forcefields.base import (
   NonbondedOptions,
+  Topology,
   combine_berthelot,
   combine_lorentz,
   compute_angle,
@@ -38,7 +39,21 @@ from jax_md.mm_forcefields.nonbonded.electrostatics import (
   EwaldCoulomb,
   PMECoulomb,
 )
+from jax_md.mm_forcefields.oplsaa.params import Parameters
 
+# Types
+
+f32 = util.f32
+f64 = util.f64
+Array = util.Array
+
+PyTree = Any
+Box = space.Box
+DisplacementOrMetricFn = space.DisplacementOrMetricFn
+
+NeighborFn = partition.NeighborFn
+NeighborList = partition.NeighborList
+NeighborListFormat = partition.NeighborListFormat
 
 # TODO rethink the cleanest way to format this with some enums
 # TODO also move this somewhere more suitable
@@ -59,28 +74,16 @@ class FEOptions(object):
     sc_mask: Mask values marking softcore/alchemical atoms
   """
 
-  vdw_scaling = None
-  coul_scaling = None
-  ti_mask = 1.0
-  sc_mask = 1.0
+  vdw_scaling: Optional[str] = None
+  coul_scaling: Optional[str] = None
+  ti_mask: Array | float = 1.0
+  sc_mask: Array | float = 1.0
 
 
-# Types
-
-f32 = util.f32
-f64 = util.f64
-Array = util.Array
-
-PyTree = Any
-Box = space.Box
-DisplacementOrMetricFn = space.DisplacementOrMetricFn
-
-NeighborFn = partition.NeighborFn
-NeighborList = partition.NeighborList
-NeighborListFormat = partition.NeighborListFormat
-
-
-def space_selector(nb_options, box_vectors):
+def space_selector(
+  nb_options: NonbondedOptions,
+  box_vectors: Array | float | None,
+) -> tuple[space.DisplacementFn, space.ShiftFn]:
   """
   Pick the displacement/shift functions based on NB/PBC settings
   """
@@ -102,7 +105,7 @@ def space_selector(nb_options, box_vectors):
   return disp_fn, shift_fn
 
 
-def _create_dense_mask(n_atoms, exc_pairs):
+def _create_dense_mask(n_atoms: int, exc_pairs: Array) -> Callable[[Array], Array]:
   receivers = jnp.concatenate((exc_pairs[:, 0], exc_pairs[:, 1]))
   senders = jnp.concatenate((exc_pairs[:, 1], exc_pairs[:, 0]))
   idx = jnp.argsort(senders)
@@ -117,7 +120,7 @@ def _create_dense_mask(n_atoms, exc_pairs):
   dense_idx = N * jnp.ones((N * max_count,), jnp.int32)
   exclusions_dense = dense_idx.at[hashes].set(receivers).reshape((N, max_count))
 
-  def mask_fn(idx):
+  def mask_fn(idx: Array) -> Array:
     """
     Mask neighbor indices that are excluded or treated as 1-4 pairs
 
@@ -142,14 +145,19 @@ def _create_dense_mask(n_atoms, exc_pairs):
 
 
 def energy(
-  params,
-  topology,
-  box_vectors,
-  coulomb_options=CoulombHandler(),
-  nb_options=NonbondedOptions(),
-  fe_options=FEOptions(),
-  precision=None,
-):
+  params: Parameters,
+  topology: Topology,
+  box_vectors: Array | float | None,
+  coulomb_options: CoulombHandler = CoulombHandler(),
+  nb_options: NonbondedOptions = NonbondedOptions(),
+  fe_options: FEOptions = FEOptions(),
+  precision: Optional[str] = None,
+) -> tuple[
+  Callable[..., dict[str, Array]],
+  NeighborFn,
+  space.DisplacementFn,
+  space.ShiftFn,
+]:
   """
   Generate a JAX compatible potential energy function to evaluate the AMBER
   forcefield.
@@ -323,7 +331,12 @@ def energy(
     disable_cell_list=not nb_options.use_pbc,
   )
 
-  def energy_fn(positions, nbr_list, cl_lambda=0.0, **kwargs):
+  def energy_fn(
+    positions: Array,
+    nbr_list: NeighborList,
+    cl_lambda: Array | float = 0.0,
+    **kwargs: Any,
+  ) -> dict[str, Array]:
     """
     Evaluate the total potential energy and return a per-term breakdown.
 
@@ -419,8 +432,8 @@ def energy(
       space_kwarg,
       topology.exc_pairs,
       nonbonded.exc_charge_prod,
-      return_components=True,
       coulomb_fns=mapped_coul_fns,
+      return_components=True, # TODO need to work out smap wiring for this
     )
 
     ### Lennard Jones Interaction
@@ -499,7 +512,7 @@ def energy(
   return energy_fn, neighbor_fn, disp_fn, shift_fn
 
 
-def harmonic_bond(dist, k, l):
+def harmonic_bond(dist: Array, k: Array, l: Array) -> Array:
   """
   Harmonic bond energy function
 
@@ -514,7 +527,7 @@ def harmonic_bond(dist, k, l):
   return 0.5 * k * jnp.power((dist - l), 2)
 
 
-def harmonic_angle(dr_ij, dr_kj, k, theta0):
+def harmonic_angle(dr_ij: Array, dr_kj: Array, k: Array, theta0: Array) -> Array:
   """
   Harmonic angle energy function
 
@@ -533,7 +546,14 @@ def harmonic_angle(dr_ij, dr_kj, k, theta0):
   return 0.5 * k * jnp.power((theta - theta0), 2)
 
 
-def periodic_torsion(dr_ij, dr_jk, dr_kl, k, phase, period):
+def periodic_torsion(
+  dr_ij: Array,
+  dr_jk: Array,
+  dr_kl: Array,
+  k: Array,
+  phase: Array,
+  period: Array,
+) -> Array:
   """
   Periodic torsion (proper dihedral) energy.
 
@@ -552,7 +572,13 @@ def periodic_torsion(dr_ij, dr_jk, dr_kl, k, phase, period):
   return k * (1.0 + jnp.cos(period * theta - phase))
 
 
-def harmonic_improper(dr_ij, dr_jk, dr_kl, k, theta0):
+def harmonic_improper(
+  dr_ij: Array,
+  dr_jk: Array,
+  dr_kl: Array,
+  k: Array,
+  theta0: Array,
+) -> Array:
   """CHARMM-style improper torsion energy (harmonic in the dihedral angle).
 
   OpenMM's CHARMM PSF loader implements impropers via a CustomTorsionForce with
@@ -578,7 +604,9 @@ def harmonic_improper(dr_ij, dr_jk, dr_kl, k, theta0):
   return k * dtheta * dtheta
 
 
-def lennard_jones(dr, sigma, epsilon, **unused_kwargs):
+def lennard_jones(
+  dr: Array, sigma: Array, epsilon: Array, **unused_kwargs: Any
+) -> Array:
   """Standard 12-6 Lennard-Jones pair potential.
 
   Args:
@@ -598,7 +626,7 @@ def lennard_jones(dr, sigma, epsilon, **unused_kwargs):
   return 4.0 * epsilon * (idr12 - idr6)
 
 
-def lennard_jones_ab(dr, a, b, **unused_kwargs):
+def lennard_jones_ab(dr: Array, a: Array, b: Array, **unused_kwargs: Any) -> Array:
   """Standard 12-6 Lennard-Jones pair potential.
 
   Args:
@@ -616,7 +644,13 @@ def lennard_jones_ab(dr, a, b, **unused_kwargs):
   return (a / dr6) ** 2 - (b / dr6)
 
 
-def lennard_jones_softcore(dr, sigma, epsilon, cl_lambda, alpha=0.5):
+def lennard_jones_softcore(
+  dr: Array,
+  sigma: Array,
+  epsilon: Array,
+  cl_lambda: float,
+  alpha: float = 0.5,
+) -> Array:
   """
   Beutler/AMBER-style softcore Lennard-Jones
 
@@ -643,7 +677,12 @@ def lennard_jones_softcore(dr, sigma, epsilon, cl_lambda, alpha=0.5):
   return 4.0 * epsilon * (1.0 - cl_lambda) * ((1.0 / lidr12) - (1.0 / lidr6))
 
 
-def coulomb_softcore(dr, charge_sq, cl_lambda, alpha=0.5):
+def coulomb_softcore(
+  dr: Array,
+  charge_sq: Array,
+  cl_lambda: float,
+  alpha: float = 0.5,
+) -> Array:
   """
   Softcore Coulomb for alchemical transformations
 
@@ -666,7 +705,7 @@ def coulomb_softcore(dr, charge_sq, cl_lambda, alpha=0.5):
   return cl_lambda * charge_sq / soft_r
 
 
-def _wrap_angle(theta):
+def _wrap_angle(theta: Array) -> Array:
   """
   Wrap an angle into (-pi, pi]
   """
@@ -675,7 +714,7 @@ def _wrap_angle(theta):
   return jnp.mod(theta + pi, two_pi) - pi
 
 
-def _wrap_angle_0_2pi(theta):
+def _wrap_angle_0_2pi(theta: Array) -> Array:
   """
   Wrap an angle into [0, 2pi)
   """
@@ -683,7 +722,7 @@ def _wrap_angle_0_2pi(theta):
   return jnp.mod(theta + two_pi, two_pi)
 
 
-def cmap_setup(cmap_maps):
+def cmap_setup(cmap_maps: Array) -> tuple[Array, Array, int]:
   """
   Precompute OpenMM style bicubic CMAP coefficients
 
@@ -823,7 +862,12 @@ def cmap_setup(cmap_maps):
   )
 
 
-def _cmap_eval_bicubic(map_id, phi, psi, cmap_precomp):
+def _cmap_eval_bicubic(
+  map_id: Array | int,
+  phi: Array,
+  psi: Array,
+  cmap_precomp: tuple[Array, Array, int],
+) -> Array:
   """
   Evaluate CMAP energy using OpenMM-compatible bicubic coefficients
 
@@ -858,7 +902,13 @@ def _cmap_eval_bicubic(map_id, phi, psi, cmap_precomp):
 
 
 # rough analogue to the implementation in CMAPTorsionForce
-def cmap_energy(positions, cmap_atoms, cmap_map_id, cmap_precomp, disp_fn):
+def cmap_energy(
+  positions: Array,
+  cmap_atoms: Optional[Array],
+  cmap_map_id: Optional[Array],
+  cmap_precomp: Optional[tuple[Array, Array, int]],
+  disp_fn: Callable[..., Array],
+) -> Array:
   """
   Compute CMAP torsion correction energy
 

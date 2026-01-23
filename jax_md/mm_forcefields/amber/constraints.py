@@ -17,25 +17,31 @@ SETTLE and CCMA are based off OpenMM implementation
 in ReferenceSETTLEAlgorithm.cpp and ReferenceCCMAAlgorithm.cpp
 """
 
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
 import numpy as onp
 
-from jax_md import dataclasses
+from jax_md import dataclasses, space
 from jax_md.mm_forcefields.reaxff.reaxff_helper import safe_sqrt
 from jax_md.util import Array, normalize
 
+DisplacementFn = space.DisplacementFn
+ShiftFn = space.ShiftFn
 
+
+# TODO this is a temporary stub but there should probably be the internal
+# function that operates on positions or velocities, and then an outer
+# helper like this that can do corrections to State objects and hook into
+# the interface from Simulate. The CMM remover should also do this.
 def settle(
   pos: Array,
   pos_p: Array,
   settle_data: 'SettleData',
   masses: Array,
-  displacement_fn,
-  shift_fn,
-  *,
+  displacement_fn: DisplacementFn,
+  shift_fn: ShiftFn,
   box: Optional[Array] = None,
   use_periodic_general: bool = False,
 ) -> Array:
@@ -56,9 +62,8 @@ def ccma(
   pos: Array,
   constraints: 'CCMAData',
   masses: Array,
-  displacement_fn,
-  shift_fn,
-  *,
+  displacement_fn: DisplacementFn,
+  shift_fn: ShiftFn,
   box: Optional[Array] = None,
   use_periodic_general: bool = False,
   tolerance: float = 1e-6,
@@ -255,9 +260,8 @@ def ccma_apply_positions(
   pos: Array,
   constraints: CCMAData,
   masses: Array,
-  displacement_fn,
-  shift_fn,
-  *,
+  displacement_fn: DisplacementFn,
+  shift_fn: ShiftFn,
   box: Optional[Array] = None,
   use_periodic_general: bool = False,
   tolerance: float = 1e-6,
@@ -271,6 +275,7 @@ def ccma_apply_positions(
   if constraints is None or constraints.idx.size == 0:
     return pos
 
+  # TODO need to work out what to do in periodic non general case
   box_kwargs = {'box': box} if use_periodic_general else {}
   idx = constraints.idx
   dist = constraints.dist
@@ -331,8 +336,7 @@ def ccma_apply_velocities(
   vel: Array,
   constraints: CCMAData,
   masses: Array,
-  displacement_fn,
-  *,
+  displacement_fn: DisplacementFn,
   box: Optional[Array] = None,
   use_periodic_general: bool = False,
   tolerance: float = 1e-6,
@@ -385,9 +389,8 @@ def settle_apply_positions(
   pos_p: Array,
   settle: SettleData,
   masses: Array,
-  displacement_fn,
-  shift_fn,
-  *,
+  displacement_fn: DisplacementFn,
+  shift_fn: ShiftFn,
   box: Optional[Array] = None,
   use_periodic_general: bool = False,
 ) -> Array:
@@ -568,8 +571,7 @@ def settle_apply_velocities(
   vel: Array,
   settle: SettleData,
   masses: Array,
-  displacement_fn,
-  *,
+  displacement_fn: DisplacementFn,
   box: Optional[Array] = None,
   use_periodic_general: bool = False,
   tolerance: float = 1e-6,

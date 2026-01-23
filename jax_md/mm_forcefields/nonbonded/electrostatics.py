@@ -7,7 +7,7 @@ This module provides coulomb energy functions that support:
 """
 
 from functools import partial
-from typing import Callable
+from typing import Callable, Optional
 
 import jax.numpy as jnp
 import numpy as onp
@@ -21,6 +21,12 @@ from jax_md.util import Array, high_precision_sum
 
 # Conversion factor: e²/Å to kcal/mol
 COULOMB_CONSTANT = 332.06371  # kcal·Å/(mol·e²)
+
+BoxKwarg = dict[str, Array]
+EnergyFn = Callable[..., Array]
+CoulombFns = tuple[EnergyFn, ...]
+DisplacementFn = space.DisplacementFn
+CutoffWrapper = Callable[[EnergyFn], EnergyFn] # TODO add to base.py
 
 
 class CoulombHandler:
@@ -79,13 +85,13 @@ class CutoffCoulomb(CoulombHandler):
 
   def prepare_smap(
     self,
-    charges,
-    box,
-    exc_charge_prod,
-    displacement_fn,
-    cutoff_fn,
-    fractional_coordinates,
-  ):
+    charges: Array,
+    box: Array | None,
+    exc_charge_prod: Optional[Array],
+    displacement_fn: DisplacementFn,
+    cutoff_fn: CutoffWrapper,
+    fractional_coordinates: bool,
+  ) -> tuple[EnergyFn, EnergyFn]:
     def pair_energy_map(dr, charge_sq, **unused_kwargs):
       """Compute pairwise coulomb energy."""
       energy = COULOMB_CONSTANT * (charge_sq / dr)
@@ -120,11 +126,11 @@ class CutoffCoulomb(CoulombHandler):
     charges: Array,
     nlist: NeighborList,
     # box: Array,
-    box_kwarg: any,
+    box_kwarg: BoxKwarg,
     exc_pairs: Array,
     exc_charge_prod: Array,
+    coulomb_fns: CoulombFns,
     return_components: bool = False,
-    coulomb_fns: any = None,
   ) -> Array:
     pair_coul_fn, bond_coul_fn = coulomb_fns
 
@@ -317,14 +323,14 @@ class EwaldCoulomb(CoulombHandler):
 
 # TODO custom jvp's and class methods don't seem to work well together
 @custom_jvp
-def transform_gradients(box, coords):
+def transform_gradients(box: Array, coords: Array) -> Array:
   # This function acts as a no-op in the forward pass, but it transforms the
   # gradients into fractional coordinates in the backward pass.
   return coords
 
 
 @transform_gradients.defjvp
-def _(primals, tangents):
+def _(primals: tuple[Array, Array], tangents: tuple[Array, Array]) -> tuple[Array, Array]:
   box, coords = primals
   dbox, dcoords = tangents
   return coords, space.transform(dbox, coords) + space.transform(box, dcoords)
@@ -353,7 +359,7 @@ class PMECoulomb(CoulombHandler):
 
   @staticmethod
   @partial(jnp.vectorize, signature='()->(p)')
-  def optimized_bspline_4(w):
+  def optimized_bspline_4(w: Array) -> Array:
     """Order 4 cardinal B-spline coefficients for PME.
 
     This function computes the 1D charge-assignment weights, evaluated
@@ -390,7 +396,7 @@ class PMECoulomb(CoulombHandler):
 
   @staticmethod
   @partial(jnp.vectorize, signature='()->(p)')
-  def optimized_bspline_5(w):
+  def optimized_bspline_5(w: Array) -> Array:
     """Order 5 cardinal B-spline coefficients for PME.
 
     This function computes the 1D charge-assignment weights, evaluated
@@ -715,10 +721,10 @@ class PMECoulomb(CoulombHandler):
     box: Array,
     exc_charge_prod: Array,
     return_components: bool = False,
-    displacement_fn: any = None,
-    cutoff_fn: any = None,
+    displacement_fn: Optional[DisplacementFn] = None,
+    cutoff_fn: Optional[CutoffWrapper] = None,
     fractional_coordinates: bool = False,
-  ) -> Array:
+  ) -> CoulombFns:
     # TODO look at smap and all 1/r terms to figure out most
     # robust masking scheme to avoid bad energy/forces
     def pair_plain_map(dr, charge_sq, **unused_kwargs):
@@ -778,11 +784,11 @@ class PMECoulomb(CoulombHandler):
     positions: Array,
     charges: Array,
     nlist: NeighborList,
-    box_kwarg: any,
+    box_kwarg: BoxKwarg,
     exc_pairs: Array,
     exc_charge_prod: Array,
+    coulomb_fns: CoulombFns,
     return_components: bool = False,
-    coulomb_fns: any = None,
   ) -> Array:
     pair_coul_fn, recip_fn, bond_corr_fn, bond_coul_fn = coulomb_fns
 

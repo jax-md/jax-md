@@ -1,13 +1,18 @@
-"""OpenMM-based loader that converts arbitrary MM inputs into mm_forcefields types."""
+"""OpenMM-based loader that converts MM inputs into `mm_forcefields` types.
+
+This module intentionally treats OpenMM objects as an I/O layer: we extract
+values into NumPy/JAX arrays and then operate purely in JAX downstream.
+"""
 
 import os
 from functools import partial
-from typing import NamedTuple, Optional
+from typing import Any, Mapping, NamedTuple, Optional, Sequence, Union
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
+# TODO convert these to use sentinel variable to avoid type checking issues
 try:
   import openmm  # type: ignore
   import openmm.app as app  # type: ignore
@@ -36,6 +41,23 @@ from jax_md.mm_forcefields.base import (
 )
 from jax_md.mm_forcefields.oplsaa.params import Parameters
 
+# Types and constants
+
+f32 = util.f32
+f64 = util.f64
+Array = util.Array
+NonbondedMethod = Union[
+  app.NoCutoff,
+  app.CutoffNonPeriodic,
+  app.CutoffPeriodic,
+  app.Ewald,
+  app.PME,
+]
+
+_KCAL_TO_KJ = 4.184
+_KJ_TO_KCAL = 1.0 / _KCAL_TO_KJ
+_NM_TO_ANG = 10.0
+_ANG_TO_NM = 1.0 / _NM_TO_ANG
 
 class VirtualSiteData(NamedTuple):
   """Fixed-shape virtual site metadata for per-step position reconstruction.
@@ -61,50 +83,47 @@ class VirtualSiteData(NamedTuple):
   local_position: jnp.ndarray  # (N, 3) float, Angstrom (LocalCoordinatesSite)
 
 
-# TODO consider if this can be cleaned up
+# TODO consider if this can be cleaned up or if using Optional/Any is good practice
 class OpenMMSystem(NamedTuple):
-  positions: jnp.ndarray
+  positions: Array
   topology: Topology
   params: Parameters
-  box_vectors: jnp.ndarray
+  box_vectors: Optional[Array]
   nb_options: NonbondedOptions
   recip_alpha: Optional[float]
-  recip_grid: Optional[jnp.ndarray]
+  recip_grid: Optional[Array]
   ewald_error_tolerance: Optional[float]
-  masses: Optional[jnp.ndarray]
+  masses: Optional[Array]
   virtual_sites: Optional[VirtualSiteData]
-  constraint_idx: Optional[jnp.ndarray]
-  constraint_dist: Optional[jnp.ndarray]
-
-
-f32 = util.f32
-f64 = util.f64
-Array = util.Array
-
-
-_KCAL_TO_KJ = 4.184
-_KJ_TO_KCAL = 1.0 / _KCAL_TO_KJ
-_NM_TO_ANG = 10.0
-_ANG_TO_NM = 1.0 / _NM_TO_ANG
+  constraint_idx: Optional[Array]
+  constraint_dist: Optional[Array]
 
 
 # TODO test more rigorously to make sure these error messages occur as expected
-def _maybe_import_omm():
+def _maybe_import_omm() -> None:
+  """Raise an ImportError if OpenMM is unavailable."""
   if openmm is None or app is None or unit is None:
     raise ImportError('openmm is required to use the OpenMM loader.')
 
 
-def _maybe_import_ommff():
+def _maybe_import_ommff() -> None:
+  """Raise an ImportError if openmmforcefields is unavailable."""
   if SystemGenerator is None:
     raise ImportError('openmmforcefields is required to use the OpenMM loader.')
 
 
-def _maybe_import_parmed():
+def _maybe_import_parmed() -> None:
+  """Raise an ImportError if ParmEd is unavailable."""
   if parmed is None:
     raise ImportError('parmed is required to use the ParmEd loader.')
 
 
-def load_amber_system(prmtop_path, inpcrd_path, nb_method=None, **kwargs):
+def load_amber_system(
+  prmtop_path: str,
+  inpcrd_path: str,
+  nb_method: Optional[NonbondedMethod] = None,
+  **kwargs: Any,
+) -> tuple[Any, Any, Any, Any]:
   """Load Amber inputs and build an OpenMM System."""
   _maybe_import_omm()
   if not (os.path.exists(prmtop_path) and os.path.exists(inpcrd_path)):
@@ -122,7 +141,7 @@ def load_amber_system(prmtop_path, inpcrd_path, nb_method=None, **kwargs):
 
 
 # also from omm_readparams.py
-def _charmm_read_box(psf, filename):
+def _charmm_read_box(psf: Any, filename: str) -> Any:
   with open(filename, 'r') as f:
     try:
       import json
@@ -145,8 +164,13 @@ def _charmm_read_box(psf, filename):
 
 
 def load_charmm_system(
-  crd_path, psf_path, param_paths, nb_method=None, sys_info=None, **kwargs
-):
+  crd_path: str,
+  psf_path: str,
+  param_paths: Sequence[str],
+  nb_method: Optional[NonbondedMethod] = None,
+  sys_info: Optional[str] = None,
+  **kwargs: Any,
+) -> tuple[Any, Any, Any, Any]:
   # param_paths is list of files with extensions such as par, prm, top, rtf, inp, and str
   _maybe_import_omm()
   crd_extension = os.path.splitext(crd_path)[-1]
@@ -171,7 +195,12 @@ def load_charmm_system(
   return system, psf.topology, positions, psf.boxVectors
 
 
-def load_gromacs_system(gro_path, top_path, nb_method=None, **kwargs):
+def load_gromacs_system(
+  gro_path: str,
+  top_path: str,
+  nb_method: Optional[NonbondedMethod] = None,
+  **kwargs: Any,
+) -> tuple[Any, Any, Any, Any]:
   _maybe_import_omm()
   gro = app.GromacsGroFile(gro_path)
   positions = gro.getPositions(asNumpy=True)
@@ -187,7 +216,7 @@ def load_gromacs_system(gro_path, top_path, nb_method=None, **kwargs):
 
 
 # TODO is this necessary/will amoeba be supported?
-def load_tinker_system():
+def load_tinker_system() -> None:
   return
 
 
@@ -196,17 +225,18 @@ def load_tinker_system():
 # https://docs.openmm.org/latest/userguide/application/02_running_sims.html#force-fields
 # TODO this needs a look, especially due to the complex parameter passing behavior
 # also need to look at openff.toolkit to reason about the most general way to do this
-# https://github.com/openmm/openmmforcefields/blob/main/openmmforcefields/generators/system_generators.py
+# https://github.com/openmm/openmmforcefields/blob/main/openmmforcefields/
+# generators/system_generators.py
 def load_generator_system(
-  topology,
-  generator=None,
-  nb_method=None,
-  molecules=None,
-  forcefield_files=None,
-  small_molecule_forcefield='gaff-2.11',
-  generator_kwargs=None,
-  create_system_kwargs=None,
-):
+  topology: Any,
+  generator: Any = None,
+  nb_method: Optional[NonbondedMethod] = None,
+  molecules: Optional[Sequence[Any]] = None,
+  forcefield_files: Optional[Sequence[str]] = None,
+  small_molecule_forcefield: str = 'gaff-2.11',
+  generator_kwargs: Optional[Mapping[str, Any]] = None,
+  create_system_kwargs: Optional[Mapping[str, Any]] = None,
+) -> Any:
   """Load a system using OpenMM SystemGenerator (e.g. OpenMMForceFields/OpenFF).
 
   Args:
@@ -217,7 +247,7 @@ def load_generator_system(
       forcefield_files: XML files for protein/water forcefields when building a generator.
       small_molecule_forcefield: Name of small-molecule template (e.g., GAFF/SMIRNOFF).
       generator_kwargs: Extra kwargs for SystemGenerator constructor.
-      create_kwargs: Extra kwargs for generator.createSystem.
+      create_system_kwargs: Extra kwargs for generator.createSystem.
 
   Returns:
       (system, boxVectors)
@@ -240,7 +270,7 @@ def load_generator_system(
       **generator_kwargs,
     )
 
-  create_kwargs = create_kwargs or {}
+  create_system_kwargs = create_system_kwargs or {}
   system = generator.createSystem(
     topology,
     molecules=molecules,
@@ -250,12 +280,17 @@ def load_generator_system(
   return system, box
 
 
-def load_parmed_system(structure, param_files=None, nb_method=None, **kwargs):
+def load_parmed_system(
+  structure: Any,
+  param_files: Optional[Sequence[str]] = None,
+  nb_method: Optional[NonbondedMethod] = None,
+  **kwargs: Any,
+) -> tuple[Any, Any, Any, Any]:
   """Load a system via ParmEd and convert to OpenMM.
 
   Args:
-      structure: A ParmEd structure object that should contain coordinates,
-      topology, and parameter information
+      structure: Either a ParmEd Structure object, or a path accepted by
+        `parmed.load_file(...)`.
       nb_method: Optional OpenMM nonbonded method. If None, inferred from box.
       kwargs: Extra kwargs forwarded to Structure.createSystem.
 
@@ -264,14 +299,14 @@ def load_parmed_system(structure, param_files=None, nb_method=None, **kwargs):
   """
   _maybe_import_parmed()
 
-  # TODO better error guards
-  # what combination of crd/prm/top are needed?
-  structure = parmed.load_file(structure_path, param_files)  # type: ignore
+  # Normalize to a ParmEd Structure.
+  if isinstance(structure, str):
+    structure = parmed.load_file(structure, param_files)  # type: ignore
+
   box_vectors = getattr(structure, 'box_vectors', None)
   if nb_method is None:
     nb_method = app.PME if box_vectors is not None else app.NoCutoff
 
-  create_system_kwargs = create_system_kwargs or {}
   system = structure.createSystem(nonbondedMethod=nb_method, **kwargs)
   topology = structure.topology
   positions = structure.positions
@@ -282,11 +317,11 @@ def load_parmed_system(structure, param_files=None, nb_method=None, **kwargs):
 # TODO it may be wise to keep everything as ONP structs and then only convert if needed
 # TODO break up into more modular function
 def convert_openmm_system(
-  system: openmm.System,
-  topology: app.Topology,
-  positions,
-  box_vectors,
-  r_cut: float = None,
+  system: Any,
+  topology: Any,
+  positions: Any,
+  box_vectors: Any,
+  r_cut: Optional[float] = None,
   dr_threshold: float = 0.0,
   format: partition.NeighborListFormat = partition.NeighborListFormat.OrderedSparse,
   precision: str = 'double',
@@ -615,21 +650,21 @@ def convert_openmm_system(
           use_periodic_general = True
           fractional_coordinates = True
 
-      # NOTE charmpsffile.py turns off dispersion correction on the main force
-      # but doesn't add any long range correction to the custom nonbonded force
-      # it isn't immediately clear what the most correct way of implementing this is
-      # CustomNonbondedForceImpl.cpp uses an alternate numeric integration scheme to support
-      # potentials that don't use the 12-6 LJ versus the analytic scheme in the standard
-      # NonbondedForce used for AMBER or no NBFIX CHARMM while amber_file_parser.py
-      # turns on the long range correction for the custom force automatically
-      # https://github.com/openmm/openmm/issues/3162
-      # in addition, different combinations of switching, reaction field, custom force terms, etc
-      # may lead to convergence issues with the custom force correction approach
-      # for now, the assumption is nbfix terms and a dispersion correction won't be enabled at the same time
-      # and that the dispersion correction is only for a 12-6 potential
+      # NOTE charmpsffile.py turns off dispersion correction on the main force,
+      # but does not add any long range correction to the CustomNonbondedForce.
+      #
+      # CustomNonbondedForceImpl.cpp uses numeric integration to support
+      # arbitrary potentials (not necessarily 12-6 LJ), whereas the standard
+      # NonbondedForce uses an analytic LJ long-range correction.
+      #
+      # Related: https://github.com/openmm/openmm/issues/3162
+      #
+      # For now, assume NBFIX and an analytic dispersion correction are not
+      # enabled at the same time, and that the correction we compute (below) is
+      # only for a 12-6 potential.
       if (
         force.getUseDispersionCorrection()
-        and nb_method is not openmm.NonbondedForce.NoCutoff
+        and nb_method != openmm.NonbondedForce.NoCutoff
       ):
         disp_coefs = np.stack([sigma_arr, epsilon_arr], axis=1)
         values, count = np.unique(disp_coefs, axis=0, return_counts=True)
@@ -771,7 +806,7 @@ def convert_openmm_system(
         else:
           nbfix_bcoef_table = mat * (10**6) * _KJ_TO_KCAL
     elif isinstance(force, openmm.CMMotionRemover):
-      # TODO unsure if this needs to be handled or can safely be ignored and left to the user to turn on
+      # TODO decide whether to add this as a parsed option or ignore it.
       pass
     else:
       raise NotImplementedError(f'{force} is not yet supported.')
@@ -897,18 +932,18 @@ def convert_openmm_system(
   )
 
 
-def get_ewald_parameters():
-  return
+def get_ewald_parameters() -> None:
+  return None
 
 
 def virtual_site_apply_positions(
-  pos: jnp.ndarray,
-  virtual_sites,
-  displacement_fn,
-  shift_fn,
-  box: Optional[jnp.ndarray] = None,
+  pos: Array,
+  virtual_sites: Optional[VirtualSiteData],
+  displacement_fn: Any,
+  shift_fn: Any,
+  box: Optional[Array] = None,
   use_periodic_general: bool = False,
-) -> jnp.ndarray:
+) -> Array:
   """Overwrite virtual-site particle positions from parent atoms.
 
   This is intended as a lightweight, JAX-friendly helper for test-time MD loops.
@@ -1017,10 +1052,10 @@ def virtual_site_apply_positions(
 
 def virtual_site_fix_state(
   state: simulate.NVEState,
-  virtual_sites,
-  displacement_fn,
-  shift_fn,
-  box: Optional[jnp.ndarray] = None,
+  virtual_sites: Optional[VirtualSiteData],
+  displacement_fn: Any,
+  shift_fn: Any,
+  box: Optional[Array] = None,
   use_periodic_general: bool = False,
 ) -> simulate.NVEState:
   """Make an NVEState safe to integrate with massless virtual sites.

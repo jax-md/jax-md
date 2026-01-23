@@ -1,7 +1,7 @@
 """Base dataclasses and types for molecular mechanics forcefields."""
 
 from functools import wraps, partial
-from typing import NamedTuple, Optional
+from typing import Callable, NamedTuple, Optional
 import jax.numpy as jnp
 from jax_md.util import Array, safe_mask
 from jax_md.partition import NeighborListFormat
@@ -138,51 +138,78 @@ class NonbondedOptions(NamedTuple):
 
 # Common combinators for nonbonded mixing
 # TODO add waldman-hagler and other combining rules if necessary
-def combine_lorentz(v1, v2):
-  """Lorentz mixing (arithmetic mean)."""
+def combine_lorentz(v1: Array, v2: Array) -> Array:
+  """Lorentz mixing rule (arithmetic mean).
+
+  Args:
+    v1: First per-particle parameter.
+    v2: Second per-particle parameter.
+
+  Returns:
+    Mixed parameter value.
+  """
   return 0.5 * (v1 + v2)
 
 
-def combine_berthelot(v1, v2):
-  """Berthelot mixing rule (geometric mean)."""
+def combine_berthelot(v1: Array, v2: Array) -> Array:
+  """Berthelot mixing rule (geometric mean).
+
+  Args:
+    v1: First per-particle parameter.
+    v2: Second per-particle parameter.
+
+  Returns:
+    Mixed parameter value.
+  """
   return safe_sqrt(v1 * v2)
 
 
-def combine_product(q1, q2):
-  """Simple product rule."""
+def combine_product(q1: Array, q2: Array) -> Array:
+  """Simple product rule.
+
+  Args:
+    q1: First value.
+    q2: Second value.
+
+  Returns:
+    Product q1*q2.
+  """
   return q1 * q2
 
 
-def compute_angle(dr_12, dr_32):
-  """
-  Calculate the angle between 3 points
+def compute_angle(dr_12: Array, dr_32: Array) -> Array:
+  """Compute the angle (in radians) from two displacement vectors.
+
+  This returns the angle formed by the three atoms (1-2-3) given displacement
+  vectors from the central atom (2) to the outer atoms (1 and 3).
 
   Args:
+    dr_12: Displacement vector from atom 2 to atom 1, shape (3,).
+    dr_32: Displacement vector from atom 2 to atom 3, shape (3,).
 
   Returns:
-
-  Raises:
+    Angle in radians in [0, pi].
   """
-
   d_12 = jnp.linalg.norm(dr_12 + 1e-7)
   d_32 = jnp.linalg.norm(dr_32 + 1e-7)
   cos_angle = jnp.dot(dr_12, dr_32) / (d_12 * d_32)
   return safe_mask((cos_angle < 1) & (cos_angle > -1), jnp.arccos, cos_angle)
 
 
-def compute_dihedral(v1, v2, v3):
-  """
-  Calculate the dihedral angle between 4 points
-  Praxeolitic formula
-  Taken from: https://stackoverflow.com/questions/20305272/dihedral-torsion-angle-from-four-points-in-cartesian-coordinates-in-python
+def compute_dihedral(v1: Array, v2: Array, v3: Array) -> Array:
+  """Compute a signed dihedral angle (in radians) from three displacement vectors.
+
+  This implements a common "praxeolitic" dihedral definition using displacement
+  vectors, which avoids explicit position wrapping issues under PBCs.
 
   Args:
+    v1: Displacement vector r_01 (from atom 1 to atom 0), shape (3,).
+    v2: Displacement vector r_12 (from atom 2 to atom 1), shape (3,).
+    v3: Displacement vector r_23 (from atom 3 to atom 2), shape (3,).
 
   Returns:
-
-  Raises:
+    Signed dihedral angle in radians in (-pi, pi].
   """
-
   # using displacements instead of positions avoids periodicity issues
   b0 = -1.0 * (v1)
   b1 = v2
@@ -210,33 +237,55 @@ def compute_dihedral(v1, v2, v3):
 
 
 # Cutoff / switching utilities
+# TODO look into other common functions to add here
 
+EnergyFn = Callable[..., Array]
 
 # TODO based off of multiplicative_isotropic_cut but may need some changes
-def hard_cutoff(fn, r_cut):
-  """Zero out interactions beyond r_cut."""
+def hard_cutoff(fn: EnergyFn, r_cut: float) -> EnergyFn:
+  """Wrap a pairwise function with a hard cutoff.
+
+  Args:
+    fn: Function of the form `fn(dr, *args, **kwargs) -> energy`.
+    r_cut: Cutoff radius (same units as `dr`).
+
+  Returns:
+    A wrapped function that multiplies `fn` by an indicator `(dr < r_cut)`.
+  """
 
   # TODO double where needed? why mask?
-  def smooth_fn(dr):
+  def smooth_fn(dr: Array) -> Array:
     return jnp.where(dr < r_cut, 1, 0)
 
   @wraps(fn)
-  def cutoff_fn(dr, *args, **kwargs):
+  def cutoff_fn(dr: Array, *args, **kwargs) -> Array:
     return smooth_fn(dr) * fn(dr, *args, **kwargs)
 
   return cutoff_fn
 
 
-def force_switch(fn, r_on, r_off):
-  """Apply switching according to CHARMM convention from r_on to r_off."""
+def force_switch(fn: EnergyFn, r_on: float, r_off: float) -> EnergyFn:
+  """Wrap a pairwise function with a CHARMM-style force-switching function.
 
-  def smooth_fn(dr):
+  The switching function is 1 at `r_on`, goes smoothly to 0 at `r_off`, and is
+  clamped outside [r_on, r_off].
+
+  Args:
+    fn: Function of the form `fn(dr, *args, **kwargs) -> energy`.
+    r_on: Switch-on radius.
+    r_off: Switch-off radius (typically equals the neighbor cutoff).
+
+  Returns:
+    A wrapped function that multiplies `fn` by the switching polynomial.
+  """
+
+  def smooth_fn(dr: Array) -> Array:
     s = jnp.clip((dr - r_on) / (r_off - r_on), 0.0, 1.0)
     switch = 1 - 10 * s**3 + 15 * s**4 - 6 * s**5
     return switch
 
   @wraps(fn)
-  def cutoff_fn(dr, *args, **kwargs):
+  def cutoff_fn(dr: Array, *args, **kwargs) -> Array:
     return smooth_fn(dr) * fn(dr, *args, **kwargs)
 
   return cutoff_fn
