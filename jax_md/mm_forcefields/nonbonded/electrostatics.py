@@ -26,7 +26,7 @@ BoxKwarg = dict[str, Array]
 EnergyFn = Callable[..., Array]
 CoulombFns = tuple[EnergyFn, ...]
 DisplacementFn = space.DisplacementFn
-CutoffWrapper = Callable[[EnergyFn], EnergyFn] # TODO add to base.py
+CutoffWrapper = Callable[[EnergyFn], EnergyFn]  # TODO add to base.py
 
 
 class CoulombHandler:
@@ -330,7 +330,9 @@ def transform_gradients(box: Array, coords: Array) -> Array:
 
 
 @transform_gradients.defjvp
-def _(primals: tuple[Array, Array], tangents: tuple[Array, Array]) -> tuple[Array, Array]:
+def _(
+  primals: tuple[Array, Array], tangents: tuple[Array, Array]
+) -> tuple[Array, Array]:
   box, coords = primals
   dbox, dcoords = tangents
   return coords, space.transform(dbox, coords) + space.transform(box, dcoords)

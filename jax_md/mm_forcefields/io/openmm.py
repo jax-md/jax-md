@@ -59,6 +59,7 @@ _KJ_TO_KCAL = 1.0 / _KCAL_TO_KJ
 _NM_TO_ANG = 10.0
 _ANG_TO_NM = 1.0 / _NM_TO_ANG
 
+
 class VirtualSiteData(NamedTuple):
   """Fixed-shape virtual site metadata for per-step position reconstruction.
 

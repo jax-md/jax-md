@@ -241,6 +241,7 @@ def compute_dihedral(v1: Array, v2: Array, v3: Array) -> Array:
 
 EnergyFn = Callable[..., Array]
 
+
 # TODO based off of multiplicative_isotropic_cut but may need some changes
 def hard_cutoff(fn: EnergyFn, r_cut: float) -> EnergyFn:
   """Wrap a pairwise function with a hard cutoff.

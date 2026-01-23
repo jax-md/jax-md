@@ -55,6 +55,7 @@ NeighborFn = partition.NeighborFn
 NeighborList = partition.NeighborList
 NeighborListFormat = partition.NeighborListFormat
 
+
 # TODO rethink the cleanest way to format this with some enums
 # TODO also move this somewhere more suitable
 @dataclasses.dataclass
@@ -105,7 +106,9 @@ def space_selector(
   return disp_fn, shift_fn
 
 
-def _create_dense_mask(n_atoms: int, exc_pairs: Array) -> Callable[[Array], Array]:
+def _create_dense_mask(
+  n_atoms: int, exc_pairs: Array
+) -> Callable[[Array], Array]:
   receivers = jnp.concatenate((exc_pairs[:, 0], exc_pairs[:, 1]))
   senders = jnp.concatenate((exc_pairs[:, 1], exc_pairs[:, 0]))
   idx = jnp.argsort(senders)
@@ -433,7 +436,7 @@ def energy(
       topology.exc_pairs,
       nonbonded.exc_charge_prod,
       coulomb_fns=mapped_coul_fns,
-      return_components=True, # TODO need to work out smap wiring for this
+      return_components=True,  # TODO need to work out smap wiring for this
     )
 
     ### Lennard Jones Interaction
@@ -527,7 +530,9 @@ def harmonic_bond(dist: Array, k: Array, l: Array) -> Array:
   return 0.5 * k * jnp.power((dist - l), 2)
 
 
-def harmonic_angle(dr_ij: Array, dr_kj: Array, k: Array, theta0: Array) -> Array:
+def harmonic_angle(
+  dr_ij: Array, dr_kj: Array, k: Array, theta0: Array
+) -> Array:
   """
   Harmonic angle energy function
 
@@ -626,7 +631,9 @@ def lennard_jones(
   return 4.0 * epsilon * (idr12 - idr6)
 
 
-def lennard_jones_ab(dr: Array, a: Array, b: Array, **unused_kwargs: Any) -> Array:
+def lennard_jones_ab(
+  dr: Array, a: Array, b: Array, **unused_kwargs: Any
+) -> Array:
   """Standard 12-6 Lennard-Jones pair potential.
 
   Args:
