@@ -66,6 +66,9 @@ docs = [
     "ase",
     "tqdm",
 ]
+uma = [
+    "torch>=2.0.0",  # Required for loading PyTorch UMA checkpoints
+]
 
 [project.urls]
 Homepage = "https://github.com/google/jax-md"
@@ -80,6 +83,12 @@ packages = ["jax_md"]
 [tool.hatch.build.targets.wheel.shared-data]
 "examples/models/*.pickle" = "examples/models"
 "examples/models/*.png" = "examples/models"
+
+[tool.hatch.build.targets.wheel.force-include]
+"jax_md/ff/uma/Jd.pt" = "jax_md/ff/uma/Jd.pt"
+
+[tool.hatch.build.targets.sdist.force-include]
+"jax_md/ff/uma/Jd.pt" = "jax_md/ff/uma/Jd.pt"
 
 [tool.coverage.run]
 source = ["jax_md"]
