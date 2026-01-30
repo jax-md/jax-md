@@ -248,7 +248,7 @@ def config_from_pytorch_checkpoint(checkpoint_path: str):
   Returns:
       UMAConfig instance matching the checkpoint.
   """
-  from jax_md.ff.uma.model import UMAConfig
+  from jax_md._nn.uma.model import UMAConfig
 
   pt_config = extract_config_from_checkpoint(checkpoint_path)
 

@@ -66,6 +66,9 @@ docs = [
     "ase",
     "tqdm",
 ]
+testing = [
+    "torch>=2.0.0",  # Required for UMA tests and weight loading
+]
 uma = [
     "torch>=2.0.0",  # Required for loading PyTorch UMA checkpoints
 ]
@@ -85,10 +88,10 @@ packages = ["jax_md"]
 "examples/models/*.png" = "examples/models"
 
 [tool.hatch.build.targets.wheel.force-include]
-"jax_md/ff/uma/Jd.pt" = "jax_md/ff/uma/Jd.pt"
+"jax_md/_nn/uma/Jd.pt" = "jax_md/_nn/uma/Jd.pt"
 
 [tool.hatch.build.targets.sdist.force-include]
-"jax_md/ff/uma/Jd.pt" = "jax_md/ff/uma/Jd.pt"
+"jax_md/_nn/uma/Jd.pt" = "jax_md/_nn/uma/Jd.pt"
 
 [tool.coverage.run]
 source = ["jax_md"]

@@ -28,14 +28,14 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 
-from jax_md._nn.ff.uma.nn.so2_layers import SO2Convolution
-from jax_md._nn.ff.uma.nn.so3_layers import SO3Linear
-from jax_md._nn.ff.uma.nn.activation import (
+from jax_md._nn.uma.nn.so2_layers import SO2Convolution
+from jax_md._nn.uma.nn.so3_layers import SO3Linear
+from jax_md._nn.uma.nn.activation import (
   GateActivation,
   SeparableS2Activation,
 )
-from jax_md._nn.ff.uma.nn.layer_norm import get_normalization_layer
-from jax_md._nn.ff.uma.nn.radial import PolynomialEnvelope
+from jax_md._nn.uma.nn.layer_norm import get_normalization_layer
+from jax_md._nn.uma.nn.radial import PolynomialEnvelope
 
 
 class Edgewise(nn.Module):

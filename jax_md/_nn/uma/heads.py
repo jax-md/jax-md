@@ -28,7 +28,7 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 
-from jax_md.ff.uma.nn.so3_layers import SO3Linear
+from jax_md._nn.uma.nn.so3_layers import SO3Linear
 
 
 class MLPEnergyHead(nn.Module):
@@ -282,7 +282,7 @@ def create_uma_energy_fn(
       Tuple of (model, init_fn) where model is a Flax module and
       init_fn initializes parameters.
   """
-  from jax_md.ff.uma.model import UMABackbone
+  from jax_md._nn.uma.model import UMABackbone
 
   class UMAEnergyModel(nn.Module):
     config: backbone_config.__class__

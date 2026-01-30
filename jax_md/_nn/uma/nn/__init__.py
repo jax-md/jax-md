@@ -14,22 +14,22 @@
 
 """Neural network layers for UMA model."""
 
-from jax_md.ff.uma.nn.so3_layers import SO3Linear
-from jax_md.ff.uma.nn.so2_layers import SO2Convolution
-from jax_md.ff.uma.nn.so2_layers import SO2MConv
-from jax_md.ff.uma.nn.radial import GaussianSmearing
-from jax_md.ff.uma.nn.radial import PolynomialEnvelope
-from jax_md.ff.uma.nn.radial import RadialMLP
-from jax_md.ff.uma.nn.activation import GateActivation
-from jax_md.ff.uma.nn.activation import ScaledSiLU
-from jax_md.ff.uma.nn.activation import SeparableS2Activation
-from jax_md.ff.uma.nn.layer_norm import EquivariantRMSNorm
-from jax_md.ff.uma.nn.layer_norm import EquivariantLayerNorm
-from jax_md.ff.uma.nn.layer_norm import get_normalization_layer
-from jax_md.ff.uma.nn.embedding import AtomicEmbedding
-from jax_md.ff.uma.nn.embedding import ChgSpinEmbedding
-from jax_md.ff.uma.nn.embedding import DatasetEmbedding
-from jax_md.ff.uma.nn.embedding import EdgeDegreeEmbedding
+from jax_md._nn.uma.nn.so3_layers import SO3Linear
+from jax_md._nn.uma.nn.so2_layers import SO2Convolution
+from jax_md._nn.uma.nn.so2_layers import SO2MConv
+from jax_md._nn.uma.nn.radial import GaussianSmearing
+from jax_md._nn.uma.nn.radial import PolynomialEnvelope
+from jax_md._nn.uma.nn.radial import RadialMLP
+from jax_md._nn.uma.nn.activation import GateActivation
+from jax_md._nn.uma.nn.activation import ScaledSiLU
+from jax_md._nn.uma.nn.activation import SeparableS2Activation
+from jax_md._nn.uma.nn.layer_norm import EquivariantRMSNorm
+from jax_md._nn.uma.nn.layer_norm import EquivariantLayerNorm
+from jax_md._nn.uma.nn.layer_norm import get_normalization_layer
+from jax_md._nn.uma.nn.embedding import AtomicEmbedding
+from jax_md._nn.uma.nn.embedding import ChgSpinEmbedding
+from jax_md._nn.uma.nn.embedding import DatasetEmbedding
+from jax_md._nn.uma.nn.embedding import EdgeDegreeEmbedding
 
 __all__ = [
   'SO3Linear',

@@ -22,7 +22,7 @@ featuring SO(3) symmetry via Wigner D-matrices and spherical harmonic
 representations.
 
 Example usage:
-    from jax_md.ff import uma
+    from jax_md._nn import uma
 
     # Load pretrained weights from a PyTorch checkpoint
     params = uma.load_pytorch_checkpoint('uma_model.pt')
@@ -34,14 +34,14 @@ Example usage:
     embeddings = model.apply(params, positions, atomic_numbers, ...)
 """
 
-from jax_md.ff.uma.model import UMABackbone
-from jax_md.ff.uma.model import UMAConfig
-from jax_md.ff.uma.blocks import UMABlock
-from jax_md.ff.uma.heads import MLPEnergyHead
-from jax_md.ff.uma.heads import LinearEnergyHead
-from jax_md.ff.uma.heads import LinearForceHead
-from jax_md.ff.uma.weight_conversion import load_pytorch_checkpoint
-from jax_md.ff.uma.weight_conversion import convert_pytorch_state_dict
+from jax_md._nn.uma.model import UMABackbone
+from jax_md._nn.uma.model import UMAConfig
+from jax_md._nn.uma.blocks import UMABlock
+from jax_md._nn.uma.heads import MLPEnergyHead
+from jax_md._nn.uma.heads import LinearEnergyHead
+from jax_md._nn.uma.heads import LinearForceHead
+from jax_md._nn.uma.weight_conversion import load_pytorch_checkpoint
+from jax_md._nn.uma.weight_conversion import convert_pytorch_state_dict
 
 __all__ = [
   'UMABackbone',

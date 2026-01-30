@@ -25,7 +25,7 @@ pip install torch  # Only needed for loading PyTorch checkpoints
 ### Loading a Pretrained Model
 
 ```python
-from jax_md.ff import uma
+from jax_md._nn import uma
 import jax.numpy as jnp
 
 # Load pretrained weights from a PyTorch checkpoint
@@ -64,7 +64,7 @@ node_embedding = output['node_embedding']  # [num_atoms, (lmax+1)^2, sphere_chan
 ### Computing Energies and Forces
 
 ```python
-from jax_md.ff.uma.heads import MLPEnergyHead, LinearForceHead
+from jax_md._nn.uma.heads import MLPEnergyHead, LinearForceHead
 import jax
 
 # Energy prediction
@@ -199,7 +199,7 @@ Output: node_embedding [N, (lmax+1)², C]
 params = uma.load_pytorch_checkpoint('checkpoint.pt')
 
 # Extract config from checkpoint (if available)
-from jax_md.ff.uma.weight_conversion import config_from_pytorch_checkpoint
+from jax_md._nn.uma.weight_conversion import config_from_pytorch_checkpoint
 config = config_from_pytorch_checkpoint('checkpoint.pt')
 ```
 
@@ -207,7 +207,7 @@ config = config_from_pytorch_checkpoint('checkpoint.pt')
 
 ```python
 import torch
-from jax_md.ff.uma.weight_conversion import convert_pytorch_state_dict
+from jax_md._nn.uma.weight_conversion import convert_pytorch_state_dict
 
 # Load PyTorch state dict
 pt_state = torch.load('checkpoint.pt', map_location='cpu')['state_dict']
@@ -220,7 +220,7 @@ jax_params = convert_pytorch_state_dict(np_state)
 ### Verifying Weights
 
 ```python
-from jax_md.ff.uma.weight_conversion import verify_weight_loading
+from jax_md._nn.uma.weight_conversion import verify_weight_loading
 
 results = verify_weight_loading(jax_params, np_state)
 for key, matches in results.items():

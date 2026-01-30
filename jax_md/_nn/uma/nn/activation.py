@@ -169,7 +169,7 @@ class SeparableS2Activation(nn.Module):
     )
 
     # Project to grid
-    x_grid = jnp.einsum('iba,zic->zbac', self.to_grid_mat, input_tensors)
+    x_grid = jnp.einsum('bai,zic->zbac', self.to_grid_mat, input_tensors)
 
     # Apply SiLU in grid space
     x_grid = nn.silu(x_grid)

@@ -29,7 +29,7 @@ import jax
 import jax.numpy as jnp
 from jax.nn import initializers
 
-from jax_md.ff.uma.nn.radial import RadialMLP
+from jax_md._nn.uma.nn.radial import RadialMLP
 
 
 class AtomicEmbedding(nn.Module):

@@ -30,28 +30,28 @@ import jax
 import jax.numpy as jnp
 from jax.nn import initializers
 
-from jax_md._nn.ff.uma.common.so3 import (
+from jax_md._nn.uma.common.so3 import (
   CoefficientMapping,
   SO3Grid,
   create_coefficient_mapping,
   create_so3_grid,
   coefficient_idx,
 )
-from jax_md._nn.ff.uma.common.rotation import (
+from jax_md._nn.uma.common.rotation import (
   compute_jacobi_matrices,
   load_jacobi_matrices_from_file,
   init_edge_rot_euler_angles,
   eulers_to_wigner,
 )
-from jax_md._nn.ff.uma.nn.radial import GaussianSmearing, PolynomialEnvelope
-from jax_md._nn.ff.uma.nn.embedding import (
+from jax_md._nn.uma.nn.radial import GaussianSmearing, PolynomialEnvelope
+from jax_md._nn.uma.nn.embedding import (
   AtomicEmbedding,
   ChgSpinEmbedding,
   DatasetEmbedding,
   EdgeDegreeEmbedding,
 )
-from jax_md._nn.ff.uma.nn.layer_norm import get_normalization_layer
-from jax_md._nn.ff.uma.blocks import UMABlock
+from jax_md._nn.uma.nn.layer_norm import get_normalization_layer
+from jax_md._nn.uma.blocks import UMABlock
 
 
 @dataclass
