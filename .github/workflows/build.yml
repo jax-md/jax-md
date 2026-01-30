@@ -38,7 +38,7 @@ jobs:
     strategy:
       matrix:
         python-version: ['3.10', '3.11', '3.12', '3.13']
-        test-suite: ['elasticity', 'rigid_body', 'energy', 'simulate', 'nequip', 'reaxff', 'tpu', 'core']
+        test-suite: ['elasticity', 'rigid_body', 'energy', 'simulate', 'nequip', 'reaxff', 'tpu', 'uma', 'core']
     steps:
     - name: Cancel previous
       uses: styfle/cancel-workflow-action@0.11.0
@@ -57,8 +57,11 @@ jobs:
     - name: Install dependencies
       run: |
         uv pip install .
-        uv pip install .[testing]
         uv pip install pytest pytest-cov netCDF4 ase
+        # Install torch for UMA tests
+        if [ "${{ matrix.test-suite }}" == "uma" ]; then
+          uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+        fi
     - name: Set Swap Space
       uses: pierotofy/set-swap-space@master
       with:
@@ -73,7 +76,8 @@ jobs:
             --ignore=tests/simulate_test.py \
             --ignore=tests/nequip_test.py \
             --ignore=tests/reaxff_test.py \
-            --ignore=tests/tpu_test.py
+            --ignore=tests/tpu_test.py \
+            --ignore=tests/uma_test.py
         else
           JAX_ENABLE_X64=1 uv run pytest tests/${{ matrix.test-suite }}_test.py --cov=jax_md --cov-report=xml --cov-report=term
         fi

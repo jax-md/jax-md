@@ -16,3 +16,4 @@ from . import behler_parrinello
 from . import nequip
 from . import gnome
 from . import util
+from . import uma
