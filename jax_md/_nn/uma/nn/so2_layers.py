@@ -67,11 +67,11 @@ class SO2MConv(nn.Module):
     """
     num_coefficients = self.lmax - self.m + 1
     num_channels = num_coefficients * self.sphere_channels
-    out_channels_half = self.m_output_channels * num_coefficients
 
     # Linear transformation without bias, scaled by 1/sqrt(2) for complex
+    # Output 4 * m_output_channels * num_coefficients for complex multiplication
     fc = nn.Dense(
-      features=2 * out_channels_half,
+      features=4 * self.m_output_channels * num_coefficients,
       use_bias=False,
       kernel_init=initializers.variance_scaling(
         scale=0.5,  # 1/sqrt(2) factor
@@ -87,8 +87,9 @@ class SO2MConv(nn.Module):
     x_m_out = fc(x_m_flat)
 
     # Reshape and split into components
+    # [batch, 4 * m_output_channels * num_coeffs] -> [batch, 4, m_output_channels, num_coeffs]
     x_m_out = x_m_out.reshape(
-      batch_size, 4, out_channels_half // num_coefficients, num_coefficients
+      batch_size, 4, self.m_output_channels, num_coefficients
     )
     x_m_out = x_m_out.transpose(0, 3, 1, 2)  # [batch, num_coeffs, 4, channels]
 

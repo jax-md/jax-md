@@ -1,16 +1,69 @@
 """Tests for jax_md._nn.uma (UMA model).
 
-Note: The full UMA backbone model requires specific configurations to work.
-These tests verify the basic components and heads work correctly.
+These tests verify the UMA model components and full forward pass work correctly.
 """
 
 from absl.testing import absltest
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from jax_md import test_util
 from jax_md._nn import uma
+
+
+def create_test_data(num_atoms=10, num_systems=2, cutoff=5.0, seed=42):
+  """Create synthetic test data for UMA model testing."""
+  np.random.seed(seed)
+
+  # Positions
+  positions = np.random.randn(num_atoms, 3).astype(np.float32) * 2.0
+
+  # Atomic numbers (H, C, N, O)
+  atomic_numbers = np.random.choice([1, 6, 7, 8], size=num_atoms).astype(
+    np.int32
+  )
+
+  # Batch indices
+  atoms_per_system = num_atoms // num_systems
+  batch = np.repeat(np.arange(num_systems), atoms_per_system).astype(np.int32)
+  if len(batch) < num_atoms:
+    batch = np.concatenate(
+      [batch, np.full(num_atoms - len(batch), num_systems - 1)]
+    ).astype(np.int32)
+
+  # Build edges (within cutoff)
+  edge_src = []
+  edge_dst = []
+  for i in range(num_atoms):
+    for j in range(num_atoms):
+      if i != j:
+        dist = np.linalg.norm(positions[i] - positions[j])
+        if dist < cutoff:
+          edge_src.append(i)
+          edge_dst.append(j)
+
+  edge_index = np.array([edge_src, edge_dst], dtype=np.int32)
+  edge_distance_vec = (
+    positions[edge_index[0]] - positions[edge_index[1]]
+  ).astype(np.float32)
+
+  # System-level properties
+  charge = np.zeros(num_systems, dtype=np.float32)
+  spin = np.zeros(num_systems, dtype=np.float32)
+  dataset = ['omat'] * num_systems
+
+  return {
+    'positions': jnp.array(positions),
+    'atomic_numbers': jnp.array(atomic_numbers),
+    'batch': jnp.array(batch),
+    'edge_index': jnp.array(edge_index),
+    'edge_distance_vec': jnp.array(edge_distance_vec),
+    'charge': jnp.array(charge),
+    'spin': jnp.array(spin),
+    'dataset': dataset,
+  }
 
 
 class UMAConfigTest(test_util.JAXMDTestCase):
@@ -198,6 +251,229 @@ class UMAModulesTest(test_util.JAXMDTestCase):
       cutoff=5.0,
     )
     self.assertIsNotNone(block)
+
+
+class UMABackboneForwardTest(test_util.JAXMDTestCase):
+  """Tests for UMA backbone forward pass."""
+
+  def test_uma_backbone_forward_pass(self):
+    """Test full UMABackbone forward pass with synthetic data."""
+    # Use config values that match the working test_uma_comparison.py
+    config = uma.UMAConfig(
+      max_num_elements=100,
+      sphere_channels=64,
+      lmax=2,
+      mmax=2,
+      num_layers=1,
+      hidden_channels=64,
+      cutoff=5.0,
+      edge_channels=64,
+      num_distance_basis=128,
+      norm_type='rms_norm_sh',
+      act_type='gate',
+      ff_type='grid',
+      chg_spin_emb_type='pos_emb',
+      dataset_list=['oc20', 'omol', 'omat', 'odac', 'omc'],
+      use_dataset_embedding=True,
+    )
+
+    model = uma.UMABackbone(config=config)
+    data = create_test_data(num_atoms=10, num_systems=2, cutoff=config.cutoff)
+
+    # Initialize parameters
+    key = jax.random.PRNGKey(0)
+    params = model.init(
+      key,
+      data['positions'],
+      data['atomic_numbers'],
+      data['batch'],
+      data['edge_index'],
+      data['edge_distance_vec'],
+      data['charge'],
+      data['spin'],
+      data['dataset'],
+    )
+
+    # Forward pass
+    output = model.apply(
+      params,
+      data['positions'],
+      data['atomic_numbers'],
+      data['batch'],
+      data['edge_index'],
+      data['edge_distance_vec'],
+      data['charge'],
+      data['spin'],
+      data['dataset'],
+    )
+
+    # Verify output structure
+    self.assertIn('node_embedding', output)
+    self.assertIn('batch', output)
+
+    # Verify shapes
+    num_atoms = data['positions'].shape[0]
+    sph_size = (config.lmax + 1) ** 2
+    self.assertEqual(
+      output['node_embedding'].shape,
+      (num_atoms, sph_size, config.sphere_channels),
+    )
+
+    # Verify outputs are finite
+    self.assertTrue(jnp.all(jnp.isfinite(output['node_embedding'])))
+
+  def test_uma_backbone_forward_pass_no_dataset_embedding(self):
+    """Test UMABackbone forward pass without dataset embedding."""
+    config = uma.UMAConfig(
+      max_num_elements=100,
+      sphere_channels=64,
+      lmax=2,
+      mmax=2,
+      num_layers=1,
+      hidden_channels=64,
+      cutoff=5.0,
+      edge_channels=64,
+      num_distance_basis=128,
+      use_dataset_embedding=False,
+    )
+
+    model = uma.UMABackbone(config=config)
+    data = create_test_data(num_atoms=8, num_systems=2, cutoff=config.cutoff)
+
+    key = jax.random.PRNGKey(42)
+    params = model.init(
+      key,
+      data['positions'],
+      data['atomic_numbers'],
+      data['batch'],
+      data['edge_index'],
+      data['edge_distance_vec'],
+      data['charge'],
+      data['spin'],
+      None,  # No dataset
+    )
+
+    output = model.apply(
+      params,
+      data['positions'],
+      data['atomic_numbers'],
+      data['batch'],
+      data['edge_index'],
+      data['edge_distance_vec'],
+      data['charge'],
+      data['spin'],
+      None,
+    )
+
+    self.assertIn('node_embedding', output)
+    self.assertTrue(jnp.all(jnp.isfinite(output['node_embedding'])))
+
+  def test_uma_backbone_deterministic(self):
+    """Test UMABackbone produces deterministic outputs."""
+    config = uma.UMAConfig(
+      max_num_elements=100,
+      sphere_channels=64,
+      lmax=2,
+      mmax=2,
+      num_layers=1,
+      hidden_channels=64,
+      cutoff=5.0,
+      edge_channels=64,
+      num_distance_basis=128,
+      use_dataset_embedding=False,
+    )
+
+    model = uma.UMABackbone(config=config)
+    data = create_test_data(num_atoms=8, num_systems=2, cutoff=config.cutoff)
+
+    key = jax.random.PRNGKey(0)
+    params = model.init(
+      key,
+      data['positions'],
+      data['atomic_numbers'],
+      data['batch'],
+      data['edge_index'],
+      data['edge_distance_vec'],
+      data['charge'],
+      data['spin'],
+      None,
+    )
+
+    # Run forward pass twice
+    output1 = model.apply(
+      params,
+      data['positions'],
+      data['atomic_numbers'],
+      data['batch'],
+      data['edge_index'],
+      data['edge_distance_vec'],
+      data['charge'],
+      data['spin'],
+      None,
+    )
+
+    output2 = model.apply(
+      params,
+      data['positions'],
+      data['atomic_numbers'],
+      data['batch'],
+      data['edge_index'],
+      data['edge_distance_vec'],
+      data['charge'],
+      data['spin'],
+      None,
+    )
+
+    # Outputs should be identical
+    self.assertTrue(
+      jnp.allclose(output1['node_embedding'], output2['node_embedding'])
+    )
+
+  def test_uma_backbone_multiple_layers(self):
+    """Test UMABackbone with multiple layers."""
+    config = uma.UMAConfig(
+      max_num_elements=100,
+      sphere_channels=64,
+      lmax=2,
+      mmax=2,
+      num_layers=2,  # Multiple layers
+      hidden_channels=64,
+      cutoff=5.0,
+      edge_channels=64,
+      num_distance_basis=128,
+      use_dataset_embedding=False,
+    )
+
+    model = uma.UMABackbone(config=config)
+    data = create_test_data(num_atoms=8, num_systems=2, cutoff=config.cutoff)
+
+    key = jax.random.PRNGKey(0)
+    params = model.init(
+      key,
+      data['positions'],
+      data['atomic_numbers'],
+      data['batch'],
+      data['edge_index'],
+      data['edge_distance_vec'],
+      data['charge'],
+      data['spin'],
+      None,
+    )
+
+    output = model.apply(
+      params,
+      data['positions'],
+      data['atomic_numbers'],
+      data['batch'],
+      data['edge_index'],
+      data['edge_distance_vec'],
+      data['charge'],
+      data['spin'],
+      None,
+    )
+
+    self.assertIn('node_embedding', output)
+    self.assertTrue(jnp.all(jnp.isfinite(output['node_embedding'])))
 
 
 if __name__ == '__main__':
