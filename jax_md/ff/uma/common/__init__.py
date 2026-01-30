@@ -23,10 +23,10 @@ from jax_md.ff.uma.common.rotation import compute_jacobi_matrices
 from jax_md.ff.uma.common.rotation import load_jacobi_matrices_from_file
 
 __all__ = [
-    'CoefficientMapping',
-    'SO3Grid',
-    'init_edge_rot_euler_angles',
-    'eulers_to_wigner',
-    'wigner_D',
-    'compute_jacobi_matrices',
+  'CoefficientMapping',
+  'SO3Grid',
+  'init_edge_rot_euler_angles',
+  'eulers_to_wigner',
+  'wigner_D',
+  'compute_jacobi_matrices',
 ]

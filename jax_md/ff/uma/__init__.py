@@ -44,12 +44,12 @@ from jax_md.ff.uma.weight_conversion import load_pytorch_checkpoint
 from jax_md.ff.uma.weight_conversion import convert_pytorch_state_dict
 
 __all__ = [
-    'UMABackbone',
-    'UMAConfig',
-    'UMABlock',
-    'MLPEnergyHead',
-    'LinearEnergyHead',
-    'LinearForceHead',
-    'load_pytorch_checkpoint',
-    'convert_pytorch_state_dict',
+  'UMABackbone',
+  'UMAConfig',
+  'UMABlock',
+  'MLPEnergyHead',
+  'LinearEnergyHead',
+  'LinearForceHead',
+  'load_pytorch_checkpoint',
+  'convert_pytorch_state_dict',
 ]
