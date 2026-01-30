@@ -7,7 +7,7 @@ name = "jax-md"
 version = "0.2.27"
 description = "Differentiable, Hardware Accelerated, Molecular Dynamics"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license = "Apache-2.0"
 license-files = ["LICENSE", "LICENSE_SHORT"]
 authors = [
@@ -24,6 +24,7 @@ keywords = [
     "physics",
 ]
 classifiers = [
+    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -107,7 +108,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 80
-target-version = "py311"
+target-version = "py310"
 exclude = [
     "notebooks",
     "examples",
@@ -165,4 +166,4 @@ known-first-party = ["jax_md"]
 src = { include = ["jax_md","tests"] }
 
 [tool.ty.environment]
-python-version = "3.11"
+python-version = "3.10"
