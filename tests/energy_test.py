@@ -32,6 +32,11 @@ from jax_md import quantity
 from jax_md import energy
 from jax_md import partition
 from jax_md.interpolate import spline
+from jax_md.custom_partition import (
+  neighbor_list_multi_image,
+  estimate_max_neighbors_from_box,
+)
+from jax_md.custom_smap import pair_neighbor_list_multi_image
 
 jax.config.parse_flags_with_absl()
 
@@ -1535,6 +1540,129 @@ class EnergyTest(test_util.JAXMDTestCase):
       atol=10,
       rtol=tol,
     )
+
+
+def make_fcc_fractional(n_cells, a, dtype):
+  """Create FCC crystal in fractional coordinates."""
+  basis = onp.array(
+    [[0.0, 0.0, 0.0], [0.5, 0.5, 0.0], [0.5, 0.0, 0.5], [0.0, 0.5, 0.5]]
+  )
+  positions = []
+  for i in range(n_cells):
+    for j in range(n_cells):
+      for k in range(n_cells):
+        for b in basis:
+          positions.append((onp.array([i, j, k]) + b) / n_cells)
+  R = jnp.array(positions, dtype=dtype)
+  box = jnp.eye(3, dtype=dtype) * a * n_cells
+  return R, box
+
+
+class MultiImageNeighborListTest(test_util.JAXMDTestCase):
+  """Tests comparing MIC and Multi-Image neighbor lists."""
+
+  @parameterized.named_parameters(
+    test_util.cases_from_list(
+      {'testcase_name': f'_dtype={dtype.__name__}', 'dtype': dtype}
+      for dtype in POSITION_DTYPE
+    )
+  )
+  def test_mic_mi_agreement_large_box(self, dtype):
+    """When r_cut < L/2, MIC and MI should give identical results."""
+    # Large box: 4x4x4 FCC, r_cut/L < 0.5
+    R, box = make_fcc_fractional(n_cells=4, a=1.55, dtype=dtype)
+    r_cutoff = 2.5
+    self.assertLess(r_cutoff / float(box[0, 0]), 0.5)
+
+    # Perturb positions
+    key = random.PRNGKey(42)
+    R = R + random.normal(key, R.shape, dtype=dtype) * 0.01
+
+    displacement_fn, _ = space.periodic_general(
+      box, fractional_coordinates=True
+    )
+    max_nbrs = estimate_max_neighbors_from_box(box, r_cutoff, n_atoms=len(R))
+
+    # Multi-Image
+    neighbor_fn_mi, energy_fn_mi = energy.lennard_jones_neighbor_list(
+      displacement_fn,
+      box,
+      r_cutoff=r_cutoff,
+      fractional_coordinates=True,
+      neighbor_list_fn=neighbor_list_multi_image,
+      pair_neighbor_list_fn=pair_neighbor_list_multi_image,
+      max_neighbors=max_nbrs,
+      format=partition.Sparse,
+    )
+    nbrs_mi = neighbor_fn_mi.allocate(R)
+    E_mi = energy_fn_mi(R, nbrs_mi)
+    F_mi = quantity.force(energy_fn_mi)(R, neighbor=nbrs_mi)
+    S_mi = quantity.stress(energy_fn_mi, R, box, neighbor=nbrs_mi)
+
+    # MIC
+    neighbor_fn_mic, energy_fn_mic = energy.lennard_jones_neighbor_list(
+      displacement_fn,
+      box,
+      r_cutoff=r_cutoff,
+      fractional_coordinates=True,
+      format=partition.Sparse,
+    )
+    nbrs_mic = neighbor_fn_mic.allocate(R)
+    E_mic = energy_fn_mic(R, nbrs_mic)
+    F_mic = quantity.force(energy_fn_mic)(R, neighbor=nbrs_mic)
+    S_mic = quantity.stress(energy_fn_mic, R, box, neighbor=nbrs_mic)
+
+    # Looser tolerance for float32 due to different compute paths
+    tol = 1e-4 if dtype == f32 else 1e-10
+    self.assertAllClose(E_mi, E_mic, rtol=tol, atol=tol)
+    self.assertAllClose(F_mi, F_mic, rtol=tol, atol=tol)
+    self.assertAllClose(S_mi, S_mic, rtol=tol, atol=tol)
+
+  @parameterized.named_parameters(
+    test_util.cases_from_list(
+      {'testcase_name': f'_dtype={dtype.__name__}', 'dtype': dtype}
+      for dtype in POSITION_DTYPE
+    )
+  )
+  def test_mic_mi_difference_small_box(self, dtype):
+    """When r_cut > L/2, MIC misses interactions that MI captures."""
+    # Small box: 2x2x2 FCC, r_cut/L > 0.5
+    R, box = make_fcc_fractional(n_cells=2, a=1.55, dtype=dtype)
+    r_cutoff = 2.5
+    self.assertGreater(r_cutoff / float(box[0, 0]), 0.5)
+
+    displacement_fn, _ = space.periodic_general(
+      box, fractional_coordinates=True
+    )
+    max_nbrs = estimate_max_neighbors_from_box(box, r_cutoff, n_atoms=len(R))
+
+    # Multi-Image
+    neighbor_fn_mi, energy_fn_mi = energy.lennard_jones_neighbor_list(
+      displacement_fn,
+      box,
+      r_cutoff=r_cutoff,
+      fractional_coordinates=True,
+      neighbor_list_fn=neighbor_list_multi_image,
+      pair_neighbor_list_fn=pair_neighbor_list_multi_image,
+      max_neighbors=max_nbrs,
+      format=partition.Sparse,
+    )
+    nbrs_mi = neighbor_fn_mi.allocate(R)
+    E_mi = float(energy_fn_mi(R, nbrs_mi))
+
+    # MIC
+    neighbor_fn_mic, energy_fn_mic = energy.lennard_jones_neighbor_list(
+      displacement_fn,
+      box,
+      r_cutoff=r_cutoff,
+      fractional_coordinates=True,
+      format=partition.Sparse,
+    )
+    nbrs_mic = neighbor_fn_mic.allocate(R)
+    E_mic = float(energy_fn_mic(R, nbrs_mic))
+
+    # MI captures more interactions
+    self.assertLess(E_mi, E_mic)
 
 
 if __name__ == '__main__':

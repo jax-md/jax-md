@@ -153,6 +153,17 @@ def transform(box: Box, R: Array) -> Array:
 
 @transform.defjvp
 def transform_jvp(primals, tangents):
+  """Custom JVP for transform that preserves gradient coordinate system.
+
+  This JVP causes gradients to flow through unchanged (dR passes through
+  without being multiplied by box). As a result:
+
+  - Forward: R_real = transform(box, R) = R @ box.T
+  - Backward: dE/dR = dE/dR_real (real-space gradient, not dE/dR_real @ box.T)
+
+  This means jax.grad(energy)(R_frac) returns real-space forces in energy/distance,
+  even when R_frac is in fractional coordinates.
+  """
   box, R = primals
   dbox, dR = tangents
   return (transform(box, R), dR + transform(dbox, R))
