@@ -22,6 +22,7 @@ from jax import vmap, jit
 import jax.numpy as jnp
 
 from jax_md import space, dataclasses, quantity, partition, smap, util
+import haiku as hk
 
 from collections import namedtuple
 from functools import partial, reduce
@@ -88,7 +89,7 @@ def _cutoff_fn(dr: Array, cutoff_distance: float = 8.0) -> Array:
 
 def radial_symmetry_functions(
   displacement_or_metric: DisplacementOrMetricFn,
-  species: Array | None,
+  species: Optional[Array],
   etas: Array,
   cutoff_distance: float,
 ) -> Callable[[Array], Array]:
@@ -443,10 +444,10 @@ def angular_symmetry_functions_neighbor_list(
 def symmetry_functions_neighbor_list(
   displacement: DisplacementFn,
   species: Array,
-  radial_etas: Array | None = None,
-  angular_etas: Array | None = None,
-  lambdas: Array | None = None,
-  zetas: Array | None = None,
+  radial_etas: Optional[Array] = None,
+  angular_etas: Optional[Array] = None,
+  lambdas: Optional[Array] = None,
+  zetas: Optional[Array] = None,
   cutoff_distance: float = 8.0,
 ) -> Callable[[Array, NeighborList], Array]:
   if radial_etas is None:
@@ -489,11 +490,11 @@ def symmetry_functions_neighbor_list(
 
 def symmetry_functions(
   displacement: DisplacementFn,
-  species: Array | None = None,
-  radial_etas: Array | None = None,
-  angular_etas: Array | None = None,
-  lambdas: Array | None = None,
-  zetas: Array | None = None,
+  species: Optional[Array] = None,
+  radial_etas: Optional[Array] = None,
+  angular_etas: Optional[Array] = None,
+  lambdas: Optional[Array] = None,
+  zetas: Optional[Array] = None,
   cutoff_distance: float = 8.0,
 ) -> Callable[[Array], Array]:
   if radial_etas is None:

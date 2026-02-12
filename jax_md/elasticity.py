@@ -415,8 +415,8 @@ def tensor_to_mandel(T: Array) -> Array:
     extract = lambda idx, w: T[idx[0], idx[1]] * w
     M = vmap(extract, in_axes=(0, 0))(m_map, weight)
   else:
-    extract = lambda idx0, idx1, w0, w1: (
-      T[idx0[0], idx0[1], idx1[0], idx1[1]] * w0 * w1
+    extract = (
+      lambda idx0, idx1, w0, w1: T[idx0[0], idx0[1], idx1[0], idx1[1]] * w0 * w1
     )
     M = vmap(
       vmap(extract, in_axes=(0, None, 0, None)), in_axes=(None, 0, None, 0)

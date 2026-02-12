@@ -58,7 +58,7 @@ def dataclass(
 
 
 def dataclass(
-  clz: T | None = None, *, frozen: bool = True, **dataclass_kwargs: Any
+  clz: Optional[T] = None, *, frozen: bool = True, **dataclass_kwargs: Any
 ) -> T | Callable[[T], T]:
   """Create a class which can be passed to functional transformations.
 
@@ -103,7 +103,7 @@ def dataclass(
 
 
 def static_field(
-  *, metadata: dict[str, Any] | None = None, **field_kwargs: Any
+  *, metadata: Optional[dict[str, Any]] = None, **field_kwargs: Any
 ) -> _Field[Any]:
   """Create a field that is treated as static (non-pytree) by JAX."""
   combined_metadata = dict(metadata or {})

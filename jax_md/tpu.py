@@ -138,8 +138,8 @@ def to_grid(
   box_size_in_cells: Union[int, Tuple[int, ...]],
   cell_size: float,
   max_interaction_distance: float,
-  topology: Tuple[int, ...] | None = None,
-  aux: PyTree | None = None,
+  topology: Optional[Tuple[int, ...]] = None,
+  aux: Optional[PyTree] = None,
   strategy: str = 'closest',
 ) -> Union[TPUGrid, Tuple[TPUGrid, PyTree]]:
   """Place particles, and optionally auxiliary data, into a TPUGrid.
@@ -233,7 +233,7 @@ def to_grid(
 
 
 def from_grid(
-  grid: TPUGrid, aux: PyTree | None = None
+  grid: TPUGrid, aux: Optional[PyTree] = None
 ) -> Union[Array, Tuple[Array, PyTree]]:
   """Extract positions and, optionally, auxiliary data from a grid."""
   box_size_in_cells = grid.box_size_in_cells
@@ -292,7 +292,7 @@ def random_grid(
   box_size_in_cells: Union[int, Tuple[int, ...]],
   cell_size: float,
   max_interaction_distance: float,
-  topology: Tuple[int, ...] | None = None,
+  topology: Optional[Tuple[int, ...]] = None,
 ) -> TPUGrid:
   """Place particles, and optionally auxiliary data, into a TPUGrid.
 
@@ -599,8 +599,8 @@ def nearest_valid_grid_size(
   target_box_size_in_cells: Union[int, Tuple[int, ...]],
   topology: Union[int, Tuple],
   max_grid_distance: int,
-  factors: Tuple[int, ...] | None = None,
-  dimension: int | None = None,
+  factors: Optional[Tuple[int, ...]] = None,
+  dimension: Optional[int] = None,
 ):
   if factors is None:
     if dimension is None:
@@ -815,7 +815,7 @@ def _positions_to_grid(
   box_size_in_cells: int,
   cell_size: float,
   particle_id: Array,
-  aux: PyTree | None = None,
+  aux: Optional[PyTree] = None,
   strategy: str = 'closest',
 ) -> Array:
   """Place particles in the first `particle_count` grid cells."""
@@ -1389,8 +1389,8 @@ def _order_grid_by_factors(num_dims: int) -> Tuple[int, ...]:
 def _fold_grid(
   cell_data: Array,
   max_grid_distance: int,
-  batch_size: int | None = None,
-  factors: Tuple[int, ...] | None = None,
+  batch_size: Optional[int] = None,
+  factors: Optional[Tuple[int, ...]] = None,
   inner_fold: bool = True,
 ) -> Array:
   """Takes data from a contiguous grid and folds it into patches.

@@ -19,7 +19,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Install uv
-      uses: astral-sh/setup-uv@v5
+      uses: astral-sh/setup-uv@v4
     - name: Set up Python
       run: uv python install 3.12
     - name: Create virtual environment
@@ -38,7 +38,7 @@ jobs:
     strategy:
       matrix:
         python-version: ['3.10', '3.11', '3.12', '3.13']
-        test-suite: ['elasticity', 'rigid_body', 'energy', 'simulate', 'nequip', 'reaxff', 'tpu', 'uma', 'core']
+        test-suite: ['elasticity', 'rigid_body', 'energy', 'simulate', 'nequip', 'reaxff', 'tpu', 'core']
     steps:
     - name: Cancel previous
       uses: styfle/cancel-workflow-action@0.11.0
@@ -49,7 +49,7 @@ jobs:
         sudo apt-get -y install pandoc
     - uses: actions/checkout@v3
     - name: Install uv
-      uses: astral-sh/setup-uv@v5
+      uses: astral-sh/setup-uv@v4
     - name: Set up Python ${{ matrix.python-version }}
       run: uv python install ${{ matrix.python-version }}
     - name: Create virtual environment
@@ -57,27 +57,13 @@ jobs:
     - name: Install dependencies
       run: |
         uv pip install .
+        uv pip install .[testing]
         uv pip install pytest pytest-cov netCDF4 ase
-        # Install torch + fairchem for UMA tests (PT comparison + pretrained)
-        if [ "${{ matrix.test-suite }}" == "uma" ]; then
-          uv pip install torch --index-url https://download.pytorch.org/whl/cpu
-          uv pip install fairchem-core --no-deps
-          uv pip install huggingface-hub
-        fi
     - name: Set Swap Space
       uses: pierotofy/set-swap-space@master
       with:
        swap-size-gb: 12
-    - name: Cache UMA pretrained checkpoints
-      if: matrix.test-suite == 'uma'
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/fairchem
-        key: uma-checkpoints-v1
     - name: Test with pytest and generate coverage report
-      env:
-        # Used by huggingface_hub to download gated UMA checkpoints.
-        HF_TOKEN: ${{ secrets.HF_TOKEN }}
       run: |
         if [ "${{ matrix.test-suite }}" == "core" ]; then
           JAX_ENABLE_X64=1 uv run pytest tests --cov=jax_md --cov-report=xml --cov-report=term \
@@ -87,16 +73,7 @@ jobs:
             --ignore=tests/simulate_test.py \
             --ignore=tests/nequip_test.py \
             --ignore=tests/reaxff_test.py \
-            --ignore=tests/tpu_test.py \
-            --ignore=tests/uma_test.py \
-            --ignore=tests/uma_pretrained_test.py \
-            --ignore=tests/uma_e2e_test.py
-        elif [ "${{ matrix.test-suite }}" == "uma" ]; then
-          JAX_ENABLE_X64=1 uv run pytest \
-            tests/uma_test.py \
-            tests/uma_pretrained_test.py \
-            tests/uma_e2e_test.py \
-            --cov=jax_md --cov-report=xml --cov-report=term
+            --ignore=tests/tpu_test.py
         else
           JAX_ENABLE_X64=1 uv run pytest tests/${{ matrix.test-suite }}_test.py --cov=jax_md --cov-report=xml --cov-report=term
         fi

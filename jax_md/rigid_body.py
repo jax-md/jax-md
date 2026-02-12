@@ -749,7 +749,7 @@ class RigidPointUnion:
   masses: Array
   point_count: Array
   point_offset: Array
-  point_species: Array | None = None
+  point_species: Optional[Array] = None
   point_radius: float = dataclasses.field(default_factory=lambda: f32(0.5))
 
   def dimension(self) -> int:
@@ -797,7 +797,7 @@ class RigidPointUnion:
         'Rigid bodies are only defined in two- and three-dimensions.'
       )
 
-  def mass(self, shape_species: Array | None = None) -> RigidBody:
+  def mass(self, shape_species: Optional[Array] = None) -> RigidBody:
     """Get a RigidBody with the mass and moment of inertia for each shape.
 
     Arguments:
@@ -948,9 +948,9 @@ def transform(body: RigidBody, shape: RigidPointUnion) -> Array:
 def union_to_points(
   body: RigidBody,
   shape: RigidPointUnion,
-  shape_species: onp.ndarray | None = None,
+  shape_species: Optional[onp.ndarray] = None,
   **kwargs,
-) -> Tuple[Array, Array | None]:
+) -> Tuple[Array, Optional[Array]]:
   """Transforms points in a RigidPointUnion to world space."""
   if shape_species is None:
     position = vmap(transform, (0, None))(body, shape)
@@ -1003,7 +1003,7 @@ def union_to_points(
 def point_energy(
   energy_fn: Callable[..., Array],
   shape: RigidPointUnion,
-  shape_species: onp.ndarray | None = None,
+  shape_species: Optional[onp.ndarray] = None,
 ) -> Callable[..., Array]:
   """Produces a RigidBody energy given a pointwise energy and a point union.
 
@@ -1038,7 +1038,7 @@ def point_energy_neighbor_list(
   energy_fn: Callable[..., Array],
   neighbor_fn: NeighborListFns,
   shape: RigidPointUnion,
-  shape_species: onp.ndarray | None = None,
+  shape_species: Optional[onp.ndarray] = None,
 ) -> Tuple[NeighborListFns, Callable[..., Array]]:
   """Produces a RigidBody energy given a pointwise energy and a point union.
 

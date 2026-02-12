@@ -13,7 +13,7 @@ def create_topology(
   angles: Array,
   torsions: Array,
   impropers: Array,
-  molecule_id: Array | None = None,
+  molecule_id: Optional[Array] = None,
 ) -> Topology:
   """Create OPLSAA topology with automatically computed masks.
 

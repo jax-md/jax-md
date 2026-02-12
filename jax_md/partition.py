@@ -317,8 +317,9 @@ def cell_list(
 
   def cell_list_fn(
     position: Array,
-    capacity_overflow_update: Tuple[int, bool, Callable[..., CellList]]
-    | None = None,
+    capacity_overflow_update: Optional[
+      Tuple[int, bool, Callable[..., CellList]]
+    ] = None,
     extra_capacity: int = 0,
     **kwargs,
   ) -> CellList:
@@ -537,8 +538,8 @@ def _displacement_or_metric_to_metric_sq(
       R = ShapedArray((dim,), f32)
       dR_or_dr = eval_shape(displacement_or_metric, R, R, t=0)
       if len(dR_or_dr.shape) == 0:
-        return lambda Ra, Rb, **kwargs: (
-          displacement_or_metric(Ra, Rb, **kwargs) ** 2
+        return (
+          lambda Ra, Rb, **kwargs: displacement_or_metric(Ra, Rb, **kwargs) ** 2
         )
       else:
         return lambda Ra, Rb, **kwargs: space.square_distance(
@@ -676,11 +677,11 @@ class NeighborList:
   idx: Array
   reference_position: Array
   error: PartitionError
-  cell_list_capacity: int | None = dataclasses.static_field()
+  cell_list_capacity: Optional[int] = dataclasses.static_field()
   max_occupancy: int = dataclasses.static_field()
 
   format: NeighborListFormat = dataclasses.static_field()
-  cell_size: float | None = dataclasses.static_field()
+  cell_size: Optional[float] = dataclasses.static_field()
   cell_list_fn: Callable[[Array, CellList], CellList] = (
     dataclasses.static_field()
   )
@@ -725,7 +726,7 @@ class NeighborListFns:
   def __call__(
     self,
     position: Array,
-    neighbors: NeighborList | None = None,
+    neighbors: Optional[NeighborList] = None,
     extra_capacity: int = 0,
     **kwargs,
   ) -> NeighborList:
@@ -754,7 +755,9 @@ class NeighborListFns:
     return iter((self.allocate, self.update))
 
 
-NeighborFn = Callable[[Array, NeighborList | None, int | None], NeighborList]
+NeighborFn = Callable[
+  [Array, Optional[NeighborList], Optional[int]], NeighborList
+]
 
 
 def neighbor_list(
@@ -765,7 +768,7 @@ def neighbor_list(
   capacity_multiplier: float = 1.25,
   disable_cell_list: bool = False,
   mask_self: bool = True,
-  custom_mask_function: MaskFn | None = None,
+  custom_mask_function: Optional[MaskFn] = None,
   fractional_coordinates: bool = False,
   format: NeighborListFormat = NeighborListFormat.Dense,
   **static_kwargs,
@@ -1087,10 +1090,10 @@ def neighbor_list_mask(
 
 def to_jraph(
   neighbor: NeighborList,
-  mask: Array | None = None,
-  nodes: PyTree | None = None,
-  edges: PyTree | None = None,
-  globals: PyTree | None = None,
+  mask: Optional[Array] = None,
+  nodes: Optional[PyTree] = None,
+  edges: Optional[PyTree] = None,
+  globals: Optional[PyTree] = None,
 ) -> jraph.GraphsTuple:
   """Convert a sparse neighbor list to a `jraph.GraphsTuple`.
 

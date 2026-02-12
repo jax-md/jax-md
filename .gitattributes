@@ -1,1 +1,0 @@
-jax_md/_nn/uma/checkpoints/*.npz filter=lfs diff=lfs merge=lfs -text

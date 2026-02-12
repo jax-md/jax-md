@@ -148,8 +148,8 @@ def _kwargs_to_bond_parameters(
 def bond(
   fn: Callable[..., Array],
   displacement_or_metric: DisplacementOrMetricFn,
-  static_bonds: Array | None = None,
-  static_bond_types: Array | None = None,
+  static_bonds: Optional[Array] = None,
+  static_bond_types: Optional[Array] = None,
   ignore_unused_parameters: bool = False,
   **kwargs,
 ) -> Callable[..., Array]:
@@ -221,8 +221,8 @@ def bond(
 
   def mapped_fn(
     R: Array,
-    bonds: Array | None = None,
-    bond_types: Array | None = None,
+    bonds: Optional[Array] = None,
+    bond_types: Optional[Array] = None,
     **dynamic_kwargs,
   ) -> Array:
     accum = f32(0)
@@ -384,8 +384,8 @@ def _split_params_and_combinators(kwargs):
 def pair(
   fn: Callable[..., Array],
   displacement_or_metric: DisplacementOrMetricFn,
-  species: Array | None = None,
-  reduce_axis: Tuple[int, ...] | None = None,
+  species: Optional[Array] = None,
+  reduce_axis: Optional[Tuple[int, ...]] = None,
   keepdims: bool = False,
   ignore_unused_parameters: bool = False,
   **kwargs,
@@ -682,8 +682,8 @@ def _vectorized_cond(
 def pair_neighbor_list(
   fn: Callable[..., Array],
   displacement_or_metric: DisplacementOrMetricFn,
-  species: Array | None = None,
-  reduce_axis: Tuple[int, ...] | None = None,
+  species: Optional[Array] = None,
+  reduce_axis: Optional[Tuple[int, ...]] = None,
   ignore_unused_parameters: bool = False,
   **kwargs,
 ) -> Callable[..., Array]:
@@ -804,8 +804,8 @@ def pair_neighbor_list(
 def triplet(
   fn: Callable[..., Array],
   displacement_or_metric: DisplacementOrMetricFn,
-  species: Array | None = None,
-  reduce_axis: Tuple[int, ...] | None = None,
+  species: Optional[Array] = None,
+  reduce_axis: Optional[Tuple[int, ...]] = None,
   keepdims: bool = False,
   ignore_unused_parameters: bool = False,
   **kwargs,

@@ -26,7 +26,6 @@ import numpy as onp
 from jax import jit, grad
 from jax_md import space, quantity, nn, dataclasses, partition
 from jax_md.nn import behler_parrinello as bp
-from jax_md._nn.util import convert_checkpoint_to_params
 
 from jax_md.util import f32, f64
 from jax_md import test_util
@@ -408,113 +407,6 @@ class NeuralNetworkTest(test_util.JAXMDTestCase):
     b = dataclasses.asdict(b)
 
     self.assertAllClose(a, b)
-
-
-class ConvertCheckpointTest(absltest.TestCase):
-  def _make_checkpoint_and_template(self):
-    checkpoint = {
-      'Energy/~/GraphNetEncoder/~/linear': {
-        'w': onp.ones((3, 4), dtype=onp.float32),
-        'b': onp.zeros((4,), dtype=onp.float32),
-      },
-      'Energy/~/GraphNetEncoder/~/linear_1': {
-        'w': onp.full((4, 2), 0.5, dtype=onp.float32),
-        'b': onp.ones((2,), dtype=onp.float32),
-      },
-    }
-    template = {
-      'GraphNetEncoder': {
-        'layers_0': {
-          'kernel': onp.empty((3, 4), dtype=onp.float32),
-          'bias': onp.empty((4,), dtype=onp.float32),
-        },
-        'layers_1': {
-          'kernel': onp.empty((4, 2), dtype=onp.float32),
-          'bias': onp.empty((2,), dtype=onp.float32),
-        },
-      },
-    }
-    return checkpoint, template
-
-  def test_basic_conversion(self):
-    checkpoint, template = self._make_checkpoint_and_template()
-    result = convert_checkpoint_to_params(checkpoint, template)
-
-    onp.testing.assert_array_equal(
-      result['GraphNetEncoder']['layers_0']['kernel'], onp.ones((3, 4))
-    )
-    onp.testing.assert_array_equal(
-      result['GraphNetEncoder']['layers_0']['bias'], onp.zeros((4,))
-    )
-    onp.testing.assert_array_equal(
-      result['GraphNetEncoder']['layers_1']['kernel'], onp.full((4, 2), 0.5)
-    )
-    onp.testing.assert_array_equal(
-      result['GraphNetEncoder']['layers_1']['bias'], onp.ones((2,))
-    )
-
-  def test_dtype_preservation(self):
-    checkpoint = {
-      'Energy/~/mod': {
-        'w': onp.ones((2, 3), dtype=onp.float64),
-        'b': onp.zeros((3,), dtype=onp.float64),
-      },
-    }
-    template = {
-      'mod': {
-        'kernel': onp.empty((2, 3), dtype=onp.float32),
-        'bias': onp.empty((3,), dtype=onp.float32),
-      },
-    }
-    result = convert_checkpoint_to_params(checkpoint, template)
-    self.assertEqual(result['mod']['kernel'].dtype, onp.float32)
-    self.assertEqual(result['mod']['bias'].dtype, onp.float32)
-
-  def test_missing_key_raises(self):
-    checkpoint = {
-      'Energy/~/mod': {'w': onp.ones((2, 3))},
-    }
-    template = {
-      'mod': {
-        'kernel': onp.empty((2, 3)),
-        'bias': onp.empty((3,)),
-      },
-    }
-    with self.assertRaises(ValueError):
-      convert_checkpoint_to_params(checkpoint, template)
-
-  def test_extra_key_raises(self):
-    checkpoint = {
-      'Energy/~/mod': {
-        'w': onp.ones((2, 3)),
-        'b': onp.zeros((3,)),
-        'extra': onp.zeros((1,)),
-      },
-    }
-    template = {
-      'mod': {
-        'kernel': onp.empty((2, 3)),
-        'bias': onp.empty((3,)),
-      },
-    }
-    with self.assertRaises(ValueError):
-      convert_checkpoint_to_params(checkpoint, template)
-
-  def test_shape_mismatch_raises(self):
-    checkpoint = {
-      'Energy/~/mod': {
-        'w': onp.ones((2, 5)),
-        'b': onp.zeros((3,)),
-      },
-    }
-    template = {
-      'mod': {
-        'kernel': onp.empty((2, 3)),
-        'bias': onp.empty((3,)),
-      },
-    }
-    with self.assertRaises(ValueError):
-      convert_checkpoint_to_params(checkpoint, template)
 
 
 if __name__ == '__main__':

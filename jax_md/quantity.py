@@ -240,7 +240,7 @@ def stress(
   position: Array,
   box: Box,
   mass: Array = 1.0,
-  velocity: Array | None = None,
+  velocity: Optional[Array] = None,
   **kwargs,
 ) -> Array:
   """Computes the internal stress of a system.

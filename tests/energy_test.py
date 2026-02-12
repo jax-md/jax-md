@@ -30,11 +30,11 @@ from jax_md import test_util
 from jax_md import quantity
 
 from jax_md import energy
-from jax_md import nn
 from jax_md import partition
 from jax_md.interpolate import spline
 from jax_md.custom_partition import (
   neighbor_list_multi_image,
+  estimate_max_neighbors_from_box,
 )
 from jax_md.custom_smap import pair_neighbor_list_multi_image
 
@@ -792,9 +792,11 @@ class EnergyTest(test_util.JAXMDTestCase):
     species = jnp.array([1, 1, N_types]) if N_types > 1 else None
     box_size = f32(1.5)
     displacement, _ = space.periodic(box_size)
-    model = energy.behler_parrinello(displacement, key=key, species=species)
-    nn_energy = jit(model)(R)
-    nn_force = jit(grad(model))(R)
+    nn_init, nn_apply = energy.behler_parrinello(displacement, species)
+    params = nn_init(key, R)
+    nn_force_fn = grad(nn_apply, argnums=1)
+    nn_force = jit(nn_force_fn)(params, R)
+    nn_energy = jit(nn_apply)(params, R)
     self.assertAllClose(jnp.any(jnp.isnan(nn_energy)), False)
     self.assertAllClose(jnp.any(jnp.isnan(nn_force)), False)
     self.assertAllClose(nn_force.shape, [3, 3])
@@ -824,13 +826,15 @@ class EnergyTest(test_util.JAXMDTestCase):
     species = jnp.array([1, 1, N_types]) if N_types > 1 else None
     box_size = f32(1.5)
     displacement, _ = space.periodic(box_size)
-    neighbor_fn, model = energy.behler_parrinello_neighbor_list(
-      displacement, box_size, key=key, species=species, format=format
+    neighbor_fn, nn_init, nn_apply = energy.behler_parrinello_neighbor_list(
+      displacement, box_size, species, format=format
     )
 
     nbrs = neighbor_fn.allocate(R)
-    nn_energy = jit(model)(R, nbrs)
-    nn_force = jit(grad(model))(R, nbrs)
+    params = nn_init(key, R, nbrs)
+    nn_force_fn = grad(nn_apply, argnums=1)
+    nn_force = jit(nn_force_fn)(params, R, nbrs)
+    nn_energy = jit(nn_apply)(params, R, nbrs)
     self.assertAllClose(jnp.any(jnp.isnan(nn_energy)), False)
     self.assertAllClose(jnp.any(jnp.isnan(nn_force)), False)
     self.assertAllClose(nn_force.shape, [3, 3])
@@ -1159,10 +1163,10 @@ class EnergyTest(test_util.JAXMDTestCase):
 
     cutoff = 0.2
 
-    model = energy.graph_network(
-      d, cutoff, key=key, spatial_dimension=spatial_dimension
-    )
-    E_out = model(R)
+    init_fn, energy_fn = energy.graph_network(d, cutoff)
+    params = init_fn(key, R)
+
+    E_out = energy_fn(params, R)
 
     assert E_out.shape == ()
     assert E_out.dtype == dtype
@@ -1192,27 +1196,23 @@ class EnergyTest(test_util.JAXMDTestCase):
 
     cutoff = 0.2
 
-    model = energy.graph_network(
-      d, cutoff, key=key, spatial_dimension=spatial_dimension
-    )
-    E_dense = model(R)
+    init_fn, energy_fn = energy.graph_network(d, cutoff)
+    params = init_fn(key, R)
 
-    neighbor_fn, nl_model = energy.graph_network_neighbor_list(
-      d,
-      1.0,
-      cutoff,
-      0.0,
-      key=key,
-      format=format,
-      spatial_dimension=spatial_dimension,
+    neighbor_fn, _, nl_energy_fn = energy.graph_network_neighbor_list(
+      d, 1.0, cutoff, 0.0, format=format
     )
 
     nbrs = neighbor_fn.allocate(R)
-    E_nl = nl_model(R, nbrs)
     if format is partition.Dense:
-      self.assertAllClose(E_dense, E_nl)
+      self.assertAllClose(energy_fn(params, R), nl_energy_fn(params, R, nbrs))
     else:
-      self.assertAllClose(E_dense, E_nl, rtol=2e-4, atol=2e-4)
+      self.assertAllClose(
+        energy_fn(params, R),
+        nl_energy_fn(params, R, nbrs),
+        rtol=2e-4,
+        atol=2e-4,
+      )
 
   @parameterized.named_parameters(
     test_util.cases_from_list(
@@ -1242,18 +1242,11 @@ class EnergyTest(test_util.JAXMDTestCase):
     cutoff = 0.3
     dr_threshold = 0.1
 
-    model = energy.graph_network(
-      d, cutoff, key=key, spatial_dimension=spatial_dimension
-    )
+    init_fn, energy_fn = energy.graph_network(d, cutoff)
+    params = init_fn(key, R)
 
-    neighbor_fn, nl_model = energy.graph_network_neighbor_list(
-      d,
-      1.0,
-      cutoff,
-      dr_threshold,
-      key=key,
-      format=format,
-      spatial_dimension=spatial_dimension,
+    neighbor_fn, _, nl_energy_fn = energy.graph_network_neighbor_list(
+      d, 1.0, cutoff, dr_threshold, format=format
     )
 
     nbrs = neighbor_fn.allocate(R)
@@ -1261,12 +1254,15 @@ class EnergyTest(test_util.JAXMDTestCase):
     R = R + random.uniform(
       key, (32, spatial_dimension), minval=-0.05, maxval=0.05, dtype=dtype
     )
-    E_dense = model(R)
-    E_nl = nl_model(R, nbrs)
     if format is partition.Dense:
-      self.assertAllClose(E_dense, E_nl)
+      self.assertAllClose(energy_fn(params, R), nl_energy_fn(params, R, nbrs))
     else:
-      self.assertAllClose(E_dense, E_nl, rtol=4e-4, atol=2e-4)
+      self.assertAllClose(
+        energy_fn(params, R),
+        nl_energy_fn(params, R, nbrs),
+        rtol=4e-4,
+        atol=2e-4,
+      )
 
   @parameterized.named_parameters(
     test_util.cases_from_list(
@@ -1282,8 +1278,7 @@ class EnergyTest(test_util.JAXMDTestCase):
   def test_graph_network_learning(self, spatial_dimension, dtype):
     key = random.PRNGKey(0)
 
-    R_key, dr0_key = random.split(key)
-    params_key = random.PRNGKey(42)
+    R_key, dr0_key, params_key = random.split(key, 3)
 
     d, _ = space.free()
 
@@ -1295,39 +1290,35 @@ class EnergyTest(test_util.JAXMDTestCase):
       )
     )
 
-    from flax import nnx
-
     cutoff = 0.2
 
-    energy_fn = energy.graph_network(
-      d, cutoff, key=params_key, spatial_dimension=spatial_dimension
-    )
-    graphdef, state = nnx.split(energy_fn.model)
-
-    def apply(state, *args, **kwargs):
-      out, _ = graphdef.apply(state)(*args, **kwargs)
-      return out
+    init_fn, energy_fn = energy.graph_network(d, cutoff)
+    params = init_fn(params_key, R[0])
 
     @jit
-    def loss(state, R):
-      return jnp.mean((vmap(apply, (None, 0))(state, R) - E_gt(R, dr0)) ** 2)
+    def loss(params, R):
+      return jnp.mean(
+        (vmap(energy_fn, (None, 0))(params, R) - E_gt(R, dr0)) ** 2
+      )
 
+    # For some reason, importing optax at the top level causes flags to clash with
+    # `jax_md.test_util`.
     import optax
 
     opt = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(1e-4))
 
     @jit
-    def update(state, opt_state, R):
-      updates, opt_state = opt.update(grad(loss)(state, R), opt_state)
-      return optax.apply_updates(state, updates), opt_state
+    def update(params, opt_state, R):
+      updates, opt_state = opt.update(grad(loss)(params, R), opt_state)
+      return optax.apply_updates(params, updates), opt_state
 
-    opt_state = opt.init(state)
+    opt_state = opt.init(params)
 
-    l0 = loss(state, R)
+    l0 = loss(params, R)
     for i in range(4):
-      state, opt_state = update(state, opt_state, R)
+      params, opt_state = update(params, opt_state, R)
 
-    assert loss(state, R) < l0 * 0.95
+    assert loss(params, R) < l0 * 0.95
 
   @parameterized.named_parameters(
     test_util.cases_from_list(
@@ -1551,7 +1542,20 @@ class EnergyTest(test_util.JAXMDTestCase):
     )
 
 
-make_fcc_fractional = test_util.make_fcc_fractional
+def make_fcc_fractional(n_cells, a, dtype):
+  """Create FCC crystal in fractional coordinates."""
+  basis = onp.array(
+    [[0.0, 0.0, 0.0], [0.5, 0.5, 0.0], [0.5, 0.0, 0.5], [0.0, 0.5, 0.5]]
+  )
+  positions = []
+  for i in range(n_cells):
+    for j in range(n_cells):
+      for k in range(n_cells):
+        for b in basis:
+          positions.append((onp.array([i, j, k]) + b) / n_cells)
+  R = jnp.array(positions, dtype=dtype)
+  box = jnp.eye(3, dtype=dtype) * a * n_cells
+  return R, box
 
 
 class MultiImageNeighborListTest(test_util.JAXMDTestCase):
@@ -1577,6 +1581,8 @@ class MultiImageNeighborListTest(test_util.JAXMDTestCase):
     displacement_fn, _ = space.periodic_general(
       box, fractional_coordinates=True
     )
+    max_nbrs = estimate_max_neighbors_from_box(box, r_cutoff, n_atoms=len(R))
+
     # Multi-Image
     neighbor_fn_mi, energy_fn_mi = energy.lennard_jones_neighbor_list(
       displacement_fn,
@@ -1585,6 +1591,7 @@ class MultiImageNeighborListTest(test_util.JAXMDTestCase):
       fractional_coordinates=True,
       neighbor_list_fn=neighbor_list_multi_image,
       pair_neighbor_list_fn=pair_neighbor_list_multi_image,
+      max_neighbors=max_nbrs,
       format=partition.Sparse,
     )
     nbrs_mi = neighbor_fn_mi.allocate(R)
@@ -1627,6 +1634,8 @@ class MultiImageNeighborListTest(test_util.JAXMDTestCase):
     displacement_fn, _ = space.periodic_general(
       box, fractional_coordinates=True
     )
+    max_nbrs = estimate_max_neighbors_from_box(box, r_cutoff, n_atoms=len(R))
+
     # Multi-Image
     neighbor_fn_mi, energy_fn_mi = energy.lennard_jones_neighbor_list(
       displacement_fn,
@@ -1635,6 +1644,7 @@ class MultiImageNeighborListTest(test_util.JAXMDTestCase):
       fractional_coordinates=True,
       neighbor_list_fn=neighbor_list_multi_image,
       pair_neighbor_list_fn=pair_neighbor_list_multi_image,
+      max_neighbors=max_nbrs,
       format=partition.Sparse,
     )
     nbrs_mi = neighbor_fn_mi.allocate(R)

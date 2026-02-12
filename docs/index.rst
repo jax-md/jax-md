@@ -29,6 +29,7 @@ particular problem.
    jax_md.rigid_body
    jax_md.smap
    jax_md.custom_smap
+   jax_md.io
    jax_md.interpolate
    jax_md.dataclasses
    jax_md.reaxff

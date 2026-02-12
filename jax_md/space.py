@@ -242,7 +242,7 @@ def free() -> Space:
   """Free boundary conditions."""
 
   def displacement_fn(
-    Ra: Array, Rb: Array, perturbation: Array | None = None, **unused_kwargs
+    Ra: Array, Rb: Array, perturbation: Optional[Array] = None, **unused_kwargs
   ) -> Array:
     dR = pairwise_displacement(Ra, Rb)
     if perturbation is not None:
@@ -268,7 +268,7 @@ def periodic(side: Box, wrapped: bool = True) -> Space:
   """
 
   def displacement_fn(
-    Ra: Array, Rb: Array, perturbation: Array | None = None, **unused_kwargs
+    Ra: Array, Rb: Array, perturbation: Optional[Array] = None, **unused_kwargs
   ) -> Array:
     if 'box' in unused_kwargs:
       raise UnexpectedBoxException(

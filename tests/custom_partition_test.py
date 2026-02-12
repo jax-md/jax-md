@@ -74,10 +74,15 @@ def get_mi_distances(atoms: Atoms, cutoff: float) -> np.ndarray:
   # Use ASE's scaled positions directly (already in [0, 1))
   pos_frac = atoms.get_scaled_positions()
 
+  # Use higher safety factor for skewed cells
+  max_neighbors = estimate_max_neighbors_from_box(
+    box, cutoff, N, safety_factor=5.0, pbc=pbc
+  )
   neighbor_fn = neighbor_list_multi_image(
     None,
     box,
     cutoff,
+    max_neighbors=max_neighbors,
     format=NeighborListFormat.Sparse,
     pbc=pbc,
   )
@@ -119,10 +124,13 @@ def get_mi_distances_molecule(atoms: Atoms, cutoff: float) -> np.ndarray:
   # Convert to fractional coordinates
   pos_frac = pos_shifted / box_size
 
+  # Use simple estimate for non-periodic
+  max_neighbors = estimate_max_neighbors(cutoff, safety_factor=5.0)
   neighbor_fn = neighbor_list_multi_image(
     None,
     box,
     cutoff,
+    max_neighbors=max_neighbors,
     format=NeighborListFormat.Sparse,
     pbc=np.array([False, False, False]),
   )
@@ -158,8 +166,11 @@ def get_mi_edges(
   pbc = np.array(atoms.pbc)
   pos_frac = atoms.get_scaled_positions()
 
+  max_neighbors = estimate_max_neighbors_from_box(
+    box, cutoff, N, safety_factor=5.0, pbc=pbc
+  )
   neighbor_fn = neighbor_list_multi_image(
-    None, box, cutoff, format=fmt, pbc=pbc
+    None, box, cutoff, max_neighbors=max_neighbors, format=fmt, pbc=pbc
   )
   nbrs = neighbor_fn.allocate(pos_frac)
 
@@ -384,25 +395,27 @@ class CustomPartitionTest(parameterized.TestCase):
   # Buffer Overflow Detection
   # =========================================================================
 
-  def test_auto_sizing_no_overflow(self):
-    """Auto-sizing should prevent overflow during allocation."""
+  def test_buffer_overflow_detection(self):
+    """Neighbor list should detect buffer overflow."""
     atoms = bulk('Cu', 'fcc', a=3.6).repeat((3, 3, 3))
     cutoff = 5.0
+    N = len(atoms)
 
     cell = np.array(atoms.cell.array, dtype=np.float64)
     box = cell.T
     pos_frac = atoms.get_scaled_positions()
 
+    # Use intentionally small max_neighbors to trigger overflow
     neighbor_fn = neighbor_list_multi_image(
       None,
       box,
       cutoff,
+      max_neighbors=2,  # Way too small
       format=NeighborListFormat.Sparse,
     )
     nbrs = neighbor_fn.allocate(pos_frac)
 
-    self.assertFalse(nbrs.did_buffer_overflow)
-    self.assertGreater(nbrs.n_edges, 0)
+    self.assertTrue(nbrs.did_buffer_overflow)
 
   def test_no_buffer_overflow_with_sufficient_capacity(self):
     """Neighbor list should not overflow with sufficient capacity."""
@@ -644,6 +657,7 @@ class CustomPartitionTest(parameterized.TestCase):
       None,
       box,
       cutoff,
+      max_neighbors=50,
       format=NeighborListFormat.Sparse,
       pbc=np.array([False, False, False]),
     )
@@ -674,10 +688,12 @@ class CustomPartitionTest(parameterized.TestCase):
     inv_cell = np.linalg.inv(cell)
     pos_frac = positions @ inv_cell
 
+    max_neighbors = estimate_max_neighbors_from_box(box, cutoff, N)
     neighbor_fn = neighbor_list_multi_image(
       None,
       box,
       cutoff,
+      max_neighbors=max_neighbors,
       format=NeighborListFormat.Sparse,
     )
     nbrs = neighbor_fn.allocate(pos_frac)
@@ -708,7 +724,7 @@ class CustomPartitionTest(parameterized.TestCase):
     pos_frac = atoms.get_scaled_positions()
 
     neighbor_fn = neighbor_list_multi_image(
-      None, box, cutoff, format=NeighborListFormat.Sparse
+      None, box, cutoff, max_neighbors=50, format=NeighborListFormat.Sparse
     )
 
     # Test unpacking
@@ -737,6 +753,7 @@ class CustomPartitionTest(parameterized.TestCase):
       box,
       cutoff,
       dr_threshold=0.5,  # Large threshold
+      max_neighbors=50,
       format=NeighborListFormat.Sparse,
     )
     nbrs = neighbor_fn.allocate(pos_frac)
@@ -767,6 +784,7 @@ class CustomPartitionTest(parameterized.TestCase):
       box,
       cutoff,
       dr_threshold=0.01,  # Small threshold
+      max_neighbors=50,
       format=NeighborListFormat.Sparse,
     )
     nbrs = neighbor_fn.allocate(pos_frac)
@@ -798,6 +816,7 @@ class CustomPartitionTest(parameterized.TestCase):
       None,
       box,
       cutoff,
+      max_neighbors=50,
       format=NeighborListFormat.Sparse,
       fractional_coordinates=True,
     )
@@ -808,6 +827,7 @@ class CustomPartitionTest(parameterized.TestCase):
       None,
       box,
       cutoff,
+      max_neighbors=50,
       format=NeighborListFormat.Sparse,
       fractional_coordinates=False,
     )
@@ -848,7 +868,7 @@ class CustomPartitionTest(parameterized.TestCase):
 
     # Sparse format
     neighbor_fn_sparse = neighbor_list_multi_image(
-      None, box, cutoff, format=NeighborListFormat.Sparse
+      None, box, cutoff, max_neighbors=100, format=NeighborListFormat.Sparse
     )
     nbrs_sparse = neighbor_fn_sparse.allocate(pos_frac)
 
@@ -857,6 +877,7 @@ class CustomPartitionTest(parameterized.TestCase):
       None,
       box,
       cutoff,
+      max_neighbors=100,
       format=NeighborListFormat.OrderedSparse,
     )
     nbrs_ordered = neighbor_fn_ordered.allocate(pos_frac)
@@ -874,10 +895,12 @@ class CustomPartitionTest(parameterized.TestCase):
     positions = np.linspace(0.1, 0.9, N).reshape(-1, 1)  # Fractional
     cutoff = 3.0
 
+    max_neighbors = estimate_max_neighbors(cutoff, dim=1)
     neighbor_fn = neighbor_list_multi_image(
       None,
       box,
       cutoff,
+      max_neighbors=max_neighbors,
       format=NeighborListFormat.Sparse,
     )
     nbrs = neighbor_fn.allocate(positions)
@@ -900,6 +923,7 @@ class CustomPartitionTest(parameterized.TestCase):
       None,
       box,
       cutoff,
+      max_neighbors=20,
       capacity_multiplier=1.0,
       format=NeighborListFormat.Sparse,
     )
@@ -910,6 +934,7 @@ class CustomPartitionTest(parameterized.TestCase):
       None,
       box,
       cutoff,
+      max_neighbors=20,
       capacity_multiplier=2.0,
       format=NeighborListFormat.Sparse,
     )
@@ -928,7 +953,7 @@ class CustomPartitionTest(parameterized.TestCase):
     pos_frac = jnp.array(atoms.get_scaled_positions())
 
     neighbor_fn = neighbor_list_multi_image(
-      None, box, cutoff, format=NeighborListFormat.Sparse
+      None, box, cutoff, max_neighbors=50, format=NeighborListFormat.Sparse
     )
     nbrs = neighbor_fn.allocate(pos_frac)
 
@@ -945,7 +970,7 @@ class CustomPartitionTest(parameterized.TestCase):
     pos_frac = atoms.get_scaled_positions()
 
     neighbor_fn = neighbor_list_multi_image(
-      None, box, cutoff, format=NeighborListFormat.Sparse
+      None, box, cutoff, max_neighbors=50, format=NeighborListFormat.Sparse
     )
     nbrs = neighbor_fn.allocate(pos_frac)
 
@@ -964,7 +989,7 @@ class CustomPartitionTest(parameterized.TestCase):
     pos_frac = atoms.get_scaled_positions()
 
     neighbor_fn = neighbor_list_multi_image(
-      None, box, cutoff, format=NeighborListFormat.Sparse
+      None, box, cutoff, max_neighbors=50, format=NeighborListFormat.Sparse
     )
     nbrs = neighbor_fn.allocate(pos_frac)
 
@@ -991,7 +1016,7 @@ class CustomPartitionTest(parameterized.TestCase):
     pos_frac = jnp.array(atoms.get_scaled_positions())
 
     neighbor_fn = neighbor_list_multi_image(
-      None, box, cutoff, format=NeighborListFormat.Sparse
+      None, box, cutoff, max_neighbors=50, format=NeighborListFormat.Sparse
     )
     nbrs = neighbor_fn.allocate(pos_frac)
 
@@ -1019,7 +1044,7 @@ class CustomPartitionTest(parameterized.TestCase):
     cutoff = 3.0
 
     neighbor_fn = neighbor_list_multi_image(
-      None, box, cutoff, format=NeighborListFormat.Sparse
+      None, box, cutoff, max_neighbors=50, format=NeighborListFormat.Sparse
     )
     nbrs = neighbor_fn.allocate(pos_frac)
 

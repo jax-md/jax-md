@@ -73,7 +73,11 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from jax_md import space, energy, partition, quantity, simulate
-from jax_md.custom_partition import neighbor_list_multi_image
+from jax_md.custom_partition import (
+  neighbor_list_multi_image,
+  estimate_max_neighbors_from_box,
+  estimate_max_neighbors,
+)
 from jax_md.custom_smap import pair_neighbor_list_multi_image
 
 SMOKE_TEST = os.environ.get('READTHEDOCS', False)
@@ -215,6 +219,10 @@ print(f'System: {N} Ar atoms in {n_cells}x{n_cells}x{n_cells} FCC')
 print(f'Box size L = {L:.2f}sigma, r_cutoff = {r_cutoff:.2f}sigma')
 print(f'r_cutoff / L = {r_cutoff / L:.2f} (> 0.5: multi-image needed)')
 
+# Estimate max neighbors for capacity allocation
+max_nbrs = estimate_max_neighbors_from_box(box, r_cutoff, n_atoms=N)
+print(f'Estimated max neighbors: {max_nbrs}')
+
 # Setup displacement function
 displacement_fn, shift_fn = space.periodic_general(
   box, fractional_coordinates=True
@@ -239,6 +247,7 @@ for name, fmt in formats:
     fractional_coordinates=True,
     neighbor_list_fn=neighbor_list_multi_image,
     pair_neighbor_list_fn=pair_neighbor_list_multi_image,
+    max_neighbors=max_nbrs,
     format=fmt,
   )
 
@@ -278,6 +287,7 @@ neighbor_fn_lj, energy_fn_lj = energy.lennard_jones_neighbor_list(
   fractional_coordinates=True,
   neighbor_list_fn=neighbor_list_multi_image,
   pair_neighbor_list_fn=pair_neighbor_list_multi_image,
+  max_neighbors=max_nbrs,
   format=partition.Sparse,
 )
 
@@ -317,6 +327,7 @@ print(f'Pressure: {-jnp.trace(stress) / 3:.6f}')
 # Stillinger-Weber parameters for silicon
 sw_sigma = 2.0951  # Angstrom
 sw_cutoff = 1.8 * sw_sigma  # ~3.77 Angstrom
+r_cutoff_sw = 3.77118
 
 # Create 3x3x3 supercell so that MIC is valid
 # For SW, the box must be large enough that r_cut < L/2
@@ -344,6 +355,7 @@ neighbor_fn_sw, energy_fn_sw = energy.stillinger_weber_neighbor_list(
   displacement_sw,
   box_sw,
   neighbor_list_fn=neighbor_list_multi_image,
+  max_neighbors=estimate_max_neighbors(r_cutoff_sw, atomic_density=0.15, dim=3),
   format=partition.Dense,
   fractional_coordinates=True,
 )
@@ -395,6 +407,8 @@ displacement_md, shift_md = space.periodic_general(
 
 # For random positions, use generous capacity to avoid overflow
 # Random positions can cluster, requiring more capacity than uniform estimates
+max_nbrs_md = 50  # Conservative value for random systems
+print(f'Max neighbors: {max_nbrs_md}')
 
 # Use soft sphere potential with multi-image neighbor list
 neighbor_fn_md, energy_fn_md = energy.soft_sphere_neighbor_list(
@@ -405,6 +419,7 @@ neighbor_fn_md, energy_fn_md = energy.soft_sphere_neighbor_list(
   fractional_coordinates=True,
   neighbor_list_fn=neighbor_list_multi_image,
   pair_neighbor_list_fn=pair_neighbor_list_multi_image,
+  max_neighbors=max_nbrs_md,
   format=partition.Sparse,
 )
 

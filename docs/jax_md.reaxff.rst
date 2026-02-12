@@ -1,7 +1,7 @@
-jax\_md.mm\_forcefields.reaxff package
-=======================================
+jax\_md.reaxff package
+=======================
 
-.. automodule:: jax_md.mm_forcefields.reaxff
+.. automodule:: jax_md.reaxff
    :members:
    :undoc-members:
    :show-inheritance:
@@ -9,34 +9,35 @@ jax\_md.mm\_forcefields.reaxff package
 Submodules
 ----------
 
-jax\_md.mm\_forcefields.reaxff.reaxff\_energy module
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+jax\_md.reaxff.reaxff\_energy module
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-.. automodule:: jax_md.mm_forcefields.reaxff.reaxff_energy
+.. automodule:: jax_md.reaxff.reaxff_energy
    :members:
    :undoc-members:
    :show-inheritance:
 
-jax\_md.mm\_forcefields.reaxff.reaxff\_forcefield module
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+jax\_md.reaxff.reaxff\_forcefield module
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-.. automodule:: jax_md.mm_forcefields.reaxff.reaxff_forcefield
+.. automodule:: jax_md.reaxff.reaxff_forcefield
    :members:
    :undoc-members:
    :show-inheritance:
 
-jax\_md.mm\_forcefields.reaxff.reaxff\_helper module
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+jax\_md.reaxff.reaxff\_helper module
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-.. automodule:: jax_md.mm_forcefields.reaxff.reaxff_helper
+.. automodule:: jax_md.reaxff.reaxff_helper
    :members:
    :undoc-members:
    :show-inheritance:
 
-jax\_md.mm\_forcefields.reaxff.reaxff\_interactions module
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+jax\_md.reaxff.reaxff\_interactions module
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-.. automodule:: jax_md.mm_forcefields.reaxff.reaxff_interactions
+.. automodule:: jax_md.reaxff.reaxff_interactions
    :members:
    :undoc-members:
    :show-inheritance:
+

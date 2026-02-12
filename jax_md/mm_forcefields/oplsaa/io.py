@@ -21,7 +21,7 @@ def load_charmm_system(
   pdb_file: str,
   prm_file: str,
   rtf_file: str,
-  molecule_id: jnp.ndarray | None = None,
+  molecule_id: Optional[jnp.ndarray] = None,
 ) -> Tuple[jnp.ndarray, Topology, Parameters]:
   """Load CHARMM/NAMD format files.
 

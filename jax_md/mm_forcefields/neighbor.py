@@ -34,7 +34,7 @@ def create_neighbor_list(
 
 
 def make_exclusion_mask(
-  n_atoms: int, bonds: Array, angles: Array, molecule_id: Array | None = None
+  n_atoms: int, bonds: Array, angles: Array, molecule_id: Optional[Array] = None
 ) -> Array:
   """Build exclusion mask for nonbonded interactions.
 
@@ -76,7 +76,7 @@ def make_14_table(
   n_atoms: int,
   torsions: Array,
   exclusion_mask: Array,
-  molecule_id: Array | None = None,
+  molecule_id: Optional[Array] = None,
 ) -> Array:
   """Build 1-4 interaction lookup table.
 

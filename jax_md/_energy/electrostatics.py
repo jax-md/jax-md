@@ -105,14 +105,6 @@ def coulomb_direct_neighbor_list(
 def coulomb_recip_ewald(
   charge: Array, side_length: Array, alpha: float, g_max: float
 ) -> Callable[[Array], Array]:
-
-  @partial(jax.jit, static_argnums=(1,))
-  def two_stage_safe_mask(
-    mask, fn, operand, placeholder_in=1.0, placeholder_out=0.0
-  ):
-    masked = jnp.where(mask, operand, placeholder_in)
-    return jnp.where(mask, fn(masked), placeholder_out)
-
   def energy_fn(position, **kwargs):
     dim = position.shape[-1]
     V = side_length**dim
@@ -127,11 +119,11 @@ def coulomb_recip_ewald(
     g2 = jnp.sum(g**2, axis=-1)
     mask = (g2 < g_max**2) & (g2 > 1e-7)
 
-    Z = (2 * jnp.pi) / V
+    Z = (4 * jnp.pi) / V
     S2 = jnp.abs(structure_factor(g, position, charge)) ** 2
     fn = lambda g2: jnp.exp(-g2 / (4 * alpha**2)) / g2 * S2
 
-    return Z * util.high_precision_sum(two_stage_safe_mask(mask, fn, g2))
+    return Z * util.high_precision_sum(util.safe_mask(mask, fn, g2, 1))
 
   return energy_fn
 
