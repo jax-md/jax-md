@@ -771,6 +771,7 @@ def neighbor_list(
   custom_mask_function: Optional[MaskFn] = None,
   fractional_coordinates: bool = False,
   format: NeighborListFormat = NeighborListFormat.Dense,
+  dense_candidate_format: bool = True,
   **static_kwargs,
 ) -> NeighborFn:
   """Returns a function that builds a list neighbors for collections of points.
@@ -833,17 +834,28 @@ def neighbor_list(
       debugging but should generally be left as `False`.
     mask_self: An optional boolean. Determines whether points can consider
       themselves to be their own neighbors.
-    custom_mask_function: An optional function. Takes the neighbor array
-      and masks selected elements. Note: The input array to the function is
-      `(n_particles, m)` where the index of particle 1 is in index in the first
-      dimension of the array, the index of particle 2 is given by the value in
-      the array
+    custom_mask_function: An optional function that can mask selected neighbor
+      candidates.
+      - If `dense_candidate_format=True`, the function is applied to a dense
+        candidate array of shape `(N, M)` (values are particle indices, with
+        invalid entries encoded as `N`).
+      - If `dense_candidate_format=False` and `format` is sparse/ordered-sparse,
+        the function is applied to an edge list array of shape `(2, E)`
+        containing `(receiver, sender)` pairs (invalid entries encoded as `N`).
     fractional_coordinates: An optional boolean. Specifies whether positions
       will be supplied in fractional coordinates in the unit cube, :math:`[0, 1]^d`.
       If this is set to True then the `box_size` will be set to `1.0` and the
       cell size used in the cell list will be set to `cutoff / box_size`.
     format: The format of the neighbor list; see the :meth:`NeighborListFormat` enum
       for details about the different choices for formats. Defaults to `Dense`.
+    dense_candidate_format: If True (default), sparse/ordered-sparse neighbor
+      lists are constructed via a dense candidate neighbor matrix `(N, M)`,
+      enabling use of `custom_mask_function`. If False, sparse/ordered-sparse
+      neighbor lists are constructed directly as an edge list from the cell
+      list, avoiding the dense candidate matrix; in this mode,
+      `custom_mask_function` (if provided) is applied to the edge list and must
+      accept/return an array of shape `(2, E)` where invalid entries are encoded
+      using the sentinel index `N`.
     **static_kwargs: kwargs that get threaded through the calculation of
       example positions.
   Returns:
@@ -955,11 +967,219 @@ def neighbor_list(
 
     return jnp.stack((receiver_idx, sender_idx)), max_occupancy
 
+  _cell_offsets_2d = onp.stack(
+    list(_neighboring_cells(2)), axis=0
+  ).astype(onp.int32)
+  _cell_offsets_3d = onp.stack(
+    list(_neighboring_cells(3)), axis=0
+  ).astype(onp.int32)
+
+  def _edge_from_cell_list(
+    position: Array, cl: CellList, max_edges: int, ordered: bool, **kwargs
+  ) -> Tuple[Array, Array]:
+    """Build a Sparse/OrderedSparse edge list directly from a cell list.
+
+    This avoids materializing the dense (N, M) candidate neighbor matrix, which
+    can be prohibitively large for large cutoffs or dense systems. Instead, we
+    generate candidates per block of particles by gathering neighbor cells from
+    the cell list, filter by distance, and stream results into a flat edge list.
+
+    Args:
+      position: Positions with shape `(N, dim)`.
+      cl: A `CellList` with `id_buffer` containing per-cell particle ids.
+      max_edges: Maximum number of edges to store in the output.
+      ordered: If True, keep only one direction (`receiver < sender`), matching
+        the semantics of `NeighborListFormat.OrderedSparse`.
+      **kwargs: Passed through to `metric_sq` (e.g. `box` when using fractional
+        coordinates).
+
+    Returns:
+      A tuple `(idx, occupancy)` where:
+      * `idx` has shape `(2, max_edges)` and stores `(receiver, sender)` pairs,
+        with `receiver < sender` for all valid entries when `ordered=True`.
+      * `occupancy` is the number of valid edges found (may exceed `max_edges`).
+    """
+    N = position.shape[0]
+    N_i32 = i32(N)
+    dim = int(position.shape[1])
+
+    if dim == 2:
+      offsets = jnp.asarray(_cell_offsets_2d, dtype=i32)
+      cell_ids = cl.id_buffer[..., 0]  # (cy, cx, cap)
+      cells_per_side = onp.asarray(cell_ids.shape[:-1], dtype=onp.int32)
+    elif dim == 3:
+      offsets = jnp.asarray(_cell_offsets_3d, dtype=i32)
+      cell_ids = cl.id_buffer[..., 0]  # (cz, cy, cx, cap)
+      cells_per_side = onp.asarray(cell_ids.shape[:-1], dtype=onp.int32)
+    else:
+      raise ValueError(f'Only 2D/3D supported. Found dim={dim}.')
+
+    cells_per_side = jnp.asarray(cells_per_side, dtype=i32)
+    cell_capacity = int(cell_ids.shape[-1])
+    n_offsets = int(offsets.shape[0])
+    M = n_offsets * cell_capacity
+
+    # Compute the cell coordinate for each particle in buffer-axis order
+    particle_cell = jnp.array(position / cl.cell_size, dtype=i32)[:, ::-1]
+    particle_cell = jnp.mod(particle_cell, cells_per_side)
+
+    d = partial(metric_sq, **kwargs)
+    d = space.map_neighbor(d)
+
+    # Block over particles to avoid large intermediates.
+    BLOCK = 128
+    n_blocks = (N + BLOCK - 1) // BLOCK
+
+    K = BLOCK * M  # candidates per block (static)
+
+    out_recv = N * jnp.ones((max_edges + K,), i32)
+    out_send = N * jnp.ones((max_edges + K,), i32)
+
+    def body_fn(block_idx: int, carry):
+      out_recv, out_send, offset = carry
+
+      start = block_idx * BLOCK
+      sender = start + jnp.arange(BLOCK, dtype=i32)
+      valid_sender = sender < N
+      sender_safe = jnp.where(valid_sender, sender, i32(0))
+
+      sender_cell = particle_cell[sender_safe]
+      neighbor_cell = sender_cell[:, None, :] + offsets[None, :, :]
+      neighbor_cell = jnp.mod(neighbor_cell, cells_per_side)
+
+      if dim == 2:
+        cy = neighbor_cell[..., 0]
+        cx = neighbor_cell[..., 1]
+        neigh = cell_ids[cy, cx, :]  # (B, n_offsets, cap)
+      else:
+        cz = neighbor_cell[..., 0]
+        cy = neighbor_cell[..., 1]
+        cx = neighbor_cell[..., 2]
+        neigh = cell_ids[cz, cy, cx, :]  # (B, n_offsets, cap)
+
+      receiver = jnp.reshape(neigh, (BLOCK, M))
+
+      pos_sender = position[sender_safe]  # (B, dim)
+      receiver_safe = jnp.minimum(receiver, N_i32 - i32(1))
+      pos_receiver = position[receiver_safe]  # (B, M, dim)
+      dr2 = d(pos_sender, pos_receiver)  # (B, M)
+
+      mask = valid_sender[:, None] & (receiver < N_i32) & (dr2 < cutoff_sq)
+      if not mask_self:
+        mask = mask & (receiver != sender[:, None])
+      if ordered:
+        mask = mask & (receiver < sender[:, None])
+
+      receiver_flat = jnp.reshape(receiver, (-1,))
+      sender_flat = jnp.reshape(jnp.broadcast_to(sender[:, None], receiver.shape), (-1,))
+      mask_flat = jnp.reshape(mask, (-1,))
+
+      # Pack valid pairs into the front of fixed-size buffers.
+      cumsum = jnp.cumsum(mask_flat, dtype=i32)
+      n_valid = cumsum[-1]
+
+      out_idx = N * jnp.ones((K,), i32)
+      index = jnp.where(mask_flat, cumsum - 1, K - 1)
+
+      recv_vals = jnp.where(mask_flat, receiver_flat, N_i32)
+      send_vals = jnp.where(mask_flat, sender_flat, N_i32)
+
+      chunk_recv = out_idx.at[index].set(recv_vals)
+      chunk_send = out_idx.at[index].set(send_vals)
+
+      # Stream into the global output buffer. Note that we always write K
+      # elements, but only the first n_valid are meaningful
+      out_recv = lax.dynamic_update_slice(out_recv, chunk_recv, (offset,))
+      out_send = lax.dynamic_update_slice(out_send, chunk_send, (offset,))
+
+      return out_recv, out_send, offset + n_valid
+
+    out_recv, out_send, occupancy = lax.fori_loop(
+      0, n_blocks, body_fn, (out_recv, out_send, i32(0))
+    )
+
+    idx = jnp.stack((out_recv[:max_edges], out_send[:max_edges]))
+    return idx, occupancy
+
+  def _edge_count_from_cell_list(
+    position: Array, cl: CellList, ordered: bool, **kwargs
+  ) -> Array:
+    """Count valid Sparse/OrderedSparse edges from a cell list (no output buffer)."""
+    N = position.shape[0]
+    N_i32 = i32(N)
+    dim = int(position.shape[1])
+
+    if dim == 2:
+      offsets = jnp.asarray(_cell_offsets_2d, dtype=i32)
+      cell_ids = cl.id_buffer[..., 0]
+      cells_per_side = onp.asarray(cell_ids.shape[:-1], dtype=onp.int32)
+    elif dim == 3:
+      offsets = jnp.asarray(_cell_offsets_3d, dtype=i32)
+      cell_ids = cl.id_buffer[..., 0]
+      cells_per_side = onp.asarray(cell_ids.shape[:-1], dtype=onp.int32)
+    else:
+      raise ValueError(f'Only 2D/3D supported. Found dim={dim}.')
+
+    cells_per_side = jnp.asarray(cells_per_side, dtype=i32)
+    cell_capacity = int(cell_ids.shape[-1])
+    n_offsets = int(offsets.shape[0])
+    M = n_offsets * cell_capacity
+
+    particle_cell = jnp.array(position / cl.cell_size, dtype=i32)[:, ::-1]
+    particle_cell = jnp.mod(particle_cell, cells_per_side)
+
+    d = partial(metric_sq, **kwargs)
+    d = space.map_neighbor(d)
+
+    BLOCK = 128
+    n_blocks = (N + BLOCK - 1) // BLOCK
+
+    def body_fn(block_idx: int, total: Array) -> Array:
+      start = block_idx * BLOCK
+      sender = start + jnp.arange(BLOCK, dtype=i32)
+      valid_sender = sender < N
+      sender_safe = jnp.where(valid_sender, sender, i32(0))
+
+      sender_cell = particle_cell[sender_safe]
+      neighbor_cell = sender_cell[:, None, :] + offsets[None, :, :]
+      neighbor_cell = jnp.mod(neighbor_cell, cells_per_side)
+
+      if dim == 2:
+        cy = neighbor_cell[..., 0]
+        cx = neighbor_cell[..., 1]
+        neigh = cell_ids[cy, cx, :]
+      else:
+        cz = neighbor_cell[..., 0]
+        cy = neighbor_cell[..., 1]
+        cx = neighbor_cell[..., 2]
+        neigh = cell_ids[cz, cy, cx, :]
+
+      receiver = jnp.reshape(neigh, (BLOCK, M))
+      pos_sender = position[sender_safe]
+      receiver_safe = jnp.minimum(receiver, N_i32 - i32(1))
+      pos_receiver = position[receiver_safe]
+      dr2 = d(pos_sender, pos_receiver)
+
+      mask = valid_sender[:, None] & (receiver < N_i32) & (dr2 < cutoff_sq)
+      if not mask_self:
+        mask = mask & (receiver != sender[:, None])
+      if ordered:
+        mask = mask & (receiver < sender[:, None])
+
+      return total + jnp.sum(mask, dtype=i64)
+
+    return lax.fori_loop(0, n_blocks, body_fn, i64(0))
+
   def neighbor_list_fn(
     position: Array, neighbors=None, extra_capacity: int = 0, **kwargs
   ) -> NeighborList:
     def neighbor_fn(position_and_error, max_occupancy=None):
       position, err = position_and_error
+      # `neighbor_list_fn` may be called from inside a JIT-compiled MD loop, but
+      # the initial call site may pass NumPy arrays (e.g. on allocation). Ensure
+      # all indexing below is performed on JAX arrays to avoid tracer conversion
+      # errors.
+      #position = jnp.asarray(position)
       N = position.shape[0]
 
       cl_fn = None
@@ -982,23 +1202,58 @@ def neighbor_list(
           if cl_fn is not None:
             cl = cl_fn.update(position, neighbors.cell_list_capacity)
 
+      if is_sparse(format) and (not dense_candidate_format) and (cl is None):
+        raise ValueError(
+          'dense_candidate_format=False requires a cell list. '
+          'Set disable_cell_list=False and supply a valid box (or enable '
+          'fractional_coordinates for triclinic boxes).'
+        )
+
+      use_streaming_sparse = (
+        is_sparse(format) and (not dense_candidate_format) and (cl is not None)
+      )
+
       if cl is None:
         cl_capacity = None
         idx = candidate_fn(position.shape)
       else:
         err = err.update(PEC.CELL_LIST_OVERFLOW, cl.did_buffer_overflow)
-        idx = cell_list_candidate_fn(cl.id_buffer, position.shape)
         cl_capacity = cl.cell_capacity
 
-      if mask_self:
-        idx = mask_self_fn(idx)
-      if custom_mask_function is not None:
-        idx = custom_mask_function(idx)
-
-      if is_sparse(format):
-        idx, occupancy = prune_neighbor_list_sparse(position, idx, **kwargs)
+      if use_streaming_sparse:
+        ordered = format is NeighborListFormat.OrderedSparse
+        if max_occupancy is None:
+          occ = _edge_count_from_cell_list(position, cl, ordered, **kwargs)
+          _extra_capacity = N * extra_capacity
+          max_occupancy = int(occ * capacity_multiplier + _extra_capacity)
+          if format is NeighborListFormat.Sparse:
+            capacity_limit = N * (N - 1) if mask_self else N**2
+          else:
+            capacity_limit = N * (N - 1) // 2
+          if max_occupancy > capacity_limit:
+            max_occupancy = capacity_limit
+        idx, occupancy = _edge_from_cell_list(
+          position, cl, max_occupancy, ordered, **kwargs
+        )
+        if custom_mask_function is not None:
+          idx = custom_mask_function(idx)
       else:
-        idx, occupancy = prune_neighbor_list_dense(position, idx, **kwargs)
+        # Dense candidate path: materialize a dense (N, M) candidate matrix and
+        # optionally apply a custom masking function before pruning.
+        if cl is None:
+          idx = candidate_fn(position.shape)
+        else:
+          idx = cell_list_candidate_fn(cl.id_buffer, position.shape)
+
+        if mask_self:
+          idx = mask_self_fn(idx)
+        if custom_mask_function is not None:
+          idx = custom_mask_function(idx)
+
+        if is_sparse(format):
+          idx, occupancy = prune_neighbor_list_sparse(position, idx, **kwargs)
+        else:
+          idx, occupancy = prune_neighbor_list_dense(position, idx, **kwargs)
 
       if max_occupancy is None:
         _extra_capacity = (

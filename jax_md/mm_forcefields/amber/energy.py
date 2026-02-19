@@ -20,6 +20,7 @@ import jax
 import jax.numpy as jnp
 import numpy as onp
 import scipy
+from jax.scipy.special import erfc
 
 from jax_md import dataclasses, partition, smap, space, util
 from jax_md.mm_forcefields import neighbor
@@ -28,6 +29,7 @@ from jax_md.mm_forcefields.base import (
   Topology,
   combine_berthelot,
   combine_lorentz,
+  combine_product,
   compute_angle,
   compute_dihedral,
   force_switch,
@@ -55,6 +57,7 @@ NeighborFn = partition.NeighborFn
 NeighborList = partition.NeighborList
 NeighborListFormat = partition.NeighborListFormat
 
+COULOMB_CONSTANT = 332.06371  # kcal*A/(mol*e^2)
 
 # TODO rethink the cleanest way to format this with some enums
 # TODO also move this somewhere more suitable
@@ -146,6 +149,40 @@ def _create_dense_mask(
 
   return mask_fn
 
+def _create_sparse_mask(
+  n_atoms: int, exc_pairs: Array
+) -> Callable[[Array], Array]:
+  receivers = jnp.concatenate((exc_pairs[:, 0], exc_pairs[:, 1]))
+  senders = jnp.concatenate((exc_pairs[:, 1], exc_pairs[:, 0]))
+  idx = jnp.argsort(senders)
+  receivers = receivers[idx]
+  senders = senders[idx]
+
+  N = n_atoms
+  count = jax.ops.segment_sum(jnp.ones(len(receivers), jnp.int32), receivers, N)
+  max_count = jnp.max(count)
+  offset = jnp.tile(jnp.arange(max_count), N)[: len(senders)]
+  hashes = senders * max_count + offset
+  dense_idx = N * jnp.ones((N * max_count,), jnp.int32)
+  exclusions_dense = dense_idx.at[hashes].set(receivers).reshape((N, max_count))
+
+  exclusions_dense_sorted = jnp.sort(exclusions_dense, axis=1)
+
+  def mask_fn(idx: Array) -> Array:
+    receiver = idx[0]
+    sender = idx[1]
+
+    mask_r = exclusions_dense_sorted[sender]
+
+    pos = jax.vmap(lambda row, x: jnp.searchsorted(row, x))(mask_r, receiver)
+    pos = jnp.minimum(pos, max_count - jnp.int32(1))
+    is_excluded = jnp.take_along_axis(mask_r, pos[:, None], axis=1)[:, 0] == receiver
+
+    receiver_out = jnp.where(is_excluded, N, receiver)
+    sender_out = jnp.where(is_excluded, N, sender)
+    return jnp.stack((receiver_out, sender_out), axis=0)
+
+  return mask_fn
 
 def energy(
   params: Parameters,
@@ -155,6 +192,7 @@ def energy(
   nb_options: NonbondedOptions = NonbondedOptions(),
   fe_options: FEOptions = FEOptions(),
   precision: Optional[str] = None,
+  dense_mask_format: bool = True,
 ) -> tuple[
   Callable[..., dict[str, Array]],
   NeighborFn,
@@ -274,38 +312,71 @@ def energy(
     vdw_cutoff_fn = lambda fn: fn
     ele_cutoff_fn = lambda fn: fn
 
-  # TODO this probably isn't the best way of flagging this
-  if len(topology.nbfix_atom_type) != 0:
-    use_nbfix = True
-    pair_lj_fn = smap.pair_neighbor_list(
-      vdw_cutoff_fn(lennard_jones_ab),
-      space.canonicalize_displacement_or_metric(disp_fn),
-      ignore_unused_parameters=True,
-      species=topology.nbfix_atom_type,
-      a=None,
-      b=None,
-    )
-    bond_lj_fn = smap.bond(
-      lennard_jones,
-      space.canonicalize_displacement_or_metric(disp_fn),
-      sigma=None,
-      epsilon=None,
-    )
+  # Create fused LJ + coulomb function to avoid 2 passes over smap
+  # NOTE probably not the best way to flag if the ab form is used
+  use_ab = len(topology.nbfix_atom_type) != 0
+  use_erfc = isinstance(coulomb_options, (EwaldCoulomb, PMECoulomb))
+
+  def coulomb_fn(dr: Array, charge_sq: Array, alpha: Array, use_erfc: bool, **unused_kwargs: Any) -> Array:
+    energy = COULOMB_CONSTANT * (charge_sq / dr)
+    if use_erfc:
+      energy *= erfc(alpha * dr)
+    return energy
+
+  def lj_fn(dr: Array, lj1: Array, lj2: Array, use_ab: bool, **unused_kwargs: Any) -> Array:
+    if use_ab:
+      dr2 = dr * dr
+      dr6 = dr2 * dr2 * dr2
+      energy = (lj1 / dr6) ** 2 - (lj2 / dr6)
+    else:
+      idr = lj1 / dr
+      idr2 = idr * idr
+      idr6 = idr2 * idr2 * idr2
+      idr12 = idr6 * idr6
+      energy = 4.0 * lj2 * (idr12 - idr6)
+    return energy
+
+  def fused_nb_fn_generator():
+    lj_wrapped = vdw_cutoff_fn(jax.tree_util.Partial(lj_fn, use_ab=use_ab))
+    coul_wrapped = ele_cutoff_fn(jax.tree_util.Partial(coulomb_fn, use_erfc=use_erfc))
+    def _fused_fn(dr, lj1, lj2, charge_sq, alpha, **unused_kwargs):
+      dr = jnp.where(jnp.isclose(dr, 0.0), 1, dr)
+      lj_energy = lj_wrapped(dr, lj1, lj2, **unused_kwargs)
+      coul_energy = coul_wrapped(dr, charge_sq, alpha, **unused_kwargs)
+      #return lj_energy + coul_energy
+      return jnp.stack([lj_energy, coul_energy], axis=-1)  # (..., 2)
+    return _fused_fn
+
+  fused_nb_fn = fused_nb_fn_generator()
+
+  if use_ab:
+    lj1_rule = None
+    lj2_rule = None
+    species_rule = topology.nbfix_atom_type
   else:
-    use_nbfix = False
-    pair_lj_fn = smap.pair_neighbor_list(
-      vdw_cutoff_fn(lennard_jones),
-      space.canonicalize_displacement_or_metric(disp_fn),
-      ignore_unused_parameters=True,
-      sigma=(combine_lorentz, None),
-      epsilon=(combine_berthelot, None),
-    )
-    bond_lj_fn = smap.bond(
-      lennard_jones,
-      space.canonicalize_displacement_or_metric(disp_fn),
-      sigma=None,
-      epsilon=None,
-    )
+    lj1_rule = (combine_lorentz, None)
+    lj2_rule = (combine_berthelot, None)
+    species_rule = None
+
+  # NOTE the alpha value is closed over during generation which
+  # may be an issue if the grid layout changes during dynamics
+  pair_lj_fn = smap.pair_neighbor_list(
+    fused_nb_fn,
+    space.canonicalize_displacement_or_metric(disp_fn),
+    reduce_axis=(0, 1), # sum over particles + neighbors
+    ignore_unused_parameters=True,
+    species=species_rule,
+    lj1=lj1_rule,
+    lj2=lj2_rule,
+    charge_sq=(combine_product, None),
+    alpha=coulomb.alpha if use_erfc else 0.0,
+  )
+  bond_lj_fn = smap.bond(
+    lennard_jones,
+    space.canonicalize_displacement_or_metric(disp_fn),
+    sigma=None,
+    epsilon=None,
+  )
 
   # TODO can charges, box vectors, and charge prod be separated from this?
   mapped_coul_fns = coulomb.prepare_smap(
@@ -321,7 +392,10 @@ def energy(
   # NOTE it might help to organize masking and conversion primitives
   # to handle any case of dense, sparse, (N,N), orderedsparse, etc
   # TODO consider if forcing 32 bit here will improve performance
-  mask_fn = _create_dense_mask(topology.n_atoms, topology.exc_pairs)
+  if dense_mask_format:
+    mask_fn = _create_dense_mask(topology.n_atoms, topology.exc_pairs)
+  else:
+    mask_fn = _create_sparse_mask(topology.n_atoms, topology.exc_pairs)
 
   neighbor_fn = neighbor.create_neighbor_list(
     disp_fn,
@@ -332,6 +406,7 @@ def energy(
     fractional_coordinates=nb_options.fractional_coordinates,
     format=nb_options.nb_format,
     disable_cell_list=not nb_options.use_pbc,
+    dense_candidate_format=dense_mask_format,
   )
 
   def energy_fn(
@@ -442,36 +517,30 @@ def energy(
     ### Lennard Jones Interaction
     # TODO using 2 smap functions over the neighbor list for coulomb and then LJ
     # may have some negative performance implications, need to test under JIT
-    if use_nbfix:
-      lj_pot = pair_lj_fn(
-        positions,
-        nbr_list,
-        a=nonbonded.nbfix_acoef,
-        b=nonbonded.nbfix_bcoef,
-        **space_kwarg,
-      )
-      lj_exc_pot = bond_lj_fn(
-        positions,
-        topology.exc_pairs,
-        sigma=nonbonded.exc_sigma,
-        epsilon=nonbonded.exc_epsilon,
-        **space_kwarg,
-      )
+    if use_ab:
+      lj1=nonbonded.nbfix_acoef
+      lj2=nonbonded.nbfix_bcoef
     else:
-      lj_pot = pair_lj_fn(
-        positions,
-        nbr_list,
-        sigma=nonbonded.sigma,
-        epsilon=nonbonded.epsilon,
-        **space_kwarg,
-      )
-      lj_exc_pot = bond_lj_fn(
-        positions,
-        topology.exc_pairs,
-        sigma=nonbonded.exc_sigma,
-        epsilon=nonbonded.exc_epsilon,
-        **space_kwarg,
-      )
+      lj1=nonbonded.sigma
+      lj2=nonbonded.epsilon
+
+    lj_pot, coul_dir_pot = pair_lj_fn(
+      positions,
+      nbr_list,
+      lj1=lj1,
+      lj2=lj2,
+      charge_sq=nonbonded.charges,
+      **space_kwarg,
+    )
+    lj_exc_pot = bond_lj_fn(
+      positions,
+      topology.exc_pairs,
+      sigma=nonbonded.exc_sigma,
+      epsilon=nonbonded.exc_epsilon,
+      **space_kwarg,
+    )
+
+    coul_pot = coul_pot + coul_dir_pot
 
     # Calculate Dispersion Correction term
     # TODO note that this will be incorrect if parameters change

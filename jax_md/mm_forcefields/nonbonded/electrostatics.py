@@ -104,13 +104,6 @@ class CutoffCoulomb(CoulombHandler):
       energy = COULOMB_CONSTANT * (charge_sq / dr)
       return energy
 
-    pair_coul_fn = smap.pair_neighbor_list(
-      cutoff_fn(pair_energy_map),
-      space.canonicalize_displacement_or_metric(displacement_fn),
-      ignore_unused_parameters=True,
-      charge_sq=(combine_product, None),
-    )
-
     ### Modified (or zero) coulomb interaction for exceptions
     bond_coul_fn = smap.bond(
       pair_plain_map,
@@ -118,7 +111,7 @@ class CutoffCoulomb(CoulombHandler):
       charge_sq=None,
     )
 
-    return (pair_coul_fn, bond_coul_fn)
+    return (bond_coul_fn)
 
   def energy_smap(
     self,
@@ -132,9 +125,9 @@ class CutoffCoulomb(CoulombHandler):
     coulomb_fns: CoulombFns,
     return_components: bool = False,
   ) -> Array:
-    pair_coul_fn, bond_coul_fn = coulomb_fns
+    bond_coul_fn = coulomb_fns
 
-    energy = pair_coul_fn(positions, nlist, charge_sq=charges, **box_kwarg)
+    energy = 0.0
     e_exceptions = bond_coul_fn(
       positions, exc_pairs, charge_sq=exc_charge_prod, **box_kwarg
     )
@@ -746,14 +739,6 @@ class PMECoulomb(CoulombHandler):
       dr = jnp.where(jnp.isclose(dr, 0.0), 1, dr)
       return -(COULOMB_CONSTANT * charge_sq * erf(self.alpha * dr) / dr)
 
-    ### Real space contribution
-    pair_coul_fn = smap.pair_neighbor_list(
-      cutoff_fn(pair_energy_map),
-      space.canonicalize_displacement_or_metric(displacement_fn),
-      ignore_unused_parameters=True,
-      charge_sq=(combine_product, None),
-    )
-
     ### Reciprocal space contribution
     # TODO it may make more sense to separate dynamic parameters from the
     # generator as they're passed by closure into the step function
@@ -779,7 +764,7 @@ class PMECoulomb(CoulombHandler):
       charge_sq=None,
     )
 
-    return pair_coul_fn, recip_fn, bond_corr_fn, bond_coul_fn
+    return (recip_fn, bond_corr_fn, bond_coul_fn)
 
   def energy_smap(
     self,
@@ -792,10 +777,7 @@ class PMECoulomb(CoulombHandler):
     coulomb_fns: CoulombFns,
     return_components: bool = False,
   ) -> Array:
-    pair_coul_fn, recip_fn, bond_corr_fn, bond_coul_fn = coulomb_fns
-
-    ### Real space contribution
-    e_real = pair_coul_fn(positions, nlist, charge_sq=charges, **box_kwarg)
+    recip_fn, bond_corr_fn, bond_coul_fn = coulomb_fns
 
     ### Reciprocal space contribution
     e_recip = COULOMB_CONSTANT * recip_fn(
@@ -813,7 +795,7 @@ class PMECoulomb(CoulombHandler):
       positions, exc_pairs, charge_sq=exc_charge_prod, **box_kwarg
     )
 
-    total_e = e_real + e_recip + e_self + e_corr
+    total_e = e_recip + e_self + e_corr
     return total_e, e_exceptions
 
   def energy(
