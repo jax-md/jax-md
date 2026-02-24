@@ -28,7 +28,8 @@ import os
 
 IN_COLAB = 'COLAB_RELEASE_TAG' in os.environ
 if IN_COLAB:
-  import subprocess, sys
+  import subprocess
+  import sys
 
   subprocess.run(
     [

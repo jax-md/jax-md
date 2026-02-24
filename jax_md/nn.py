@@ -293,9 +293,11 @@ class GraphNetEncoder(hk.Module):
       output_sizes=mlp_sizes, activate_final=True, name=name, **mlp_kwargs
     )
 
-    model_fn = lambda name: lambda *args: hk.nets.MLP(
-      output_sizes=mlp_sizes, activate_final=True, name=name, **mlp_kwargs
-    )(jnp.concatenate(args, axis=-1))
+    model_fn = lambda name: (
+      lambda *args: hk.nets.MLP(
+        output_sizes=mlp_sizes, activate_final=True, name=name, **mlp_kwargs
+      )(jnp.concatenate(args, axis=-1))
+    )
 
     if format is partition.Dense:
       self._encoder = GraphMapFeatures(
