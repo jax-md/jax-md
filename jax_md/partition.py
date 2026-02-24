@@ -84,6 +84,8 @@ class CellList:
     id_buffer: An ndarray of int32 particle ids of shape `S`. Note that empty
       slots are specified by `id = N` where `N` is the number of particles in
       the system.
+    particle_cell_id: An ndarray of int32 with shape `[N, spatial_dimension]`
+      storing each particle's dimension-wise cell index.
     named_buffer: A dictionary of ndarrays of shape `S + [...]`. This contains
       side data placed into the cell list.
     did_buffer_overflow: A boolean specifying whether or not the cell list
@@ -95,6 +97,7 @@ class CellList:
 
   position_buffer: Array
   id_buffer: Array
+  particle_cell_id: Array
   named_buffer: Dict[str, Array]
 
   did_buffer_overflow: Array
@@ -211,6 +214,17 @@ def _compute_hash_constants(
 def _neighboring_cells(dimension: int) -> Generator[onp.ndarray, None, None]:
   for dindex in onp.ndindex(*([3] * dimension)):
     yield onp.array(dindex, dtype=i32) - 1
+
+
+@partial(jit, static_argnums=(0, 1))
+def _neighboring_cells_arr(ndim: int, dist: int = 1) -> Array:
+  return jnp.stack(
+    [
+      lax.broadcasted_iota(i32, [dist * 2 + 1] * ndim, d) - dist
+      for d in range(ndim)
+    ],
+    axis=-1,
+  ).reshape((-1, ndim))
 
 
 def _estimate_cell_capacity(
@@ -389,6 +403,7 @@ def cell_list(
       )
     #  pytype: enable=attribute-error
     indices = jnp.array(position / cell_size, dtype=i32)
+    indices = jnp.clip(indices, 0, cells_per_side - 1)
     hashes = jnp.sum(indices * hash_multipliers, axis=1)
 
     # Copy the particle data into the grid. Here we use a trick to allow us to
@@ -431,6 +446,7 @@ def cell_list(
     return CellList(
       cell_position,
       cell_id,
+      indices,
       cell_kwargs,
       overflow,
       cell_capacity,
@@ -869,31 +885,28 @@ def neighbor_list(
       candidates[None, :], (positionShape[0], positionShape[0])
     )
 
-  @partial(jit, static_argnums=1)
-  def cell_list_candidate_fn(cl_id_buffer, positionShape) -> Array:
+  @partial(jit, static_argnums=2)
+  def cell_list_candidate_fn(
+    cl_id_buffer, particle_cell_id, positionShape
+  ) -> Array:
     N, dim = positionShape
+    cell_capacity = cl_id_buffer.shape[dim]
+    buf_shape = cl_id_buffer.shape[:dim]
 
-    idx = cl_id_buffer
+    cells_per_side = jnp.array(buf_shape[::-1], i32)
+    shifts = _neighboring_cells_arr(dim)
+    shifted = particle_cell_id[:, None, :] + shifts[None, :, :]
+    shifted = jnp.mod(shifted, cells_per_side[None, None, :])
 
-    cell_idx = [idx]
+    hash_mult_vals = [1]
+    for i in range(1, dim):
+      hash_mult_vals.append(hash_mult_vals[-1] * buf_shape[dim - i])
+    hash_mult = jnp.array(hash_mult_vals, dtype=i32)
+    cell_1d = jnp.sum(shifted * hash_mult, axis=2)
 
-    for dindex in _neighboring_cells(dim):
-      if onp.all(dindex == 0):
-        continue
-      cell_idx += [shift_array(idx, dindex)]
-
-    cell_idx = jnp.concatenate(cell_idx, axis=-2)
-    cell_idx = cell_idx[..., jnp.newaxis, :, :]
-    cell_idx = jnp.broadcast_to(cell_idx, idx.shape[:-1] + cell_idx.shape[-2:])
-
-    def copy_values_from_cell(value, cell_value, cell_id):
-      scatter_indices = jnp.reshape(cell_id, (-1,))
-      cell_value = jnp.reshape(cell_value, (-1,) + cell_value.shape[-2:])
-      return value.at[scatter_indices].set(cell_value)
-
-    neighbor_idx = jnp.zeros((N + 1,) + cell_idx.shape[-2:], i32)
-    neighbor_idx = copy_values_from_cell(neighbor_idx, cell_idx, idx)
-    return neighbor_idx[:-1, :, 0]
+    flat_cell_list = cl_id_buffer.reshape((-1, cell_capacity))
+    result = flat_cell_list[cell_1d.reshape(-1)]
+    return result.reshape(N, shifts.shape[0] * cell_capacity)
 
   @jit
   def mask_self_fn(idx: Array) -> Array:
@@ -982,7 +995,9 @@ def neighbor_list(
         idx = candidate_fn(position.shape)
       else:
         err = err.update(PEC.CELL_LIST_OVERFLOW, cl.did_buffer_overflow)
-        idx = cell_list_candidate_fn(cl.id_buffer, position.shape)
+        idx = cell_list_candidate_fn(
+          cl.id_buffer, cl.particle_cell_id, position.shape
+        )
         cl_capacity = cl.cell_capacity
 
       if mask_self:
@@ -1038,14 +1053,13 @@ def neighbor_list(
           'Neighbor list cannot accept a box keyword argument '
           'if fractional_coordinates is not enabled.'
         )
-      # `cell_size` is really the minimum cell size.
-      cur_cell_size = _cell_size(1.0, nbrs.cell_size)
-      new_cell_size = _cell_size(
-        1.0, _fractional_cell_size(kwargs['box'], cutoff)
-      )
-      err = nbrs.error.update(
-        PEC.CELL_SIZE_TOO_SMALL, new_cell_size > cur_cell_size
-      )
+      err = nbrs.error
+      if nbrs.cell_list_fn is not None:
+        cur_cell_size = _cell_size(1.0, nbrs.cell_size)
+        new_cell_size = _cell_size(
+          1.0, _fractional_cell_size(kwargs['box'], cutoff)
+        )
+        err = err.update(PEC.CELL_SIZE_TOO_SMALL, new_cell_size > cur_cell_size)
       err = err.update(PEC.MALFORMED_BOX, is_box_valid(kwargs['box']))
       nbrs = dataclasses.replace(nbrs, error=err)
 

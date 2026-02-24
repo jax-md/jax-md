@@ -656,7 +656,7 @@ class NeighborListTest(test_util.JAXMDTestCase):
       if factor > 1:
         self.assertTrue(jnp.any(jnp.abs(E_target) > 0.25))
         self.assertAllClose(E_target, E(R, neighbor=nbrs, box=cl * factor))
-      else:
+      elif nbrs.cell_list_fn is not None:
         self.assertTrue(jnp.any(nbrs.cell_size_too_small))
 
 
