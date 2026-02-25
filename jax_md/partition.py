@@ -887,11 +887,12 @@ def neighbor_list(
 
   @partial(jit, static_argnums=2)
   def cell_list_candidate_fn(
-    cl_id_buffer, particle_cell_id, positionShape
+    cl_id_buffer, particle_cell_id, positionShape, position, position_buffer
   ) -> Array:
     N, dim = positionShape
     cell_capacity = cl_id_buffer.shape[dim]
     buf_shape = cl_id_buffer.shape[:dim]
+    n_shifts = 3**dim
 
     cells_per_side = jnp.array(buf_shape[::-1], i32)
     shifts = _neighboring_cells_arr(dim)
@@ -905,8 +906,21 @@ def neighbor_list(
     cell_1d = jnp.sum(shifted * hash_mult, axis=2)
 
     flat_cell_list = cl_id_buffer.reshape((-1, cell_capacity))
-    result = flat_cell_list[cell_1d.reshape(-1)]
-    return result.reshape(N, shifts.shape[0] * cell_capacity)
+    cell_1d_flat = cell_1d.reshape(-1)
+    result = flat_cell_list[cell_1d_flat]
+    result = result.reshape(N, n_shifts * cell_capacity)
+
+    flat_pos_buf = position_buffer.reshape((-1, cell_capacity, dim))
+    nbr_pos = flat_pos_buf[cell_1d_flat]
+    nbr_pos = nbr_pos.reshape(N, n_shifts * cell_capacity, dim)
+
+    d = space.map_bond(metric_sq)
+    pos_expanded = jnp.broadcast_to(position[:, None, :], nbr_pos.shape)
+    dR = d(pos_expanded.reshape(-1, dim), nbr_pos.reshape(-1, dim)).reshape(
+      N, n_shifts * cell_capacity
+    )
+
+    return jnp.where(dR < cutoff_sq, result, N)
 
   @jit
   def mask_self_fn(idx: Array) -> Array:
@@ -963,6 +977,28 @@ def neighbor_list(
 
     return jnp.stack((receiver_idx, sender_idx)), max_occupancy
 
+  @jit
+  def prune_cell_list_sparse(position: Array, idx: Array, **kwargs) -> Array:
+    N = position.shape[0]
+    sender_idx = jnp.broadcast_to(jnp.arange(N, dtype=i32)[:, None], idx.shape)
+
+    sender_idx = jnp.reshape(sender_idx, (-1,))
+    receiver_idx = jnp.reshape(idx, (-1,))
+
+    mask = receiver_idx < N
+    if format is NeighborListFormat.OrderedSparse:
+      mask = mask & (receiver_idx < sender_idx)
+
+    out_idx = N * jnp.ones(receiver_idx.shape, i32)
+
+    cumsum = jnp.cumsum(mask)
+    index = jnp.where(mask, cumsum - 1, len(receiver_idx) - 1)
+    receiver_idx = out_idx.at[index].set(receiver_idx)
+    sender_idx = out_idx.at[index].set(sender_idx)
+    max_occupancy = cumsum[-1]
+
+    return jnp.stack((receiver_idx, sender_idx)), max_occupancy
+
   def neighbor_list_fn(
     position: Array, neighbors=None, extra_capacity: int = 0, **kwargs
   ) -> NeighborList:
@@ -990,13 +1026,18 @@ def neighbor_list(
           if cl_fn is not None:
             cl = cl_fn.update(position, neighbors.cell_list_capacity)
 
-      if cl is None:
+      use_cell_list = cl is not None
+      if not use_cell_list:
         cl_capacity = None
         idx = candidate_fn(position.shape)
       else:
         err = err.update(PEC.CELL_LIST_OVERFLOW, cl.did_buffer_overflow)
         idx = cell_list_candidate_fn(
-          cl.id_buffer, cl.particle_cell_id, position.shape
+          cl.id_buffer,
+          cl.particle_cell_id,
+          position.shape,
+          position,
+          cl.position_buffer,
         )
         cl_capacity = cl.cell_capacity
 
@@ -1006,7 +1047,10 @@ def neighbor_list(
         idx = custom_mask_function(idx)
 
       if is_sparse(format):
-        idx, occupancy = prune_neighbor_list_sparse(position, idx, **kwargs)
+        if use_cell_list:
+          idx, occupancy = prune_cell_list_sparse(position, idx, **kwargs)
+        else:
+          idx, occupancy = prune_neighbor_list_sparse(position, idx, **kwargs)
       else:
         idx, occupancy = prune_neighbor_list_dense(position, idx, **kwargs)
 
