@@ -1107,6 +1107,11 @@ def neighbor_list(
       err = err.update(PEC.MALFORMED_BOX, is_box_valid(kwargs['box']))
       nbrs = dataclasses.replace(nbrs, error=err)
 
+    if dr_threshold == 0:
+      return neighbor_fn(
+        (position, nbrs.error), max_occupancy=nbrs.max_occupancy
+      )
+
     d = partial(metric_sq, **kwargs)
     d = vmap(d)
     return lax.cond(
