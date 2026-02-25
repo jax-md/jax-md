@@ -88,7 +88,7 @@ base_url = 'https://raw.githubusercontent.com/abhijeetgangan/Silicon-data/main/S
 download_file(base_url + 'lammps_nve.dat', 'lammps_nve.dat')
 download_file(base_url + 'step_1.traj', 'step_1.traj')
 
-data_lammps = pd.read_csv('lammps_nve.dat', delim_whitespace=True, header=None)
+data_lammps = pd.read_csv('lammps_nve.dat', sep=r'\s+', header=None)
 data_lammps = data_lammps.dropna(axis=1)
 data_lammps.columns = ['Time', 'T', 'P', 'V', 'E', 'H']
 t_l, T, P, V, E, H = (
