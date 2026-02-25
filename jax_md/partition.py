@@ -867,6 +867,7 @@ def neighbor_list(
     list and a method to update an existing neighbor list.
   """
   is_format_valid(format)
+  _always_rebuild = dr_threshold == 0
   box = lax.stop_gradient(box)
   r_cutoff = lax.stop_gradient(r_cutoff)
   dr_threshold = lax.stop_gradient(dr_threshold)
@@ -1107,7 +1108,7 @@ def neighbor_list(
       err = err.update(PEC.MALFORMED_BOX, is_box_valid(kwargs['box']))
       nbrs = dataclasses.replace(nbrs, error=err)
 
-    if dr_threshold == 0:
+    if _always_rebuild:
       return neighbor_fn(
         (position, nbrs.error), max_occupancy=nbrs.max_occupancy
       )
