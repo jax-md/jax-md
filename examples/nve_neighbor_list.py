@@ -191,7 +191,7 @@ def body_fn(i, state):
 
 
 step = 0
-while step < 20 if SMOKE_TEST else 40:
+while step < (20 if SMOKE_TEST else 40):
   new_state, nbrs = lax.fori_loop(0, 100, body_fn, (state, nbrs))
   if nbrs.did_buffer_overflow:
     print('Neighbor list overflowed, reallocating.')
