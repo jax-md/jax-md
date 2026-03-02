@@ -506,7 +506,6 @@ class PMECoulomb(CoulombHandler):
     return Q.at[gp[:, 0], gp[:, 1], gp[:, 2]].add(ac)
 
   @staticmethod
-  @partial(jnp.vectorize, signature='()->()')
   def b(m, n=4):
     if n not in (4, 5):
       raise ValueError(f'Unsupported PME spline order {n}.')
@@ -516,15 +515,34 @@ class PMECoulomb(CoulombHandler):
     else:
       M = PMECoulomb.optimized_bspline_5(1.0)[1:][::-1]
     prefix = jnp.exp(2 * jnp.pi * 1j * (n - 1) * m)
-    return prefix / jnp.sum(M * jnp.exp(2 * jnp.pi * 1j * m * k))
+    phase = jnp.exp(2 * jnp.pi * 1j * m[..., None] * k[None, ...])
+    denom = jnp.sum(M[None, ...] * phase, axis=-1)
+    return prefix / denom
 
   @staticmethod
   def B(mx, my, mz, n=4):
-    """Compute the B factors from Essmann et al. equation 4.7."""
-    b_x = PMECoulomb.b(mx, n=n)
-    b_y = PMECoulomb.b(my, n=n)
-    b_z = PMECoulomb.b(mz, n=n)
-    return jnp.abs(b_x) ** 2 * jnp.abs(b_y) ** 2 * jnp.abs(b_z) ** 2
+    """Compute the B factors from Essmann et al. equation 4.7.
+
+    Uses OpenMM's fix for tiny moduli: if |A|^2 < 1e-7, replace with the
+    average of neighboring values before inverting.
+    """
+    # mx/my/mz come from meshgrid(..., indexing='ij') so:
+    m_x = mx[:, 0, 0]
+    m_y = my[0, :, 0]
+    m_z = mz[0, 0, :]
+
+    def inv_mod_1d(m_1d: Array) -> Array:
+      # b(m) is 1/A(k) up to a phase, so |b|^2 = 1/|A|^2.
+      b_1d = PMECoulomb.b(m_1d, n=n)
+      mod = 1.0 / (jnp.abs(b_1d) ** 2)
+      tiny = mod < 1.0e-7
+      mod = jnp.where(tiny, 0.5 * (jnp.roll(mod, 1) + jnp.roll(mod, -1)), mod)
+      return 1.0 / mod
+
+    inv_x = inv_mod_1d(m_x)
+    inv_y = inv_mod_1d(m_y)
+    inv_z = inv_mod_1d(m_z)
+    return inv_x[:, None, None] * inv_y[None, :, None] * inv_z[None, None, :]
 
   def coulomb_recip_pme(
     self,
@@ -533,7 +551,7 @@ class PMECoulomb(CoulombHandler):
     grid_points: Array,
     fractional_coordinates: bool = False,
     alpha: float = 0.34,
-    order: int = 4,
+    order: int = 5,
   ) -> Callable[[Array], Array]:
     _ibox = space.inverse(box)
 

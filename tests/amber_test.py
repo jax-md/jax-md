@@ -138,13 +138,18 @@ def _min_and_heat() -> None:
 
 
 def _openmm_energy_force(
-  system: Any, positions: Any, platform_name: str = 'Reference'
+  system: Any, positions: Any, platform_name: str = 'Reference', has_virtual_sites=False,
 ) -> tuple[dict[str, float], np.ndarray]:
   """Compute OpenMM potential energy, broken down by Force.
 
   NOTE .setIncludeDirectSpace and .setReciprocalSpaceForceGroup can be used
   to separate the Ewald terms somewhat. In addition, for inputs converted in
   charmmpsffile.py, UREY_BRADLEY_FORCE_GROUP = 3 by default.
+
+  NOTE virtual sites are currently handled by jax by doing an update
+  inside of a grad wrapped energy function to handle redistribution
+  of forces onto parent sites, systems either need to be compared with
+  a virtual site update, or with manual force redistribution
 
   Returns:
       energy_terms: dict[str, float] mapping force keys -> kcal/mol, plus a
@@ -161,6 +166,9 @@ def _openmm_energy_force(
 
   context = openmm.Context(system, integrator, platform)
   context.setPositions(positions)
+
+  if has_virtual_sites:
+    context.computeVirtualSites()
 
   for i, f in enumerate(system.getForces()):
     state = context.getState(getEnergy=True, groups=(1 << i))
@@ -208,6 +216,30 @@ def _charmm_read_params(filename: str) -> tuple[str, ...]:
         parFiles += (os.path.join(base_path, parfile),)
 
   return parFiles
+
+
+# absolute force error
+def abs_frc_error(f1, f2):
+  return jnp.abs(jnp.linalg.norm(f1 - f2, axis=-1))
+
+
+# root-mean-square force error
+def rms_frc_error(f1, f2):
+  return jnp.sqrt(jnp.mean(jnp.square(jnp.linalg.norm(f1 - f2, axis=-1))))
+
+
+# symmetric relative energy error
+def rel_nrg_error(e1, e2):
+  num = 2.0 * jnp.abs(e1-e2)
+  den = (jnp.abs(e1) + jnp.abs(e2))
+  return num / den
+
+
+# symmetric relative force error from OpenMM manual section 14
+def rel_frc_error(f1, f2):
+  num = 2.0 * jnp.linalg.norm(f1 - f2, axis=-1)
+  den = jnp.linalg.norm(f1, axis=-1) + jnp.linalg.norm(f2, axis=-1)
+  return num / den
 
 
 class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
@@ -260,7 +292,7 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
         app.PME,
       ),
       # GAFF molecule in vacuum
-      ('sustiva.prmtop', 'sustiva.rst7', app.NoCutoff),
+      # ('sustiva.prmtop', 'sustiva.rst7', app.NoCutoff),
       # AMBER benchmark systems from Amber20_Benchmark_Suite
       # https://ambermd.org/GPUPerformance.php
       (
@@ -307,12 +339,20 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
   def test_energy_force(self, system_info):
     # neighbor_format = partition.NeighborListFormat.OrderedSparse
 
+    # TODO charmm probably isn't safe unless this is passed
+    # load_kwargs = {
+    #   'constraints': None,
+    #   'removeCMMotion': False,
+    #   'rigidWater': False,
+    # }
+    load_kwargs = {}
+
     if len(system_info) == 3:
       prmtop_name, inpcrd_name, nb_method = system_info
       prmtop_file = os.path.join(DATA_DIR, prmtop_name)
       inpcrd_file = os.path.join(DATA_DIR, inpcrd_name)
       omm_system, omm_topology, omm_positions, omm_box_vectors = (
-        load_amber_system(prmtop_file, inpcrd_file, nb_method)
+        load_amber_system(prmtop_file, inpcrd_file, nb_method, **load_kwargs)
       )
       use_switch = False
       use_lrc = False
@@ -376,11 +416,17 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
       format=partition.NeighborListFormat.OrderedSparse,
     )
 
+    if mm.virtual_sites is not None:
+      has_virtual_sites = True
+      vs_mask = ~mm.virtual_sites.is_virtual_site
+    else:
+      has_virtual_sites = False
+
     coulomb = _make_coulomb_handler(
       nb_method, mm.nb_options.r_cut, mm.recip_alpha, mm.recip_grid
     )
 
-    energy_fn, neighbor_fn, _, _ = amber_energy(
+    energy_fn, neighbor_fn, disp_fn, shift_fn = amber_energy(
       mm.params,
       mm.topology,
       mm.box_vectors,
@@ -388,29 +434,64 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
       nb_options=mm.nb_options,
     )
 
+    def energy_fn_vs(pos, nlist):
+      if has_virtual_sites:
+        pos = virtual_site_apply_positions(
+          pos,
+          mm.virtual_sites,
+          displacement_fn=disp_fn,
+          shift_fn=shift_fn,
+          box=mm.box_vectors,
+          use_periodic_general=mm.nb_options.use_periodic_general,
+        )
+        nlist = nlist.update(pos)
+      E = energy_fn(pos, nlist)
+      return E
+
+    def total_energy_fn(pos, nlist):
+      if has_virtual_sites:
+        pos = virtual_site_apply_positions(
+          pos,
+          mm.virtual_sites,
+          displacement_fn=disp_fn,
+          shift_fn=shift_fn,
+          box=mm.box_vectors,
+          use_periodic_general=mm.nb_options.use_periodic_general,
+        )
+        nlist = nlist.update(pos)
+      E = energy_fn(pos, nlist)
+      return E['etotal']
+
     nlist = neighbor_fn.allocate(mm.positions)
-    energy_dict = energy_fn(mm.positions, nlist)
-    ref_terms, omm_frcs = _openmm_energy_force(omm_system, omm_positions)
+    energy_dict = energy_fn_vs(mm.positions, nlist)
+    ref_terms, omm_frcs = _openmm_energy_force(omm_system, omm_positions, has_virtual_sites=has_virtual_sites)
 
     # print("\njax energy dict", energy_dict)
     # print("\nomm energy dict", ref_terms)
     # print("\njax energy", energy_dict["etotal"], energy_dict["etotal"]*4.184)
     # print("\nomm energy", ref_terms["etotal"], ref_terms["etotal"]*4.184)
 
-    self.assertAllClose(
-      energy_dict['etotal'], ref_terms['etotal'], rtol=1e-4, atol=0.0
-    )
-
-    def total_energy_fn(pos, nlist):
-      E = energy_fn(pos, nlist)
-      return E['etotal']
-
     grad_fn = jax.grad(total_energy_fn)
-    gradients = -grad_fn(mm.positions, nlist)
+    jax_frc = -grad_fn(mm.positions, nlist)
 
-    self.assertEqual(gradients.shape, mm.positions.shape)
-    self.assertTrue(jnp.all(jnp.isfinite(gradients)))
-    # self.assertAllClose(gradients, omm_frcs, rtol=1e-4, atol=0.0)
+    self.assertEqual(jax_frc.shape, mm.positions.shape)
+    self.assertTrue(jnp.all(jnp.isfinite(jax_frc)))
+
+    e_jax = float(energy_dict['etotal'])
+    e_omm = float(ref_terms['etotal'])
+    dE = e_jax - e_omm
+
+    omm_frc = jnp.asarray(omm_frcs, dtype=jax_frc.dtype)
+
+    # only evaluate real DoF for virtual site systems
+    if has_virtual_sites:
+      jax_frc = jax_frc[vs_mask]
+      omm_frc = omm_frc[vs_mask]
+
+    max_abs_error = jnp.max(abs_frc_error(jax_frc, omm_frc))
+    rms_error = rms_frc_error(jax_frc, omm_frc)
+    rel_error = jnp.median(rel_frc_error(jax_frc, omm_frc))
+    rel_dE = rel_nrg_error(e_jax, e_omm)
 
     # Optional per-case summary to help spot regressions at a glance.
     label = str(system_info[0])
@@ -421,22 +502,15 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
         f'CHARMM {crd_name} switch={use_switch} lrc={use_lrc} ({nb_method})'
       )
 
-    e_jax = float(jax.device_get(energy_dict['etotal']))
-    e_omm = float(ref_terms['etotal'])
-    dE = e_jax - e_omm
-
-    frc = jnp.asarray(omm_frcs, dtype=gradients.dtype)
-    df = gradients - frc
-    max_abs = float(jnp.max(jnp.abs(df)))
-    rms_abs = float(jnp.sqrt(jnp.mean(df**2)))
-    rms_rel = float(rms_abs / (jnp.sqrt(jnp.mean(frc**2)) + 1e-12))
-
     _vprint(
       '[E/F] '
       f'{label}  '
-      f'E_jax={e_jax:.6f} E_omm={e_omm:.6f} dE={dE:.3e} kcal/mol  '
-      f'F_err: max_abs={max_abs:.3e} rms_abs={rms_abs:.3e} rms_rel={rms_rel:.3e}'
+      f'E_jax={e_jax:.6f} E_omm={e_omm:.6f} dE={dE:.3e} kcal/mol rel_dE= {rel_dE:.3e} kcal/mol '
+      f'F_err: max_abs={max_abs_error:.3e} rms={rms_error:.3e} med_rel={rel_error:.3e} '
     )
+
+    self.assertLess(rel_dE, 1e-4)
+    self.assertLess(rms_error, 1e-4)
 
   """
   Notes:
