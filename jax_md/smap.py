@@ -864,7 +864,8 @@ def pair_neighbor_list(
       remaining axes correspond to the output axes of `fn`. Note that it is not
       well-defined to sum over particles without summing over neighbors. One
       also cannot report per-particle values (excluding axis `0`) for neighbor
-      lists whose format is `OrderedSparse`.
+      lists whose format is `OrderedSparse`. If `reduce_axis=()` (empty tuple),
+      no reduction is applied and the masked edge-wise array is returned.
     ignore_unused_parameters: A boolean that denotes whether dynamically
       specified keyword arguments passed to the mapped function get ignored
       if they were not first specified as keyword arguments when calling
@@ -928,6 +929,9 @@ def pair_neighbor_list(
       ddim = out.ndim - mask.ndim
       mask = jnp.reshape(mask, mask.shape + (1,) * ddim)
     out *= mask
+
+    if reduce_axis is not None and len(reduce_axis) == 0:
+      return out / normalization
 
     if reduce_axis is None:
       return util.high_precision_sum(out) / normalization

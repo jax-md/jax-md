@@ -16,6 +16,7 @@ Conventions (unless otherwise stated):
 from functools import partial
 from typing import Any, Callable, Optional
 
+import numpy as np
 import jax
 import jax.numpy as jnp
 import numpy as onp
@@ -82,6 +83,8 @@ class FEOptions(object):
   coul_scaling: Optional[str] = None
   ti_mask: Array | float = 1.0
   sc_mask: Array | float = 1.0
+  softcore_lrc: bool = False
+  softcore_lrc_points: int = 96
 
 
 def space_selector(
@@ -242,6 +245,130 @@ def energy(
   bonded = params.bonded
   nonbonded = params.nonbonded
 
+  use_softcore_vdw = (fe_options.vdw_scaling or '').lower() == 'softcore'
+  use_linear_coul = (fe_options.coul_scaling or '').lower() == 'linear'
+  use_softcore_lrc = bool(getattr(fe_options, 'softcore_lrc', False))
+  softcore_lrc_points = int(getattr(fe_options, 'softcore_lrc_points', 96))
+  if use_softcore_vdw:
+    sc_atom_mask = jnp.asarray(fe_options.sc_mask)
+    if sc_atom_mask.ndim == 0:
+      # Scalar fallback for convenience; explicit length-N mask is preferred
+      sc_atom_mask = jnp.ones((topology.n_atoms,), dtype=jnp.bool_) * (sc_atom_mask != 0)
+    else:
+      sc_atom_mask = jnp.asarray(sc_atom_mask, dtype=jnp.bool_)
+
+  disp_coef_main_alch = None
+  if use_softcore_vdw and (nb_options.r_cut is not None):
+    def _eval_switch_integral_jnp(r: Array | float, rs: float, rc: float, sigma: Array | float) -> Array:
+      A = 1.0 / (rc - rs)
+      A2 = A * A
+      A3 = A2 * A
+      sig2 = sigma * sigma
+      sig6 = sig2 * sig2 * sig2
+      rs2 = rs * rs
+      rs3 = rs * rs2
+      r2 = r * r
+      r3 = r * r2
+      r4 = r * r3
+      r5 = r * r4
+      r6 = r * r5
+      r9 = r3 * r6
+      return sig6 * A3 * (
+        (
+          sig6
+          * (
+            +rs3 * 28.0 * (6.0 * rs2 * A2 + 15.0 * rs * A + 10.0)
+            - r * rs2 * 945.0 * (rs2 * A2 + 2.0 * rs * A + 1.0)
+            + r2 * rs * 1080.0 * (2.0 * rs2 * A2 + 3.0 * rs * A + 1.0)
+            - r3 * 420.0 * (6.0 * rs2 * A2 + 6.0 * rs * A + 1.0)
+            + r4 * 756.0 * (2.0 * rs * A2 + A)
+            - r5 * 378.0 * A2
+          )
+          - r6
+          * (
+            +rs3 * 84.0 * (6.0 * rs2 * A2 + 15.0 * rs * A + 10.0)
+            - r * rs2 * 3780.0 * (rs2 * A2 + 2.0 * rs * A + 1.0)
+            + r2 * rs * 7560.0 * (2.0 * rs2 * A2 + 3.0 * rs * A + 1.0)
+          )
+        )
+        / (252.0 * r9)
+        - jnp.log(r) * 10.0 * (6.0 * rs2 * A2 + 6.0 * rs * A + 1.0)
+        + r * 15.0 * (2.0 * rs * A2 + A)
+        - r2 * 3.0 * A2
+      )
+
+    def _calc_disp_coef_subset(
+      sigma_subset: Array,
+      epsilon_subset: Array,
+      n_atoms_full: int,
+      r_cut: float,
+      r_switch: float | None,
+    ) -> Array:
+      if sigma_subset.size == 0:
+        return jnp.asarray(0.0, dtype=jnp.float64)
+      disp_coefs = jnp.stack([sigma_subset, epsilon_subset], axis=1)
+      values, count = jnp.unique(disp_coefs, axis=0, return_counts=True)
+
+      sigma2 = values[:, 0] * values[:, 0]
+      sigma6 = sigma2 * sigma2 * sigma2
+      count_s = count * (count + 1) / 2
+      sum1 = jnp.sum(count_s * values[:, 1] * sigma6 * sigma6)
+      sum2 = jnp.sum(count_s * values[:, 1] * sigma6)
+
+      sig_mesh = jnp.triu(jnp.array(jnp.meshgrid(values[:, 0], values[:, 0])), k=1).T.reshape(-1, 2)
+      eps_mesh = jnp.triu(jnp.array(jnp.meshgrid(values[:, 1], values[:, 1])), k=1).T.reshape(-1, 2)
+      count_mesh = jnp.triu(jnp.array(jnp.meshgrid(count, count)), k=1).T.reshape(-1, 2)
+
+      sig_c = 0.5 * jnp.sum(sig_mesh, axis=1)
+      eps_c = jnp.sqrt(eps_mesh[:, 0] * eps_mesh[:, 1])
+      count_c = jnp.prod(count_mesh, axis=1)
+
+      sigma2 = sig_c * sig_c
+      sigma6 = sigma2 * sigma2 * sigma2
+      sum1 = sum1 + jnp.sum(count_c * eps_c * sigma6 * sigma6)
+      sum2 = sum2 + jnp.sum(count_c * eps_c * sigma6)
+
+      sum3 = jnp.asarray(0.0, dtype=jnp.float64)
+      if r_switch is not None:
+        sum3 = jnp.sum(
+          count_s
+          * values[:, 1]
+          * (
+            _eval_switch_integral_jnp(r_cut, r_switch, r_cut, values[:, 0])
+            - _eval_switch_integral_jnp(r_switch, r_switch, r_cut, values[:, 0])
+          )
+        )
+        sum3 = sum3 + jnp.sum(
+          count_c
+          * eps_c
+          * (
+            _eval_switch_integral_jnp(r_cut, r_switch, r_cut, sig_c)
+            - _eval_switch_integral_jnp(r_switch, r_switch, r_cut, sig_c)
+          )
+        )
+
+      denom = (n_atoms_full * (n_atoms_full + 1)) / 2
+      sum1 = sum1 / denom
+      sum2 = sum2 / denom
+      sum3 = sum3 / denom
+      n_full = jnp.asarray(float(n_atoms_full), dtype=jnp.float64)
+      return 8.0 * n_full * n_full * jnp.pi * (
+        sum1 / (9.0 * (r_cut**9)) - sum2 / (3.0 * (r_cut**3)) + sum3
+      )
+
+    sc_mask_jnp = jnp.asarray(sc_atom_mask, dtype=jnp.bool_)
+    cc_mask_jnp = ~sc_mask_jnp
+    sigma_jnp = jnp.asarray(nonbonded.sigma)
+    epsilon_jnp = jnp.asarray(nonbonded.epsilon)
+    rs = float(nb_options.r_switch) if nb_options.r_switch is not None else None
+    disp_coef_main_alch = _calc_disp_coef_subset(
+      sigma_jnp[cc_mask_jnp],
+      epsilon_jnp[cc_mask_jnp],
+      int(topology.n_atoms),
+      float(nb_options.r_cut),
+      rs,
+    )
+
   disp_fn, shift_fn = space_selector(nb_options, box_vectors)
 
   if isinstance(coulomb_options, PMECoulomb):
@@ -315,6 +442,10 @@ def energy(
   # Create fused LJ + coulomb function to avoid 2 passes over smap
   # NOTE probably not the best way to flag if the ab form is used
   use_ab = len(topology.nbfix_atom_type) != 0
+  if use_softcore_vdw and use_ab:
+    raise NotImplementedError(
+      'Softcore vdW is currently implemented only for sigma/epsilon LJ (no NBFIX path yet).'
+    )
   use_erfc = isinstance(coulomb_options, (EwaldCoulomb, PMECoulomb))
 
   def coulomb_fn(dr: Array, charge_sq: Array, alpha: Array, use_erfc: bool, **unused_kwargs: Any) -> Array:
@@ -360,10 +491,10 @@ def energy(
 
   # NOTE the alpha value is closed over during generation which
   # may be an issue if the grid layout changes during dynamics
-  pair_lj_fn = smap.pair_neighbor_list(
+  pair_lj_edge_fn = smap.pair_neighbor_list(
     fused_nb_fn,
     space.canonicalize_displacement_or_metric(disp_fn),
-    reduce_axis=(0, 1), # sum over particles + neighbors
+    reduce_axis=(),  # return edge-wise terms to support SC/CC masking
     ignore_unused_parameters=True,
     species=species_rule,
     lj1=lj1_rule,
@@ -371,6 +502,34 @@ def energy(
     charge_sq=(combine_product, None),
     alpha=coulomb.alpha if use_erfc else 0.0,
   )
+
+  pair_coul_1r_edge_fn = None
+  if use_softcore_vdw and use_linear_coul:
+    coul_1r_wrapped = ele_cutoff_fn(
+      lambda dr, charge_sq, **unused_kwargs: COULOMB_CONSTANT * (charge_sq / jnp.where(jnp.isclose(dr, 0.0), 1.0, dr))
+    )
+    pair_coul_1r_edge_fn = smap.pair_neighbor_list(
+      coul_1r_wrapped,
+      space.canonicalize_displacement_or_metric(disp_fn),
+      reduce_axis=(),
+      ignore_unused_parameters=True,
+      charge_sq=(combine_product, None),
+    )
+
+  softcore_lj_edge_fn = None
+  if use_softcore_vdw:
+    softcore_wrapped = vdw_cutoff_fn(jax.tree_util.Partial(lennard_jones_softcore))
+    softcore_lj_edge_fn = smap.pair_neighbor_list(
+      softcore_wrapped,
+      space.canonicalize_displacement_or_metric(disp_fn),
+      reduce_axis=(),
+      ignore_unused_parameters=True,
+      species=species_rule,
+      sigma=(combine_lorentz, None),
+      epsilon=(combine_berthelot, None),
+      cl_lambda=None,
+    )
+
   bond_lj_fn = smap.bond(
     lennard_jones,
     space.canonicalize_displacement_or_metric(disp_fn),
@@ -409,10 +568,135 @@ def energy(
     dense_candidate_format=dense_mask_format,
   )
 
+  def _sc_edge_masks(nbr_list: NeighborList) -> tuple[Array, Array, Array]:
+    if nb_options.nb_format in (NeighborListFormat.Sparse, NeighborListFormat.OrderedSparse):
+      receiver = nbr_list.idx[0]
+      sender = nbr_list.idx[1]
+      valid = (receiver < topology.n_atoms) & (sender < topology.n_atoms)
+    else:
+      sender = jnp.arange(topology.n_atoms, dtype=jnp.int32)[:, None]
+      receiver = nbr_list.idx
+      valid = receiver < topology.n_atoms
+      receiver = jnp.where(valid, receiver, 0)
+
+    sender_is_sc = sc_atom_mask[sender]
+    receiver_is_sc = sc_atom_mask[receiver]
+    sc_sc = valid & sender_is_sc & receiver_is_sc
+    cc_cc = valid & (~sender_is_sc) & (~receiver_is_sc)
+    sc_cc = valid & ~(sc_sc | cc_cc)
+    return sc_sc, sc_cc, cc_cc
+
+
+  # Optional numerical softcore LRC approximation for SC-CC split force.
+  _soft_lrc_ready = False
+  _soft_lrc_sigma = None
+  _soft_lrc_epsilon = None
+  _soft_lrc_pair_weight = None
+  _soft_lrc_tail_x = None
+  _soft_lrc_tail_w = None
+  _soft_lrc_sw_x = None
+  _soft_lrc_sw_w = None
+  _soft_lrc_rc = None
+  _soft_lrc_rs = None
+  if (
+    use_softcore_vdw
+    and use_softcore_lrc
+    and (nb_options.r_cut is not None)
+    and topology.n_atoms > 0
+  ):
+    sc_mask_jnp = jnp.asarray(sc_atom_mask, dtype=jnp.bool_)
+    sc_idx = jnp.where(sc_mask_jnp)[0]
+    cc_idx = jnp.where(~sc_mask_jnp)[0]
+    if sc_idx.size > 0 and cc_idx.size > 0:
+      sigma_jnp = jnp.asarray(nonbonded.sigma)
+      epsilon_jnp = jnp.asarray(nonbonded.epsilon)
+      # Match modify_alchemical_system safeguard for zero sigma in softcore force.
+      sigma_jnp = jnp.where(jnp.isclose(sigma_jnp, 0.0), 3.0, sigma_jnp)
+
+      sc_vals, sc_counts = jnp.unique(
+        jnp.stack([sigma_jnp[sc_idx], epsilon_jnp[sc_idx]], axis=1),
+        axis=0,
+        return_counts=True,
+      )
+      cc_vals, cc_counts = jnp.unique(
+        jnp.stack([sigma_jnp[cc_idx], epsilon_jnp[cc_idx]], axis=1),
+        axis=0,
+        return_counts=True,
+      )
+      pair_counts = sc_counts[:, None] * cc_counts[None, :]
+      sigma_pair = 0.5 * (sc_vals[:, None, 0] + cc_vals[None, :, 0])
+      epsilon_pair = jnp.sqrt(sc_vals[:, None, 1] * cc_vals[None, :, 1])
+
+      n_atoms_f = float(topology.n_atoms)
+      num_interactions = (n_atoms_f * (n_atoms_f + 1.0)) / 2.0
+
+      # NOTE: OpenMM CustomNonbondedForce LRC uses iterative midpoint/Richardson integration;
+      # I use one-shot Gauss quadrature here for a simpler approximation
+      gx, gw = np.polynomial.legendre.leggauss(softcore_lrc_points)
+      x_tail = 0.5 * (gx + 1.0)
+      w_tail = 0.5 * gw
+
+      _soft_lrc_sigma = jnp.asarray(sigma_pair.reshape(-1), dtype=jnp.float64)
+      _soft_lrc_epsilon = jnp.asarray(epsilon_pair.reshape(-1), dtype=jnp.float64)
+      _soft_lrc_pair_weight = jnp.asarray(
+        pair_counts.reshape(-1) / num_interactions, dtype=jnp.float64
+      )
+      _soft_lrc_tail_x = jnp.asarray(x_tail, dtype=jnp.float64)
+      _soft_lrc_tail_w = jnp.asarray(w_tail, dtype=jnp.float64)
+      _soft_lrc_rc = jnp.asarray(float(nb_options.r_cut), dtype=jnp.float64)
+
+      if nb_options.r_switch is not None:
+        _soft_lrc_rs = jnp.asarray(float(nb_options.r_switch), dtype=jnp.float64)
+        _soft_lrc_sw_x = jnp.asarray(x_tail, dtype=jnp.float64)
+        _soft_lrc_sw_w = jnp.asarray(w_tail, dtype=jnp.float64)
+
+      _soft_lrc_ready = True
+
+  def _softcore_lrc_sc_cc(cl_lambda_val: Array | float, volume: Array) -> Array:
+    if not _soft_lrc_ready:
+      return jnp.asarray(0.0, dtype=jnp.float64)
+
+    rc = _soft_lrc_rc
+    x = _soft_lrc_tail_x
+    w = _soft_lrc_tail_w
+
+    r_tail = rc / x[None, :]
+    u_tail = lennard_jones_softcore(
+      r_tail,
+      _soft_lrc_sigma[:, None],
+      _soft_lrc_epsilon[:, None],
+      cl_lambda_val,
+    )
+    i_tail = jnp.sum(w[None, :] * u_tail * (rc**3) / (x[None, :]**4), axis=1)
+
+    i_switch = jnp.asarray(0.0, dtype=jnp.float64)
+    if _soft_lrc_rs is not None:
+      rs = _soft_lrc_rs
+      xs = _soft_lrc_sw_x
+      ws = _soft_lrc_sw_w
+      r_sw = rs + xs[None, :] * (rc - rs)
+      s = xs**3 * (10.0 + xs * (-15.0 + xs * 6.0))
+      u_sw = lennard_jones_softcore(
+        r_sw,
+        _soft_lrc_sigma[:, None],
+        _soft_lrc_epsilon[:, None],
+        cl_lambda_val,
+      )
+      i_switch = jnp.sum(
+        ws[None, :] * s[None, :] * u_sw * (r_sw**2) * (rc - rs), axis=1
+      )
+
+    i_pair = i_tail + i_switch
+    sum_weighted = jnp.sum(_soft_lrc_pair_weight * i_pair)
+    n_atoms_f = jnp.asarray(float(topology.n_atoms), dtype=jnp.float64)
+    coeff = 2.0 * jnp.pi * n_atoms_f * n_atoms_f * sum_weighted
+    return coeff / volume
+
   def energy_fn(
     positions: Array,
     nbr_list: NeighborList,
     cl_lambda: Array | float = 0.0,
+    lambda_q: Array | float = 1.0,
     **kwargs: Any,
   ) -> dict[str, Array]:
     """
@@ -425,6 +709,7 @@ def energy(
       nbr_list: A neighbor list object created/updated by neighbor_fn.
       cl_lambda: Alchemical lambda value used by free-energy
         scaling paths.
+      lambda_q: Electrostatic alchemical lambda for linear charge scaling.
       kwargs: kwargs to pass through dynamic structures. Note that this
         may not always be safe and can cause recompilation or runtime
         errors.
@@ -515,8 +800,6 @@ def energy(
     )
 
     ### Lennard Jones Interaction
-    # TODO using 2 smap functions over the neighbor list for coulomb and then LJ
-    # may have some negative performance implications, need to test under JIT
     if use_ab:
       lj1=nonbonded.nbfix_acoef
       lj2=nonbonded.nbfix_bcoef
@@ -524,7 +807,7 @@ def energy(
       lj1=nonbonded.sigma
       lj2=nonbonded.epsilon
 
-    lj_pot, coul_dir_pot = pair_lj_fn(
+    edge_terms = pair_lj_edge_fn(
       positions,
       nbr_list,
       lj1=lj1,
@@ -532,6 +815,58 @@ def energy(
       charge_sq=nonbonded.charges,
       **space_kwarg,
     )
+    lj_edge = edge_terms[..., 0]
+    coul_dir_edge = edge_terms[..., 1]
+
+    coul_dir_pot = jnp.sum(coul_dir_edge)
+
+    if use_softcore_vdw and use_linear_coul:
+      assert pair_coul_1r_edge_fn is not None
+      sc_sc_mask, _, _ = _sc_edge_masks(nbr_list)
+      sc_sc_coul_1r_edge = pair_coul_1r_edge_fn(
+        positions,
+        nbr_list,
+        charge_sq=params.nonbonded.charges,
+        **space_kwarg,
+      )
+      sc_sc_coul_full = jnp.sum(jnp.where(sc_sc_mask, sc_sc_coul_1r_edge, 0.0))
+      sc_sc_coul_addback = (1.0 - lambda_q * lambda_q) * sc_sc_coul_full
+      coul_dir_pot = coul_dir_pot + sc_sc_coul_addback
+      result_dict['sc_sc_coul_1r_full_pot'] = sc_sc_coul_full
+      result_dict['sc_sc_coul_addback_pot'] = sc_sc_coul_addback
+
+    if use_softcore_vdw:
+      assert softcore_lj_edge_fn is not None
+      soft_lj_edge = softcore_lj_edge_fn(
+        positions,
+        nbr_list,
+        sigma=nonbonded.sigma,
+        epsilon=nonbonded.epsilon,
+        cl_lambda=cl_lambda,
+        **space_kwarg,
+      )
+      sc_sc_mask, sc_cc_mask, cc_cc_mask = _sc_edge_masks(nbr_list)
+
+      lj_sc_sc = jnp.sum(jnp.where(sc_sc_mask, lj_edge, 0.0))
+      lj_sc_cc = jnp.sum(jnp.where(sc_cc_mask, lj_edge, 0.0))
+      lj_cc_cc = jnp.sum(jnp.where(cc_cc_mask, lj_edge, 0.0))
+
+      sc_lj_sc_sc = jnp.sum(jnp.where(sc_sc_mask, soft_lj_edge, 0.0))
+      sc_lj_sc_cc = jnp.sum(jnp.where(sc_cc_mask, soft_lj_edge, 0.0))
+      sc_lj_cc_cc = jnp.sum(jnp.where(cc_cc_mask, soft_lj_edge, 0.0))
+
+      # HFE-style default: only SC-CC uses softcore, CC-CC and SC-SC remain normal.
+      lj_pot = lj_cc_cc + lj_sc_sc + sc_lj_sc_cc
+
+      result_dict['lj_cc_cc_pot'] = lj_cc_cc
+      result_dict['lj_sc_cc_pot'] = lj_sc_cc
+      result_dict['lj_sc_sc_pot'] = lj_sc_sc
+      result_dict['lj_softcore_cc_cc_pot'] = sc_lj_cc_cc
+      result_dict['lj_softcore_sc_cc_pot'] = sc_lj_sc_cc
+      result_dict['lj_softcore_sc_sc_pot'] = sc_lj_sc_sc
+    else:
+      lj_pot = jnp.sum(lj_edge)
+
     lj_exc_pot = bond_lj_fn(
       positions,
       topology.exc_pairs,
@@ -544,9 +879,11 @@ def energy(
 
     # Calculate Dispersion Correction term
     # TODO note that this will be incorrect if parameters change
-    # TODO this seems like it may be incorrect for switching functions
-    # custom nonbonded terms, nbfix LRC, or other situations besides
-    # standard 12-6 LJ with no modifications
+    # TODO switching function correction as well as softcore/common core
+    # alchemical corrections are implemented, but tail correction for
+    # nbfix and other custom nonbonded terms is not yet implemented
+    # examples for how to implement these corrections in a more general
+    # way are in NonbondedForceImpl.cpp and CustomNonbondedForceImpl.cpp
     if coulomb_method == 'PME':
       box_for_volume = _box
       if perturbation is not None:
@@ -555,12 +892,19 @@ def energy(
         V = jnp.linalg.det(box_for_volume)
       else:
         V = jnp.prod(box_for_volume)
-      disp_pot = nb_options.disp_coef / V
+      disp_coef_main = disp_coef_main_alch if (use_softcore_vdw and disp_coef_main_alch is not None) else nb_options.disp_coef
+      disp_main_pot = disp_coef_main / V
+      disp_softcore_sc_cc_pot = _softcore_lrc_sc_cc(cl_lambda, V)
+      disp_pot = disp_main_pot + disp_softcore_sc_cc_pot
     else:
+      disp_main_pot = jnp.float32(0.0)
+      disp_softcore_sc_cc_pot = jnp.float32(0.0)
       disp_pot = jnp.float32(0.0)
 
     result_dict['lj_pot'] = lj_pot
     result_dict['coul_pot'] = coul_pot
+    result_dict['disp_main_pot'] = disp_main_pot
+    result_dict['disp_softcore_sc_cc_pot'] = disp_softcore_sc_cc_pot
     result_dict['disp_pot'] = disp_pot
     result_dict['lj_exc_pot'] = lj_exc_pot
     result_dict['coul_exc_pot'] = coul_exc_pot

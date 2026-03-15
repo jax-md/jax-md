@@ -60,6 +60,54 @@ _NM_TO_ANG = 10.0
 _ANG_TO_NM = 1.0 / _NM_TO_ANG
 
 
+def _eval_nonbonded_switch_integral(
+  r: np.ndarray | float,
+  r_switch: float,
+  r_cut: float,
+  sigma: np.ndarray | float,
+) -> np.ndarray:
+  # Mirror OpenMM NonbondedForceImpl::evalIntegral for switched LJ tail.
+  # Here be dragons: the expression represents the indefinite integral of
+  # the LJ interaction multiplied by the switching function, it may be
+  # easier to switch to a numerical approach, but this is what OpenMM does
+  A = 1.0 / (r_cut - r_switch)
+  A2 = A * A
+  A3 = A2 * A
+  sig2 = sigma * sigma
+  sig6 = sig2 * sig2 * sig2
+  rs2 = r_switch * r_switch
+  rs3 = r_switch * rs2
+  r2 = r * r
+  r3 = r * r2
+  r4 = r * r3
+  r5 = r * r4
+  r6 = r * r5
+  r9 = r3 * r6
+  return sig6 * A3 * (
+    (
+      sig6
+      * (
+        +rs3 * 28.0 * (6.0 * rs2 * A2 + 15.0 * r_switch * A + 10.0)
+        - r * rs2 * 945.0 * (rs2 * A2 + 2.0 * r_switch * A + 1.0)
+        + r2 * r_switch * 1080.0 * (2.0 * rs2 * A2 + 3.0 * r_switch * A + 1.0)
+        - r3 * 420.0 * (6.0 * rs2 * A2 + 6.0 * r_switch * A + 1.0)
+        + r4 * 756.0 * (2.0 * r_switch * A2 + A)
+        - r5 * 378.0 * A2
+      )
+      - r6
+      * (
+        +rs3 * 84.0 * (6.0 * rs2 * A2 + 15.0 * r_switch * A + 10.0)
+        - r * rs2 * 3780.0 * (rs2 * A2 + 2.0 * r_switch * A + 1.0)
+        + r2 * r_switch * 7560.0 * (2.0 * rs2 * A2 + 3.0 * r_switch * A + 1.0)
+      )
+    )
+    / (252.0 * r9)
+    - np.log(r) * 10.0 * (6.0 * rs2 * A2 + 6.0 * r_switch * A + 1.0)
+    + r * 15.0 * (2.0 * r_switch * A2 + A)
+    - r2 * 3.0 * A2
+  )
+
+
 class VirtualSiteData(NamedTuple):
   """Fixed-shape virtual site metadata for per-step position reconstruction.
 
@@ -695,11 +743,33 @@ def convert_openmm_system(
         sum1 = sum1 + np.sum(count_c * eps_c * sigma6 * sigma6)
         sum2 = sum2 + np.sum(count_c * eps_c * sigma6)
 
+        # if switching function is used, then the long range correction is more
+        # complicated and requires integrating both intervals for each unique pair
+        use_switch = force.getUseSwitchingFunction()
         sum3 = 0.0
+        if use_switch:
+          r_switch_cur = force.getSwitchingDistance().value_in_unit(unit.angstrom)
+          sum3 = np.sum(
+            count_s
+            * values[:, 1]
+            * (
+              _eval_nonbonded_switch_integral(r_cut, r_switch_cur, r_cut, values[:, 0])
+              - _eval_nonbonded_switch_integral(r_switch_cur, r_switch_cur, r_cut, values[:, 0])
+            )
+          )
 
         denom = (n_atoms * (n_atoms + 1)) / 2
         sum1 = sum1 / denom
         sum2 = sum2 / denom
+        if use_switch:
+          sum3 = sum3 + np.sum(
+            count_c
+            * eps_c
+            * (
+              _eval_nonbonded_switch_integral(r_cut, r_switch_cur, r_cut, sig_c)
+              - _eval_nonbonded_switch_integral(r_switch_cur, r_switch_cur, r_cut, sig_c)
+            )
+          )
         sum3 = sum3 / denom
 
         disp_coef = (
