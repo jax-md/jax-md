@@ -403,7 +403,7 @@ def cell_list(
       )
     #  pytype: enable=attribute-error
     indices = jnp.array(position / cell_size, dtype=i32)
-    indices = jnp.clip(indices, 0, cells_per_side - 1)
+    indices = jnp.mod(indices, cells_per_side)
     hashes = jnp.sum(indices * hash_multipliers, axis=1)
 
     # Copy the particle data into the grid. Here we use a trick to allow us to
@@ -888,7 +888,12 @@ def neighbor_list(
 
   @partial(jit, static_argnums=2)
   def cell_list_candidate_fn(
-    cl_id_buffer, particle_cell_id, positionShape, position, position_buffer
+    cl_id_buffer,
+    particle_cell_id,
+    positionShape,
+    position,
+    position_buffer,
+    **metric_kwargs,
   ) -> Array:
     N, dim = positionShape
     cell_capacity = cl_id_buffer.shape[dim]
@@ -915,7 +920,7 @@ def neighbor_list(
     nbr_pos = flat_pos_buf[cell_1d_flat]
     nbr_pos = nbr_pos.reshape(N, n_shifts * cell_capacity, dim)
 
-    d = space.map_bond(metric_sq)
+    d = space.map_bond(partial(metric_sq, **metric_kwargs))
     pos_expanded = jnp.broadcast_to(position[:, None, :], nbr_pos.shape)
     dR = d(pos_expanded.reshape(-1, dim), nbr_pos.reshape(-1, dim)).reshape(
       N, n_shifts * cell_capacity
@@ -1039,6 +1044,7 @@ def neighbor_list(
           position.shape,
           position,
           cl.position_buffer,
+          **kwargs,
         )
         cl_capacity = cl.cell_capacity
 
