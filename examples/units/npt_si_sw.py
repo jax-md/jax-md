@@ -90,7 +90,7 @@ download_file(base_url + 'lammps_npt.dat', 'lammps_npt.dat')
 base_url_nve = 'https://raw.githubusercontent.com/abhijeetgangan/Silicon-data/main/Si-SW-MD/NVE-300K/'
 download_file(base_url_nve + 'step_1.traj', 'step_1.traj')
 
-data_lammps = pd.read_csv('lammps_npt.dat', delim_whitespace=True, header=None)
+data_lammps = pd.read_csv('lammps_npt.dat', sep=r'\s+', header=None)
 data_lammps = data_lammps.dropna(axis=1)
 data_lammps.columns = ['Time', 'T', 'P', 'V', 'E', 'H']
 t_l, T, P, V, E, H = (

@@ -538,8 +538,8 @@ def _displacement_or_metric_to_metric_sq(
       R = ShapedArray((dim,), f32)
       dR_or_dr = eval_shape(displacement_or_metric, R, R, t=0)
       if len(dR_or_dr.shape) == 0:
-        return (
-          lambda Ra, Rb, **kwargs: displacement_or_metric(Ra, Rb, **kwargs) ** 2
+        return lambda Ra, Rb, **kwargs: (
+          displacement_or_metric(Ra, Rb, **kwargs) ** 2
         )
       else:
         return lambda Ra, Rb, **kwargs: space.square_distance(
