@@ -188,6 +188,7 @@ def count_cell_filling(
   hash_multipliers = _compute_hash_constants(dim, cells_per_side)
 
   particle_index = jnp.array(position / cell_size, dtype=i32)
+  particle_index = jnp.mod(particle_index, cells_per_side)
   particle_hash = jnp.sum(particle_index * hash_multipliers, axis=1)
 
   filling = ops.segment_sum(
