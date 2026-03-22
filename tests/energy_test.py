@@ -1542,20 +1542,7 @@ class EnergyTest(test_util.JAXMDTestCase):
     )
 
 
-def make_fcc_fractional(n_cells, a, dtype):
-  """Create FCC crystal in fractional coordinates."""
-  basis = onp.array(
-    [[0.0, 0.0, 0.0], [0.5, 0.5, 0.0], [0.5, 0.0, 0.5], [0.0, 0.5, 0.5]]
-  )
-  positions = []
-  for i in range(n_cells):
-    for j in range(n_cells):
-      for k in range(n_cells):
-        for b in basis:
-          positions.append((onp.array([i, j, k]) + b) / n_cells)
-  R = jnp.array(positions, dtype=dtype)
-  box = jnp.eye(3, dtype=dtype) * a * n_cells
-  return R, box
+make_fcc_fractional = test_util.make_fcc_fractional
 
 
 class MultiImageNeighborListTest(test_util.JAXMDTestCase):
