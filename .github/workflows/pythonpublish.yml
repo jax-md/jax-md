@@ -5,11 +5,8 @@ on:
     types: [created]
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
     steps:
     - uses: actions/checkout@v4
     - name: Install uv
@@ -22,5 +19,22 @@ jobs:
       run: uv pip install build
     - name: Build
       run: uv run python -m build
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: dist
+        path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+    - name: Download artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: dist
+        path: dist/
     - name: Publish to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
