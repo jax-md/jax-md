@@ -949,25 +949,25 @@ def neighbor_list_multi_image(
   def get_build_fn(capacity: int, box_override=None):
     """Get or create a build function for given capacity.
 
-    When ``box_override`` is provided the integer shift vectors are
-    recomputed for the new geometry; otherwise the precomputed shifts
-    for the default box are used.  Results are cached by
-    ``(capacity, num_shifts)``.
+    When ``box_override`` is provided (only from ``allocate_fn``,
+    never inside JIT) the integer shift vectors are recomputed for
+    the new geometry.  These are not cached because different boxes
+    can produce the same shift count but different shift vectors.
+
+    Without ``box_override``, the precomputed shifts for the default
+    box are used and the result is cached by capacity.
     """
     if box_override is not None:
       override_box = jnp.asarray(box_override)
       nl_shifts = _compute_shift_ranges(override_box, search_cutoff, pbc)
       zero_idx = int(jnp.argmin(jnp.sum(nl_shifts**2, axis=1)))
-    else:
-      nl_shifts = shifts
-      zero_idx = zero_shift_idx
+      return make_build_fn(capacity, nl_shifts, zero_idx)
 
-    cache_key = (capacity, len(nl_shifts))
-    if cache_key in build_fn_cache:
-      return build_fn_cache[cache_key]
+    if capacity in build_fn_cache:
+      return build_fn_cache[capacity]
 
-    build_fn = make_build_fn(capacity, nl_shifts, zero_idx)
-    build_fn_cache[cache_key] = build_fn
+    build_fn = make_build_fn(capacity, shifts, zero_shift_idx)
+    build_fn_cache[capacity] = build_fn
     return build_fn
 
   @jax.jit
@@ -1043,10 +1043,12 @@ def neighbor_list_multi_image(
       # First call: allocate with capacity computed from position
       return allocate_fn(position, **kwargs)
 
-    # Update: reuse existing capacity from neighbor list
+    # Update: reuse existing capacity and precomputed integer shifts.
+    # Real-space shifts (shifts @ box.T) are recomputed inside build_fn
+    # using the traced box argument, so this is safe inside JIT.
     current_box = jnp.asarray(kwargs.get('box', default_box))
     capacity = neighbors.max_occupancy
-    build_fn = get_build_fn(capacity, box_override=kwargs.get('box'))
+    build_fn = get_build_fn(capacity)
 
     # If box= was provided the geometry has changed; always rebuild.
     # The displacement threshold only applies when the box is unchanged.
