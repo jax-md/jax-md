@@ -1941,10 +1941,9 @@ class BehlerParrinelloEnergy(nnx.Module):
     return jnp.sum(readout)
 
 
-def _probe_sym_dim(sym_fn, n_particles=3, dim=3, neighbor=None):
-  dummy = jnp.zeros((n_particles, dim))
-  if neighbor is not None:
-    return sym_fn(dummy, neighbor).shape[-1]
+def _probe_sym_dim(sym_fn, species, dim=3):
+  n = len(species) if species is not None else 3
+  dummy = jnp.zeros((n, dim))
   return sym_fn(dummy).shape[-1]
 
 
@@ -1977,7 +1976,7 @@ def behler_parrinello(
     sym_kwargs = {}
 
   sym_fn = bp.symmetry_functions(displacement, species, **sym_kwargs)
-  sym_dim = _probe_sym_dim(sym_fn)
+  sym_dim = _probe_sym_dim(sym_fn, species)
 
   model = BehlerParrinelloEnergy(
     sym_fn,
@@ -2051,7 +2050,7 @@ def behler_parrinello_neighbor_list(
     displacement, species, **sym_kwargs
   )
   sym_dim = _probe_sym_dim(
-    bp.symmetry_functions(displacement, species, **sym_kwargs)
+    bp.symmetry_functions(displacement, species, **sym_kwargs), species
   )
 
   model = BehlerParrinelloEnergy(
