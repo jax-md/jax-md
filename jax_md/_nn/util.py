@@ -193,7 +193,7 @@ def get_shift_and_scale(cfg: ConfigDict) -> Tuple[float, float]:
 # Checkpoint conversion
 
 
-_HAIKU_TO_NNX_LIST = {
+_HAIKU_TO_NNX = {
   'linear': 'layers',
   'EdgeFunction': 'edge_fns',
   'NodeFunction': 'node_fns',
@@ -202,19 +202,19 @@ _HAIKU_TO_NNX_LIST = {
 
 
 def _haiku_segment_to_nnx(segment):
-  """Map a Haiku-era path segment to the ``nnx.List`` index convention.
+  """Map a Haiku-era path segment to the NNX attribute naming convention.
 
-  ``'linear'`` -> ``('layers', 0)``,  ``'linear_1'`` -> ``('layers', 1)``,
-  ``'EdgeFunction'`` -> ``('edge_fns', 0)``, ``'EdgeFunction_1'`` -> ``('edge_fns', 1)``.
+  ``'linear'`` -> ``'layers_0'``,  ``'linear_1'`` -> ``'layers_1'``,
+  ``'EdgeFunction'`` -> ``'edge_fns_0'``, ``'EdgeFunction_1'`` -> ``'edge_fns_1'``.
   Segments not in the map are returned as-is.
   """
-  for haiku_name, nnx_name in _HAIKU_TO_NNX_LIST.items():
+  for haiku_name, nnx_name in _HAIKU_TO_NNX.items():
     if segment == haiku_name:
-      return (nnx_name, 0)
+      return (f'{nnx_name}_0',)
     if segment.startswith(haiku_name + '_'):
       suffix = segment[len(haiku_name) + 1 :]
       if suffix.isdigit():
-        return (nnx_name, int(suffix))
+        return (f'{nnx_name}_{suffix}',)
   return (segment,)
 
 

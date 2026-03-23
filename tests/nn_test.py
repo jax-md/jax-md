@@ -424,15 +424,13 @@ class ConvertCheckpointTest(absltest.TestCase):
     }
     template = {
       'GraphNetEncoder': {
-        'layers': {
-          0: {
-            'kernel': onp.empty((3, 4), dtype=onp.float32),
-            'bias': onp.empty((4,), dtype=onp.float32),
-          },
-          1: {
-            'kernel': onp.empty((4, 2), dtype=onp.float32),
-            'bias': onp.empty((2,), dtype=onp.float32),
-          },
+        'layers_0': {
+          'kernel': onp.empty((3, 4), dtype=onp.float32),
+          'bias': onp.empty((4,), dtype=onp.float32),
+        },
+        'layers_1': {
+          'kernel': onp.empty((4, 2), dtype=onp.float32),
+          'bias': onp.empty((2,), dtype=onp.float32),
         },
       },
     }
@@ -443,16 +441,16 @@ class ConvertCheckpointTest(absltest.TestCase):
     result = convert_checkpoint_to_params(checkpoint, template)
 
     onp.testing.assert_array_equal(
-      result['GraphNetEncoder']['layers'][0]['kernel'], onp.ones((3, 4))
+      result['GraphNetEncoder']['layers_0']['kernel'], onp.ones((3, 4))
     )
     onp.testing.assert_array_equal(
-      result['GraphNetEncoder']['layers'][0]['bias'], onp.zeros((4,))
+      result['GraphNetEncoder']['layers_0']['bias'], onp.zeros((4,))
     )
     onp.testing.assert_array_equal(
-      result['GraphNetEncoder']['layers'][1]['kernel'], onp.full((4, 2), 0.5)
+      result['GraphNetEncoder']['layers_1']['kernel'], onp.full((4, 2), 0.5)
     )
     onp.testing.assert_array_equal(
-      result['GraphNetEncoder']['layers'][1]['bias'], onp.ones((2,))
+      result['GraphNetEncoder']['layers_1']['bias'], onp.ones((2,))
     )
 
   def test_dtype_preservation(self):

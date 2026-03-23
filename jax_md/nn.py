@@ -64,8 +64,11 @@ class MLP(nnx.Module):
     self.activation = activation
     self.activate_final = activate_final
     sizes = (in_features,) + tuple(output_sizes)
-    self.layers = nnx.List(
-      [
+    self.num_layers = len(sizes) - 1
+    for i in range(self.num_layers):
+      setattr(
+        self,
+        f'layers_{i}',
         nnx.Linear(
           sizes[i],
           sizes[i + 1],
@@ -73,15 +76,13 @@ class MLP(nnx.Module):
           kernel_init=kernel_init,
           bias_init=bias_init,
           rngs=rngs,
-        )
-        for i in range(len(sizes) - 1)
-      ]
-    )
+        ),
+      )
 
   def __call__(self, x: Array) -> Array:
-    for i, layer in enumerate(self.layers):
-      x = layer(x)
-      if self.activate_final or i < len(self.layers) - 1:
+    for i in range(self.num_layers):
+      x = getattr(self, f'layers_{i}')(x)
+      if self.activate_final or i < self.num_layers - 1:
         x = self.activation(x)
     return x
 
@@ -335,15 +336,10 @@ class GraphNetEncoder(nnx.Module):
     self.NodeEncoder = MLP(in_node_features, mlp_sizes, **kw)
     self.GlobalEncoder = MLP(in_global_features, mlp_sizes, **kw)
 
-    self.edge_fns = nnx.List(
-      [MLP(8 * m, mlp_sizes, **kw) for _ in range(n_recurrences)]
-    )
-    self.node_fns = nnx.List(
-      [MLP(6 * m, mlp_sizes, **kw) for _ in range(n_recurrences)]
-    )
-    self.global_fns = nnx.List(
-      [MLP(4 * m, mlp_sizes, **kw) for _ in range(n_recurrences)]
-    )
+    for i in range(n_recurrences):
+      setattr(self, f'edge_fns_{i}', MLP(8 * m, mlp_sizes, **kw))
+      setattr(self, f'node_fns_{i}', MLP(6 * m, mlp_sizes, **kw))
+      setattr(self, f'global_fns_{i}', MLP(4 * m, mlp_sizes, **kw))
 
   def __call__(self, graph: GraphsTuple) -> GraphsTuple:
     if self.format is partition.Dense:
@@ -361,9 +357,10 @@ class GraphNetEncoder(nnx.Module):
 
     outputs = encoded
 
-    for edge_mlp, node_mlp, global_mlp in zip(
-      self.edge_fns, self.node_fns, self.global_fns
-    ):
+    for i in range(self.n_recurrences):
+      edge_mlp = getattr(self, f'edge_fns_{i}')
+      node_mlp = getattr(self, f'node_fns_{i}')
+      global_mlp = getattr(self, f'global_fns_{i}')
 
       def edge_update(edges, sent, received, globals_, mlp=edge_mlp):
         return mlp(jnp.concatenate((edges, sent, received, globals_), axis=-1))
