@@ -14,22 +14,17 @@
 
 """Neural Network Primitives."""
 
-from typing import Callable, Tuple, Dict, Any, Optional
-
-import numpy as onp
+from typing import Callable, Tuple
 
 from flax import nnx
 import jax
-from jax import vmap, jit
+from jax import vmap
 import jax.numpy as jnp
 
-from jax_md import space, dataclasses, quantity, partition, smap
+from jax_md import dataclasses, partition
 from jax_md import util as jmd_util
 
-from collections import namedtuple
-from functools import partial, reduce
-from jax.tree_util import tree_map
-from jax import ops
+from functools import partial
 
 import jraph
 
@@ -42,14 +37,6 @@ from ._nn import util
 
 
 Array = jmd_util.Array
-f32 = jmd_util.f32
-f64 = jmd_util.f64
-
-CallFn = Callable[..., Array]
-
-DisplacementOrMetricFn = space.DisplacementOrMetricFn
-DisplacementFn = space.DisplacementFn
-NeighborList = partition.NeighborList
 
 ActivationFn = Callable[[Array], Array]
 

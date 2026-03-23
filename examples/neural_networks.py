@@ -20,10 +20,16 @@
 # %% [markdown]
 # # Neural Network Potentials
 #
-# This example mirrors `notebooks/neural_networks.ipynb`, using the shared
-# silicon `.aselmdb` dataset from `abhijeetgangan/silicon_data`, the migrated
-# `jax_md.energy.graph_network_neighbor_list` runtime, and converting the legacy
-# `si_gnn.pickle` checkpoint into the current parameter tree before evaluation.
+# An area of significant recent interest is the use of neural networks to model
+# quantum mechanics.  Since directly solving Schrodinger's equation is extremely
+# expensive, these techniques offer the possibility of conducting large-scale
+# and high-fidelity experiments of materials as well as chemical and biochemical
+# systems.
+#
+# Here we will use a Graph Neural Network (GNN) to learn a potential for a
+# 64-atom Silicon system.  The dataset comes from DFT simulations at 300K, 600K,
+# and 900K in several crystal phases.  We will train on energies and forces, and
+# then use the learned potential to run an NVT molecular dynamics simulation.
 
 # %% [markdown]
 # ## Imports & Utils
@@ -91,13 +97,14 @@ CHECKPOINT_PATH = CACHE_DIR / 'si_gnn.pickle'
 ASELMDB_CACHE = CACHE_DIR / 'silicon_aselmdb'
 
 NO_SKIP = 80 if SMOKE_TEST else 15
+MAX_SHARDS = 2 if SMOKE_TEST else None
 TRAIN_EPOCHS = 2 if SMOKE_TEST else 20
 N_PREDICTIONS = 128 if SMOKE_TEST else 500
 FORCE_EVAL_COUNT = 64 if SMOKE_TEST else 300
 SIMULATION_STEPS = 500 if SMOKE_TEST else 10000
 SIMULATION_PRINT_EVERY = 1 if SMOKE_TEST else 40
 SIMULATION_WRITE_EVERY = 25
-BATCH_SIZE = 32 if SMOKE_TEST else 128
+BATCH_SIZE = 8 if SMOKE_TEST else 128
 
 sns.set_style(style='white')
 sns.set(font_scale=1.6)
@@ -150,8 +157,10 @@ def ensure_silicon_aselmdb(phases=('cubic_300K', 'cubic_600K', 'cubic_900K')):
   download_file(SILICON_DATA_BASE_URL + 'manifest.json', manifest_path)
   with manifest_path.open() as f:
     manifest = json.load(f)
-  needed = shard_indices_for_phases(manifest, set(phases))
-  for idx in sorted(needed):
+  needed = sorted(shard_indices_for_phases(manifest, set(phases)))
+  if MAX_SHARDS is not None:
+    needed = needed[:MAX_SHARDS]
+  for idx in needed:
     name = f'data_{idx:04d}.aselmdb'
     download_file(SILICON_DATA_BASE_URL + name, ASELMDB_CACHE / name)
   return ASELMDB_CACHE
@@ -253,8 +262,10 @@ print(f'Using silicon dataset at {aselmdb_dir}')
 # %% [markdown]
 # ## Build the Dataset
 #
-# Each split includes 64-particle positions, whole-system DFT energies, and
-# per-particle forces loaded from the cached `.aselmdb` shards.
+# We load the data into training and test sets.  Each split includes particle
+# positions, whole-system energies, and per-particle forces.  To assist in
+# training we compute the mean and standard deviation of the data and use this
+# to set the initial scale for our neural network.
 
 # %%
 train, test = build_dataset(aselmdb_dir)
@@ -271,6 +282,9 @@ print(f'std(E) = {energy_std}')
 
 # %% [markdown]
 # ## Define the Periodic Space
+#
+# We create a space for our systems to live in using ``periodic`` boundary
+# conditions.
 
 # %%
 box_size = 10.862
@@ -282,10 +296,11 @@ displacement, shift = space.periodic(box_size)
 # We instantiate a graph neural network using ``energy.graph_network_neighbor_list``.
 # This neural network is based on
 # [recent work](https://www.nature.com/articles/s41567-020-0842-8) modelling
-# defects in disordered solids.  Edges are added between all neighbors separated
-# by less than a cutoff of 3 Angstroms.  The function returns
-# ``(neighbor_fn, energy_fn)`` matching the same convention as
-# ``lennard_jones_neighbor_list`` etc.
+# defects in disordered solids.  See that paper or the review by
+# [Battaglia et al.](https://arxiv.org/abs/1806.01261) for details.  We add
+# edges between all neighbors separated by less than a cutoff of 3 Angstroms.
+# The function returns ``(neighbor_fn, energy_fn)`` matching the same convention
+# as ``lennard_jones_neighbor_list`` etc.
 
 # %%
 key = random.PRNGKey(0)
@@ -297,8 +312,9 @@ nnx.display(energy_fn.model)
 # %% [markdown]
 # ## Allocate a Neighbor Prototype
 #
-# We construct an initial neighbor list from an example configuration.  This is
-# necessary since XLA needs static shapes to enable JIT compilation.
+# We construct an initial neighbor list which will be used to estimate the
+# maximum number of neighbors.  This is necessary since XLA needs to have static
+# shapes to enable JIT compilation.
 
 # %%
 neighbor = neighbor_fn.allocate(positions[0], extra_capacity=6)
@@ -312,6 +328,9 @@ print(f'Allocating space for at most {neighbor.idx.shape[-1]} edges')
 # allows us to use JAX's automatic vectorization via ``vmap`` along with our
 # neighbor lists.  Using JAX's automatic differentiation we can also write down
 # a function that computes the force due to our neural network potential.
+#
+# Note that if we were running a simulation using this energy, we would only
+# rebuild the neighbor list when necessary.
 #
 # For training with ``vmap``/``grad``/``optax`` we decompose the model into a
 # graphdef and state via ``nnx.split`` and use the ``graphdef.apply(state)``
@@ -406,6 +425,11 @@ def update_epoch(params_and_opt_state, batches):
   return lax.scan(inner_update, params_and_opt_state, batches)[0]
 
 
+# %% [markdown]
+# We also write a function that creates an epoch's worth of batches given a
+# lookup table that shuffles all of the states in the training set.
+
+# %%
 def make_batches(lookup):
   batch_positions = []
   batch_energies = []
@@ -457,10 +481,11 @@ for _ in range(train_epochs):
 draw_training_summary(params)
 
 # %% [markdown]
-# While the network has begun to learn the energies, it has a long way to go
-# before the predictions get good enough for simulation.  We take inspiration
-# from cooking shows and grab a ready-made GNN out of the fridge where it has
-# been training overnight.
+# While we see that the network has begun to learn the energies, we also see
+# that it has a long way to go before the predictions get good enough to use in
+# a simulation.  As such we take inspiration from cooking shows, and take a
+# ready-made GNN out of the fridge where it has been training overnight for
+# 12,000 epochs on a V100 GPU.
 
 # %%
 with checkpoint_path.open('rb') as f:
@@ -504,7 +529,9 @@ plt.show()
 # %% [markdown]
 # ## Compute Energy RMSE
 #
-# We compute the RMSE of the energy and convert it to meV / atom.
+# We see that the model prediction for the energy is extremely accurate and the
+# force prediction is reasonable.  To make this a bit more quantitative, we
+# compute the RMSE of the energy and convert it to meV / atom.
 
 # %%
 rmse = energy_loss(params, test_positions, test_energies) * 1000 / 64
@@ -513,8 +540,12 @@ print(f'RMSE Error of {rmse:.02f} meV / atom')
 # %% [markdown]
 # ## Build an NVT Simulation
 #
-# Now that we have a well-performing neural network, we can run a constant
-# temperature simulation of Silicon using a Nose-Hoover thermostat.
+# We get an error of about 2 meV / atom, which is comparable to previous work
+# on this system.
+#
+# Now that we have a well-performing neural network, we can see how easily this
+# network can be used to run a simulation approximating Silicon.  We will run a
+# constant temperature simulation using a Nose-Hoover thermostat.
 
 # %%
 def E_fn(R, neighbor=None, **kwargs):
@@ -531,7 +562,8 @@ sim_apply_fn = jit(sim_apply_fn)
 # %% [markdown]
 # ## Run the Simulation
 #
-# We run the simulation while writing the energy and temperature throughout.
+# We run the simulation for 10,000 steps while writing the energy and
+# temperature throughout.
 
 # %%
 total_steps = SIMULATION_STEPS
@@ -572,8 +604,12 @@ simulation_positions = np.stack(simulation_positions)
 # %% [markdown]
 # ## Visualize the Final Configuration
 #
-# The energy is reasonable and the temperature is stable.  We can now draw the
-# simulation to see what is happening.
+# We see that the energy of the simulation is reasonable and the temperature is
+# stable.  Of course, if we were validating this model for use in a research
+# setting there are many measurements that one would like to perform to check
+# its fidelity.
+#
+# We can now draw the simulation to see what is happening.
 
 # %%
 if IN_COLAB:
