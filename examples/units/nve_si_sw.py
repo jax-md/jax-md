@@ -83,7 +83,7 @@ def download_file(url, filename):
     urllib.request.urlretrieve(url, filename)
 
 
-base_url = 'https://raw.githubusercontent.com/abhijeetgangan/Silicon-data/main/Si-SW-MD/NVE-300K/'
+base_url = 'https://raw.githubusercontent.com/abhijeetgangan/silicon_data/main/Si_FF/Si_SW_MD/NVE_300K/'
 download_file(base_url + 'lammps_nve.dat', 'lammps_nve.dat')
 download_file(base_url + 'step_1.traj', 'step_1.traj')
 
