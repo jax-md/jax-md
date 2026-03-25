@@ -34,7 +34,6 @@ from jax_md.util import *
 from jax_md import test_util
 from jax_md.custom_partition import (
   neighbor_list_multi_image,
-  estimate_max_neighbors_from_box,
 )
 from jax_md.custom_smap import pair_neighbor_list_multi_image
 
@@ -175,9 +174,6 @@ class FireDescentBoxTest(test_util.JAXMDTestCase):
       self.box, fractional_coordinates=True
     )
     r_cutoff = 2.5
-    max_nbrs = estimate_max_neighbors_from_box(
-      self.box, r_cutoff, n_atoms=self.N, safety_factor=3.0
-    )
     self.neighbor_fn, raw_energy_fn = energy.lennard_jones_neighbor_list(
       disp_fn,
       self.box,
@@ -187,7 +183,6 @@ class FireDescentBoxTest(test_util.JAXMDTestCase):
       fractional_coordinates=True,
       neighbor_list_fn=neighbor_list_multi_image,
       pair_neighbor_list_fn=pair_neighbor_list_multi_image,
-      max_neighbors=max_nbrs,
       format=partition.Sparse,
     )
 
@@ -267,9 +262,6 @@ class FireDescentBoxTest(test_util.JAXMDTestCase):
 
     disp_fn, shift_fn = space.periodic_general(box, fractional_coordinates=True)
     r_cutoff = 2.5
-    max_nbrs = estimate_max_neighbors_from_box(
-      box, r_cutoff, n_atoms=N, safety_factor=3.0
-    )
     neighbor_fn, raw_energy_fn = energy.lennard_jones_neighbor_list(
       disp_fn,
       box,
@@ -279,7 +271,6 @@ class FireDescentBoxTest(test_util.JAXMDTestCase):
       fractional_coordinates=True,
       neighbor_list_fn=neighbor_list_multi_image,
       pair_neighbor_list_fn=pair_neighbor_list_multi_image,
-      max_neighbors=max_nbrs,
       format=partition.Sparse,
     )
 

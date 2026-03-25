@@ -45,7 +45,6 @@ dependencies = [
     "einops",
     "ml_collections",
     "e3nn-jax",
-    "dm-haiku",
     "optax",
     "frozendict",
     "pymatgen",
