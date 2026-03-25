@@ -35,7 +35,6 @@ from jax_md import partition
 from jax_md.interpolate import spline
 from jax_md.custom_partition import (
   neighbor_list_multi_image,
-  estimate_max_neighbors_from_box,
 )
 from jax_md.custom_smap import pair_neighbor_list_multi_image
 
@@ -1578,8 +1577,6 @@ class MultiImageNeighborListTest(test_util.JAXMDTestCase):
     displacement_fn, _ = space.periodic_general(
       box, fractional_coordinates=True
     )
-    max_nbrs = estimate_max_neighbors_from_box(box, r_cutoff, n_atoms=len(R))
-
     # Multi-Image
     neighbor_fn_mi, energy_fn_mi = energy.lennard_jones_neighbor_list(
       displacement_fn,
@@ -1588,7 +1585,6 @@ class MultiImageNeighborListTest(test_util.JAXMDTestCase):
       fractional_coordinates=True,
       neighbor_list_fn=neighbor_list_multi_image,
       pair_neighbor_list_fn=pair_neighbor_list_multi_image,
-      max_neighbors=max_nbrs,
       format=partition.Sparse,
     )
     nbrs_mi = neighbor_fn_mi.allocate(R)
@@ -1631,8 +1627,6 @@ class MultiImageNeighborListTest(test_util.JAXMDTestCase):
     displacement_fn, _ = space.periodic_general(
       box, fractional_coordinates=True
     )
-    max_nbrs = estimate_max_neighbors_from_box(box, r_cutoff, n_atoms=len(R))
-
     # Multi-Image
     neighbor_fn_mi, energy_fn_mi = energy.lennard_jones_neighbor_list(
       displacement_fn,
@@ -1641,7 +1635,6 @@ class MultiImageNeighborListTest(test_util.JAXMDTestCase):
       fractional_coordinates=True,
       neighbor_list_fn=neighbor_list_multi_image,
       pair_neighbor_list_fn=pair_neighbor_list_multi_image,
-      max_neighbors=max_nbrs,
       format=partition.Sparse,
     )
     nbrs_mi = neighbor_fn_mi.allocate(R)
