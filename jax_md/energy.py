@@ -1941,9 +1941,9 @@ class BehlerParrinelloEnergy(nnx.Module):
     return jnp.sum(readout)
 
 
-def _probe_sym_dim(sym_fn, species, dim=3):
+def _probe_sym_dim(sym_fn, species, spatial_dimension=3):
   n = len(species) if species is not None else 3
-  dummy = jnp.zeros((n, dim))
+  dummy = jnp.zeros((n, spatial_dimension))
   return sym_fn(dummy).shape[-1]
 
 
@@ -1955,6 +1955,7 @@ def behler_parrinello(
   mlp_sizes: Tuple[int, ...] = (30, 30),
   sym_kwargs: Optional[Dict[str, Any]] = None,
   per_particle: bool = False,
+  spatial_dimension: int = 3,
   activation: Callable = jnp.tanh,
 ):
   """Build a Behler-Parrinello symmetry-function energy model.
@@ -1966,6 +1967,7 @@ def behler_parrinello(
     mlp_sizes: Layer widths for the per-particle MLP.
     sym_kwargs: Additional kwargs for symmetry function construction.
     per_particle: If True, return per-particle energies instead of the total.
+    spatial_dimension: The spatial dimension of the system (default 3).
     activation: Activation function for the MLP (default ``jnp.tanh``).
 
   Returns:
@@ -1976,7 +1978,7 @@ def behler_parrinello(
     sym_kwargs = {}
 
   sym_fn = bp.symmetry_functions(displacement, species, **sym_kwargs)
-  sym_dim = _probe_sym_dim(sym_fn, species)
+  sym_dim = _probe_sym_dim(sym_fn, species, spatial_dimension)
 
   model = BehlerParrinelloEnergy(
     sym_fn,
@@ -2046,11 +2048,16 @@ def behler_parrinello_neighbor_list(
     **neighbor_kwargs,
   )
 
+  box_arr = jnp.asarray(box_size)
+  spatial_dimension = box_arr.shape[-1] if box_arr.ndim >= 1 else 3
+
   sym_fn = bp.symmetry_functions_neighbor_list(
     displacement, species, **sym_kwargs
   )
   sym_dim = _probe_sym_dim(
-    bp.symmetry_functions(displacement, species, **sym_kwargs), species
+    bp.symmetry_functions(displacement, species, **sym_kwargs),
+    species,
+    spatial_dimension,
   )
 
   model = BehlerParrinelloEnergy(
