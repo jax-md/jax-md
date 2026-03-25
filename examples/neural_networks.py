@@ -78,7 +78,7 @@ import numpy as onp
 import optax
 import seaborn as sns
 
-from jax_md import energy, nn, quantity, simulate, space
+from jax_md import energy, nn, quantity, simulate, space, units
 from jax_md._nn.util import convert_checkpoint_to_params
 
 SMOKE_TEST = os.environ.get('READTHEDOCS', False)
@@ -99,12 +99,12 @@ ASELMDB_CACHE = CACHE_DIR / 'silicon_aselmdb'
 NO_SKIP = 80 if SMOKE_TEST else 15
 MAX_SHARDS = 2 if SMOKE_TEST else None
 TRAIN_EPOCHS = 2 if SMOKE_TEST else 20
-N_PREDICTIONS = 128 if SMOKE_TEST else 500
-FORCE_EVAL_COUNT = 64 if SMOKE_TEST else 300
-SIMULATION_STEPS = 500 if SMOKE_TEST else 10000
+N_PREDICTIONS = 64 if SMOKE_TEST else 500
+FORCE_EVAL_COUNT = 32 if SMOKE_TEST else 300
+SIMULATION_STEPS = 100 if SMOKE_TEST else 10000
 SIMULATION_PRINT_EVERY = 1 if SMOKE_TEST else 40
 SIMULATION_WRITE_EVERY = 25
-BATCH_SIZE = 8 if SMOKE_TEST else 128
+BATCH_SIZE = 4 if SMOKE_TEST else 128
 
 sns.set_style(style='white')
 sns.set(font_scale=1.6)
@@ -551,10 +551,11 @@ print(f'RMSE Error of {rmse:.02f} meV / atom')
 def E_fn(R, neighbor=None, **kwargs):
   return apply(params, R, neighbor, **kwargs)
 
-K_B = 8.617e-5
-dt = 1e-3
-kT = K_B * 300
-Si_mass = 2.91086e-3
+metal = units.metal_unit_system()
+kB = metal['temperature']
+dt = 1e-3 * metal['time']
+kT = kB * 300
+Si_mass = 28.0855 * metal['mass']
 
 sim_init_fn, sim_apply_fn = simulate.nvt_nose_hoover(E_fn, shift, dt, kT)
 sim_apply_fn = jit(sim_apply_fn)
@@ -595,7 +596,7 @@ for i in range(total_records):
     print(
       '{:.02f}\t\t\t{:.02f}'.format(
         E_fn(state.position, neighbor=nbrs),
-        quantity.temperature(momentum=state.momentum, mass=Si_mass) / K_B,
+        quantity.temperature(momentum=state.momentum, mass=Si_mass) / kB,
       )
     )
 
