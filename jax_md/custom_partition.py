@@ -885,9 +885,12 @@ def neighbor_list_multi_image(
   # This avoids recompilation when N stays constant across calls
   build_fn_cache = {}
 
-  def probe_capacity(N: int) -> int:
-    """Estimate capacity for the probe build."""
-    npa = num_shifts * N
+  def _initial_probe_capacity(N: int) -> int:
+    """Geometry-based probe capacity estimate."""
+    est = estimate_max_neighbors_from_box(
+      default_box, search_cutoff, N, safety_factor=5.0, pbc=pbc
+    )
+    npa = max(int(est * capacity_multiplier), num_shifts)
     if use_dense:
       return npa
     cap = N * npa
@@ -983,26 +986,24 @@ def neighbor_list_multi_image(
     """
     position = jnp.asarray(position)
     N = position.shape[0]
-    base_capacity = probe_capacity(N)
-    if use_dense:
-      cap = base_capacity + extra_capacity
-    else:
-      cap = base_capacity + N * extra_capacity
-
+    _extra = extra_capacity if use_dense else N * extra_capacity
     current_box = jnp.asarray(box) if box is not None else default_box
-    probe_fn = get_build_fn(cap, box_override=box)
-    probe = probe_fn(position, current_box)
+
+    # Probe with geometry-based estimate; retry with 2x on overflow.
+    cap = _initial_probe_capacity(N) + _extra
+    while True:
+      probe_fn = get_build_fn(cap, box_override=box)
+      probe = probe_fn(position, current_box)
+      if not probe.did_buffer_overflow:
+        break
+      cap = cap * 2
 
     if use_dense:
       actual_occ = int(jnp.max(jnp.sum(probe.idx < N, axis=1)))
     else:
       actual_occ = int(jnp.sum(probe.idx[0] < N))
 
-    _extra = extra_capacity if use_dense else N * extra_capacity
     max_occupancy = max(int(actual_occ * capacity_multiplier) + _extra, 1)
-
-    if probe.did_buffer_overflow:
-      max_occupancy = cap
 
     if max_occupancy == cap:
       return probe

@@ -2349,6 +2349,10 @@ def graph_network_neighbor_list(
   nodes = canonicalize_node_state(nodes)
   node_dim = 1 if nodes is None else nodes.shape[-1]
 
+  box_arr = jnp.asarray(box_size)
+  if box_arr.ndim >= 1:
+    spatial_dimension = box_arr.shape[-1]
+
   model_kwargs = {}
   for k in ('activation', 'kernel_init', 'bias_init'):
     if k in neighbor_kwargs:
