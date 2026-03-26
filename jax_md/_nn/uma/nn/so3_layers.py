@@ -23,12 +23,22 @@ Ported from FairChem's UMA implementation.
 from __future__ import annotations
 
 import math
-from typing import Optional
 
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
 from jax.nn import initializers
+
+
+def _uniform_init(bound):
+  """Custom initializer for uniform distribution on [-bound, bound].
+
+  Matches PyTorch's default Linear initialization:
+  uniform(-1/sqrt(in_features), 1/sqrt(in_features)).
+  """
+  def init(key, shape, dtype=jnp.float32):
+    return jax.random.uniform(key, shape, dtype, minval=-bound, maxval=bound)
+  return init
 
 
 class SO3Linear(nn.Module):
@@ -60,15 +70,13 @@ class SO3Linear(nn.Module):
     in_features = input_embedding.shape[-1]
 
     # Initialize weight with shape [lmax+1, out_features, in_features]
-    # Use uniform initialization similar to PyTorch
+    # PyTorch uses uniform(-1/sqrt(in), 1/sqrt(in)) -- replicate exactly
     bound = 1.0 / math.sqrt(in_features)
     weight = self.param(
       'weight',
-      initializers.uniform(scale=2 * bound),
+      _uniform_init(bound),
       (self.lmax + 1, self.out_features, in_features),
     )
-    # Shift to [-bound, bound]
-    weight = weight - bound
 
     # Create expand index to map l values to all m values
     expand_index = []
@@ -90,7 +98,6 @@ class SO3Linear(nn.Module):
         initializers.zeros,
         (self.out_features,),
       )
-      # Add bias to l=0 component (index 0)
       out = out.at[:, 0, :].add(bias)
 
     return out

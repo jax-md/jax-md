@@ -25,7 +25,6 @@ from __future__ import annotations
 from typing import Literal
 
 import flax.linen as nn
-import jax
 import jax.numpy as jnp
 
 
@@ -44,6 +43,7 @@ def get_normalization_layer(
   num_channels: int,
   eps: float = 1e-5,
   affine: bool = True,
+  name: str | None = None,
 ) -> nn.Module:
   """Get normalization layer by name.
 
@@ -57,18 +57,16 @@ def get_normalization_layer(
   Returns:
       Normalization module.
   """
+  kwargs = dict(lmax=lmax, num_channels=num_channels, eps=eps, affine=affine)
+  if name is not None:
+    kwargs['name'] = name
+
   if norm_type == 'layer_norm':
-    return EquivariantLayerNorm(
-      lmax=lmax, num_channels=num_channels, eps=eps, affine=affine
-    )
+    return EquivariantLayerNorm(**kwargs)
   elif norm_type == 'layer_norm_sh':
-    return EquivariantLayerNormSH(
-      lmax=lmax, num_channels=num_channels, eps=eps, affine=affine
-    )
+    return EquivariantLayerNormSH(**kwargs)
   elif norm_type == 'rms_norm_sh':
-    return EquivariantRMSNorm(
-      lmax=lmax, num_channels=num_channels, eps=eps, affine=affine
-    )
+    return EquivariantRMSNorm(**kwargs)
   else:
     raise ValueError(f'Unknown norm_type: {norm_type}')
 

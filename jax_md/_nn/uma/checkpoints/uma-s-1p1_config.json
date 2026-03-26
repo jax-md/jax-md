@@ -1,0 +1,26 @@
+{
+  "max_num_elements": 100,
+  "sphere_channels": 128,
+  "lmax": 2,
+  "mmax": 2,
+  "num_layers": 4,
+  "hidden_channels": 128,
+  "cutoff": 6.0,
+  "edge_channels": 128,
+  "num_distance_basis": 64,
+  "norm_type": "rms_norm_sh",
+  "act_type": "gate",
+  "ff_type": "spectral",
+  "chg_spin_emb_type": "rand_emb",
+  "dataset_list": [
+    "oc20",
+    "omol",
+    "omat",
+    "odac",
+    "omc"
+  ],
+  "num_experts": 32,
+  "use_composition_embedding": true,
+  "model_version": 1.1,
+  "routing_hidden_channels": 64
+}

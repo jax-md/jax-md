@@ -2,306 +2,215 @@
 
 A JAX/Flax implementation of the UMA model from [FairChem](https://github.com/FAIR-Chem/fairchem), designed for molecular dynamics simulations with JAX-MD.
 
-## Overview
-
-UMA is a state-of-the-art equivariant graph neural network for predicting atomic energies and forces. This JAX port faithfully replicates the PyTorch implementation, enabling:
-
-- **Loading pretrained PyTorch weights** for immediate use
-- **JAX's JIT compilation** for fast inference
-- **Automatic differentiation** for computing forces as energy gradients
-- **Integration with JAX-MD** for molecular dynamics simulations
-
-## Installation
-
-The UMA module is included with JAX-MD. Ensure you have the required dependencies:
-
-```bash
-pip install jax jaxlib flax
-pip install torch  # Only needed for loading PyTorch checkpoints
-```
-
 ## Quick Start
 
-### Loading a Pretrained Model
+### With JAX-MD (recommended)
+
+```python
+from jax_md import space, energy, simulate, quantity
+import jax
+import jax.numpy as jnp
+from jax_md._nn.uma.model import UMAConfig
+
+# Set up periodic system
+box_size = 10.0
+displacement_fn, shift_fn = space.periodic(box_size)
+
+# Atomic numbers (e.g., silicon)
+atoms = jnp.array([14, 14, 14, 14])
+
+# Create UMA energy function (follows JAX-MD convention)
+cfg = UMAConfig(sphere_channels=64, num_layers=2, hidden_channels=64)
+neighbor_fn, init_fn, energy_fn = energy.uma_neighbor_list(
+    displacement_fn, box_size, cfg=cfg, atoms=atoms
+)
+
+# Initialize
+key = jax.random.PRNGKey(0)
+positions = jax.random.uniform(key, (4, 3)) * box_size
+nbrs = neighbor_fn.allocate(positions)
+params = init_fn(key, positions, nbrs)
+
+# Compute energy and forces
+E = energy_fn(params, positions, nbrs)
+forces = -jax.grad(energy_fn, argnums=1)(params, positions, nbrs)
+```
+
+### Loading Pretrained Weights
+
+```python
+neighbor_fn, init_fn, energy_fn = energy.uma_neighbor_list(
+    displacement_fn, box_size,
+    checkpoint_path='path/to/uma_checkpoint.pt',
+    atoms=atoms,
+)
+params = init_fn(key, positions, nbrs)  # Returns pretrained weights
+```
+
+### Direct Model Usage
 
 ```python
 from jax_md._nn import uma
-import jax.numpy as jnp
 
-# Load pretrained weights from a PyTorch checkpoint
-params = uma.load_pytorch_checkpoint('path/to/uma_checkpoint.pt')
-
-# Create model configuration
-config = uma.UMAConfig(
-    sphere_channels=128,
-    lmax=2,
-    mmax=2,
-    num_layers=4,
-    hidden_channels=128,
-    cutoff=6.0,
-    num_distance_basis=512,
-)
-
-# Create model
+config = uma.UMAConfig(sphere_channels=128, lmax=2, mmax=2)
 model = uma.UMABackbone(config=config)
 
-# Run inference
+# Dataset names must be converted to integer indices outside JIT
+dataset_idx = uma.dataset_names_to_indices(['omat'], config.dataset_list)
+
 output = model.apply(
     params,
     positions,           # [num_atoms, 3]
     atomic_numbers,      # [num_atoms]
-    batch,               # [num_atoms] - batch index for each atom
+    batch,               # [num_atoms]
     edge_index,          # [2, num_edges]
     edge_distance_vec,   # [num_edges, 3]
     charge,              # [num_systems]
     spin,                # [num_systems]
-    dataset=['omat'],    # Dataset name for each system
+    dataset_idx,         # [num_systems] (integer)
 )
-
-node_embedding = output['node_embedding']  # [num_atoms, (lmax+1)^2, sphere_channels]
-```
-
-### Computing Energies and Forces
-
-```python
-from jax_md._nn.uma.heads import MLPEnergyHead, LinearForceHead
-import jax
-
-# Energy prediction
-energy_head = MLPEnergyHead(
-    sphere_channels=config.sphere_channels,
-    hidden_channels=config.hidden_channels,
-)
-
-energy_output = energy_head.apply(
-    energy_params,
-    output['node_embedding'],
-    batch,
-    num_systems=len(charge),
-)
-energy = energy_output['energy']  # [num_systems]
-
-# Force prediction via gradient
-def energy_fn(pos):
-    # Recompute edge vectors
-    edge_vec = pos[edge_index[0]] - pos[edge_index[1]]
-    emb = model.apply(params, pos, atomic_numbers, batch,
-                      edge_index, edge_vec, charge, spin, dataset)
-    e = energy_head.apply(energy_params, emb['node_embedding'],
-                          batch, num_systems)
-    return e['energy'].sum()
-
-forces = -jax.grad(energy_fn)(positions)  # [num_atoms, 3]
-```
-
-### Using with JAX-MD
-
-```python
-from jax_md import space, simulate
-
-# Create displacement function
-displacement_fn, shift_fn = space.periodic(box_size)
-
-# Create energy function for JAX-MD
-def uma_energy_fn(positions, neighbor):
-    # Build edges from neighbor list
-    edge_index = build_edges_from_neighbor(neighbor)
-    edge_vec = displacement_fn(positions[edge_index[0]], positions[edge_index[1]])
-
-    emb = model.apply(params, positions, atomic_numbers, batch,
-                      edge_index, edge_vec, charge, spin, dataset)
-    energy = energy_head.apply(energy_params, emb['node_embedding'],
-                               batch, num_systems)
-    return energy['energy'].sum()
-
-# Run NVE simulation
-init_fn, apply_fn = simulate.nve(uma_energy_fn, shift_fn, dt=0.001)
-state = init_fn(key, positions)
-
-for _ in range(num_steps):
-    state = apply_fn(state)
+node_embedding = output['node_embedding']  # [N, (lmax+1)^2, C]
 ```
 
 ## Architecture
 
-UMA uses an SO(3)-equivariant architecture with the following components:
-
 ```
 Input: positions, atomic_numbers, edges
-         │
-         ▼
-┌─────────────────────────────┐
-│   Atomic Embedding          │  Embed atomic numbers
-│   + Charge/Spin/Dataset Emb │  System-level conditioning
-└─────────────────────────────┘
-         │
-         ▼
-┌─────────────────────────────┐
-│   Edge Degree Embedding     │  Initial edge aggregation
-└─────────────────────────────┘
-         │
-         ▼
-┌─────────────────────────────┐
-│   UMA Blocks (×N)           │
-│   ├── Norm                  │
-│   ├── Edgewise (SO2 Conv)   │  Message passing with Wigner rotation
-│   ├── Residual              │
-│   ├── Norm                  │
-│   ├── Atomwise (Grid FFN)   │  Per-atom feed-forward
-│   └── Residual              │
-└─────────────────────────────┘
-         │
-         ▼
-┌─────────────────────────────┐
-│   Final Norm                │
-└─────────────────────────────┘
-         │
-         ▼
-Output: node_embedding [N, (lmax+1)², C]
+         |
+  Atomic Embedding + Charge/Spin/Dataset
+         |
+  Edge Degree Embedding
+         |
+  UMA Blocks (x N):
+    Norm -> Edgewise (SO2 Conv) -> Residual
+    Norm -> Atomwise (Grid FFN)  -> Residual
+         |
+  Final Norm
+         |
+Output: node_embedding [N, (lmax+1)^2, C]
 ```
 
-### Key Components
+## Key Design Decisions
 
-| Component | Description |
-|-----------|-------------|
-| `SO3Linear` | Equivariant linear layer with per-degree weights |
-| `SO2Convolution` | SO(2) convolution in edge-aligned frame |
-| `GateActivation` | Gated nonlinearity preserving equivariance |
-| `EquivariantRMSNorm` | RMS normalization respecting SO(3) symmetry |
-| `WignerD` | Rotation matrices for edge frame transformation |
+- **Integer dataset indices**: Dataset names are converted to integers via `dataset_names_to_indices()` *outside* JIT for full JIT compatibility.
+- **Scatter-add aggregation**: Uses `jnp.zeros(...).at[idx].add(...)` instead of deprecated `jax.ops.segment_sum`.
+- **Custom safe_acos**: Uses `jax.custom_jvp` to match PyTorch's `Safeacos` (exact forward, clamped backward).
+- **Grid matrices**: Uses PyTorch e3nn when available for exact numerical matching; falls back to numpy computation.
+- **Energy-conserving forces**: Use `jax.grad(energy_fn)` via the `uma_neighbor_list` integration rather than direct force prediction.
 
 ## Configuration
 
-### UMAConfig Parameters
-
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `max_num_elements` | 100 | Maximum atomic number to embed |
-| `sphere_channels` | 128 | Number of feature channels |
-| `lmax` | 2 | Maximum spherical harmonic degree |
-| `mmax` | 2 | Maximum spherical harmonic order |
+| `sphere_channels` | 128 | Feature channels |
+| `lmax` | 2 | Max spherical harmonic degree |
+| `mmax` | 2 | Max spherical harmonic order |
 | `num_layers` | 2 | Number of UMA blocks |
-| `hidden_channels` | 128 | Hidden dimension in MLPs |
+| `hidden_channels` | 128 | Hidden MLP dimension |
 | `cutoff` | 5.0 | Distance cutoff (Angstroms) |
-| `edge_channels` | 128 | Edge feature dimension |
-| `num_distance_basis` | 512 | Number of Gaussian basis functions |
+| `num_distance_basis` | 512 | Gaussian basis functions |
 | `norm_type` | 'rms_norm_sh' | Normalization type |
-| `act_type` | 'gate' | Activation type ('gate' or 's2') |
+| `act_type` | 'gate' | Activation ('gate' or 's2') |
 | `ff_type` | 'grid' | FFN type ('grid' or 'spectral') |
-| `dataset_list` | ['oc20', ...] | Supported dataset names |
+| `activation_checkpointing` | False | Use `nn.remat` for memory savings |
 
-## Weight Loading
+## Relaxation
 
-### From PyTorch Checkpoint
+### JAX-MD Native (FIRE)
 
 ```python
-# Load full checkpoint
-params = uma.load_pytorch_checkpoint('checkpoint.pt')
+from jax_md import space, energy, minimize
+from jax_md._nn.uma.model import UMAConfig
 
-# Extract config from checkpoint (if available)
-from jax_md._nn.uma.weight_conversion import config_from_pytorch_checkpoint
-config = config_from_pytorch_checkpoint('checkpoint.pt')
+displacement_fn, shift_fn = space.periodic(box_size)
+cfg = UMAConfig(sphere_channels=128, num_layers=4, hidden_channels=128)
+
+neighbor_fn, init_fn, energy_fn = energy.uma_neighbor_list(
+    displacement_fn, box_size, cfg=cfg, atoms=atoms,
+    checkpoint_path='uma_checkpoint.pt',
+)
+
+nbrs = neighbor_fn.allocate(positions)
+params = init_fn(key, positions, nbrs)
+
+def uma_energy(R, **kwargs):
+    return energy_fn(params, R, nbrs.update(R))
+
+fire_init, fire_apply = minimize.fire_descent(uma_energy, shift_fn)
+fire_apply = jax.jit(fire_apply)
+state = fire_init(positions)
+
+for _ in range(200):
+    state = fire_apply(state)
+relaxed_positions = state.position
 ```
 
-### Manual Conversion
+### ASE Integration (BFGS, FIRE, etc.)
 
 ```python
-import torch
-from jax_md._nn.uma.weight_conversion import convert_pytorch_state_dict
+from ase.build import bulk
+from ase.optimize import BFGS
+from jax_md._nn.uma.ase_calculator import UMACalculator
 
-# Load PyTorch state dict
-pt_state = torch.load('checkpoint.pt', map_location='cpu')['state_dict']
-np_state = {k: v.numpy() for k, v in pt_state.items()}
+atoms = bulk('Cu', 'fcc', a=3.6, cubic=True)
+atoms.calc = UMACalculator(checkpoint_path='uma_checkpoint.pt', task_name='omat')
 
-# Convert to JAX format
-jax_params = convert_pytorch_state_dict(np_state)
+opt = BFGS(atoms, logfile='-')
+opt.run(fmax=0.01)
+
+energy = atoms.get_potential_energy()
+forces = atoms.get_forces()
 ```
 
-### Verifying Weights
+### ASE Cell Relaxation
 
 ```python
-from jax_md._nn.uma.weight_conversion import verify_weight_loading
+from ase.constraints import ExpCellFilter
 
-results = verify_weight_loading(jax_params, np_state)
-for key, matches in results.items():
-    if not matches:
-        print(f"Mismatch: {key}")
+atoms = bulk('Si', 'diamond', a=5.50)  # Wrong lattice constant
+atoms.calc = UMACalculator(checkpoint_path='uma_checkpoint.pt')
+
+ecf = ExpCellFilter(atoms)
+opt = BFGS(ecf, logfile='-')
+opt.run(fmax=0.05)
+
+print(f"Relaxed lattice: {atoms.cell.lengths()}")
 ```
 
-## Prediction Heads
-
-### MLPEnergyHead
-3-layer MLP for energy prediction from scalar features.
+## Molecular Dynamics
 
 ```python
-head = MLPEnergyHead(sphere_channels=128, hidden_channels=128)
-output = head.apply(params, node_embedding, batch, num_systems)
-# output['energy']: [num_systems]
-```
+from jax_md import simulate, quantity
 
-### LinearEnergyHead
-Single linear layer for fast inference.
+def nve_energy(R, neighbor, **kw):
+    return energy_fn(params, R, neighbor)
 
-```python
-head = LinearEnergyHead(sphere_channels=128)
-output = head.apply(params, node_embedding, batch, num_systems)
-```
+init_nve, apply_nve = simulate.nve(nve_energy, shift_fn, dt=0.001)
+apply_nve = jax.jit(apply_nve)
 
-### LinearForceHead
-Direct force prediction using SO(3) linear layer on vector components.
-
-```python
-head = LinearForceHead(sphere_channels=128)
-output = head.apply(params, node_embedding)
-# output['forces']: [num_atoms, 3]
+state = init_nve(key, positions, kT=0.1, neighbor=nbrs)
+for _ in range(1000):
+    nbrs = nbrs.update(state.position)
+    state = apply_nve(state, neighbor=nbrs)
 ```
 
 ## File Structure
 
 ```
-jax_md/ff/uma/
-├── __init__.py              # Public API
+jax_md/_nn/uma/
 ├── model.py                 # UMABackbone, UMAConfig
 ├── blocks.py                # UMABlock, Edgewise, Atomwise
 ├── heads.py                 # Energy/Force prediction heads
-├── weight_conversion.py     # PyTorch → JAX conversion
-├── Jd.pt                    # Precomputed Jacobi matrices
+├── featurizer.py            # JAX-MD neighbor list -> UMA input
+├── weight_conversion.py     # PyTorch -> JAX conversion
 ├── common/
 │   ├── so3.py              # CoefficientMapping, SO3Grid
 │   └── rotation.py         # Wigner D-matrix computation
 └── nn/
     ├── so3_layers.py       # SO3Linear
-    ├── so2_layers.py       # SO2Convolution
-    ├── radial.py           # Distance basis functions
-    ├── activation.py       # Equivariant activations
+    ├── so2_layers.py       # SO2Convolution, SO2MConv
+    ├── radial.py           # GaussianSmearing, PolynomialEnvelope
+    ├── activation.py       # GateActivation, S2Activation
     ├── layer_norm.py       # Equivariant normalization
-    └── embedding.py        # Atomic/system embeddings
+    └── embedding.py        # Atomic/charge/spin/dataset embeddings
 ```
-
-## Differences from PyTorch Implementation
-
-| Aspect | PyTorch | JAX |
-|--------|---------|-----|
-| Module system | `nn.Module` with mutable state | Flax `nn.Module` with explicit params |
-| Buffers | `register_buffer()` | Stored in config/dataclass |
-| Weight shapes | `[out, in]` for Linear | `[in, out]` (transposed on load) |
-| Graph parallel | `gp_utils` | Not implemented (single device) |
-| Activation checkpointing | Supported | Use `jax.checkpoint` manually |
-
-## Citation
-
-If you use this code, please cite the original UMA paper:
-
-```bibtex
-@article{uma2024,
-  title={Universal Models for Atoms},
-  author={Meta AI},
-  journal={arXiv preprint},
-  year={2024}
-}
-```
-
-## License
-
-This JAX port is released under the Apache 2.0 License, consistent with JAX-MD.
-The original UMA implementation is from FairChem (MIT License).

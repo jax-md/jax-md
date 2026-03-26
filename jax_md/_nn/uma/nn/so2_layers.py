@@ -22,12 +22,11 @@ Ported from FairChem's UMA implementation.
 
 from __future__ import annotations
 
-import math
 from typing import List, Optional, Tuple
 
 import flax.linen as nn
-import jax
 import jax.numpy as jnp
+import numpy as np
 from jax.nn import initializers
 
 from jax_md._nn.uma.nn.radial import RadialMLP
@@ -38,6 +37,11 @@ class SO2MConv(nn.Module):
 
   Performs an SO(2) convolution on features corresponding to +/- m,
   handling the real/imaginary pairing of spherical harmonic coefficients.
+
+  Matches PyTorch SO2_m_Conv exactly:
+  - Linear maps last dim of (E, 2, C) -> (E, 2, 2*out_half)
+  - Reshape to (E, 4, out_half), split into 4 components
+  - Complex multiply: real = r0 - i1, imag = r1 + i0
 
   Attributes:
       m: Order of the spherical harmonic coefficients.
@@ -68,40 +72,44 @@ class SO2MConv(nn.Module):
     num_coefficients = self.lmax - self.m + 1
     num_channels = num_coefficients * self.sphere_channels
 
-    # Linear transformation without bias, scaled by 1/sqrt(2) for complex
-    # Output 4 * m_output_channels * num_coefficients for complex multiplication
+    # out_channels_half = m_output_channels * num_coefficients
+    # (matching PyTorch: self.m_output_channels * (num_channels // self.sphere_channels))
+    out_channels_half = self.m_output_channels * num_coefficients
+
+    # Linear transformation: applied to last dim of 3D input (E, 2, C) -> (E, 2, 2*out_half)
+    # PyTorch: Linear(num_channels, 2 * out_channels_half, bias=False)
+    # PyTorch init: weight.data.mul_(1 / sqrt(2))
     fc = nn.Dense(
-      features=4 * self.m_output_channels * num_coefficients,
+      features=2 * out_channels_half,
       use_bias=False,
       kernel_init=initializers.variance_scaling(
-        scale=0.5,  # 1/sqrt(2) factor
+        scale=0.5,  # 1/sqrt(2) factor via variance scaling
         mode='fan_in',
         distribution='uniform',
       ),
       name='fc',
     )
 
-    # Flatten input and apply linear
+    # Apply linear to last dim: (E, 2, num_channels) -> (E, 2, 2*out_half)
+    x_m = fc(x_m)
+
+    # Reshape: (E, 2, 2*out_half) -> (E, 4, out_half)
     batch_size = x_m.shape[0]
-    x_m_flat = x_m.reshape(batch_size, -1)
-    x_m_out = fc(x_m_flat)
+    x_m = x_m.reshape(batch_size, -1, out_channels_half)
 
-    # Reshape and split into components
-    # [batch, 4 * m_output_channels * num_coeffs] -> [batch, 4, m_output_channels, num_coeffs]
-    x_m_out = x_m_out.reshape(
-      batch_size, 4, self.m_output_channels, num_coefficients
-    )
-    x_m_out = x_m_out.transpose(0, 3, 1, 2)  # [batch, num_coeffs, 4, channels]
+    # Split into 4 components along dim 1
+    x_r_0 = x_m[:, 0, :]  # (E, out_half)
+    x_i_0 = x_m[:, 1, :]
+    x_r_1 = x_m[:, 2, :]
+    x_i_1 = x_m[:, 3, :]
 
-    # Complex multiplication: (a + bi) * (c + di) = (ac - bd) + (ad + bc)i
-    # Here we have pairs of real/imaginary in the input
-    x_r_0 = x_m_out[:, :, 0, :]  # First real
-    x_i_0 = x_m_out[:, :, 1, :]  # First imaginary
-    x_r_1 = x_m_out[:, :, 2, :]  # Second real
-    x_i_1 = x_m_out[:, :, 3, :]  # Second imaginary
-
+    # Complex multiplication
     x_m_r = x_r_0 - x_i_1  # Real part
     x_m_i = x_r_1 + x_i_0  # Imaginary part
+
+    # Reshape to (E, num_coefficients, m_output_channels)
+    x_m_r = x_m_r.reshape(batch_size, num_coefficients, self.m_output_channels)
+    x_m_i = x_m_i.reshape(batch_size, num_coefficients, self.m_output_channels)
 
     return x_m_r, x_m_i
 
@@ -117,6 +125,7 @@ class SO2Convolution(nn.Module):
       lmax: Maximum degree l.
       mmax: Maximum order m.
       m_size: List of number of coefficients for each m.
+          For m>0 this includes both real and imaginary parts.
       internal_weights: If True, use internal weights instead of radial function.
       edge_channels_list: Channel dimensions for radial MLP (if not internal_weights).
       extra_m0_output_channels: Extra output channels for m=0 (for gating).
@@ -149,12 +158,12 @@ class SO2Convolution(nn.Module):
     """
     num_channels_m0 = (self.lmax + 1) * self.sphere_channels
 
-    # Compute output channels for m=0
+    # Output channels for m=0
     m0_output_channels = self.m_output_channels * (self.lmax + 1)
     if self.extra_m0_output_channels is not None:
       m0_output_channels = m0_output_channels + self.extra_m0_output_channels
 
-    # FC for m=0 (only real values)
+    # FC for m=0 (only real values, with bias)
     fc_m0 = nn.Dense(
       features=m0_output_channels,
       use_bias=True,
@@ -162,7 +171,9 @@ class SO2Convolution(nn.Module):
     )
 
     # Compute total radial channels needed
-    num_channels_rad = (self.lmax + 1) * self.sphere_channels  # m=0
+    # m=0 channels
+    num_channels_rad = num_channels_m0
+    # m>0 channels: each m uses num_coefficients * sphere_channels
     for m in range(1, self.mmax + 1):
       num_coeffs = self.lmax - m + 1
       num_channels_rad += num_coeffs * self.sphere_channels
@@ -173,11 +184,11 @@ class SO2Convolution(nn.Module):
       edge_channels = list(self.edge_channels_list) + [num_channels_rad]
       rad_func = RadialMLP(channels_list=edge_channels, name='rad_func')
 
-    # Compute m split sizes (m_size already includes both real and imaginary)
+    # m_size already includes both real and imaginary for m>0
     m_split_sizes = [self.m_size[m] for m in range(self.mmax + 1)]
 
-    # Compute edge split sizes
-    edge_split_sizes = [(self.lmax + 1) * self.sphere_channels]  # m=0
+    # Edge split sizes: one per m, based on input channels to fc
+    edge_split_sizes = [num_channels_m0]  # m=0
     for m in range(1, self.mmax + 1):
       edge_split_sizes.append((self.lmax - m + 1) * self.sphere_channels)
 
@@ -186,10 +197,9 @@ class SO2Convolution(nn.Module):
     # Get radial weights if needed
     if rad_func is not None:
       x_edge_weights = rad_func(x_edge)
-      # Split by m
       x_edge_by_m = jnp.split(
         x_edge_weights,
-        jnp.cumsum(jnp.array(edge_split_sizes[:-1])),
+        np.cumsum(edge_split_sizes[:-1]),
         axis=1,
       )
     else:
@@ -198,7 +208,7 @@ class SO2Convolution(nn.Module):
     # Split input by m
     x_by_m = jnp.split(
       x,
-      jnp.cumsum(jnp.array(m_split_sizes[:-1])),
+      np.cumsum(m_split_sizes[:-1]),
       axis=1,
     )
 
@@ -210,18 +220,21 @@ class SO2Convolution(nn.Module):
 
     # Extract extra m0 features if requested
     if self.extra_m0_output_channels is not None:
-      x_0_extra = x_0[:, : self.extra_m0_output_channels]
-      x_0 = x_0[:, self.extra_m0_output_channels :]
+      x_0_extra = x_0[:, :self.extra_m0_output_channels]
+      x_0 = x_0[:, self.extra_m0_output_channels:]
 
     out = [x_0.reshape(num_edges, -1, self.m_output_channels)]
 
     # Process m > 0
     for m in range(1, self.mmax + 1):
+      # Reshape to (E, 2, num_coefficients * sphere_channels)
       x_m = x_by_m[m].reshape(num_edges, 2, -1)
+
+      # Apply radial weighting (broadcast over real/imag dim)
       if x_edge_by_m[m] is not None:
         x_m = x_m * x_edge_by_m[m][:, None, :]
 
-      # Create SO2MConv for this m
+      # SO2 convolution for this m
       so2_m_conv = SO2MConv(
         m=m,
         sphere_channels=self.sphere_channels,

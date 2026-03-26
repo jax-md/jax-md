@@ -22,10 +22,8 @@ Ported from FairChem's UMA implementation.
 
 from __future__ import annotations
 
-from typing import Optional
 
 import flax.linen as nn
-import jax
 import jax.numpy as jnp
 
 

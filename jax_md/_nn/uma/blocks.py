@@ -25,7 +25,6 @@ from __future__ import annotations
 from typing import List, Literal, Optional
 
 import flax.linen as nn
-import jax
 import jax.numpy as jnp
 
 from jax_md._nn.uma.nn.so2_layers import SO2Convolution
@@ -170,13 +169,9 @@ class Edgewise(nn.Module):
     # Rotate back to global frame
     x_message = jnp.einsum('njm,nmc->njc', wigner_and_M_mapping_inv, x_message)
 
-    # Aggregate messages onto target nodes
+    # Aggregate messages onto target nodes using scatter-add
     target_indices = edge_index[1] - node_offset
-    new_embedding = jax.ops.segment_sum(
-      x_message,
-      target_indices,
-      num_segments=x.shape[0],
-    )
+    new_embedding = jnp.zeros_like(x).at[target_indices].add(x_message)
 
     return new_embedding
 
@@ -371,6 +366,7 @@ class UMABlock(nn.Module):
       self.norm_type,
       lmax=self.lmax,
       num_channels=self.sphere_channels,
+      name='norm_1',
     )
     x = norm_1(x)
 
@@ -412,6 +408,7 @@ class UMABlock(nn.Module):
       self.norm_type,
       lmax=self.lmax,
       num_channels=self.sphere_channels,
+      name='norm_2',
     )
     x = norm_2(x)
 

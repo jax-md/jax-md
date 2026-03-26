@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import math
 import os
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -32,14 +32,38 @@ import numpy as np
 
 EPS = 1e-7
 
-# Path to Jacobi matrices file
+# Path to Jacobi matrices file (PyTorch format)
 _JD_FILE = os.path.join(os.path.dirname(__file__), '..', 'Jd.pt')
+# Path to Jacobi matrices file (numpy format)
+_JD_NPY_DIR = os.path.join(os.path.dirname(__file__), '..', 'Jd_npy')
 
 
+# --------------------------------------------------------------------------- #
+# safe_acos: matches PyTorch Safeacos custom autograd Function                #
+#   - forward: exact arccos(x) (no clamping)                                 #
+#   - backward: gradient computed with clamped x to avoid NaN at ±1          #
+# --------------------------------------------------------------------------- #
+
+@jax.custom_jvp
 def safe_acos(x: jnp.ndarray) -> jnp.ndarray:
-  """Numerically stable arccos with gradient clipping."""
+  """Numerically stable arccos matching PyTorch's Safeacos.
+
+  Forward pass: exact arccos(x).
+  Backward pass: gradient uses clamped x to avoid NaN near ±1.
+  """
+  return jnp.arccos(x)
+
+
+@safe_acos.defjvp
+def _safe_acos_jvp(primals, tangents):
+  (x,) = primals
+  (x_dot,) = tangents
+  primal_out = safe_acos(x)
   x_clamped = jnp.clip(x, -1 + EPS, 1 - EPS)
-  return jnp.arccos(x_clamped)
+  denom = jnp.sqrt(1 - x_clamped ** 2)
+  denom = jnp.maximum(denom, EPS)
+  tangent_out = -x_dot / denom
+  return primal_out, tangent_out
 
 
 def safe_atan2(y: jnp.ndarray, x: jnp.ndarray) -> jnp.ndarray:
@@ -49,6 +73,7 @@ def safe_atan2(y: jnp.ndarray, x: jnp.ndarray) -> jnp.ndarray:
 
 def init_edge_rot_euler_angles(
   edge_distance_vec: jnp.ndarray,
+  rng_key: Optional[jax.random.PRNGKey] = None,
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
   """Compute Euler angles for rotating to edge-aligned frame.
 
@@ -57,6 +82,9 @@ def init_edge_rot_euler_angles(
 
   Args:
       edge_distance_vec: Edge vectors of shape [num_edges, 3].
+      rng_key: Optional PRNG key for random gamma angles (training mode).
+          If None, gamma is set to zero (deterministic inference mode).
+          The PyTorch implementation uses random gamma during training.
 
   Returns:
       Tuple of (gamma, beta, alpha) Euler angles, each of shape [num_edges].
@@ -74,18 +102,25 @@ def init_edge_rot_euler_angles(
   # Longitude (alpha) - angle in xz plane
   alpha = safe_atan2(x, z)
 
-  # Random gamma (roll) - set to random for training stability
-  # For inference, this should be deterministic
-  gamma = jnp.zeros_like(alpha)
+  # Gamma (roll) - random for training, zero for inference.
+  # For deterministic inference, gamma=0 is valid because the SO(2)
+  # convolution is axially symmetric and gamma cancels out.
+  if rng_key is not None:
+    gamma = jax.random.uniform(rng_key, alpha.shape, minval=0.0, maxval=2 * jnp.pi)
+  else:
+    gamma = jnp.zeros_like(alpha)
 
   # Intrinsic to extrinsic swap (negative signs)
   return -gamma, -beta, -alpha
 
 
 def load_jacobi_matrices_from_file(lmax: int) -> List[jnp.ndarray]:
-  """Load precomputed Jacobi matrices from the bundled Jd.pt file.
+  """Load precomputed Jacobi matrices.
 
-  This ensures exact compatibility with the PyTorch implementation.
+  Tries loading in order:
+  1. Numpy .npy files (no torch dependency)
+  2. PyTorch .pt file (requires torch)
+  3. Computed from scratch (fallback)
 
   Args:
       lmax: Maximum degree l for which to load matrices.
@@ -93,17 +128,47 @@ def load_jacobi_matrices_from_file(lmax: int) -> List[jnp.ndarray]:
   Returns:
       List of Jacobi matrices for l = 0, 1, ..., lmax.
   """
+  # Try numpy files first (no torch dependency)
+  if os.path.isdir(_JD_NPY_DIR):
+    try:
+      Jd_list = []
+      for l in range(lmax + 1):
+        path = os.path.join(_JD_NPY_DIR, f'Jd_{l}.npy')
+        if os.path.exists(path):
+          Jd_list.append(jnp.array(np.load(path)))
+        else:
+          break
+      if len(Jd_list) == lmax + 1:
+        return Jd_list
+    except Exception:
+      pass
+
+  # Try PyTorch file
   try:
     import torch
-
     Jd_torch = torch.load(_JD_FILE, map_location='cpu', weights_only=False)
-    return [jnp.array(Jd_torch[l].numpy()) for l in range(lmax + 1)]
-  except ImportError:
-    # Fall back to computing if torch not available
-    return compute_jacobi_matrices(lmax)
-  except FileNotFoundError:
-    # Fall back to computing if file not found
-    return compute_jacobi_matrices(lmax)
+    Jd_list = [jnp.array(Jd_torch[l].numpy()) for l in range(lmax + 1)]
+
+    # Cache as numpy for future torch-free loading
+    _save_jacobi_as_numpy(Jd_list)
+
+    return Jd_list
+  except (ImportError, FileNotFoundError):
+    pass
+
+  # Fall back to computing
+  return compute_jacobi_matrices(lmax)
+
+
+def _save_jacobi_as_numpy(Jd_list: List[jnp.ndarray]) -> None:
+  """Cache Jacobi matrices as numpy files for torch-free loading."""
+  try:
+    os.makedirs(_JD_NPY_DIR, exist_ok=True)
+    for l, Jd in enumerate(Jd_list):
+      path = os.path.join(_JD_NPY_DIR, f'Jd_{l}.npy')
+      np.save(path, np.array(Jd))
+  except Exception:
+    pass  # Non-critical: caching is best-effort
 
 
 def compute_jacobi_matrices(lmax: int) -> List[jnp.ndarray]:
@@ -125,7 +190,6 @@ def compute_jacobi_matrices(lmax: int) -> List[jnp.ndarray]:
   Jd_list = []
 
   for l in range(lmax + 1):
-    # Use the actual Jacobi polynomial approach
     J = _compute_wigner_d_small(l, np.pi / 2)
     Jd_list.append(jnp.array(J))
 
@@ -156,7 +220,6 @@ def _compute_wigner_d_small(l: int, beta: float) -> np.ndarray:
       idx_m = m + l
       idx_mp = mp + l
 
-      # Compute d^l_{m,m'}(beta) using the formula
       val = 0.0
       s_min = max(0, m - mp)
       s_max = min(l + m, l - mp)
@@ -193,6 +256,9 @@ def _compute_wigner_d_small(l: int, beta: float) -> np.ndarray:
 def _z_rot_mat(angle: jnp.ndarray, l: int) -> jnp.ndarray:
   """Compute z-rotation matrix for degree l representation.
 
+  Matches PyTorch implementation: frequencies go from l to -l,
+  cos on diagonal, sin on anti-diagonal.
+
   Args:
       angle: Rotation angles of shape [batch].
       l: Degree of the representation.
@@ -203,20 +269,17 @@ def _z_rot_mat(angle: jnp.ndarray, l: int) -> jnp.ndarray:
   batch_size = angle.shape[0]
   size = 2 * l + 1
 
-  # Initialize as zeros
   M = jnp.zeros((batch_size, size, size))
 
-  # Build the matrix using a loop (will be traced by JAX)
+  # Match PyTorch: inds 0..2l, reversed_inds 2l..0, frequencies l..-l
+  # IMPORTANT: sin must be set BEFORE cos, because when i == j (middle
+  # element, freq=0) the cos value must overwrite the sin value.
   for i in range(size):
-    m = l - i  # m goes from l to -l
-    freq = m
+    freq = l - i  # frequencies go from l to -l
+    j = size - 1 - i  # anti-diagonal index
 
-    # Diagonal: cos(m * angle)
-    M = M.at[:, i, i].set(jnp.cos(freq * angle))
-
-    # Anti-diagonal: sin(m * angle)
-    j = size - 1 - i
     M = M.at[:, i, j].set(jnp.sin(freq * angle))
+    M = M.at[:, i, i].set(jnp.cos(freq * angle))
 
   return M
 
@@ -249,7 +312,6 @@ def wigner_D(
   Xc = _z_rot_mat(gamma, l)
 
   # D = Xa @ J @ Xb @ J @ Xc
-  # J is not batched, so we need to handle broadcasting
   result = jnp.einsum('bij,jk->bik', Xa, Jd)
   result = jnp.einsum('bij,bjk->bik', result, Xb)
   result = jnp.einsum('bij,jk->bik', result, Jd)
@@ -288,7 +350,6 @@ def eulers_to_wigner(
     block_size = 2 * l + 1
     end = start + block_size
 
-    # Set the diagonal block
     wigner = wigner.at[:, start:end, start:end].set(block)
     start = end
 
@@ -302,6 +363,7 @@ def get_wigner_and_mapping(
   Jd_list: List[jnp.ndarray],
   to_m: jnp.ndarray,
   coefficient_index: jnp.ndarray,
+  rng_key: Optional[jax.random.PRNGKey] = None,
 ) -> Tuple[jnp.ndarray, jnp.ndarray]:
   """Compute Wigner matrices with M-mapping for SO(2) convolutions.
 
@@ -315,21 +377,21 @@ def get_wigner_and_mapping(
       Jd_list: List of Jacobi matrices.
       to_m: Coefficient mapping matrix from l-major to m-major ordering.
       coefficient_index: Indices for selecting lmax/mmax subset.
+      rng_key: Optional PRNG key for random gamma (training mode).
 
   Returns:
       Tuple of (wigner_and_M_mapping, wigner_and_M_mapping_inv).
   """
-  euler_angles = init_edge_rot_euler_angles(edge_distance_vec)
+  euler_angles = init_edge_rot_euler_angles(edge_distance_vec, rng_key=rng_key)
   wigner = eulers_to_wigner(euler_angles, 0, lmax, Jd_list)
   wigner_inv = jnp.transpose(wigner, (0, 2, 1))
 
   # Select subset of coefficients if mmax != lmax
   if mmax != lmax:
-    wigner = wigner[:, coefficient_index, :][:, :, coefficient_index]
-    wigner_inv = wigner_inv[:, coefficient_index, :][:, :, coefficient_index]
+    wigner = wigner[:, coefficient_index, :]        # [E, m_dim, l_dim]
+    wigner_inv = wigner_inv[:, :, coefficient_index]  # [E, l_dim, m_dim]
 
   # Combine with M mapping
-  # wigner_and_M_mapping: [num_m_coeffs, num_edges, num_m_coeffs]
   to_m_selected = to_m
   wigner_and_M_mapping = jnp.einsum('mk,nkj->nmj', to_m_selected, wigner)
   wigner_and_M_mapping_inv = jnp.einsum(

@@ -68,10 +68,21 @@ docs = [
     "tqdm",
 ]
 testing = [
-    "torch>=2.0.0",  # Required for UMA tests and weight loading
+    "pytest",
+    "ase",
 ]
 uma = [
-    "torch>=2.0.0",  # Required for loading PyTorch UMA checkpoints
+    "torch>=2.0.0",           # Loading PyTorch UMA checkpoints
+    "huggingface_hub",        # Downloading pretrained models
+]
+dev = [
+    "pytest",
+    "ase",
+    "torch>=2.0.0",
+    "e3nn",                   # Exact grid matrix computation
+    "huggingface_hub",
+    "fairchem-core",          # PyTorch reference for comparison tests
+    "setuptools<81",          # pkg_resources (needed by torchtnt)
 ]
 
 [project.urls]
@@ -90,9 +101,11 @@ packages = ["jax_md"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "jax_md/_nn/uma/Jd.pt" = "jax_md/_nn/uma/Jd.pt"
+"jax_md/_nn/uma/checkpoints" = "jax_md/_nn/uma/checkpoints"
 
 [tool.hatch.build.targets.sdist.force-include]
 "jax_md/_nn/uma/Jd.pt" = "jax_md/_nn/uma/Jd.pt"
+"jax_md/_nn/uma/checkpoints" = "jax_md/_nn/uma/checkpoints"
 
 [tool.coverage.run]
 source = ["jax_md"]
@@ -156,7 +169,6 @@ ignore = [
     "UP031",
     "UP034",
     "UP037",
-    "UP045",
 ]
 
 [tool.ruff.lint.isort]

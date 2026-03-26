@@ -2326,3 +2326,142 @@ def load_gnome_model_neighbor_list(
     return model.apply(params, graph)[0, 0]
 
   return neighbor_fn, energy_fn
+
+
+def uma_neighbor_list(
+  displacement_fn,
+  box,
+  cfg=None,
+  atoms=None,
+  checkpoint_path=None,
+  head_type='mlp',
+  neighbor_list_fn: Callable = partition.neighbor_list,
+  charge=None,
+  spin=None,
+  dataset_idx=None,
+  **nl_kwargs,
+):
+  """Convenience wrapper to compute UMA energy using a neighbor list.
+
+  This follows the standard JAX-MD pattern of returning
+  (neighbor_fn, init_fn, energy_fn). Forces can be computed via
+  ``jax.grad(energy_fn)`` which ensures energy conservation.
+
+  Args:
+    displacement_fn: Displacement function from ``jax_md.space``.
+    box: Box matrix with columns as lattice vectors, shape ``(dim, dim)``.
+    cfg: ``UMAConfig`` instance. If None, uses default config.
+    atoms: Integer atomic numbers, shape ``[num_atoms]``.
+    checkpoint_path: Path to a PyTorch checkpoint to load pretrained weights.
+        If provided, ``init_fn`` returns the converted weights instead of
+        random initialization.
+    head_type: Energy head type: ``'mlp'`` or ``'linear'``.
+    neighbor_list_fn: Neighbor list constructor (default: ``partition.neighbor_list``).
+    charge: System charge(s), shape ``[num_systems]`` (default: ``[0]``).
+    spin: System spin(s), shape ``[num_systems]`` (default: ``[0]``).
+    dataset_idx: Integer dataset index, shape ``[num_systems]`` (default: ``[0]``).
+    **nl_kwargs: Additional kwargs for neighbor list (e.g., ``fractional_coordinates``).
+
+  Returns:
+    Tuple of ``(neighbor_fn, init_fn, energy_fn)`` where:
+
+    - ``neighbor_fn``: Allocates/updates neighbor list.
+    - ``init_fn(key, position, neighbor, **kw)``: Returns model parameters.
+    - ``energy_fn(params, position, neighbor, **kw)``: Returns scalar energy.
+  """
+  from jax_md._nn.uma.model import UMABackbone, UMAConfig, default_config
+  from jax_md._nn.uma.heads import MLPEnergyHead, LinearEnergyHead
+  from jax_md._nn.uma.featurizer import uma_featurizer
+  import flax.linen as flax_nn
+
+  if cfg is None:
+    cfg = default_config()
+
+  # Build neighbor list
+  neighbor_fn = neighbor_list_fn(
+    displacement_fn, box, cfg.cutoff,
+    format=partition.Sparse,
+    **nl_kwargs,
+  )
+
+  featurizer = uma_featurizer(displacement_fn, cutoff=cfg.cutoff)
+
+  # Combined backbone + head as a single Flax module
+  class UMAEnergyModel(flax_nn.Module):
+    config: object
+
+    @flax_nn.compact
+    def __call__(self, features):
+      backbone = UMABackbone(config=self.config, name='backbone')
+      emb = backbone(
+        features['positions'],
+        features['atomic_numbers'],
+        features['batch'],
+        features['edge_index'],
+        features['edge_distance_vec'],
+        features['charge'],
+        features['spin'],
+        features.get('dataset_idx'),
+      )
+
+      if head_type == 'mlp':
+        head = MLPEnergyHead(
+          sphere_channels=self.config.sphere_channels,
+          hidden_channels=self.config.hidden_channels,
+          name='energy_head',
+        )
+      else:
+        head = LinearEnergyHead(
+          sphere_channels=self.config.sphere_channels,
+          name='energy_head',
+        )
+
+      num_systems = features['charge'].shape[0]
+      result = head(emb['node_embedding'], features['batch'], num_systems)
+      return result['energy']
+
+  model = UMAEnergyModel(config=cfg)
+
+  # Optionally load pretrained weights
+  pretrained_params = None
+  if checkpoint_path is not None:
+    from jax_md._nn.uma.weight_conversion import load_pytorch_checkpoint
+    pretrained_params = load_pytorch_checkpoint(checkpoint_path)
+
+  def init_fn(key, position, neighbor, **kwargs):
+    _atoms = kwargs.pop('atoms', atoms)
+    if _atoms is None:
+      raise ValueError('Integer atomic numbers are required.')
+
+    _charge = kwargs.pop('charge', charge)
+    _spin = kwargs.pop('spin', spin)
+    _dataset_idx = kwargs.pop('dataset_idx', dataset_idx)
+
+    features = featurizer(
+      _atoms, position, neighbor,
+      charge=_charge, spin=_spin, dataset_idx=_dataset_idx,
+      **kwargs,
+    )
+
+    if pretrained_params is not None:
+      return pretrained_params
+    return model.init(key, features)
+
+  def energy_fn(params, position, neighbor, **kwargs):
+    _atoms = kwargs.pop('atoms', atoms)
+    if _atoms is None:
+      raise ValueError('Integer atomic numbers are required.')
+
+    _charge = kwargs.pop('charge', charge)
+    _spin = kwargs.pop('spin', spin)
+    _dataset_idx = kwargs.pop('dataset_idx', dataset_idx)
+
+    features = featurizer(
+      _atoms, position, neighbor,
+      charge=_charge, spin=_spin, dataset_idx=_dataset_idx,
+      **kwargs,
+    )
+    # Sum over systems (typically 1 for MD)
+    return model.apply(params, features).sum()
+
+  return neighbor_fn, init_fn, energy_fn

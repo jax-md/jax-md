@@ -22,7 +22,7 @@ Ported from FairChem's UMA implementation.
 
 from __future__ import annotations
 
-from typing import List, Literal, Optional, Tuple
+from typing import List, Literal
 
 import flax.linen as nn
 import jax
@@ -30,6 +30,47 @@ import jax.numpy as jnp
 from jax.nn import initializers
 
 from jax_md._nn.uma.nn.radial import RadialMLP
+
+
+# Dataset name to index mapping (used outside JIT to convert strings to ints)
+DEFAULT_DATASET_LIST = ['oc20', 'omol', 'omat', 'odac', 'omc']
+
+# Aliases: these datasets map to 'omat'
+_DATASET_ALIASES = {
+  'mptrj': 'omat',
+  'salex': 'omat',
+}
+
+
+def dataset_name_to_idx(name: str, dataset_list: List[str]) -> int:
+  """Convert dataset name to integer index (call outside JIT).
+
+  Args:
+      name: Dataset name string.
+      dataset_list: List of known dataset names.
+
+  Returns:
+      Integer index into dataset_list.
+  """
+  resolved = _DATASET_ALIASES.get(name, name)
+  if resolved in dataset_list:
+    return dataset_list.index(resolved)
+  return 0  # Default to first dataset
+
+
+def dataset_names_to_indices(
+  names: List[str], dataset_list: List[str]
+) -> jnp.ndarray:
+  """Convert a list of dataset names to integer indices (call outside JIT).
+
+  Args:
+      names: List of dataset name strings.
+      dataset_list: List of known dataset names.
+
+  Returns:
+      Integer array of shape [len(names)].
+  """
+  return jnp.array([dataset_name_to_idx(n, dataset_list) for n in names])
 
 
 class AtomicEmbedding(nn.Module):
@@ -94,7 +135,6 @@ class ChgSpinEmbedding(nn.Module):
         Embeddings, shape [batch, embedding_size].
     """
     if self.embedding_type == 'pos_emb':
-      # Positional (sinusoidal) embedding
       W = self.param(
         'W',
         initializers.normal(stddev=self.scale),
@@ -106,7 +146,6 @@ class ChgSpinEmbedding(nn.Module):
       x_proj = x[:, None] * W[None, :] * 2 * jnp.pi
       emb = jnp.concatenate([jnp.sin(x_proj), jnp.cos(x_proj)], axis=-1)
 
-      # For spin, zero out null spin (0) embeddings
       if self.embedding_target == 'spin':
         zero_mask = (x == 0)[:, None]
         emb = jnp.where(zero_mask, 0.0, emb)
@@ -114,7 +153,6 @@ class ChgSpinEmbedding(nn.Module):
       return emb
 
     elif self.embedding_type == 'lin_emb':
-      # Linear embedding
       linear = nn.Dense(
         features=self.embedding_size,
         use_bias=True,
@@ -122,7 +160,6 @@ class ChgSpinEmbedding(nn.Module):
       )
       x_input = x.astype(jnp.float32)[:, None]
 
-      # For spin, use sentinel value for null
       if self.embedding_target == 'spin':
         x_input = jnp.where(x[:, None] == 0, -100.0, x_input)
 
@@ -132,13 +169,10 @@ class ChgSpinEmbedding(nn.Module):
       return out
 
     elif self.embedding_type == 'rand_emb':
-      # Random learned embedding
       if self.embedding_target == 'charge':
-        # Charge can be -100 to 100, offset to make positive indices
         num_embeddings = 201
         x_idx = x + 100
       else:
-        # Spin is 0 to 100
         num_embeddings = 101
         x_idx = x
 
@@ -160,52 +194,35 @@ class ChgSpinEmbedding(nn.Module):
 class DatasetEmbedding(nn.Module):
   """Embedding for dataset identifiers.
 
-  Each dataset gets its own learned embedding vector.
+  Uses integer indices instead of string names for JIT compatibility.
+  Call dataset_names_to_indices() outside JIT to convert strings to ints.
 
   Attributes:
       embedding_size: Dimension of the embedding.
-      dataset_list: List of dataset names.
+      num_datasets: Number of datasets.
       trainable: Whether the embeddings are trainable.
   """
 
   embedding_size: int
-  dataset_list: List[str]
+  num_datasets: int
   trainable: bool = False
 
   @nn.compact
-  def __call__(self, dataset_names: List[str]) -> jnp.ndarray:
-    """Embed dataset names.
+  def __call__(self, dataset_idx: jnp.ndarray) -> jnp.ndarray:
+    """Embed dataset indices.
 
     Args:
-        dataset_names: List of dataset names, length [batch].
+        dataset_idx: Integer dataset indices, shape [num_systems].
 
     Returns:
-        Embeddings, shape [batch, embedding_size].
+        Embeddings, shape [num_systems, embedding_size].
     """
-    # Create embedding for each unique dataset
-    embeddings = {}
-    for dataset in self.dataset_list:
-      emb = nn.Embed(
-        num_embeddings=1,
-        features=self.embedding_size,
-        name=f'emb_{dataset}',
-      )
-      embeddings[dataset] = emb(jnp.array([0]))
-
-    # Look up embeddings for each dataset in batch
-    emb_list = []
-    for name in dataset_names:
-      # Handle dataset aliases
-      if name in ['mptrj', 'salex'] and 'omat' in self.dataset_list:
-        emb = embeddings['omat']
-      elif name in embeddings:
-        emb = embeddings[name]
-      else:
-        # Default to first dataset
-        emb = embeddings[self.dataset_list[0]]
-      emb_list.append(emb)
-
-    out = jnp.concatenate(emb_list, axis=0)
+    embedding = nn.Embed(
+      num_embeddings=self.num_datasets,
+      features=self.embedding_size,
+      name='embedding',
+    )
+    out = embedding(dataset_idx)
     if not self.trainable:
       out = jax.lax.stop_gradient(out)
     return out
@@ -284,12 +301,8 @@ class EdgeDegreeEmbedding(nn.Module):
     # Apply envelope
     x_edge_embedding = x_edge_embedding * edge_envelope
 
-    # Aggregate onto target nodes
+    # Aggregate onto target nodes using scatter-add
     target_indices = edge_index[1] - node_offset
-    x_update = jax.ops.segment_sum(
-      x_edge_embedding,
-      target_indices,
-      num_segments=x.shape[0],
-    )
+    x_update = jnp.zeros_like(x).at[target_indices].add(x_edge_embedding)
 
     return x + x_update / self.rescale_factor

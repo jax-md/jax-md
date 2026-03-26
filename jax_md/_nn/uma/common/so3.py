@@ -26,17 +26,12 @@ from __future__ import annotations
 import math
 from typing import Tuple, List, Dict, NamedTuple
 
-import jax
 import jax.numpy as jnp
 import numpy as np
 
 
 class CoefficientMapping(NamedTuple):
   """Helper class for coefficients used to reshape l <--> m ordering.
-
-  This class provides utilities to convert between different orderings of
-  spherical harmonic coefficients and to extract coefficients of specific
-  degree or order.
 
   Attributes:
       lmax: Maximum degree of the spherical harmonics.
@@ -46,6 +41,9 @@ class CoefficientMapping(NamedTuple):
       m_harmonic: Absolute order |m| for each coefficient index.
       m_complex: Complex order (signed m) for each coefficient index.
       m_size: Number of coefficients for each m value.
+          NOTE: For m>0, this includes BOTH real and imaginary parts,
+          i.e. m_size[m] = 2 * (lmax - m + 1) for m > 0.
+          This differs from PyTorch which stores only the real count.
       res_size: Total number of coefficients.
   """
 
@@ -70,7 +68,6 @@ def create_coefficient_mapping(lmax: int, mmax: int) -> CoefficientMapping:
   Returns:
       CoefficientMapping instance with precomputed arrays.
   """
-  # Compute the degree (l) and order (m) for each entry of the embedding
   l_harmonic_list = []
   m_harmonic_list = []
   m_complex_list = []
@@ -82,19 +79,20 @@ def create_coefficient_mapping(lmax: int, mmax: int) -> CoefficientMapping:
       m_harmonic_list.append(abs(m))
       l_harmonic_list.append(l)
 
-  l_harmonic = jnp.array(l_harmonic_list, dtype=jnp.int32)
-  m_harmonic = jnp.array(m_harmonic_list, dtype=jnp.int32)
-  m_complex = jnp.array(m_complex_list, dtype=jnp.int32)
+  # Use numpy throughout (not jax) since this is precomputation at init time.
+  # This avoids TracerArrayConversionError when setup() is called under JIT.
+  l_harmonic_np = np.array(l_harmonic_list, dtype=np.int32)
+  m_harmonic_np = np.array(m_harmonic_list, dtype=np.int32)
+  m_complex_np = np.array(m_complex_list, dtype=np.int32)
   res_size = len(l_harmonic_list)
 
   num_coefficients = res_size
-  # `to_m` moves m components from different L to contiguous index
   to_m = np.zeros([num_coefficients, num_coefficients])
   m_size_list = [0] * (mmax + 1)
 
   offset = 0
   for m in range(mmax + 1):
-    idx_r, idx_i = _complex_idx(m, lmax, mmax, m_complex, l_harmonic)
+    idx_r, idx_i = _complex_idx(m, lmax, mmax, m_complex_np, l_harmonic_np)
 
     for idx_out, idx_in in enumerate(idx_r):
       to_m[idx_out + offset, idx_in] = 1.0
@@ -104,28 +102,25 @@ def create_coefficient_mapping(lmax: int, mmax: int) -> CoefficientMapping:
       to_m[idx_out + offset, idx_in] = 1.0
     offset = offset + len(idx_i)
 
-    # m_size includes both real and imaginary parts
     m_size_list[m] = len(idx_r) + len(idx_i)
 
-  to_m = jnp.array(to_m)
-
-  # Pre-compute coefficient indices
+  # Pre-compute coefficient indices (numpy)
   coefficient_idx_cache = {}
   for l in range(lmax + 1):
     for m_val in range(lmax + 1):
-      mask = (l_harmonic <= l) & (m_harmonic <= m_val)
-      indices = jnp.arange(len(mask))
-      mask_indices = jnp.where(mask, indices, -1)
-      mask_indices = mask_indices[mask_indices >= 0]
-      coefficient_idx_cache[(l, m_val)] = mask_indices
+      mask = (l_harmonic_np <= l) & (m_harmonic_np <= m_val)
+      indices = np.arange(len(mask))
+      mask_indices = indices[mask]
+      coefficient_idx_cache[(l, m_val)] = jnp.array(mask_indices)
 
+  # Convert to JAX arrays only for the final result
   return CoefficientMapping(
     lmax=lmax,
     mmax=mmax,
-    to_m=to_m,
-    l_harmonic=l_harmonic,
-    m_harmonic=m_harmonic,
-    m_complex=m_complex,
+    to_m=jnp.array(to_m),
+    l_harmonic=jnp.array(l_harmonic_np),
+    m_harmonic=jnp.array(m_harmonic_np),
+    m_complex=jnp.array(m_complex_np),
     m_size=tuple(m_size_list),
     res_size=res_size,
     coefficient_idx_cache=coefficient_idx_cache,
@@ -133,19 +128,18 @@ def create_coefficient_mapping(lmax: int, mmax: int) -> CoefficientMapping:
 
 
 def _complex_idx(
-  m: int, lmax: int, mmax: int, m_complex: jnp.ndarray, l_harmonic: jnp.ndarray
+  m: int, lmax: int, mmax: int, m_complex, l_harmonic,
 ) -> Tuple[List[int], List[int]]:
   """Get indices for real and imaginary parts of order m coefficients."""
-  indices = np.arange(len(l_harmonic))
-  m_complex_np = np.array(m_complex)
-  l_harmonic_np = np.array(l_harmonic)
+  # Ensure numpy arrays (not JAX arrays) for index computation
+  m_complex_np = np.asarray(m_complex)
+  l_harmonic_np = np.asarray(l_harmonic)
+  indices = np.arange(len(l_harmonic_np))
 
-  # Real part
   mask_r = (l_harmonic_np <= lmax) & (m_complex_np == m)
   mask_idx_r = indices[mask_r].tolist()
 
   mask_idx_i = []
-  # Imaginary part (only for m != 0)
   if m != 0:
     mask_i = (l_harmonic_np <= lmax) & (m_complex_np == -m)
     mask_idx_i = indices[mask_i].tolist()
@@ -168,17 +162,14 @@ def coefficient_idx(
 class SO3Grid(NamedTuple):
   """Helper class for grid representation of spherical harmonic irreps.
 
-  This class provides utilities to convert between spherical harmonic
-  coefficients and grid-based representations on S2.
-
   Attributes:
       lmax: Maximum degree of the spherical harmonics.
       mmax: Maximum order of the spherical harmonics.
       lat_resolution: Latitude resolution of the grid.
       long_resolution: Longitude resolution of the grid.
       mapping: CoefficientMapping for index manipulations.
-      to_grid_mat: Matrix to convert coefficients to grid.
-      from_grid_mat: Matrix to convert grid to coefficients.
+      to_grid_mat: Matrix to convert coefficients to grid, shape [lat, long, num_coeffs].
+      from_grid_mat: Matrix to convert grid to coefficients, shape [lat, long, num_coeffs].
       rescale: Whether rescaling was applied.
   """
 
@@ -197,14 +188,19 @@ def create_so3_grid(
   mmax: int,
   resolution: int | None = None,
   rescale: bool = True,
+  normalization: str = 'integral',
 ) -> SO3Grid:
   """Create an SO3Grid instance for grid-based spherical harmonic operations.
+
+  Uses PyTorch's e3nn library for exact numerical matching with pretrained
+  weights when available. Falls back to numpy computation otherwise.
 
   Args:
       lmax: Maximum degree of the spherical harmonics.
       mmax: Maximum order of the spherical harmonics.
       resolution: Grid resolution (if None, computed from lmax/mmax).
       rescale: Whether to rescale based on mmax.
+      normalization: Spherical harmonic normalization convention.
 
   Returns:
       SO3Grid instance with precomputed transformation matrices.
@@ -221,10 +217,8 @@ def create_so3_grid(
 
   mapping = create_coefficient_mapping(lmax, lmax)
 
-  # Compute to_grid and from_grid matrices using Legendre polynomials
-  # and Fourier basis
   to_grid_mat, from_grid_mat = _compute_grid_matrices(
-    lmax, mmax, lat_resolution, long_resolution, rescale, mapping
+    lmax, mmax, lat_resolution, long_resolution, rescale, normalization, mapping
   )
 
   return SO3Grid(
@@ -245,21 +239,140 @@ def _compute_grid_matrices(
   lat_resolution: int,
   long_resolution: int,
   rescale: bool,
+  normalization: str,
   mapping: CoefficientMapping,
 ) -> Tuple[jnp.ndarray, jnp.ndarray]:
   """Compute transformation matrices between coefficients and grid.
 
-  This uses the spherical harmonic basis to create transformation matrices.
+  Tries e3nn (via torch) first for exact PyTorch compatibility,
+  falls back to numpy computation.
   """
-  # Latitude angles (colatitude theta)
+  # Try using PyTorch e3nn for exact matching with pretrained weights
+  try:
+    return _compute_grid_matrices_e3nn(
+      lmax, mmax, lat_resolution, long_resolution, rescale, normalization, mapping
+    )
+  except ImportError:
+    pass
+
+  # Fall back to numpy computation
+  return _compute_grid_matrices_numpy(
+    lmax, mmax, lat_resolution, long_resolution, rescale, mapping
+  )
+
+
+def _compute_grid_matrices_e3nn(
+  lmax: int,
+  mmax: int,
+  lat_resolution: int,
+  long_resolution: int,
+  rescale: bool,
+  normalization: str,
+  mapping: CoefficientMapping,
+) -> Tuple[jnp.ndarray, jnp.ndarray]:
+  """Compute grid matrices using e3nn (exact match with PyTorch)."""
+  import torch
+  from e3nn.o3 import FromS2Grid, ToS2Grid
+
+  to_grid_obj = ToS2Grid(
+    lmax,
+    (lat_resolution, long_resolution),
+    normalization=normalization,
+  )
+  to_grid_mat = torch.einsum(
+    'mbi, am -> bai', to_grid_obj.shb, to_grid_obj.sha
+  ).detach()
+
+  # Rescale based on mmax
+  if rescale and lmax != mmax:
+    for lval in range(lmax + 1):
+      if lval <= mmax:
+        continue
+      start_idx = lval ** 2
+      length = 2 * lval + 1
+      rescale_factor = math.sqrt(length / (2 * mmax + 1))
+      to_grid_mat[:, :, start_idx:(start_idx + length)] *= rescale_factor
+
+  # Get coefficient indices for mmax subset
+  pt_mapping = _PyTorchCoefficientMapping(lmax, lmax)
+  coef_idx = pt_mapping.coefficient_idx(lmax, mmax)
+  to_grid_mat = to_grid_mat[:, :, coef_idx]
+
+  from_grid_obj = FromS2Grid(
+    (lat_resolution, long_resolution),
+    lmax,
+    normalization=normalization,
+  )
+  from_grid_mat = torch.einsum(
+    'am, mbi -> bai', from_grid_obj.sha, from_grid_obj.shb
+  ).detach()
+
+  # Rescale based on mmax
+  if rescale and lmax != mmax:
+    for lval in range(lmax + 1):
+      if lval <= mmax:
+        continue
+      start_idx = lval ** 2
+      length = 2 * lval + 1
+      rescale_factor = math.sqrt(length / (2 * mmax + 1))
+      from_grid_mat[:, :, start_idx:(start_idx + length)] *= rescale_factor
+
+  from_grid_mat = from_grid_mat[:, :, coef_idx]
+
+  return (
+    jnp.array(to_grid_mat.numpy()),
+    jnp.array(from_grid_mat.numpy()),
+  )
+
+
+class _PyTorchCoefficientMapping:
+  """Minimal reimplementation of PyTorch CoefficientMapping for grid matrix indexing."""
+
+  def __init__(self, lmax: int, mmax: int):
+    self.lmax = lmax
+    self.mmax = mmax
+
+    l_harmonic = []
+    m_harmonic = []
+    m_complex_list = []
+
+    for l in range(lmax + 1):
+      mmax_l = min(mmax, l)
+      for m in range(-mmax_l, mmax_l + 1):
+        m_complex_list.append(m)
+        m_harmonic.append(abs(m))
+        l_harmonic.append(l)
+
+    self._l_harmonic = np.array(l_harmonic)
+    self._m_harmonic = np.array(m_harmonic)
+
+  def coefficient_idx(self, lmax: int, mmax: int):
+    """Get indices matching PyTorch CoefficientMapping.coefficient_idx()."""
+    import torch
+    mask = (self._l_harmonic <= lmax) & (self._m_harmonic <= mmax)
+    indices = np.arange(len(mask))
+    return torch.tensor(indices[mask]).long()
+
+
+def _compute_grid_matrices_numpy(
+  lmax: int,
+  mmax: int,
+  lat_resolution: int,
+  long_resolution: int,
+  rescale: bool,
+  mapping: CoefficientMapping,
+) -> Tuple[jnp.ndarray, jnp.ndarray]:
+  """Compute transformation matrices using numpy (fallback).
+
+  Note: This may produce slightly different numerical results than e3nn
+  due to different spherical harmonic conventions. Use e3nn version
+  for exact compatibility with pretrained PyTorch weights.
+  """
   theta = np.linspace(0, np.pi, lat_resolution, endpoint=False)
   theta = theta + np.pi / (2 * lat_resolution)
 
-  # Longitude angles (azimuthal phi)
   phi = np.linspace(0, 2 * np.pi, long_resolution, endpoint=False)
 
-  # Compute spherical harmonics on the grid
-  # Y_l^m(theta, phi) = N_l^m * P_l^|m|(cos(theta)) * exp(i*m*phi)
   sph_size = (lmax + 1) ** 2
   to_grid = np.zeros((lat_resolution, long_resolution, sph_size))
   from_grid = np.zeros((lat_resolution, long_resolution, sph_size))
@@ -270,10 +383,8 @@ def _compute_grid_matrices(
     for m in range(-l, l + 1):
       idx = l * l + l + m
 
-      # Associated Legendre polynomial
       plm = _associated_legendre(l, abs(m), cos_theta)
 
-      # Normalization factor
       norm = np.sqrt(
         (2 * l + 1)
         / (4 * np.pi)
@@ -281,36 +392,31 @@ def _compute_grid_matrices(
         / math.factorial(l + abs(m))
       )
 
-      # Azimuthal part
       if m >= 0:
         azimuth = np.cos(m * phi)
       else:
         azimuth = np.sin(abs(m) * phi)
 
-      # Spherical harmonic value
-      for i, t in enumerate(theta):
-        for j, p in enumerate(phi):
+      for i in range(lat_resolution):
+        for j in range(long_resolution):
           to_grid[i, j, idx] = norm * plm[i] * azimuth[j]
           from_grid[i, j, idx] = norm * plm[i] * azimuth[j]
 
-  # Apply quadrature weights for from_grid
   sin_theta = np.sin(theta)
   quad_weight = 2 * np.pi / long_resolution * np.pi / lat_resolution
   for i in range(lat_resolution):
     from_grid[i, :, :] *= sin_theta[i] * quad_weight
 
-  # Rescale based on mmax if needed
   if rescale and lmax != mmax:
     for lval in range(lmax + 1):
       if lval <= mmax:
         continue
-      start_idx = lval**2
+      start_idx = lval ** 2
       length = 2 * lval + 1
       rescale_factor = np.sqrt(length / (2 * mmax + 1))
-      to_grid[:, :, start_idx : start_idx + length] *= rescale_factor
-      from_grid[:, :, start_idx : start_idx + length] *= rescale_factor
+      to_grid[:, :, start_idx: start_idx + length] *= rescale_factor
+      from_grid[:, :, start_idx: start_idx + length] *= rescale_factor
 
-  # Select subset of coefficients based on mmax
   coef_idx = coefficient_idx(mapping, lmax, mmax)
   coef_idx_np = np.array(coef_idx)
   to_grid = to_grid[:, :, coef_idx_np]
@@ -321,11 +427,9 @@ def _compute_grid_matrices(
 
 def _associated_legendre(l: int, m: int, x: np.ndarray) -> np.ndarray:
   """Compute associated Legendre polynomial P_l^m(x)."""
-  # Use recurrence relation for stability
   if m > l:
     return np.zeros_like(x)
 
-  # Start with P_m^m
   pmm = np.ones_like(x)
   if m > 0:
     somx2 = np.sqrt((1 - x) * (1 + x))
@@ -337,13 +441,11 @@ def _associated_legendre(l: int, m: int, x: np.ndarray) -> np.ndarray:
   if l == m:
     return pmm
 
-  # Compute P_{m+1}^m
   pmmp1 = x * (2 * m + 1) * pmm
 
   if l == m + 1:
     return pmmp1
 
-  # Use recurrence for higher l
   pll = np.zeros_like(x)
   for ll in range(m + 2, l + 1):
     pll = ((2 * ll - 1) * x * pmmp1 - (ll + m - 1) * pmm) / (ll - m)

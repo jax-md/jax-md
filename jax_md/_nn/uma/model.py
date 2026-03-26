@@ -23,29 +23,24 @@ Ported from FairChem's UMA implementation.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Literal, Optional, Tuple
+from typing import Dict, List, Optional
 
 import flax.linen as nn
-import jax
 import jax.numpy as jnp
 from jax.nn import initializers
 
 from jax_md._nn.uma.common.so3 import (
-  CoefficientMapping,
-  SO3Grid,
   create_coefficient_mapping,
   create_so3_grid,
   coefficient_idx,
 )
 from jax_md._nn.uma.common.rotation import (
-  compute_jacobi_matrices,
   load_jacobi_matrices_from_file,
   init_edge_rot_euler_angles,
   eulers_to_wigner,
 )
 from jax_md._nn.uma.nn.radial import GaussianSmearing, PolynomialEnvelope
 from jax_md._nn.uma.nn.embedding import (
-  AtomicEmbedding,
   ChgSpinEmbedding,
   DatasetEmbedding,
   EdgeDegreeEmbedding,
@@ -75,6 +70,7 @@ class UMAConfig:
       chg_spin_emb_type: Type of charge/spin embedding.
       dataset_list: List of dataset names for dataset embedding.
       use_dataset_embedding: Whether to use dataset embedding.
+      activation_checkpointing: Whether to use activation checkpointing (nn.remat).
   """
 
   max_num_elements: int = 100
@@ -93,6 +89,7 @@ class UMAConfig:
   chg_spin_emb_type: str = 'pos_emb'
   dataset_list: Optional[List[str]] = field(default=None)
   use_dataset_embedding: bool = True
+  activation_checkpointing: bool = False
 
 
 def default_config() -> UMAConfig:
@@ -147,7 +144,6 @@ class UMABackbone(nn.Module):
     )
 
     # Load Jacobi matrices for Wigner D-matrix computation
-    # Use precomputed values for exact compatibility with PyTorch weights
     self.Jd_list = load_jacobi_matrices_from_file(cfg.lmax)
 
     # Get coefficient index for lmax/mmax subset
@@ -172,7 +168,7 @@ class UMABackbone(nn.Module):
     edge_distance_vec: jnp.ndarray,
     charge: jnp.ndarray,
     spin: jnp.ndarray,
-    dataset: Optional[List[str]] = None,
+    dataset_idx: Optional[jnp.ndarray] = None,
   ) -> Dict[str, jnp.ndarray]:
     """Apply UMA backbone.
 
@@ -184,7 +180,8 @@ class UMABackbone(nn.Module):
         edge_distance_vec: Edge vectors, shape [num_edges, 3].
         charge: System charges, shape [num_systems].
         spin: System spins, shape [num_systems].
-        dataset: Dataset names, length [num_systems].
+        dataset_idx: Integer dataset indices, shape [num_systems].
+            Use embedding.dataset_names_to_indices() to convert strings.
 
     Returns:
         Dictionary with:
@@ -193,7 +190,6 @@ class UMABackbone(nn.Module):
     """
     cfg = self.config
     num_atoms = positions.shape[0]
-    num_edges = edge_index.shape[1]
 
     # === Embeddings ===
 
@@ -228,22 +224,21 @@ class UMABackbone(nn.Module):
     if (
       cfg.use_dataset_embedding
       and cfg.dataset_list is not None
-      and dataset is not None
+      and dataset_idx is not None
     ):
       dataset_embedding = DatasetEmbedding(
         embedding_size=cfg.sphere_channels,
-        dataset_list=cfg.dataset_list,
+        num_datasets=len(cfg.dataset_list),
         trainable=False,
         name='dataset_embedding',
       )
-      dataset_emb = dataset_embedding(dataset)
+      dataset_emb = dataset_embedding(dataset_idx)
       csd_cat = jnp.concatenate([chg_emb, spin_emb, dataset_emb], axis=1)
-      mix_csd = nn.Dense(cfg.sphere_channels, name='mix_csd')
-      csd_mixed_emb = nn.silu(mix_csd(csd_cat))
     else:
       csd_cat = jnp.concatenate([chg_emb, spin_emb], axis=1)
-      mix_csd = nn.Dense(cfg.sphere_channels, name='mix_csd')
-      csd_mixed_emb = nn.silu(mix_csd(csd_cat))
+
+    mix_csd = nn.Dense(cfg.sphere_channels, name='mix_csd')
+    csd_mixed_emb = nn.silu(mix_csd(csd_cat))
 
     # === Edge distance embedding ===
 
@@ -297,12 +292,8 @@ class UMABackbone(nn.Module):
 
     # Select subset if mmax != lmax
     if cfg.mmax != cfg.lmax:
-      wigner = wigner[:, self.coefficient_index, :][
-        :, :, self.coefficient_index
-      ]
-      wigner_inv = wigner_inv[:, self.coefficient_index, :][
-        :, :, self.coefficient_index
-      ]
+      wigner = wigner[:, self.coefficient_index, :]      # [E, m_dim, l_dim]
+      wigner_inv = wigner_inv[:, :, self.coefficient_index]  # [E, l_dim, m_dim]
 
     # Combine with M mapping
     to_m = self.mapping.to_m
@@ -360,6 +351,14 @@ class UMABackbone(nn.Module):
         from_grid_mat=self.so3_grid_lmax_lmax.from_grid_mat,
         name=f'blocks_{i}',
       )
+
+      if cfg.activation_checkpointing:
+        block = nn.remat(block.__class__)(
+          **{f.name: getattr(block, f.name) for f in block.__dataclass_fields__.values()
+             if hasattr(block, f.name)},
+          name=f'blocks_{i}',
+        )
+
       x_message = block(
         x_message,
         x_edge,
@@ -378,6 +377,7 @@ class UMABackbone(nn.Module):
       cfg.norm_type,
       lmax=cfg.lmax,
       num_channels=cfg.sphere_channels,
+      name='norm',
     )
     x_message = norm(x_message)
 
