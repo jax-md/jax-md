@@ -8,13 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: false
+  contents: write
 
 jobs:
   execute-notebook:
@@ -79,7 +73,7 @@ jobs:
           path: executed/
           retention-days: 1
 
-  build:
+  build-and-deploy:
     needs: execute-notebook
     runs-on: ubuntu-latest
     steps:
@@ -97,27 +91,16 @@ jobs:
           path: artifacts/
           merge-multiple: true
 
-      - name: Prepare and build docs
+      - name: Prepare docs
         run: |
           sed 's|examples/\([a-z_]*\)\.py|examples/\1.ipynb|g' README.md > docs/index.md
           mkdir -p docs/examples/units
           cp artifacts/examples/*.ipynb docs/examples/
           cp artifacts/examples/units/*.ipynb docs/examples/units/ 2>/dev/null || true
-          uv run mkdocs build
 
-      - name: Upload pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: site/
+      - name: Build site
+        run: uv run mkdocs build
 
-  deploy:
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
       - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+        run: uv run mkdocs gh-deploy --force
