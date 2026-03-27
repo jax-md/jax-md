@@ -60,6 +60,7 @@ docs = [
     "matplotlib",
     "seaborn",
     "ase",
+    "ase-db-backends",
     "tqdm",
 ]
 
