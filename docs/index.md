@@ -30,12 +30,12 @@ To get started playing around with JAX MD check out the following colab notebook
 
 JAX MD also comes with self contained python scripts which you run locally if you have JAX MD installed:
 
-- [Fire minimization](examples/fire_minimization.py)
-- [NVE Simulation](examples/nve_simulation.py)
-- [NVT Simulation](examples/nvt_simulation.py)
-- [NPT Simulation](examples/npt_simulation.py)
-- [NVE with Neighbor Lists](examples/nve_neighbor_list.py)
-- [Neural Network Potentials](examples/neural_networks.py)
+- [Fire minimization](examples/fire_minimization.ipynb)
+- [NVE Simulation](examples/nve_simulation.ipynb)
+- [NVT Simulation](examples/nvt_simulation.ipynb)
+- [NPT Simulation](examples/npt_simulation.ipynb)
+- [NVE with Neighbor Lists](examples/nve_neighbor_list.ipynb)
+- [Neural Network Potentials](examples/neural_networks.ipynb)
 
 You can install JAX MD locally with pip,
 

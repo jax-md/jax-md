@@ -1,0 +1,105 @@
+name: Deploy docs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  execute-notebook:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        notebook:
+          - examples/neural_networks.py
+          - examples/equivariant_neural_networks.py
+          - examples/custom_nl.py
+          - examples/reaxff_nve_simulation.py
+          - examples/nvt_simulation.py
+          - examples/npt_simulation.py
+          - examples/nve_neighbor_list.py
+          - examples/nve_simulation.py
+          - examples/fire_minimization.py
+          - examples/units/nve_si_sw.py
+          - examples/units/nvt_si_sw.py
+          - examples/units/npt_si_sw.py
+          - examples/units/nvk_si_sw.py
+          - examples/units/berendsen_si_sw.py
+          - examples/units/velocity_rescale_si_sw.py
+          - examples/units/csvr_si_sw.py
+          - examples/units/npt_melting_si_sw.py
+    env:
+      READTHEDOCS: "1"
+      JAX_PLATFORMS: cpu
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        run: uv sync --group docs
+
+      - name: Convert and execute notebook
+        run: |
+          nb="${{ matrix.notebook }}"
+          dir=$(dirname "$nb")
+          base=$(basename "$nb" .py)
+          mkdir -p "executed/$dir"
+          cp -r examples/data "executed/examples/data" 2>/dev/null || true
+          cp -r examples/models "executed/examples/models" 2>/dev/null || true
+          uv run jupytext --to notebook "$nb" --output "executed/${dir}/${base}.ipynb"
+          uv run python -c "
+          import nbformat
+          from nbclient import NotebookClient
+          nb = nbformat.read('executed/${dir}/${base}.ipynb', as_version=4)
+          magic = nbformat.v4.new_code_cell('%matplotlib inline')
+          nb.cells.insert(0, magic)
+          NotebookClient(nb, timeout=600, kernel_name='python3',
+                        resources={'metadata': {'path': 'executed/${dir}'}}).execute()
+          nbformat.write(nb, 'executed/${dir}/${base}.ipynb')
+          "
+
+      - name: Upload executed notebook
+        uses: actions/upload-artifact@v4
+        with:
+          name: notebook-${{ hashFiles(matrix.notebook) }}
+          path: executed/
+          retention-days: 1
+
+  build-and-deploy:
+    needs: execute-notebook
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        run: uv sync --group docs
+
+      - name: Download all executed notebooks
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+          merge-multiple: true
+
+      - name: Prepare docs
+        run: |
+          sed 's|examples/\([a-z_]*\)\.py|examples/\1.ipynb|g' README.md > docs/index.md
+          mkdir -p docs/examples/units
+          cp artifacts/examples/*.ipynb docs/examples/
+          cp artifacts/examples/units/*.ipynb docs/examples/units/ 2>/dev/null || true
+          cat > docs/examples/index.md << 'EOF'
+          # Examples
+
+          Executable examples demonstrating JAX MD features.
+          EOF
+
+      - name: Deploy to GitHub Pages
+        run: uv run mkdocs gh-deploy --force

@@ -14,3 +14,5 @@ dist/
 examples/output/*
 scripts/
 docs/_build/
+*.cache/
+site/

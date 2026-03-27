@@ -34,7 +34,7 @@ class NeighborListMultiImage:
     idx: For Sparse: tuple (receivers, senders). For Dense: array (N, max_neighbors).
       Invalid entries are padded with index N (number of atoms).
     shifts: Integer shift vectors. Sparse: (capacity, dim). Dense: (N, max_neighbors, dim).
-      The real-space shift is ``shifts @ box.T``.
+      The real-space shift is ``transform(box, shifts)``.
     reference_position: Positions when the list was built, shape (N, dim).
     box: An affine transformation; see ``jax_md.space.periodic_general``.
     format: NeighborListFormat.Sparse, OrderedSparse, or Dense.
@@ -48,7 +48,7 @@ class NeighborListMultiImage:
   idx: Union[Tuple[Array, Array], Array]
   # Sparse/OrderedSparse: Array[capacity, dim]
   # Dense: Array[N, max_neighbors, dim]
-  shifts: Array  # real-space shift = shifts @ box.T
+  shifts: Array  # integer shifts, real-space = transform(box, shifts)
   reference_position: Array  # [N, dim]
   box: Array  # [dim, dim]
   format: NeighborListFormat = dataclasses.static_field()
@@ -211,7 +211,7 @@ def _compute_distances_sq(
     Squared distances. Shape ``[num_shifts, N, N]``.
   """
   if fractional_coordinates:
-    position_real = position @ box.T  # [N, dim]
+    position_real = space.transform(box, position)  # [N, dim]
   else:
     position_real = position
 
@@ -263,7 +263,7 @@ def _compute_pairwise_mask(
 
   # Convert to real coordinates if needed
   if fractional_coordinates:
-    position_real = position @ box.T  # [N, dim]
+    position_real = space.transform(box, position)  # [N, dim]
   else:
     position_real = position
 
@@ -372,7 +372,7 @@ def _build_neighbor_list_sparse(
     position: Atom positions. Shape ``[N, dim]``.
     box: Box matrix. Shape ``[dim, dim]``.
     shifts: Integer shift vectors. Shape ``[num_shifts, dim]``.
-    shifts_real: Real-space shifts (``shifts @ box.T``). Shape ``[num_shifts, dim]``.
+    shifts_real: Real-space shifts. Shape ``[num_shifts, dim]``.
     zero_shift_idx: Index of the zero shift vector.
     r_cutoff: Cutoff distance.
     capacity: Maximum edges to store.
@@ -432,7 +432,7 @@ def _build_neighbor_list_orderedsparse(
     position: Atom positions. Shape ``[N, dim]``.
     box: Box matrix. Shape ``[dim, dim]``.
     shifts: Integer shift vectors. Shape ``[num_shifts, dim]``.
-    shifts_real: Real-space shifts (``shifts @ box.T``). Shape ``[num_shifts, dim]``.
+    shifts_real: Real-space shifts. Shape ``[num_shifts, dim]``.
     zero_shift_idx: Index of the zero shift vector.
     r_cutoff: Cutoff distance.
     capacity: Maximum edges to store.
@@ -521,7 +521,7 @@ def _build_neighbor_list_dense(
     position: Atom positions. Shape ``[N, dim]``.
     box: Affine transformation (see ``periodic_general``). Shape ``[dim, dim]``.
     shifts: Integer shift vectors. Shape ``[num_shifts, dim]``.
-    shifts_real: Real-space shifts (``shifts @ box.T``). Shape ``[num_shifts, dim]``.
+    shifts_real: Real-space shifts. Shape ``[num_shifts, dim]``.
     zero_shift_idx: Index of the zero shift vector.
     r_cutoff: Cutoff distance (scalar).
     max_neighbors: Maximum neighbors per atom.
@@ -911,7 +911,7 @@ def neighbor_list_multi_image(
 
     @jax.jit
     def build_fn(pos, box):
-      shifts_real = nl_shifts @ box.T
+      shifts_real = space.transform(box, nl_shifts)
       return build_nl_fn(
         pos,
         box,
@@ -957,8 +957,8 @@ def neighbor_list_multi_image(
   ) -> Array:  # scalar bool
     """Check if maximum displacement exceeds threshold."""
     if fractional_coordinates:
-      pos_new = position @ default_box.T  # [N, dim]
-      pos_old = reference_position @ default_box.T
+      pos_new = space.transform(default_box, position)  # [N, dim]
+      pos_old = space.transform(default_box, reference_position)
     else:
       pos_new = position
       pos_old = reference_position
@@ -1034,7 +1034,7 @@ def neighbor_list_multi_image(
       return allocate_fn(position, **kwargs)
 
     # Update: reuse existing capacity and precomputed integer shifts.
-    # Real-space shifts (shifts @ box.T) are recomputed inside build_fn
+    # Real-space shifts are recomputed inside build_fn
     # using the traced box argument, so this is safe inside JIT.
     current_box = jnp.asarray(kwargs.get('box', default_box))
     capacity = neighbors.max_occupancy
