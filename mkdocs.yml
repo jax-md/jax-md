@@ -1,0 +1,150 @@
+site_name: JAX MD
+site_description: Accelerated, Differentiable, Molecular Dynamics
+site_url: https://jax-md.github.io/jax-md/
+repo_url: https://github.com/jax-md/jax-md
+repo_name: jax-md/jax-md
+docs_dir: docs
+
+theme:
+  name: material
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - toc.follow
+    - toc.integrate
+  palette:
+    - scheme: default
+      primary: deep purple
+      accent: teal
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: deep purple
+      accent: teal
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [.]
+          options:
+            show_source: true
+            show_root_heading: true
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            members_order: source
+            docstring_style: sphinx
+            merge_init_into_class: true
+            show_if_no_docstring: false
+            allow_inspection: true
+      enable_inventory: false
+  - mkdocs-jupyter:
+      execute: false
+      kernel_name: python3
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true
+  - attr_list
+  - md_in_html
+  - def_list
+
+nav:
+  - Home: index.md
+  - Examples:
+      - examples/index.md
+      - Simulations:
+          - NVE: examples/nve_simulation.ipynb
+          - NVT (Nose-Hoover): examples/nvt_simulation.ipynb
+          - NPT (Nose-Hoover): examples/npt_simulation.ipynb
+          - NVE with Neighbor Lists: examples/nve_neighbor_list.ipynb
+          - FIRE Minimization: examples/fire_minimization.ipynb
+          - ReaxFF NVE: examples/reaxff_nve_simulation.ipynb
+          - Multi-Image Neighbor Lists: examples/custom_nl.ipynb
+      - Neural Network Potentials:
+          - Graph Network: examples/neural_networks.ipynb
+          - "Equivariant GNN (NequIP)": examples/equivariant_neural_networks.ipynb
+      - Units:
+          - NVE Simulation: examples/units/nve_si_sw.ipynb
+          - NVT Simulation: examples/units/nvt_si_sw.ipynb
+          - NPT Simulation: examples/units/npt_si_sw.ipynb
+          - NVK Simulation: examples/units/nvk_si_sw.ipynb
+          - Berendsen Thermostat: examples/units/berendsen_si_sw.ipynb
+          - Velocity Rescaling: examples/units/velocity_rescale_si_sw.ipynb
+          - CSVR Thermostat: examples/units/csvr_si_sw.ipynb
+          - NPT Melting: examples/units/npt_melting_si_sw.ipynb
+  - API Reference:
+      - reference/index.md
+      - Core:
+          - Spaces: reference/space.md
+          - Units: reference/units.md
+          - Utilities: reference/util.md
+          - Dataclasses: reference/dataclasses.md
+          - TPU: reference/tpu.md
+      - Spatial Partitioning:
+          - Neighbor Lists: reference/partition.md
+          - Multi-Image Neighbor Lists: reference/custom_partition.md
+      - Potentials:
+          - Energy Functions: reference/energy.md
+          - Electrostatics: reference/electrostatics.md
+          - Structure Maps: reference/smap.md
+          - Multi-Image Maps: reference/custom_smap.md
+          - Interpolation: reference/interpolate.md
+      - Force Fields:
+          - ReaxFF: reference/reaxff.md
+      - Neural Networks:
+          - Graph Networks: reference/nn.md
+          - NequIP: reference/nequip.md
+          - GNoME: reference/gnome.md
+          - Behler-Parrinello: reference/behler_parrinello.md
+          - E3NN Layers: reference/e3nn_layer.md
+          - NN Utilities: reference/nn_util.md
+      - Dynamics:
+          - Simulation: reference/simulate.md
+          - Minimization: reference/minimize.md
+          - Quantities: reference/quantity.md
+          - Elasticity: reference/elasticity.md
+          - Rigid Bodies: reference/rigid_body.md
+      - Workflows:
+          - "A2C (Amorphous to Crystal)": reference/a2c.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/jax-md/jax-md
+    - icon: fontawesome/solid/globe
+      link: https://arxiv.org/abs/1912.04232
+
+extra_javascript:
+  - javascript/mathjax.js
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js

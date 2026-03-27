@@ -52,24 +52,21 @@ dependencies = [
 
 [dependency-groups]
 docs = [
-    "sphinx>=7.2.0",
-    "sphinx-rtd-theme",
-    "sphinx-book-theme",
-    "sphinx-remove-toctrees",
-    "nbsphinx",
-    "sphinx-autodoc-typehints>=1.24.0",
-    "sphinx-copybutton>=0.5.0",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.24",
+    "mkdocs-jupyter>=0.24",
     "jupytext",
     "ipykernel",
     "matplotlib",
     "seaborn",
     "ase",
+    "ase-db-backends",
     "tqdm",
 ]
 
 [project.urls]
 Homepage = "https://github.com/google/jax-md"
-Documentation = "https://arxiv.org/abs/1912.04232"
+Documentation = "https://jax-md.github.io/jax-md/"
 Repository = "https://github.com/google/jax-md"
 "Bug Tracker" = "https://github.com/google/jax-md/issues"
 Download = "https://pypi.org/project/jax-md/"

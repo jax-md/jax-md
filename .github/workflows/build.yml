@@ -8,10 +8,12 @@ on:
   push:
     branches:
       - main
+      - dev
       - 'test_*'
   pull_request:
     branches:
       - main
+      - dev
 
 jobs:
   lint:
