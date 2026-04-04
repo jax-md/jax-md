@@ -107,7 +107,9 @@ def coulomb_recip_ewald(
 ) -> Callable[[Array], Array]:
 
   @partial(jax.jit, static_argnums=(1,))
-  def two_stage_safe_mask(mask, fn, operand, placeholder_in=1.0, placeholder_out=0.0):
+  def two_stage_safe_mask(
+    mask, fn, operand, placeholder_in=1.0, placeholder_out=0.0
+  ):
     masked = jnp.where(mask, operand, placeholder_in)
     return jnp.where(mask, fn(masked), placeholder_out)
 
