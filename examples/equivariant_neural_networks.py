@@ -50,6 +50,8 @@ from ml_collections import ConfigDict
 from jax_md import space, partition, quantity, energy, minimize, simulate, units
 from jax_md import custom_partition
 
+SCRIPT_DIR = Path(__file__).resolve().parent if '__file__' in dir() else Path('examples')
+
 SMOKE_TEST = os.environ.get('READTHEDOCS', False)
 
 # %% [markdown]
@@ -204,7 +206,7 @@ if not SMOKE_TEST:
     force_mae = jnp.mean(jnp.abs(pred_Fs - Fs_target)) * 1000
     return energy_mae, force_mae
 
-  CHECKPOINT_PATH = Path('examples/models/si_equivariant.pickle')
+  CHECKPOINT_PATH = SCRIPT_DIR / 'models' / 'si_equivariant.pickle'
   if CHECKPOINT_PATH.exists():
     with open(CHECKPOINT_PATH, 'rb') as f:
       ckpt = pickle.load(f)
@@ -286,7 +288,7 @@ if not SMOKE_TEST:
 # ## Save Checkpoint
 
 # %%
-CHECKPOINT_PATH = Path('examples/models/si_equivariant.pickle')
+CHECKPOINT_PATH = SCRIPT_DIR / 'models' / 'si_equivariant.pickle'
 if SMOKE_TEST:
   if CHECKPOINT_PATH.exists():
     with open(CHECKPOINT_PATH, 'rb') as f:
