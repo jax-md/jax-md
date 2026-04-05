@@ -238,6 +238,7 @@ def e_total_func(pos, nlist):
   return energy_fn_jit(pos, nlist)['total']
 
 force_fn = jit(grad(e_total_func))
+nlist = neighbor_fn.allocate(positions)
 forces = force_fn(positions, nlist)
 
 # %%
