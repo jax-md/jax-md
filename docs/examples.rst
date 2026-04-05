@@ -14,3 +14,4 @@ Examples
    examples/reaxff_nve_simulation
    examples/custom_nl
    examples/symmetric_md
+   examples/oplsaa_torsion

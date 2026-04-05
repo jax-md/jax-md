@@ -50,7 +50,20 @@ from ml_collections import ConfigDict
 from jax_md import space, partition, quantity, energy, minimize, simulate, units
 from jax_md import custom_partition
 
-SCRIPT_DIR = Path(__file__).resolve().parent if '__file__' in dir() else Path('examples')
+def _find_models_dir():
+  """Find the models directory regardless of working directory."""
+  candidates = [
+    Path(__file__).resolve().parent / 'models' if '__file__' in dir() else None,
+    Path('models'),
+    Path('examples/models'),
+    Path('docs/examples/models'),
+  ]
+  for p in candidates:
+    if p is not None and p.exists():
+      return p
+  return Path('models')
+
+MODELS_DIR = _find_models_dir()
 
 SMOKE_TEST = os.environ.get('READTHEDOCS', False)
 
@@ -206,7 +219,7 @@ if not SMOKE_TEST:
     force_mae = jnp.mean(jnp.abs(pred_Fs - Fs_target)) * 1000
     return energy_mae, force_mae
 
-  CHECKPOINT_PATH = SCRIPT_DIR / 'models' / 'si_equivariant.pickle'
+  CHECKPOINT_PATH = MODELS_DIR / 'si_equivariant.pickle'
   if CHECKPOINT_PATH.exists():
     with open(CHECKPOINT_PATH, 'rb') as f:
       ckpt = pickle.load(f)
@@ -288,7 +301,7 @@ if not SMOKE_TEST:
 # ## Save Checkpoint
 
 # %%
-CHECKPOINT_PATH = SCRIPT_DIR / 'models' / 'si_equivariant.pickle'
+CHECKPOINT_PATH = MODELS_DIR / 'si_equivariant.pickle'
 if SMOKE_TEST:
   if CHECKPOINT_PATH.exists():
     with open(CHECKPOINT_PATH, 'rb') as f:
