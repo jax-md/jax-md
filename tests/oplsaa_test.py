@@ -24,7 +24,7 @@ class OPLSAAEnergyTest(jtu.JAXMDTestCase):
 
   def setUp(self):
     """Set up test fixtures - load system and initialize energy function."""
-    data_dir = 'notebooks/data/torsion-data'
+    data_dir = 'examples/data/torsion-data'
     pdb_file = os.path.join(data_dir, 'scan_1.pdb')
     prm_file = os.path.join(data_dir, 'scan_1.prm')
     rtf_file = os.path.join(data_dir, 'scan_1.rtf')

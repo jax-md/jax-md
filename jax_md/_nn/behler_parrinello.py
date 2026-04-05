@@ -22,7 +22,6 @@ from jax import vmap, jit
 import jax.numpy as jnp
 
 from jax_md import space, dataclasses, quantity, partition, smap, util
-import haiku as hk
 
 from collections import namedtuple
 from functools import partial, reduce

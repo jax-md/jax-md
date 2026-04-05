@@ -11,7 +11,6 @@
 .DS_Store
 build/
 dist/
-.mypy_cache/
 examples/output/*
 
 # Regeneratable PT reference data (run tests/generate_pt_reference_multi.py)
@@ -22,3 +21,5 @@ tests/data/pt_reference_100/
 # Large checkpoint files (generated via load_pretrained or convert script)
 jax_md/_nn/uma/checkpoints/*.npz
 uv.lock
+scripts/
+docs/_build/
