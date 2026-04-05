@@ -66,6 +66,8 @@ docs = [
     "ase",
     "ase-db-backends",
     "symd",
+    "importlib-resources",
+    "networkx",
     "tqdm",
 ]
 
