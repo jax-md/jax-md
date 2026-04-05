@@ -61,8 +61,8 @@ class Edgewise(nn.Module):
   m_size: List[int]
   cutoff: float
   act_type: Literal['gate', 's2'] = 'gate'
-  to_grid_mat: Optional[jnp.ndarray] = None
-  from_grid_mat: Optional[jnp.ndarray] = None
+  to_grid_mat: jnp.ndarray | None = None
+  from_grid_mat: jnp.ndarray | None = None
 
   @nn.compact
   def __call__(
@@ -326,8 +326,8 @@ class UMABlock(nn.Module):
   norm_type: str = 'rms_norm_sh'
   act_type: Literal['gate', 's2'] = 'gate'
   ff_type: Literal['spectral', 'grid'] = 'grid'
-  to_grid_mat: Optional[jnp.ndarray] = None
-  from_grid_mat: Optional[jnp.ndarray] = None
+  to_grid_mat: jnp.ndarray | None = None
+  from_grid_mat: jnp.ndarray | None = None
 
   @nn.compact
   def __call__(
@@ -339,7 +339,7 @@ class UMABlock(nn.Module):
     wigner_and_M_mapping: jnp.ndarray,
     wigner_and_M_mapping_inv: jnp.ndarray,
     edge_envelope: jnp.ndarray,
-    sys_node_embedding: Optional[jnp.ndarray] = None,
+    sys_node_embedding: jnp.ndarray | None = None,
     node_offset: int = 0,
   ) -> jnp.ndarray:
     """Apply UMA block.

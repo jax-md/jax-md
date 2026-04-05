@@ -55,7 +55,7 @@ class MLPEnergyHead(nn.Module):
     node_embedding: jnp.ndarray,
     batch: jnp.ndarray,
     num_systems: int,
-    natoms: Optional[jnp.ndarray] = None,
+    natoms: jnp.ndarray | None = None,
   ) -> Dict[str, jnp.ndarray]:
     """Predict energy from embeddings.
 
@@ -72,7 +72,9 @@ class MLPEnergyHead(nn.Module):
     scalar_input = node_embedding[:, 0, :]
 
     # MLP: Linear -> SiLU -> Linear -> SiLU -> Linear
-    x = nn.Dense(self.hidden_channels, use_bias=True, name='linear_0')(scalar_input)
+    x = nn.Dense(self.hidden_channels, use_bias=True, name='linear_0')(
+      scalar_input
+    )
     x = nn.silu(x)
     x = nn.Dense(self.hidden_channels, use_bias=True, name='linear_1')(x)
     x = nn.silu(x)
@@ -108,7 +110,7 @@ class LinearEnergyHead(nn.Module):
     node_embedding: jnp.ndarray,
     batch: jnp.ndarray,
     num_systems: int,
-    natoms: Optional[jnp.ndarray] = None,
+    natoms: jnp.ndarray | None = None,
   ) -> Dict[str, jnp.ndarray]:
     """Predict energy from embeddings.
 

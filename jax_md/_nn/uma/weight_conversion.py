@@ -78,13 +78,15 @@ def load_pytorch_checkpoint(
     else:
       np_state_dict[k] = np.array(v)
 
-  return convert_pytorch_state_dict(np_state_dict, backbone_prefix=backbone_prefix)
+  return convert_pytorch_state_dict(
+    np_state_dict, backbone_prefix=backbone_prefix
+  )
 
 
 def convert_pytorch_state_dict(
   state_dict: Dict[str, np.ndarray],
   backbone_prefix: str = 'backbone.',
-  dataset_list: Optional[List[str]] = None,
+  dataset_list: List[str] | None = None,
 ) -> Dict[str, Any]:
   """Convert PyTorch state dict to JAX/Flax params format.
 
@@ -107,7 +109,7 @@ def convert_pytorch_state_dict(
 
     key = pt_key
     if backbone_prefix and key.startswith(backbone_prefix):
-      key = key[len(backbone_prefix):]
+      key = key[len(backbone_prefix) :]
 
     # Collect dataset_emb_dict entries for stacking
     if 'dataset_emb_dict.' in key:
@@ -146,14 +148,21 @@ def convert_pytorch_state_dict(
 def _is_buffer(key: str) -> bool:
   """Check if a key corresponds to a non-trainable buffer."""
   buffer_patterns = [
-    'Jd_', 'expand_index', 'coefficient_idx', 'l_harmonic',
-    'm_harmonic', 'm_complex', 'to_m', 'balance_degree_weight',
-    '.num_batches_tracked', '_float_tensor',
+    'Jd_',
+    'expand_index',
+    'coefficient_idx',
+    'l_harmonic',
+    'm_harmonic',
+    'm_complex',
+    'to_m',
+    'balance_degree_weight',
+    '.num_batches_tracked',
+    '_float_tensor',
   ]
   return any(p in key for p in buffer_patterns)
 
 
-def _convert_key(pt_key: str) -> Optional[Tuple[str, ...]]:
+def _convert_key(pt_key: str) -> Tuple[str, ...] | None:
   """Convert a PyTorch parameter key to a Flax key tuple.
 
   Returns None if the key should be skipped.
@@ -181,7 +190,7 @@ def _convert_key(pt_key: str) -> Optional[Tuple[str, ...]]:
         # Param indices (skipping SiLU): 0,1, 3,4, 6,7, 9,10, ...
         if _is_in_radial_mlp_context(flax_parts):
           layer_pair_idx = idx // 3  # which (Linear, LayerNorm) pair
-          is_norm = (idx % 3 == 1)
+          is_norm = idx % 3 == 1
           if is_norm:
             flax_parts.append(f'norm_{layer_pair_idx + 1}')
           else:
@@ -277,8 +286,12 @@ def _convert_key(pt_key: str) -> Optional[Tuple[str, ...]]:
 def _is_embedding_context(parts: List[str]) -> bool:
   """Check if we're inside an embedding layer."""
   for p in parts:
-    if p in ('sphere_embedding', 'source_embedding', 'target_embedding',
-             'embedding'):
+    if p in (
+      'sphere_embedding',
+      'source_embedding',
+      'target_embedding',
+      'embedding',
+    ):
       return True
     # charge_embedding/spin_embedding with rand_emb -> nn.Embed
     if p in ('charge_embedding', 'spin_embedding'):
@@ -289,12 +302,18 @@ def _is_embedding_context(parts: List[str]) -> bool:
 def _is_so3_linear_context(parts: List[str]) -> bool:
   """Check if we're inside an SO3Linear layer."""
   for p in parts:
-    if 'so3_linear' in p.lower() or p == 'linear' and any('force' in x.lower() for x in parts):
+    if (
+      'so3_linear' in p.lower()
+      or p == 'linear'
+      and any('force' in x.lower() for x in parts)
+    ):
       return True
   return False
 
 
-def _is_layer_norm_context(parts: List[str], all_parts: List[str], current_idx: int) -> bool:
+def _is_layer_norm_context(
+  parts: List[str], all_parts: List[str], current_idx: int
+) -> bool:
   """Check if the 'weight' parameter belongs to a LayerNorm."""
   # In RadialMLP, norm_* layers are LayerNorm
   for p in parts:
@@ -328,8 +347,13 @@ def _convert_weight(key: str, value: np.ndarray) -> jnp.ndarray:
 def _key_is_embedding(key: str) -> bool:
   """Check if key is for an embedding layer (should NOT be transposed)."""
   embedding_parents = [
-    'sphere_embedding', 'source_embedding', 'target_embedding',
-    'dataset_emb_dict', 'rand_emb', 'charge_embedding', 'spin_embedding',
+    'sphere_embedding',
+    'source_embedding',
+    'target_embedding',
+    'dataset_emb_dict',
+    'rand_emb',
+    'charge_embedding',
+    'spin_embedding',
   ]
   for parent in embedding_parents:
     if parent in key:
@@ -367,7 +391,7 @@ def _get_nested(d: Dict, keys: Tuple[str, ...]) -> Any:
 
 def extract_config_from_checkpoint(
   checkpoint_path: str,
-) -> Optional[Dict[str, Any]]:
+) -> Dict[str, Any] | None:
   """Extract model configuration from a PyTorch checkpoint.
 
   Args:
@@ -460,7 +484,7 @@ def verify_weight_loading(
 
     key = pt_key
     if backbone_prefix and key.startswith(backbone_prefix):
-      key = key[len(backbone_prefix):]
+      key = key[len(backbone_prefix) :]
 
     flax_key = _convert_key(key)
     if flax_key is None:
@@ -473,7 +497,9 @@ def verify_weight_loading(
       continue
 
     expected = _convert_weight(key, pt_value)
-    if np.allclose(np.array(jax_value), np.array(expected), rtol=rtol, atol=atol):
+    if np.allclose(
+      np.array(jax_value), np.array(expected), rtol=rtol, atol=atol
+    ):
       results[pt_key] = 'ok'
     else:
       results[pt_key] = 'mismatch'

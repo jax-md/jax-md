@@ -85,9 +85,9 @@ class UMAConfig:
   norm_type: str = 'rms_norm_sh'
   act_type: str = 'gate'
   ff_type: str = 'grid'
-  grid_resolution: Optional[int] = None
+  grid_resolution: int | None = None
   chg_spin_emb_type: str = 'pos_emb'
-  dataset_list: Optional[List[str]] = field(default=None)
+  dataset_list: List[str] | None = field(default=None)
   use_dataset_embedding: bool = True
   activation_checkpointing: bool = False
 
@@ -168,7 +168,7 @@ class UMABackbone(nn.Module):
     edge_distance_vec: jnp.ndarray,
     charge: jnp.ndarray,
     spin: jnp.ndarray,
-    dataset_idx: Optional[jnp.ndarray] = None,
+    dataset_idx: jnp.ndarray | None = None,
   ) -> Dict[str, jnp.ndarray]:
     """Apply UMA backbone.
 
@@ -292,7 +292,7 @@ class UMABackbone(nn.Module):
 
     # Select subset if mmax != lmax
     if cfg.mmax != cfg.lmax:
-      wigner = wigner[:, self.coefficient_index, :]      # [E, m_dim, l_dim]
+      wigner = wigner[:, self.coefficient_index, :]  # [E, m_dim, l_dim]
       wigner_inv = wigner_inv[:, :, self.coefficient_index]  # [E, l_dim, m_dim]
 
     # Combine with M mapping
@@ -354,8 +354,11 @@ class UMABackbone(nn.Module):
 
       if cfg.activation_checkpointing:
         block = nn.remat(block.__class__)(
-          **{f.name: getattr(block, f.name) for f in block.__dataclass_fields__.values()
-             if hasattr(block, f.name)},
+          **{
+            f.name: getattr(block, f.name)
+            for f in block.__dataclass_fields__.values()
+            if hasattr(block, f.name)
+          },
           name=f'blocks_{i}',
         )
 

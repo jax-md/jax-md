@@ -76,6 +76,7 @@ PRETRAINED_MODELS = {
 @dataclass
 class ConversionMetadata:
   """Metadata from checkpoint conversion."""
+
   model_name: str
   is_moe: bool
   num_experts: int
@@ -89,7 +90,7 @@ class ConversionMetadata:
 
 def download_pretrained(
   model_name: str,
-  cache_dir: Optional[str] = None,
+  cache_dir: str | None = None,
 ) -> str:
   """Download a pretrained UMA checkpoint from HuggingFace.
 
@@ -155,8 +156,9 @@ def load_checkpoint_raw(checkpoint_path: str) -> Any:
     load = pickle.load
 
   with open(checkpoint_path, 'rb') as f:
-    return torch.load(f, map_location='cpu', weights_only=False,
-                      pickle_module=_PickleModule)
+    return torch.load(
+      f, map_location='cpu', weights_only=False, pickle_module=_PickleModule
+    )
 
 
 def extract_config(checkpoint) -> UMAConfig:
@@ -169,7 +171,11 @@ def extract_config(checkpoint) -> UMAConfig:
       UMAConfig matching the checkpoint architecture.
   """
   mc = checkpoint.model_config
-  bb = mc.get('backbone', mc) if isinstance(mc, dict) else getattr(mc, 'backbone', mc)
+  bb = (
+    mc.get('backbone', mc)
+    if isinstance(mc, dict)
+    else getattr(mc, 'backbone', mc)
+  )
 
   if isinstance(bb, dict):
     get = bb.get
@@ -198,6 +204,7 @@ def extract_config(checkpoint) -> UMAConfig:
       ds = ['oc20', 'omol', 'omat', 'odac', 'omc']
   if isinstance(ds, str):
     import ast
+
     try:
       ds = ast.literal_eval(ds)
     except (ValueError, SyntaxError):
@@ -266,7 +273,9 @@ def convert_checkpoint(
   converted = []
 
   for pt_key, pt_value in sd.items():
-    pt_np = pt_value.cpu().numpy() if hasattr(pt_value, 'cpu') else np.array(pt_value)
+    pt_np = (
+      pt_value.cpu().numpy() if hasattr(pt_value, 'cpu') else np.array(pt_value)
+    )
 
     # Skip buffers
     if _is_buffer(pt_key):
@@ -286,7 +295,7 @@ def convert_checkpoint(
     # Strip backbone prefix
     key = pt_key
     if key.startswith('backbone.'):
-      key = key[len('backbone.'):]
+      key = key[len('backbone.') :]
 
     # Handle MoE weights: store as 'weights' to match MOLELinear param name
     if is_moe and len(pt_np.shape) == 3 and _is_moe_weight(key):
@@ -326,9 +335,11 @@ def convert_checkpoint(
 
     # Handle composition_embedding
     if key == 'composition_embedding.weight':
-      _set_nested(backbone_params,
-                  ('composition_embedding', 'embedding'),
-                  jnp.array(pt_np))
+      _set_nested(
+        backbone_params,
+        ('composition_embedding', 'embedding'),
+        jnp.array(pt_np),
+      )
       converted.append(pt_key)
       continue
 
@@ -348,9 +359,11 @@ def convert_checkpoint(
       [dataset_embs[ds] for ds in ds_order if ds in dataset_embs],
       axis=0,
     )
-    _set_nested(backbone_params,
-                ('dataset_embedding', 'embedding', 'embedding'),
-                jnp.array(emb_matrix))
+    _set_nested(
+      backbone_params,
+      ('dataset_embedding', 'embedding', 'embedding'),
+      jnp.array(emb_matrix),
+    )
 
   jax_params = {'params': backbone_params}
 
@@ -371,9 +384,17 @@ def convert_checkpoint(
 
 def _is_buffer(key: str) -> bool:
   patterns = [
-    'Jd_', 'expand_index', 'coefficient_idx', 'l_harmonic',
-    'm_harmonic', 'm_complex', 'to_m', 'balance_degree_weight',
-    'num_batches_tracked', '_float_tensor', 'mole_sizes',
+    'Jd_',
+    'expand_index',
+    'coefficient_idx',
+    'l_harmonic',
+    'm_harmonic',
+    'm_complex',
+    'to_m',
+    'balance_degree_weight',
+    'num_batches_tracked',
+    '_float_tensor',
+    'mole_sizes',
     'n_averaged',
   ]
   return any(p in key for p in patterns)
@@ -381,11 +402,10 @@ def _is_buffer(key: str) -> bool:
 
 def _is_moe_weight(key: str) -> bool:
   """Check if a key corresponds to an MoE weight (has expert dim)."""
-  return ('fc_m0.weights' in key or
-          'so2_m_conv' in key and '.fc.weights' in key)
+  return 'fc_m0.weights' in key or 'so2_m_conv' in key and '.fc.weights' in key
 
 
-def _convert_backbone_key(key: str) -> Optional[Tuple[str, ...]]:
+def _convert_backbone_key(key: str) -> Tuple[str, ...] | None:
   """Convert a backbone state_dict key to Flax key tuple."""
   parts = key.split('.')
   flax_parts = []
@@ -409,8 +429,10 @@ def _convert_backbone_key(key: str) -> Optional[Tuple[str, ...]]:
       # RadialMLP net indices
       if any(p == 'rad_func' for p in flax_parts):
         pair_idx = idx // 3
-        is_norm = (idx % 3 == 1)
-        flax_parts.append(f'norm_{pair_idx + 1}' if is_norm else f'linear_{pair_idx + 1}')
+        is_norm = idx % 3 == 1
+        flax_parts.append(
+          f'norm_{pair_idx + 1}' if is_norm else f'linear_{pair_idx + 1}'
+        )
         i += 1
         continue
 
@@ -464,7 +486,7 @@ def _convert_backbone_key(key: str) -> Optional[Tuple[str, ...]]:
   return tuple(flax_parts) if flax_parts else None
 
 
-def _convert_head_key(key: str) -> Optional[str]:
+def _convert_head_key(key: str) -> str | None:
   """Convert head state_dict key to a flat string key."""
   # output_heads.energyandforcehead.head.energy_block.{i}.weight/bias
   if 'energy_block' in key:
@@ -481,7 +503,7 @@ def _convert_head_key(key: str) -> Optional[str]:
 
 def _convert_dataset_emb_key(
   key: str, dataset_list: List[str]
-) -> Optional[Tuple[str, ...]]:
+) -> Tuple[str, ...] | None:
   """Convert dataset_embedding.dataset_emb_dict.{name}.weight."""
   for ds_name in dataset_list:
     if f'dataset_emb_dict.{ds_name}.weight' in key:
@@ -490,7 +512,7 @@ def _convert_dataset_emb_key(
   return None
 
 
-def _convert_routing_key(key: str) -> Optional[Tuple[str, ...]]:
+def _convert_routing_key(key: str) -> Tuple[str, ...] | None:
   """Convert routing_mlp keys."""
   parts = key.split('.')
   flax_parts = ['routing_mlp']
@@ -508,8 +530,12 @@ def _convert_routing_key(key: str) -> Optional[Tuple[str, ...]]:
 
 def _is_embedding_key(parts: List[str]) -> bool:
   for p in parts:
-    if p in ('sphere_embedding', 'source_embedding', 'target_embedding',
-             'composition_embedding'):
+    if p in (
+      'sphere_embedding',
+      'source_embedding',
+      'target_embedding',
+      'composition_embedding',
+    ):
       return True
   return False
 
@@ -534,7 +560,9 @@ def _is_norm_key(parts: List[str], all_parts: List[str], idx: int) -> bool:
 
 def _convert_value(key: str, value: np.ndarray) -> jnp.ndarray:
   """Convert weight tensor from PyTorch to JAX format."""
-  if (key.endswith('.weight') or key.endswith('.weights')) and len(value.shape) == 2:
+  if (key.endswith('.weight') or key.endswith('.weights')) and len(
+    value.shape
+  ) == 2:
     if not _key_is_embedding(key) and 'so3_linear' not in key:
       if not _key_is_norm(key):
         value = value.T
@@ -542,8 +570,14 @@ def _convert_value(key: str, value: np.ndarray) -> jnp.ndarray:
 
 
 def _key_is_embedding(key: str) -> bool:
-  for p in ('sphere_embedding', 'source_embedding', 'target_embedding',
-            'composition_embedding', 'dataset_emb_dict', 'rand_emb'):
+  for p in (
+    'sphere_embedding',
+    'source_embedding',
+    'target_embedding',
+    'composition_embedding',
+    'dataset_emb_dict',
+    'rand_emb',
+  ):
     if p in key:
       return True
   return False

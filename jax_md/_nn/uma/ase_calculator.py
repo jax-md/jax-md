@@ -64,12 +64,12 @@ class UMACalculator:
 
   def __init__(
     self,
-    config: Optional[UMAConfig] = None,
-    checkpoint_path: Optional[str] = None,
-    params: Optional[dict] = None,
+    config: UMAConfig | None = None,
+    checkpoint_path: str | None = None,
+    params: dict | None = None,
     head_type: str = 'mlp',
     task_name: str = 'omat',
-    cutoff: Optional[float] = None,
+    cutoff: float | None = None,
   ):
     """Initialize the UMA ASE calculator.
 
@@ -92,11 +92,12 @@ class UMACalculator:
     # Load pretrained MoE model if checkpoint is a known pretrained name or .pt file
     if checkpoint_path is not None and params is None:
       is_pretrained = (
-        checkpoint_path in PRETRAINED_MODELS
-        or checkpoint_path.endswith('.pt')
+        checkpoint_path in PRETRAINED_MODELS or checkpoint_path.endswith('.pt')
       )
       if is_pretrained:
-        moe_config, moe_params, pretrained_head_params = load_pretrained(checkpoint_path)
+        moe_config, moe_params, pretrained_head_params = load_pretrained(
+          checkpoint_path
+        )
         self.config = moe_config
         self.backbone = UMAMoEBackbone(config=moe_config)
         self.params = moe_params
@@ -104,8 +105,10 @@ class UMACalculator:
         self._is_moe = True
       else:
         from jax_md._nn.uma.weight_conversion import (
-          config_from_pytorch_checkpoint, load_pytorch_checkpoint,
+          config_from_pytorch_checkpoint,
+          load_pytorch_checkpoint,
         )
+
         config = config_from_pytorch_checkpoint(checkpoint_path)
         self.config = config
         self.backbone = UMABackbone(config=config)
@@ -177,26 +180,50 @@ class UMACalculator:
     if self.params is None:
       key = jax.random.PRNGKey(0)
       self.params = self._init_params(
-        key, positions, atomic_numbers, batch,
-        edge_index, edge_distance_vec, charge, spin, dataset_idx,
+        key,
+        positions,
+        atomic_numbers,
+        batch,
+        edge_index,
+        edge_distance_vec,
+        charge,
+        spin,
+        dataset_idx,
       )
     elif 'backbone' not in self.params:
       # Pretrained params — wrap with head
-      if hasattr(self, '_pretrained_head_params') and self._pretrained_head_params:
+      if (
+        hasattr(self, '_pretrained_head_params')
+        and self._pretrained_head_params
+      ):
         head_params = self._pretrained_head_params
       else:
         key = jax.random.PRNGKey(0)
         emb = self.backbone.apply(
-          self.params, positions, atomic_numbers, batch,
-          edge_index, edge_distance_vec, charge, spin, dataset_idx,
+          self.params,
+          positions,
+          atomic_numbers,
+          batch,
+          edge_index,
+          edge_distance_vec,
+          charge,
+          spin,
+          dataset_idx,
         )
         head_params = self.head.init(key, emb['node_embedding'], batch, 1)
       self.params = {'backbone': self.params, 'head': head_params}
 
     # Compute energy and forces
     energy, forces = self._compute_energy_and_forces(
-      self.params, positions, atomic_numbers, batch,
-      edge_index, edge_distance_vec, charge, spin, dataset_idx,
+      self.params,
+      positions,
+      atomic_numbers,
+      batch,
+      edge_index,
+      edge_distance_vec,
+      charge,
+      spin,
+      dataset_idx,
     )
 
     self._results = {
@@ -223,6 +250,7 @@ class UMACalculator:
     # Use ASE's neighbor list for correct PBC handling
     try:
       from ase.neighborlist import neighbor_list
+
       # ASE convention: center_idx (i), neighbor_idx (j), offsets
       center_idx, neighbor_idx, offsets = neighbor_list(
         'ijS', atoms, cutoff=self.cutoff, self_interaction=False
@@ -233,7 +261,7 @@ class UMACalculator:
         positions[neighbor_idx] + offsets @ cell - positions[center_idx]
       )
       idx_src = neighbor_idx  # source
-      idx_tgt = center_idx    # target
+      idx_tgt = center_idx  # target
     except ImportError:
       num_atoms = len(positions)
       idx_src, idx_tgt = [], []
@@ -255,26 +283,61 @@ class UMACalculator:
     edge_distance_vec = jnp.array(edge_distance_vec, dtype=jnp.float32)
     return edge_index, edge_distance_vec
 
-  def _init_params(self, key, positions, atomic_numbers, batch,
-                   edge_index, edge_distance_vec, charge, spin, dataset_idx):
+  def _init_params(
+    self,
+    key,
+    positions,
+    atomic_numbers,
+    batch,
+    edge_index,
+    edge_distance_vec,
+    charge,
+    spin,
+    dataset_idx,
+  ):
     """Initialize model parameters."""
     key1, key2 = jax.random.split(key)
     backbone_params = self.backbone.init(
-      key1, positions, atomic_numbers, batch,
-      edge_index, edge_distance_vec, charge, spin, dataset_idx,
+      key1,
+      positions,
+      atomic_numbers,
+      batch,
+      edge_index,
+      edge_distance_vec,
+      charge,
+      spin,
+      dataset_idx,
     )
     emb = self.backbone.apply(
-      backbone_params, positions, atomic_numbers, batch,
-      edge_index, edge_distance_vec, charge, spin, dataset_idx,
+      backbone_params,
+      positions,
+      atomic_numbers,
+      batch,
+      edge_index,
+      edge_distance_vec,
+      charge,
+      spin,
+      dataset_idx,
     )
     head_params = self.head.init(
-      key2, emb['node_embedding'], batch, 1,
+      key2,
+      emb['node_embedding'],
+      batch,
+      1,
     )
     return {'backbone': backbone_params, 'head': head_params}
 
   def _compute_energy_and_forces(
-    self, params, positions, atomic_numbers, batch,
-    edge_index, edge_distance_vec, charge, spin, dataset_idx,
+    self,
+    params,
+    positions,
+    atomic_numbers,
+    batch,
+    edge_index,
+    edge_distance_vec,
+    charge,
+    spin,
+    dataset_idx,
   ):
     """Compute energy and forces via autodiff."""
     backbone_params = params['backbone']
@@ -284,11 +347,21 @@ class UMACalculator:
       # Recompute edge vectors from positions (needed for gradient)
       edge_vec = pos[edge_index[0]] - pos[edge_index[1]]
       emb = self.backbone.apply(
-        backbone_params, pos, atomic_numbers, batch,
-        edge_index, edge_vec, charge, spin, dataset_idx,
+        backbone_params,
+        pos,
+        atomic_numbers,
+        batch,
+        edge_index,
+        edge_vec,
+        charge,
+        spin,
+        dataset_idx,
       )
       result = self.head.apply(
-        head_params, emb['node_embedding'], batch, 1,
+        head_params,
+        emb['node_embedding'],
+        batch,
+        1,
       )
       return result['energy'].sum()
 

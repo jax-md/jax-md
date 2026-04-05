@@ -137,8 +137,8 @@ class SO2Convolution(nn.Module):
   mmax: int
   m_size: List[int]
   internal_weights: bool = True
-  edge_channels_list: Optional[List[int]] = None
-  extra_m0_output_channels: Optional[int] = None
+  edge_channels_list: List[int] | None = None
+  extra_m0_output_channels: int | None = None
 
   @nn.compact
   def __call__(
@@ -220,8 +220,8 @@ class SO2Convolution(nn.Module):
 
     # Extract extra m0 features if requested
     if self.extra_m0_output_channels is not None:
-      x_0_extra = x_0[:, :self.extra_m0_output_channels]
-      x_0 = x_0[:, self.extra_m0_output_channels:]
+      x_0_extra = x_0[:, : self.extra_m0_output_channels]
+      x_0 = x_0[:, self.extra_m0_output_channels :]
 
     out = [x_0.reshape(num_edges, -1, self.m_output_channels)]
 

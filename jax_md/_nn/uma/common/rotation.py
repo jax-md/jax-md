@@ -44,6 +44,7 @@ _JD_NPY_DIR = os.path.join(os.path.dirname(__file__), '..', 'Jd_npy')
 #   - backward: gradient computed with clamped x to avoid NaN at ±1          #
 # --------------------------------------------------------------------------- #
 
+
 @jax.custom_jvp
 def safe_acos(x: jnp.ndarray) -> jnp.ndarray:
   """Numerically stable arccos matching PyTorch's Safeacos.
@@ -60,7 +61,7 @@ def _safe_acos_jvp(primals, tangents):
   (x_dot,) = tangents
   primal_out = safe_acos(x)
   x_clamped = jnp.clip(x, -1 + EPS, 1 - EPS)
-  denom = jnp.sqrt(1 - x_clamped ** 2)
+  denom = jnp.sqrt(1 - x_clamped**2)
   denom = jnp.maximum(denom, EPS)
   tangent_out = -x_dot / denom
   return primal_out, tangent_out
@@ -73,7 +74,7 @@ def safe_atan2(y: jnp.ndarray, x: jnp.ndarray) -> jnp.ndarray:
 
 def init_edge_rot_euler_angles(
   edge_distance_vec: jnp.ndarray,
-  rng_key: Optional[jax.random.PRNGKey] = None,
+  rng_key: jax.random.PRNGKey | None = None,
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
   """Compute Euler angles for rotating to edge-aligned frame.
 
@@ -106,7 +107,9 @@ def init_edge_rot_euler_angles(
   # For deterministic inference, gamma=0 is valid because the SO(2)
   # convolution is axially symmetric and gamma cancels out.
   if rng_key is not None:
-    gamma = jax.random.uniform(rng_key, alpha.shape, minval=0.0, maxval=2 * jnp.pi)
+    gamma = jax.random.uniform(
+      rng_key, alpha.shape, minval=0.0, maxval=2 * jnp.pi
+    )
   else:
     gamma = jnp.zeros_like(alpha)
 
@@ -146,6 +149,7 @@ def load_jacobi_matrices_from_file(lmax: int) -> List[jnp.ndarray]:
   # Try PyTorch file
   try:
     import torch
+
     Jd_torch = torch.load(_JD_FILE, map_location='cpu', weights_only=False)
     Jd_list = [jnp.array(Jd_torch[l].numpy()) for l in range(lmax + 1)]
 
@@ -363,7 +367,7 @@ def get_wigner_and_mapping(
   Jd_list: List[jnp.ndarray],
   to_m: jnp.ndarray,
   coefficient_index: jnp.ndarray,
-  rng_key: Optional[jax.random.PRNGKey] = None,
+  rng_key: jax.random.PRNGKey | None = None,
 ) -> Tuple[jnp.ndarray, jnp.ndarray]:
   """Compute Wigner matrices with M-mapping for SO(2) convolutions.
 
@@ -388,7 +392,7 @@ def get_wigner_and_mapping(
 
   # Select subset of coefficients if mmax != lmax
   if mmax != lmax:
-    wigner = wigner[:, coefficient_index, :]        # [E, m_dim, l_dim]
+    wigner = wigner[:, coefficient_index, :]  # [E, m_dim, l_dim]
     wigner_inv = wigner_inv[:, :, coefficient_index]  # [E, l_dim, m_dim]
 
   # Combine with M mapping

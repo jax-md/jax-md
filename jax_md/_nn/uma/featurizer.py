@@ -43,13 +43,14 @@ def uma_featurizer(
       Function with signature:
         featurize(atomic_numbers, position, neighbor, **kwargs) -> dict
   """
+
   def featurize(
     atomic_numbers: jnp.ndarray,
     position: jnp.ndarray,
     neighbor,
-    charge: Optional[jnp.ndarray] = None,
-    spin: Optional[jnp.ndarray] = None,
-    dataset_idx: Optional[jnp.ndarray] = None,
+    charge: jnp.ndarray | None = None,
+    spin: jnp.ndarray | None = None,
+    dataset_idx: jnp.ndarray | None = None,
     **kwargs,
   ) -> Dict[str, jnp.ndarray]:
     """Convert JAX-MD data to UMA input format.

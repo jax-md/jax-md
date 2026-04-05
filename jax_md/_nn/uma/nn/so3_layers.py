@@ -36,8 +36,10 @@ def _uniform_init(bound):
   Matches PyTorch's default Linear initialization:
   uniform(-1/sqrt(in_features), 1/sqrt(in_features)).
   """
+
   def init(key, shape, dtype=jnp.float32):
     return jax.random.uniform(key, shape, dtype, minval=-bound, maxval=bound)
+
   return init
 
 

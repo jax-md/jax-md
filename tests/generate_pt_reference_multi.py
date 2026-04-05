@@ -6,6 +6,7 @@ Reuses the same 61 structures from generate_pt_reference.py.
 Usage:
     uv run python tests/generate_pt_reference_multi.py
 """
+
 import os
 import sys
 import time
@@ -17,14 +18,17 @@ sys.path.insert(0, os.path.dirname(__file__))
 from test_structures import make_structures
 from generate_pt_reference import atoms_to_data
 
+
 def generate_for_model(model_name, ckpt_path):
   from jax_md._nn.uma.pretrained import load_checkpoint_raw
 
   ckpt = load_checkpoint_raw(ckpt_path)
   mc = ckpt.model_config['backbone']
-  ema_sd = {k.replace('module.', '', 1): v for k, v in ckpt.ema_state_dict.items()}
+  ema_sd = {
+    k.replace('module.', '', 1): v for k, v in ckpt.ema_state_dict.items()
+  }
   get = mc.get if isinstance(mc, dict) else lambda k, d=None: getattr(mc, k, d)
-  ds_list = list(get('dataset_list', ['oc20','omol','omat','odac','omc']))
+  ds_list = list(get('dataset_list', ['oc20', 'omol', 'omat', 'odac', 'omc']))
   cutoff = float(get('cutoff', 6.0))
 
   for k in list(sys.modules.keys()):
@@ -33,36 +37,56 @@ def generate_for_model(model_name, ckpt_path):
   from fairchem.core.models.uma.escn_moe import eSCNMDMoeBackbone
 
   pt_model = eSCNMDMoeBackbone(
-    num_experts=get('num_experts', 32), sphere_channels=get('sphere_channels', 128),
-    max_num_elements=get('max_num_elements', 100), lmax=get('lmax', 2), mmax=get('mmax', 2),
-    num_layers=get('num_layers', 4), hidden_channels=get('hidden_channels', 128),
-    cutoff=cutoff, edge_channels=get('edge_channels', 128),
-    num_distance_basis=get('num_distance_basis', 64), norm_type=get('norm_type', 'rms_norm_sh'),
-    act_type=get('act_type', 'gate'), ff_type=get('ff_type', 'spectral'),
-    chg_spin_emb_type=get('chg_spin_emb_type', 'rand_emb'), dataset_list=ds_list,
+    num_experts=get('num_experts', 32),
+    sphere_channels=get('sphere_channels', 128),
+    max_num_elements=get('max_num_elements', 100),
+    lmax=get('lmax', 2),
+    mmax=get('mmax', 2),
+    num_layers=get('num_layers', 4),
+    hidden_channels=get('hidden_channels', 128),
+    cutoff=cutoff,
+    edge_channels=get('edge_channels', 128),
+    num_distance_basis=get('num_distance_basis', 64),
+    norm_type=get('norm_type', 'rms_norm_sh'),
+    act_type=get('act_type', 'gate'),
+    ff_type=get('ff_type', 'spectral'),
+    chg_spin_emb_type=get('chg_spin_emb_type', 'rand_emb'),
+    dataset_list=ds_list,
     use_composition_embedding=get('use_composition_embedding', True),
-    model_version=get('model_version', 1.1), moe_dropout=0.0, otf_graph=False,
+    model_version=get('model_version', 1.1),
+    moe_dropout=0.0,
+    otf_graph=False,
   )
   pt_model.eval()
-  bb_sd = {k.replace('backbone.', ''): v for k, v in ema_sd.items() if k.startswith('backbone.')}
+  bb_sd = {
+    k.replace('backbone.', ''): v
+    for k, v in ema_sd.items()
+    if k.startswith('backbone.')
+  }
   pt_model.load_state_dict(bb_sd, strict=False)
 
   # Head weights — handle both standard and MoE heads
   prefix = 'output_heads.energyandforcehead.head.energy_block.'
-  def silu(x): return x / (1 + np.exp(-np.clip(x, -88, 88)))
+
+  def silu(x):
+    return x / (1 + np.exp(-np.clip(x, -88, 88)))
 
   # Check if head uses MoE weights (3D) or standard weights (2D)
-  key0 = prefix + '0.weight' if prefix + '0.weight' in ema_sd else prefix + '0.weights'
+  key0 = (
+    prefix + '0.weight'
+    if prefix + '0.weight' in ema_sd
+    else prefix + '0.weights'
+  )
   head_is_moe = ema_sd[key0].dim() == 3
   if head_is_moe:
     # MoE head: weights shape [num_dataset_experts, out, in]
     # We'll select the correct expert per-dataset during evaluation
-    head_w0 = ema_sd[prefix+'0.weights'].numpy()
-    head_b0 = ema_sd[prefix+'0.bias'].numpy()
-    head_w2 = ema_sd[prefix+'2.weights'].numpy()
-    head_b2 = ema_sd[prefix+'2.bias'].numpy()
-    head_w4 = ema_sd[prefix+'4.weights'].numpy()
-    head_b4 = ema_sd[prefix+'4.bias'].numpy()
+    head_w0 = ema_sd[prefix + '0.weights'].numpy()
+    head_b0 = ema_sd[prefix + '0.bias'].numpy()
+    head_w2 = ema_sd[prefix + '2.weights'].numpy()
+    head_b2 = ema_sd[prefix + '2.bias'].numpy()
+    head_w4 = ema_sd[prefix + '4.weights'].numpy()
+    head_b4 = ema_sd[prefix + '4.bias'].numpy()
     # Dataset names for head expert selection
     # DatasetSpecificMoEWrapper uses sorted(dataset_names) from head config
     # which may differ from the backbone dataset_list
@@ -76,20 +100,24 @@ def generate_for_model(model_name, ckpt_path):
             head_ds_names = sorted(dm.keys())
           dn = hcfg.get('dataset_names', None)
           if dn and not head_ds_names:
-            head_ds_names = sorted(list(dn) if not isinstance(dn, str) else eval(dn))
+            head_ds_names = sorted(
+              list(dn) if not isinstance(dn, str) else eval(dn)
+            )
     if head_ds_names is None:
       head_ds_names = sorted(ds_list)
     head_ds_to_idx = {n: i for i, n in enumerate(head_ds_names)}
-    print(f"  Head experts: {head_ds_names}")
+    print(f'  Head experts: {head_ds_names}')
   else:
-    w0=ema_sd[prefix+'0.weight'].numpy()
-    b0=ema_sd[prefix+'0.bias'].numpy()
-    w2=ema_sd[prefix+'2.weight'].numpy()
-    b2=ema_sd[prefix+'2.bias'].numpy()
-    w4=ema_sd[prefix+'4.weight'].numpy()
-    b4=ema_sd[prefix+'4.bias'].numpy()
+    w0 = ema_sd[prefix + '0.weight'].numpy()
+    b0 = ema_sd[prefix + '0.bias'].numpy()
+    w2 = ema_sd[prefix + '2.weight'].numpy()
+    b2 = ema_sd[prefix + '2.bias'].numpy()
+    w4 = ema_sd[prefix + '4.weight'].numpy()
+    b4 = ema_sd[prefix + '4.bias'].numpy()
 
-  out_dir = os.path.join(os.path.dirname(__file__), 'data', f'pt_ref_{model_name}')
+  out_dir = os.path.join(
+    os.path.dirname(__file__), 'data', f'pt_ref_{model_name}'
+  )
   os.makedirs(out_dir, exist_ok=True)
 
   structures = make_structures()
@@ -121,9 +149,11 @@ def generate_for_model(model_name, ckpt_path):
         atomic_numbers=atoms.get_atomic_numbers().astype(np.int32),
         cell=np.array(atoms.get_cell()).astype(np.float32),
         pbc=np.array(atoms.pbc),
-        task=task, charge=int(atoms.info.get('charge', 0)),
+        task=task,
+        charge=int(atoms.info.get('charge', 0)),
         spin=int(atoms.info.get('spin', 0)),
-        node_embedding=node_emb, total_energy=total_energy,
+        node_embedding=node_emb,
+        total_energy=total_energy,
       )
       count += 1
     except Exception as e:
@@ -145,6 +175,7 @@ def main():
 
   # Filter to known good checkpoints
   from jax_md._nn.uma.pretrained import PRETRAINED_MODELS
+
   valid = {n: p for n, p in models.items() if n in PRETRAINED_MODELS}
   print(f'Found {len(valid)} valid checkpoints: {list(valid.keys())}')
   for name, path in sorted(valid.items()):

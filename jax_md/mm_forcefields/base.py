@@ -27,7 +27,7 @@ class Topology(NamedTuple):
   impropers: Array
   exclusion_mask: Array
   pair_14_mask: Array
-  molecule_id: Optional[Array] = None
+  molecule_id: Array | None = None
 
 
 class BondedParameters(NamedTuple):

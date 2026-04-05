@@ -60,6 +60,7 @@ from jax_md._nn.uma.pretrained import (
 # ASE calculator (optional dependency)
 try:
   from jax_md._nn.uma.ase_calculator import UMACalculator
+
   _HAS_ASE = True
 except ImportError:
   _HAS_ASE = False

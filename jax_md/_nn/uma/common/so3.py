@@ -128,7 +128,11 @@ def create_coefficient_mapping(lmax: int, mmax: int) -> CoefficientMapping:
 
 
 def _complex_idx(
-  m: int, lmax: int, mmax: int, m_complex, l_harmonic,
+  m: int,
+  lmax: int,
+  mmax: int,
+  m_complex,
+  l_harmonic,
 ) -> Tuple[List[int], List[int]]:
   """Get indices for real and imaginary parts of order m coefficients."""
   # Ensure numpy arrays (not JAX arrays) for index computation
@@ -250,7 +254,13 @@ def _compute_grid_matrices(
   # Try using PyTorch e3nn for exact matching with pretrained weights
   try:
     return _compute_grid_matrices_e3nn(
-      lmax, mmax, lat_resolution, long_resolution, rescale, normalization, mapping
+      lmax,
+      mmax,
+      lat_resolution,
+      long_resolution,
+      rescale,
+      normalization,
+      mapping,
     )
   except ImportError:
     pass
@@ -288,10 +298,10 @@ def _compute_grid_matrices_e3nn(
     for lval in range(lmax + 1):
       if lval <= mmax:
         continue
-      start_idx = lval ** 2
+      start_idx = lval**2
       length = 2 * lval + 1
       rescale_factor = math.sqrt(length / (2 * mmax + 1))
-      to_grid_mat[:, :, start_idx:(start_idx + length)] *= rescale_factor
+      to_grid_mat[:, :, start_idx : (start_idx + length)] *= rescale_factor
 
   # Get coefficient indices for mmax subset
   pt_mapping = _PyTorchCoefficientMapping(lmax, lmax)
@@ -312,10 +322,10 @@ def _compute_grid_matrices_e3nn(
     for lval in range(lmax + 1):
       if lval <= mmax:
         continue
-      start_idx = lval ** 2
+      start_idx = lval**2
       length = 2 * lval + 1
       rescale_factor = math.sqrt(length / (2 * mmax + 1))
-      from_grid_mat[:, :, start_idx:(start_idx + length)] *= rescale_factor
+      from_grid_mat[:, :, start_idx : (start_idx + length)] *= rescale_factor
 
   from_grid_mat = from_grid_mat[:, :, coef_idx]
 
@@ -349,6 +359,7 @@ class _PyTorchCoefficientMapping:
   def coefficient_idx(self, lmax: int, mmax: int):
     """Get indices matching PyTorch CoefficientMapping.coefficient_idx()."""
     import torch
+
     mask = (self._l_harmonic <= lmax) & (self._m_harmonic <= mmax)
     indices = np.arange(len(mask))
     return torch.tensor(indices[mask]).long()
@@ -411,11 +422,11 @@ def _compute_grid_matrices_numpy(
     for lval in range(lmax + 1):
       if lval <= mmax:
         continue
-      start_idx = lval ** 2
+      start_idx = lval**2
       length = 2 * lval + 1
       rescale_factor = np.sqrt(length / (2 * mmax + 1))
-      to_grid[:, :, start_idx: start_idx + length] *= rescale_factor
-      from_grid[:, :, start_idx: start_idx + length] *= rescale_factor
+      to_grid[:, :, start_idx : start_idx + length] *= rescale_factor
+      from_grid[:, :, start_idx : start_idx + length] *= rescale_factor
 
   coef_idx = coefficient_idx(mapping, lmax, mmax)
   coef_idx_np = np.array(coef_idx)

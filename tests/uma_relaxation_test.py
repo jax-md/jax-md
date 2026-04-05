@@ -77,17 +77,25 @@ def _jax_single_point(ref_data):
 
   if any(pbc):
     # ASE: center_idx, neighbor_idx, offsets
-    center_idx, neighbor_idx, offsets = ase_nl('ijS', atoms, cutoff=config.cutoff, self_interaction=False)
+    center_idx, neighbor_idx, offsets = ase_nl(
+      'ijS', atoms, cutoff=config.cutoff, self_interaction=False
+    )
     cell_np = np.array(cell)
     # FairChem: edge_index = [source=neighbor, target=center]
-    edge_vec = (positions[neighbor_idx] + (offsets @ cell_np).astype(np.float32) - positions[center_idx]).astype(np.float32)
+    edge_vec = (
+      positions[neighbor_idx]
+      + (offsets @ cell_np).astype(np.float32)
+      - positions[center_idx]
+    ).astype(np.float32)
     idx_i = neighbor_idx  # source
-    idx_j = center_idx    # target
+    idx_j = center_idx  # target
   else:
     idx_i, idx_j = [], []
     for i in range(n):
       for j in range(n):
-        if i != j and np.linalg.norm(positions[i] - positions[j]) < config.cutoff:
+        if (
+          i != j and np.linalg.norm(positions[i] - positions[j]) < config.cutoff
+        ):
           idx_i.append(j)  # source = neighbor
           idx_j.append(i)  # target = center
     idx_i = np.array(idx_i)
@@ -99,10 +107,15 @@ def _jax_single_point(ref_data):
   ds_idx = dataset_names_to_indices([task], config.dataset_list)
 
   output = model.apply(
-    params, jnp.array(positions), jnp.array(Z),
-    batch, ei, jnp.array(edge_vec),
+    params,
+    jnp.array(positions),
+    jnp.array(Z),
+    batch,
+    ei,
+    jnp.array(edge_vec),
     jnp.array([charge], dtype=jnp.int32),
-    jnp.array([spin], dtype=jnp.int32), ds_idx,
+    jnp.array([spin], dtype=jnp.int32),
+    ds_idx,
   )
   jax_emb = np.array(output['node_embedding'])
 
@@ -119,8 +132,10 @@ class RealStructureComparisonTest(test_util.JAXMDTestCase):
   def setUp(self):
     super().setUp()
     if not _has_reference():
-      self.skipTest(f'Reference data not found in {REF_DIR}. '
-                    f'Run: uv run python tests/generate_pt_reference.py')
+      self.skipTest(
+        f'Reference data not found in {REF_DIR}. '
+        f'Run: uv run python tests/generate_pt_reference.py'
+      )
     if not _has_pretrained():
       self.skipTest('Pretrained checkpoint not available')
     try:

@@ -90,7 +90,7 @@ def simple_spring(
 def simple_spring_bond(
   displacement_or_metric: DisplacementOrMetricFn,
   bond: Array,
-  bond_type: Optional[Array] = None,
+  bond_type: Array | None = None,
   length: Array = 1,
   epsilon: Array = 1,
   alpha: Array = 2,
@@ -164,7 +164,7 @@ def soft_sphere(
 
 def soft_sphere_pair(
   displacement_or_metric: DisplacementOrMetricFn,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   sigma: Array = 1.0,
   epsilon: Array = 1.0,
   alpha: Array = 2.0,
@@ -189,7 +189,7 @@ def soft_sphere_pair(
 def soft_sphere_neighbor_list(
   displacement_or_metric: DisplacementOrMetricFn,
   box_size: Box,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   sigma: Array = 1.0,
   epsilon: Array = 1.0,
   alpha: Array = 2.0,
@@ -260,7 +260,7 @@ def lennard_jones(
 
 def lennard_jones_pair(
   displacement_or_metric: DisplacementOrMetricFn,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   sigma: Array = 1.0,
   epsilon: Array = 1.0,
   r_onset: Array = 2.0,
@@ -286,7 +286,7 @@ def lennard_jones_pair(
 def lennard_jones_neighbor_list(
   displacement_or_metric: DisplacementOrMetricFn,
   box_size: Box,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   sigma: Array = 1.0,
   epsilon: Array = 1.0,
   r_onset: float = 2.0,
@@ -359,7 +359,7 @@ def morse(
 
 def morse_pair(
   displacement_or_metric: DisplacementOrMetricFn,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   sigma: Array = 1.0,
   epsilon: Array = 5.0,
   alpha: Array = 5.0,
@@ -386,7 +386,7 @@ def morse_pair(
 def morse_neighbor_list(
   displacement_or_metric: DisplacementOrMetricFn,
   box_size: Box,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   sigma: Array = 1.0,
   epsilon: Array = 5.0,
   alpha: Array = 5.0,
@@ -1220,7 +1220,7 @@ def _ters_repulsive(A: f64, lam1: f64, R: f64, D: f64, dr: Array) -> Array:
 def tersoff(
   displacement: DisplacementFn,
   params: Array,
-  species: Optional[Array] = None,
+  species: Array | None = None,
 ) -> Callable[[Array], Array]:
   """Computes the Tersoff potential.
 
@@ -1302,7 +1302,7 @@ def tersoff_neighbor_list(
   displacement: DisplacementFn,
   box_size: float,
   params: Array,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   dr_threshold: float = 0.5,
   disable_cell_list: bool = False,
   fractional_coordinates: bool = True,
@@ -1747,7 +1747,7 @@ def eam(
   charge_fn: Callable[[Array], Array],
   embedding_fn: Callable[[Array], Array],
   pairwise_fn: Callable[[Array], Array],
-  axis: Optional[Tuple[int, ...]] = None,
+  axis: Tuple[int, ...] | None = None,
 ) -> Callable[[Array], Array]:
   """.. _eam-pot:
 
@@ -1831,7 +1831,7 @@ def eam_neighbor_list(
   pairwise_fn: Callable[[Array], Array],
   cutoff: float,
   dr_threshold: float = 0.5,
-  axis: Optional[Tuple[int, ...]] = None,
+  axis: Tuple[int, ...] | None = None,
   fractional_coordinates: bool = True,
   format: partition.NeighborListFormat = partition.Sparse,
   neighbor_list_fn: Callable = partition.neighbor_list,
@@ -1906,10 +1906,10 @@ def eam_from_lammps_parameters_neighbor_list(
 
 def behler_parrinello(
   displacement: DisplacementFn,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   mlp_sizes: Tuple[int, ...] = (30, 30),
-  mlp_kwargs: Optional[Dict[str, Any]] = None,
-  sym_kwargs: Optional[Dict[str, Any]] = None,
+  mlp_kwargs: Dict[str, Any] | None = None,
+  sym_kwargs: Dict[str, Any] | None = None,
   per_particle: bool = False,
 ) -> Tuple[nn.InitFn, Callable[[PyTree, Array], Array]]:
   if sym_kwargs is None:
@@ -1941,10 +1941,10 @@ def behler_parrinello(
 def behler_parrinello_neighbor_list(
   displacement: DisplacementFn,
   box_size: float,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   mlp_sizes: Tuple[int, ...] = (30, 30),
-  mlp_kwargs: Optional[Dict[str, Any]] = None,
-  sym_kwargs: Optional[Dict[str, Any]] = None,
+  mlp_kwargs: Dict[str, Any] | None = None,
+  sym_kwargs: Dict[str, Any] | None = None,
   dr_threshold: float = 0.5,
   fractional_coordinates: bool = False,
   format: partition.NeighborListFormat = partition.Sparse,
@@ -2004,7 +2004,7 @@ class EnergyGraphNet(hk.Module):
     self,
     n_recurrences: int,
     mlp_sizes: Tuple[int, ...],
-    mlp_kwargs: Optional[Dict[str, Any]] = None,
+    mlp_kwargs: Dict[str, Any] | None = None,
     format: partition.NeighborListFormat = partition.Dense,
     name: str = 'Energy',
   ):
@@ -2035,7 +2035,7 @@ class EnergyGraphNet(hk.Module):
     return output
 
 
-def _canonicalize_node_state(nodes: Optional[Array]) -> Optional[Array]:
+def _canonicalize_node_state(nodes: Array | None) -> Array | None:
   if nodes is None:
     return nodes
 
@@ -2053,10 +2053,10 @@ def _canonicalize_node_state(nodes: Optional[Array]) -> Optional[Array]:
 def graph_network(
   displacement_fn: DisplacementFn,
   r_cutoff: float,
-  nodes: Optional[Array] = None,
+  nodes: Array | None = None,
   n_recurrences: int = 2,
   mlp_sizes: Tuple[int, ...] = (64, 64),
-  mlp_kwargs: Optional[Dict[str, Any]] = None,
+  mlp_kwargs: Dict[str, Any] | None = None,
 ) -> Tuple[nn.InitFn, Callable[[PyTree, Array], Array]]:
   """Convenience wrapper around EnergyGraphNet model.
 
@@ -2115,10 +2115,10 @@ def graph_network_neighbor_list(
   box_size: Box,
   r_cutoff: float,
   dr_threshold: float,
-  nodes: Optional[Array] = None,
+  nodes: Array | None = None,
   n_recurrences: int = 2,
   mlp_sizes: Tuple[int, ...] = (64, 64),
-  mlp_kwargs: Optional[Dict[str, Any]] = None,
+  mlp_kwargs: Dict[str, Any] | None = None,
   fractional_coordinates: bool = False,
   format: partition.NeighborListFormat = partition.Sparse,
   neighbor_list_fn: Callable = partition.neighbor_list,
@@ -2379,7 +2379,9 @@ def uma_neighbor_list(
 
   # Build neighbor list
   neighbor_fn = neighbor_list_fn(
-    displacement_fn, box, cfg.cutoff,
+    displacement_fn,
+    box,
+    cfg.cutoff,
     format=partition.Sparse,
     **nl_kwargs,
   )
@@ -2426,6 +2428,7 @@ def uma_neighbor_list(
   pretrained_params = None
   if checkpoint_path is not None:
     from jax_md._nn.uma.weight_conversion import load_pytorch_checkpoint
+
     pretrained_params = load_pytorch_checkpoint(checkpoint_path)
 
   def init_fn(key, position, neighbor, **kwargs):
@@ -2438,8 +2441,12 @@ def uma_neighbor_list(
     _dataset_idx = kwargs.pop('dataset_idx', dataset_idx)
 
     features = featurizer(
-      _atoms, position, neighbor,
-      charge=_charge, spin=_spin, dataset_idx=_dataset_idx,
+      _atoms,
+      position,
+      neighbor,
+      charge=_charge,
+      spin=_spin,
+      dataset_idx=_dataset_idx,
       **kwargs,
     )
 
@@ -2457,8 +2464,12 @@ def uma_neighbor_list(
     _dataset_idx = kwargs.pop('dataset_idx', dataset_idx)
 
     features = featurizer(
-      _atoms, position, neighbor,
-      charge=_charge, spin=_spin, dataset_idx=_dataset_idx,
+      _atoms,
+      position,
+      neighbor,
+      charge=_charge,
+      spin=_spin,
+      dataset_idx=_dataset_idx,
       **kwargs,
     )
     # Sum over systems (typically 1 for MD)

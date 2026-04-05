@@ -714,15 +714,15 @@ class SO2Convolution(nn.Module):
   mmax: int
   m_size: Tuple[int, ...]
   internal_weights: bool = True
-  edge_channels_list: Optional[List[int]] = None
-  extra_m0_output_channels: Optional[int] = None
+  edge_channels_list: List[int] | None = None
+  extra_m0_output_channels: int | None = None
 
   @nn.compact
   def __call__(
     self,
     x: jnp.ndarray,
-    x_edge: Optional[jnp.ndarray] = None,
-  ) -> Tuple[jnp.ndarray, Optional[jnp.ndarray]]:
+    x_edge: jnp.ndarray | None = None,
+  ) -> Tuple[jnp.ndarray, jnp.ndarray | None]:
     num_edges = x.shape[0]
     num_m_coeffs = sum(self.m_size)
 
@@ -862,8 +862,8 @@ class Edgewise(nn.Module):
   m_size: Tuple[int, ...]
   cutoff: float
   act_type: Literal['gate', 's2'] = 'gate'
-  to_grid_mat: Optional[jnp.ndarray] = None
-  from_grid_mat: Optional[jnp.ndarray] = None
+  to_grid_mat: jnp.ndarray | None = None
+  from_grid_mat: jnp.ndarray | None = None
 
   @nn.compact
   def __call__(
@@ -984,8 +984,8 @@ class UMABlock(nn.Module):
   norm_type: str = 'rms_norm_sh'
   act_type: Literal['gate', 's2'] = 'gate'
   ff_type: Literal['spectral', 'grid'] = 'grid'
-  to_grid_mat: Optional[jnp.ndarray] = None
-  from_grid_mat: Optional[jnp.ndarray] = None
+  to_grid_mat: jnp.ndarray | None = None
+  from_grid_mat: jnp.ndarray | None = None
 
   @nn.compact
   def __call__(
@@ -997,7 +997,7 @@ class UMABlock(nn.Module):
     wigner_and_M_mapping: jnp.ndarray,
     wigner_and_M_mapping_inv: jnp.ndarray,
     edge_envelope: jnp.ndarray,
-    sys_node_embedding: Optional[jnp.ndarray] = None,
+    sys_node_embedding: jnp.ndarray | None = None,
     node_offset: int = 0,
   ) -> jnp.ndarray:
     # First residual block: Edgewise
@@ -1084,9 +1084,9 @@ class UMAConfig:
   norm_type: str = 'rms_norm_sh'
   act_type: str = 'gate'
   ff_type: str = 'grid'
-  grid_resolution: Optional[int] = None
+  grid_resolution: int | None = None
   chg_spin_emb_type: str = 'pos_emb'
-  dataset_list: Optional[List[str]] = field(default=None)
+  dataset_list: List[str] | None = field(default=None)
   use_dataset_embedding: bool = True
 
 
@@ -1125,7 +1125,7 @@ class UMABackbone(nn.Module):
     edge_distance_vec: jnp.ndarray,
     charge: jnp.ndarray,
     spin: jnp.ndarray,
-    dataset: Optional[List[str]] = None,
+    dataset: List[str] | None = None,
   ) -> Dict[str, jnp.ndarray]:
     cfg = self.config
     num_atoms = positions.shape[0]

@@ -37,7 +37,9 @@ def create_test_data(num_atoms=10, num_systems=2, cutoff=5.0, seed=42):
   np.random.seed(seed)
 
   positions = np.random.randn(num_atoms, 3).astype(np.float32) * 2.0
-  atomic_numbers = np.random.choice([1, 6, 7, 8], size=num_atoms).astype(np.int32)
+  atomic_numbers = np.random.choice([1, 6, 7, 8], size=num_atoms).astype(
+    np.int32
+  )
 
   atoms_per_system = num_atoms // num_systems
   batch = np.repeat(np.arange(num_systems), atoms_per_system).astype(np.int32)
@@ -158,7 +160,9 @@ class SO2MConvTest(test_util.JAXMDTestCase):
 
   def test_so2mconv_output_shape(self):
     """Test SO2MConv produces correct output shape."""
-    conv = SO2MConv(m=1, sphere_channels=32, m_output_channels=16, lmax=2, mmax=2)
+    conv = SO2MConv(
+      m=1, sphere_channels=32, m_output_channels=16, lmax=2, mmax=2
+    )
     key = jax.random.PRNGKey(0)
     # m=1: num_coefficients = lmax - m + 1 = 2
     # Input: (E, 2, num_coeffs * sphere_channels) = (5, 2, 64)
@@ -171,7 +175,9 @@ class SO2MConvTest(test_util.JAXMDTestCase):
 
   def test_so2mconv_jit(self):
     """Test SO2MConv is JIT-compatible."""
-    conv = SO2MConv(m=1, sphere_channels=16, m_output_channels=8, lmax=2, mmax=2)
+    conv = SO2MConv(
+      m=1, sphere_channels=16, m_output_channels=8, lmax=2, mmax=2
+    )
     key = jax.random.PRNGKey(0)
     x = jax.random.normal(key, (3, 2, 2 * 16))
     params = conv.init(key, x)
@@ -279,7 +285,6 @@ class EquivariantRMSNormTest(test_util.JAXMDTestCase):
 
 
 class UMAConfigTest(test_util.JAXMDTestCase):
-
   def test_uma_config_defaults(self):
     config = UMAConfig()
     self.assertEqual(config.sphere_channels, 128)
@@ -289,7 +294,6 @@ class UMAConfigTest(test_util.JAXMDTestCase):
 
 
 class UMAHeadsTest(test_util.JAXMDTestCase):
-
   def test_mlp_energy_head(self):
     head = MLPEnergyHead(sphere_channels=32, hidden_channels=32)
     key = jax.random.PRNGKey(0)
@@ -320,7 +324,6 @@ class UMAHeadsTest(test_util.JAXMDTestCase):
 
 
 class UMABackboneForwardTest(test_util.JAXMDTestCase):
-
   def test_uma_backbone_forward_pass(self):
     """Test full UMABackbone forward pass with synthetic data."""
     config = UMAConfig(
@@ -423,67 +426,14 @@ class UMABackboneForwardTest(test_util.JAXMDTestCase):
 
   def test_uma_backbone_deterministic(self):
     config = UMAConfig(
-      sphere_channels=32, lmax=2, mmax=2, num_layers=1,
-      hidden_channels=32, cutoff=5.0, edge_channels=32,
-      num_distance_basis=64, use_dataset_embedding=False,
-    )
-
-    model = UMABackbone(config=config)
-    data = create_test_data(num_atoms=6, num_systems=2, cutoff=config.cutoff)
-
-    key = jax.random.PRNGKey(0)
-    params = model.init(
-      key, data['positions'], data['atomic_numbers'], data['batch'],
-      data['edge_index'], data['edge_distance_vec'],
-      data['charge'], data['spin'], None,
-    )
-
-    out1 = model.apply(
-      params, data['positions'], data['atomic_numbers'], data['batch'],
-      data['edge_index'], data['edge_distance_vec'],
-      data['charge'], data['spin'], None,
-    )
-    out2 = model.apply(
-      params, data['positions'], data['atomic_numbers'], data['batch'],
-      data['edge_index'], data['edge_distance_vec'],
-      data['charge'], data['spin'], None,
-    )
-
-    self.assertTrue(
-      jnp.allclose(out1['node_embedding'], out2['node_embedding'])
-    )
-
-  def test_uma_backbone_multiple_layers(self):
-    config = UMAConfig(
-      sphere_channels=32, lmax=2, mmax=2, num_layers=2,
-      hidden_channels=32, cutoff=5.0, edge_channels=32,
-      num_distance_basis=64, use_dataset_embedding=False,
-    )
-
-    model = UMABackbone(config=config)
-    data = create_test_data(num_atoms=6, num_systems=2, cutoff=config.cutoff)
-
-    key = jax.random.PRNGKey(0)
-    params = model.init(
-      key, data['positions'], data['atomic_numbers'], data['batch'],
-      data['edge_index'], data['edge_distance_vec'],
-      data['charge'], data['spin'], None,
-    )
-
-    output = model.apply(
-      params, data['positions'], data['atomic_numbers'], data['batch'],
-      data['edge_index'], data['edge_distance_vec'],
-      data['charge'], data['spin'], None,
-    )
-
-    self.assertTrue(jnp.all(jnp.isfinite(output['node_embedding'])))
-
-  def test_uma_backbone_spectral_ffn(self):
-    """Test with spectral (SO3Linear) feed-forward instead of grid."""
-    config = UMAConfig(
-      sphere_channels=32, lmax=2, mmax=2, num_layers=1,
-      hidden_channels=32, cutoff=5.0, edge_channels=32,
-      num_distance_basis=64, ff_type='spectral',
+      sphere_channels=32,
+      lmax=2,
+      mmax=2,
+      num_layers=1,
+      hidden_channels=32,
+      cutoff=5.0,
+      edge_channels=32,
+      num_distance_basis=64,
       use_dataset_embedding=False,
     )
 
@@ -492,15 +442,128 @@ class UMABackboneForwardTest(test_util.JAXMDTestCase):
 
     key = jax.random.PRNGKey(0)
     params = model.init(
-      key, data['positions'], data['atomic_numbers'], data['batch'],
-      data['edge_index'], data['edge_distance_vec'],
-      data['charge'], data['spin'], None,
+      key,
+      data['positions'],
+      data['atomic_numbers'],
+      data['batch'],
+      data['edge_index'],
+      data['edge_distance_vec'],
+      data['charge'],
+      data['spin'],
+      None,
+    )
+
+    out1 = model.apply(
+      params,
+      data['positions'],
+      data['atomic_numbers'],
+      data['batch'],
+      data['edge_index'],
+      data['edge_distance_vec'],
+      data['charge'],
+      data['spin'],
+      None,
+    )
+    out2 = model.apply(
+      params,
+      data['positions'],
+      data['atomic_numbers'],
+      data['batch'],
+      data['edge_index'],
+      data['edge_distance_vec'],
+      data['charge'],
+      data['spin'],
+      None,
+    )
+
+    self.assertTrue(
+      jnp.allclose(out1['node_embedding'], out2['node_embedding'])
+    )
+
+  def test_uma_backbone_multiple_layers(self):
+    config = UMAConfig(
+      sphere_channels=32,
+      lmax=2,
+      mmax=2,
+      num_layers=2,
+      hidden_channels=32,
+      cutoff=5.0,
+      edge_channels=32,
+      num_distance_basis=64,
+      use_dataset_embedding=False,
+    )
+
+    model = UMABackbone(config=config)
+    data = create_test_data(num_atoms=6, num_systems=2, cutoff=config.cutoff)
+
+    key = jax.random.PRNGKey(0)
+    params = model.init(
+      key,
+      data['positions'],
+      data['atomic_numbers'],
+      data['batch'],
+      data['edge_index'],
+      data['edge_distance_vec'],
+      data['charge'],
+      data['spin'],
+      None,
     )
 
     output = model.apply(
-      params, data['positions'], data['atomic_numbers'], data['batch'],
-      data['edge_index'], data['edge_distance_vec'],
-      data['charge'], data['spin'], None,
+      params,
+      data['positions'],
+      data['atomic_numbers'],
+      data['batch'],
+      data['edge_index'],
+      data['edge_distance_vec'],
+      data['charge'],
+      data['spin'],
+      None,
+    )
+
+    self.assertTrue(jnp.all(jnp.isfinite(output['node_embedding'])))
+
+  def test_uma_backbone_spectral_ffn(self):
+    """Test with spectral (SO3Linear) feed-forward instead of grid."""
+    config = UMAConfig(
+      sphere_channels=32,
+      lmax=2,
+      mmax=2,
+      num_layers=1,
+      hidden_channels=32,
+      cutoff=5.0,
+      edge_channels=32,
+      num_distance_basis=64,
+      ff_type='spectral',
+      use_dataset_embedding=False,
+    )
+
+    model = UMABackbone(config=config)
+    data = create_test_data(num_atoms=6, num_systems=2, cutoff=config.cutoff)
+
+    key = jax.random.PRNGKey(0)
+    params = model.init(
+      key,
+      data['positions'],
+      data['atomic_numbers'],
+      data['batch'],
+      data['edge_index'],
+      data['edge_distance_vec'],
+      data['charge'],
+      data['spin'],
+      None,
+    )
+
+    output = model.apply(
+      params,
+      data['positions'],
+      data['atomic_numbers'],
+      data['batch'],
+      data['edge_index'],
+      data['edge_distance_vec'],
+      data['charge'],
+      data['spin'],
+      None,
     )
 
     self.assertTrue(jnp.all(jnp.isfinite(output['node_embedding'])))
@@ -512,9 +575,15 @@ class UMAGradientTest(test_util.JAXMDTestCase):
   def test_energy_gradient_wrt_positions(self):
     """Test that we can compute forces via energy gradient."""
     config = UMAConfig(
-      sphere_channels=32, lmax=2, mmax=2, num_layers=1,
-      hidden_channels=32, cutoff=5.0, edge_channels=32,
-      num_distance_basis=64, use_dataset_embedding=False,
+      sphere_channels=32,
+      lmax=2,
+      mmax=2,
+      num_layers=1,
+      hidden_channels=32,
+      cutoff=5.0,
+      edge_channels=32,
+      num_distance_basis=64,
+      use_dataset_embedding=False,
     )
 
     model = UMABackbone(config=config)
@@ -526,25 +595,45 @@ class UMAGradientTest(test_util.JAXMDTestCase):
     key1, key2 = jax.random.split(key)
 
     backbone_params = model.init(
-      key1, data['positions'], data['atomic_numbers'], data['batch'],
-      data['edge_index'], data['edge_distance_vec'],
-      data['charge'], data['spin'], None,
+      key1,
+      data['positions'],
+      data['atomic_numbers'],
+      data['batch'],
+      data['edge_index'],
+      data['edge_distance_vec'],
+      data['charge'],
+      data['spin'],
+      None,
     )
 
     emb = model.apply(
-      backbone_params, data['positions'], data['atomic_numbers'], data['batch'],
-      data['edge_index'], data['edge_distance_vec'],
-      data['charge'], data['spin'], None,
+      backbone_params,
+      data['positions'],
+      data['atomic_numbers'],
+      data['batch'],
+      data['edge_index'],
+      data['edge_distance_vec'],
+      data['charge'],
+      data['spin'],
+      None,
     )
 
     head_params = head.init(key2, emb['node_embedding'], data['batch'], 1)
 
     def energy_fn(positions):
-      edge_vec = positions[data['edge_index'][0]] - positions[data['edge_index'][1]]
+      edge_vec = (
+        positions[data['edge_index'][0]] - positions[data['edge_index'][1]]
+      )
       emb = model.apply(
-        backbone_params, positions, data['atomic_numbers'], data['batch'],
-        data['edge_index'], edge_vec,
-        data['charge'], data['spin'], None,
+        backbone_params,
+        positions,
+        data['atomic_numbers'],
+        data['batch'],
+        data['edge_index'],
+        edge_vec,
+        data['charge'],
+        data['spin'],
+        None,
       )
       result = head.apply(head_params, emb['node_embedding'], data['batch'], 1)
       return result['energy'].sum()
@@ -565,6 +654,7 @@ class UMAGradientTest(test_util.JAXMDTestCase):
 def _load_pt_module(module_name, file_path):
   """Load a fairchem module directly, bypassing __init__ chains."""
   import importlib.util
+
   spec = importlib.util.spec_from_file_location(module_name, file_path)
   mod = importlib.util.module_from_spec(spec)
   spec.loader.exec_module(mod)
@@ -575,25 +665,29 @@ def _stub_fairchem():
   """Stub fairchem namespace so submodules can be loaded in isolation."""
   import sys
   import types
+
   for name in [
-    'fairchem', 'fairchem.core', 'fairchem.core.models',
-    'fairchem.core.models.uma', 'fairchem.core.models.uma.common',
+    'fairchem',
+    'fairchem.core',
+    'fairchem.core.models',
+    'fairchem.core.models.uma',
+    'fairchem.core.models.uma.common',
     'fairchem.core.models.uma.nn',
   ]:
     if name not in sys.modules:
       sys.modules[name] = types.ModuleType(name)
 
 
-_FAIRCHEM_SRC = (
-  '/Users/emirhankurtulus/workspace/fairchem_jaxmd/fairchem/src/fairchem/core/models/uma'
-)
+_FAIRCHEM_SRC = '/Users/emirhankurtulus/workspace/fairchem_jaxmd/fairchem/src/fairchem/core/models/uma'
 
 
 def _pt_available():
   """Check if PyTorch and fairchem source are accessible."""
   import os
+
   try:
     import torch
+
     return os.path.isdir(_FAIRCHEM_SRC)
   except ImportError:
     return False
@@ -608,18 +702,22 @@ class PyTorchComparisonTest(test_util.JAXMDTestCase):
       self.skipTest('PyTorch or fairchem source not available')
     _stub_fairchem()
     import sys
+
     # Stub the radial import needed by so2_layers
     radial_pt = _load_pt_module(
       'fairchem.core.models.uma.nn.radial',
       f'{_FAIRCHEM_SRC}/nn/radial.py',
     )
     sys.modules['fairchem.core.models.uma.nn.radial'] = radial_pt
-    sys.modules.setdefault('fairchem.core.models.uma.nn', __import__('types').ModuleType('nn'))
+    sys.modules.setdefault(
+      'fairchem.core.models.uma.nn', __import__('types').ModuleType('nn')
+    )
     sys.modules['fairchem.core.models.uma.nn'].radial = radial_pt
 
   def test_z_rot_mat_matches_pytorch(self):
     """_z_rot_mat should match PyTorch for all l."""
     import torch
+
     pt_rot = _load_pt_module('pt_rot', f'{_FAIRCHEM_SRC}/common/rotation.py')
     from jax_md._nn.uma.common.rotation import _z_rot_mat
 
@@ -627,16 +725,20 @@ class PyTorchComparisonTest(test_util.JAXMDTestCase):
     for l in range(4):
       M_pt = pt_rot._z_rot_mat(torch.tensor(angles), l).numpy()
       M_jax = np.array(_z_rot_mat(jnp.array(angles), l))
-      np.testing.assert_allclose(M_jax, M_pt, atol=1e-6,
-                                 err_msg=f'_z_rot_mat mismatch at l={l}')
+      np.testing.assert_allclose(
+        M_jax, M_pt, atol=1e-6, err_msg=f'_z_rot_mat mismatch at l={l}'
+      )
 
   def test_wigner_D_matches_pytorch(self):
     """wigner_D should match PyTorch for all l."""
     import torch
+
     pt_rot = _load_pt_module('pt_rot', f'{_FAIRCHEM_SRC}/common/rotation.py')
     from jax_md._nn.uma.common.rotation import wigner_D as jax_wigner_D
 
-    Jd_pt = torch.load('jax_md/_nn/uma/Jd.pt', map_location='cpu', weights_only=False)
+    Jd_pt = torch.load(
+      'jax_md/_nn/uma/Jd.pt', map_location='cpu', weights_only=False
+    )
     # Cast Jd to float32 to match angle dtype
     Jd_pt = [J.float() for J in Jd_pt]
     Jd_jax = load_jacobi_matrices_from_file(3)
@@ -647,14 +749,16 @@ class PyTorchComparisonTest(test_util.JAXMDTestCase):
 
     for l in range(4):
       D_pt = pt_rot.wigner_D(
-        l, torch.tensor(alpha), torch.tensor(beta),
-        torch.tensor(gamma), Jd_pt
+        l, torch.tensor(alpha), torch.tensor(beta), torch.tensor(gamma), Jd_pt
       ).numpy()
-      D_jax = np.array(jax_wigner_D(
-        l, jnp.array(alpha), jnp.array(beta), jnp.array(gamma), Jd_jax[l]
-      ))
-      np.testing.assert_allclose(D_jax, D_pt, atol=1e-5,
-                                 err_msg=f'wigner_D mismatch at l={l}')
+      D_jax = np.array(
+        jax_wigner_D(
+          l, jnp.array(alpha), jnp.array(beta), jnp.array(gamma), Jd_jax[l]
+        )
+      )
+      np.testing.assert_allclose(
+        D_jax, D_pt, atol=1e-5, err_msg=f'wigner_D mismatch at l={l}'
+      )
 
   def test_coefficient_mapping_to_m_matches_pytorch(self):
     """to_m permutation matrix should be identical to PyTorch."""
@@ -662,7 +766,8 @@ class PyTorchComparisonTest(test_util.JAXMDTestCase):
     pt_cm = pt_so3.CoefficientMapping(2, 2)
     jax_cm = create_coefficient_mapping(2, 2)
     np.testing.assert_array_equal(
-      np.array(jax_cm.to_m), pt_cm.to_m.numpy(),
+      np.array(jax_cm.to_m),
+      pt_cm.to_m.numpy(),
     )
 
   def test_so3_grid_matrices_match_pytorch(self):
@@ -672,12 +777,16 @@ class PyTorchComparisonTest(test_util.JAXMDTestCase):
       pt_grid = pt_so3.SO3_Grid(lmax, mmax)
       jax_grid = create_so3_grid(lmax, mmax)
       np.testing.assert_allclose(
-        np.array(jax_grid.to_grid_mat), pt_grid.to_grid_mat.numpy(),
-        atol=1e-6, err_msg=f'to_grid mismatch lmax={lmax},mmax={mmax}',
+        np.array(jax_grid.to_grid_mat),
+        pt_grid.to_grid_mat.numpy(),
+        atol=1e-6,
+        err_msg=f'to_grid mismatch lmax={lmax},mmax={mmax}',
       )
       np.testing.assert_allclose(
-        np.array(jax_grid.from_grid_mat), pt_grid.from_grid_mat.numpy(),
-        atol=1e-6, err_msg=f'from_grid mismatch lmax={lmax},mmax={mmax}',
+        np.array(jax_grid.from_grid_mat),
+        pt_grid.from_grid_mat.numpy(),
+        atol=1e-6,
+        err_msg=f'from_grid mismatch lmax={lmax},mmax={mmax}',
       )
 
   def test_so2mconv_matches_pytorch(self):
@@ -701,7 +810,9 @@ class PyTorchComparisonTest(test_util.JAXMDTestCase):
       x_m_i = (x_r_1 + x_i_0).view(-1, num_coefficients, moc)
       return x_m_r, x_m_i
 
-    jax_conv = SO2MConv(m=m, sphere_channels=sc, m_output_channels=moc, lmax=lmax, mmax=mmax)
+    jax_conv = SO2MConv(
+      m=m, sphere_channels=sc, m_output_channels=moc, lmax=lmax, mmax=mmax
+    )
 
     np.random.seed(123)
     x_np = np.random.randn(7, 2, num_channels).astype(np.float32)
@@ -710,24 +821,29 @@ class PyTorchComparisonTest(test_util.JAXMDTestCase):
     jax_params = jax_conv.init(key, jnp.array(x_np))
 
     # Copy PT weights to JAX (transpose: PT [out,in] -> JAX [in,out])
-    jax_params_loaded = {'params': {'fc': {
-      'kernel': jnp.array(pt_fc.weight.data.numpy().T)
-    }}}
+    jax_params_loaded = {
+      'params': {'fc': {'kernel': jnp.array(pt_fc.weight.data.numpy().T)}}
+    }
 
     with torch.no_grad():
       pt_r, pt_i = pt_so2m_forward(torch.tensor(x_np))
     jax_r, jax_i = jax_conv.apply(jax_params_loaded, jnp.array(x_np))
 
     np.testing.assert_allclose(
-      np.array(jax_r), pt_r.numpy(), atol=1e-5,
+      np.array(jax_r),
+      pt_r.numpy(),
+      atol=1e-5,
     )
     np.testing.assert_allclose(
-      np.array(jax_i), pt_i.numpy(), atol=1e-5,
+      np.array(jax_i),
+      pt_i.numpy(),
+      atol=1e-5,
     )
 
   def test_so3linear_matches_pytorch(self):
     """SO3Linear with copied weights should match PyTorch output."""
     import torch
+
     pt_so3l = _load_pt_module('pt_so3l', f'{_FAIRCHEM_SRC}/nn/so3_layers.py')
 
     lmax, in_f, out_f = 2, 16, 8
@@ -742,10 +858,12 @@ class PyTorchComparisonTest(test_util.JAXMDTestCase):
     key = jax.random.PRNGKey(0)
     jax_params = jax_lin.init(key, jnp.array(x_np))
 
-    jax_params_loaded = {'params': {
-      'weight': jnp.array(pt_lin.weight.data.numpy()),
-      'bias': jnp.array(pt_lin.bias.data.numpy()),
-    }}
+    jax_params_loaded = {
+      'params': {
+        'weight': jnp.array(pt_lin.weight.data.numpy()),
+        'bias': jnp.array(pt_lin.bias.data.numpy()),
+      }
+    }
 
     with torch.no_grad():
       pt_out = pt_lin(torch.tensor(x_np)).numpy()
@@ -756,6 +874,7 @@ class PyTorchComparisonTest(test_util.JAXMDTestCase):
   def test_rms_norm_matches_pytorch(self):
     """EquivariantRMSNorm with copied weights should match PyTorch."""
     import torch
+
     pt_ln = _load_pt_module('pt_ln', f'{_FAIRCHEM_SRC}/nn/layer_norm.py')
 
     lmax, ch = 2, 16
@@ -770,10 +889,12 @@ class PyTorchComparisonTest(test_util.JAXMDTestCase):
     key = jax.random.PRNGKey(0)
     jax_params = jax_norm.init(key, jnp.array(x_np))
 
-    jax_params_loaded = {'params': {
-      'affine_weight': jnp.array(pt_norm.affine_weight.data.numpy()),
-      'affine_bias': jnp.array(pt_norm.affine_bias.data.numpy()),
-    }}
+    jax_params_loaded = {
+      'params': {
+        'affine_weight': jnp.array(pt_norm.affine_weight.data.numpy()),
+        'affine_bias': jnp.array(pt_norm.affine_bias.data.numpy()),
+      }
+    }
 
     with torch.no_grad():
       pt_out = pt_norm(torch.tensor(x_np)).numpy()
@@ -784,6 +905,7 @@ class PyTorchComparisonTest(test_util.JAXMDTestCase):
   def test_euler_angles_match_pytorch(self):
     """Euler angle computation should match PyTorch (alpha, beta)."""
     import torch
+
     pt_rot = _load_pt_module('pt_rot', f'{_FAIRCHEM_SRC}/common/rotation.py')
 
     np.random.seed(99)
@@ -803,6 +925,7 @@ class PretrainedMoETest(test_util.JAXMDTestCase):
   def setUp(self):
     super().setUp()
     import os
+
     # Look for cached checkpoint
     cache_base = os.path.expanduser('~/.cache/fairchem/models--facebook--UMA')
     self.ckpt_path = None
@@ -823,22 +946,44 @@ class PretrainedMoETest(test_util.JAXMDTestCase):
     config, params, _hp = load_pretrained(self.ckpt_path)
     model = UMAMoEBackbone(config=config)
 
-    pos = jnp.array([[0,0,0],[1.8,1.8,0],[1.8,0,1.8],[0,1.8,1.8],[.9,.9,.9],[2.7,.9,.9]], dtype=jnp.float32)
-    Z = jnp.array([29,29,29,29,8,8], dtype=jnp.int32)
+    pos = jnp.array(
+      [
+        [0, 0, 0],
+        [1.8, 1.8, 0],
+        [1.8, 0, 1.8],
+        [0, 1.8, 1.8],
+        [0.9, 0.9, 0.9],
+        [2.7, 0.9, 0.9],
+      ],
+      dtype=jnp.float32,
+    )
+    Z = jnp.array([29, 29, 29, 29, 8, 8], dtype=jnp.int32)
     batch = jnp.zeros(6, dtype=jnp.int32)
     src, dst = [], []
     for i in range(6):
       for j in range(6):
-        if i != j and np.linalg.norm(np.array(pos[i]) - np.array(pos[j])) < config.cutoff:
+        if (
+          i != j
+          and np.linalg.norm(np.array(pos[i]) - np.array(pos[j]))
+          < config.cutoff
+        ):
           src.append(j)
           dst.append(i)
     ei = jnp.array([src, dst], dtype=jnp.int32)
     ev = pos[ei[0]] - pos[ei[1]]
     ds = dataset_names_to_indices(['omat'], config.dataset_list)
 
-    output = model.apply(params, pos, Z, batch, ei, ev,
-                         jnp.array([0], dtype=jnp.int32),
-                         jnp.array([0], dtype=jnp.int32), ds)
+    output = model.apply(
+      params,
+      pos,
+      Z,
+      batch,
+      ei,
+      ev,
+      jnp.array([0], dtype=jnp.int32),
+      jnp.array([0], dtype=jnp.int32),
+      ds,
+    )
     emb = output['node_embedding']
     self.assertEqual(emb.shape, (6, 9, 128))
     self.assertTrue(jnp.all(jnp.isfinite(emb)))

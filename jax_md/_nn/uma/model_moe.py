@@ -49,7 +49,11 @@ from jax_md._nn.uma.common.rotation import (
   init_edge_rot_euler_angles,
   eulers_to_wigner,
 )
-from jax_md._nn.uma.nn.radial import GaussianSmearing, PolynomialEnvelope, RadialMLP
+from jax_md._nn.uma.nn.radial import (
+  GaussianSmearing,
+  PolynomialEnvelope,
+  RadialMLP,
+)
 from jax_md._nn.uma.nn.embedding import (
   ChgSpinEmbedding,
   DatasetEmbedding,
@@ -66,6 +70,7 @@ class UMAMoEConfig(UMAConfig):
 
   Extends UMAConfig with MoE-specific parameters.
   """
+
   num_experts: int = 32
   moe_dropout: float = 0.05
   use_composition_embedding: bool = True
@@ -168,8 +173,8 @@ class SO2ConvolutionMoE(nn.Module):
   m_size: List[int]
   num_experts: int
   internal_weights: bool = True
-  edge_channels_list: Optional[List[int]] = None
-  extra_m0_output_channels: Optional[int] = None
+  edge_channels_list: List[int] | None = None
+  extra_m0_output_channels: int | None = None
 
   @nn.compact
   def __call__(
@@ -229,7 +234,9 @@ class SO2ConvolutionMoE(nn.Module):
       x_edge_by_m = [None] * (self.mmax + 1)
 
     x_by_m = jnp.split(
-      x, np.cumsum(m_split_sizes[:-1]), axis=1,
+      x,
+      np.cumsum(m_split_sizes[:-1]),
+      axis=1,
     )
 
     # m=0 with MoE
@@ -239,8 +246,8 @@ class SO2ConvolutionMoE(nn.Module):
     x_0 = fc_m0(x_0, expert_coefficients, edge_batch)
 
     if self.extra_m0_output_channels is not None:
-      x_0_extra = x_0[:, :self.extra_m0_output_channels]
-      x_0 = x_0[:, self.extra_m0_output_channels:]
+      x_0_extra = x_0[:, : self.extra_m0_output_channels]
+      x_0 = x_0[:, self.extra_m0_output_channels :]
 
     out = [x_0.reshape(num_edges, -1, self.m_output_channels)]
 
@@ -282,15 +289,21 @@ class EdgewiseMoE(nn.Module):
   cutoff: float
   num_experts: int
   act_type: str = 'gate'
-  to_grid_mat: Optional[jnp.ndarray] = None
-  from_grid_mat: Optional[jnp.ndarray] = None
+  to_grid_mat: jnp.ndarray | None = None
+  from_grid_mat: jnp.ndarray | None = None
 
   @nn.compact
   def __call__(
     self,
-    x, x_edge, edge_distance, edge_index,
-    wigner_and_M_mapping, wigner_and_M_mapping_inv,
-    edge_envelope, expert_coefficients, edge_batch,
+    x,
+    x_edge,
+    edge_distance,
+    edge_index,
+    wigner_and_M_mapping,
+    wigner_and_M_mapping_inv,
+    edge_envelope,
+    expert_coefficients,
+    edge_batch,
     node_offset=0,
   ):
     if self.act_type == 'gate':
@@ -301,7 +314,9 @@ class EdgewiseMoE(nn.Module):
     so2_conv_1 = SO2ConvolutionMoE(
       sphere_channels=2 * self.sphere_channels,
       m_output_channels=self.hidden_channels,
-      lmax=self.lmax, mmax=self.mmax, m_size=self.m_size,
+      lmax=self.lmax,
+      mmax=self.mmax,
+      m_size=self.m_size,
       num_experts=self.num_experts,
       internal_weights=False,
       edge_channels_list=self.edge_channels_list,
@@ -312,7 +327,9 @@ class EdgewiseMoE(nn.Module):
     so2_conv_2 = SO2ConvolutionMoE(
       sphere_channels=self.hidden_channels,
       m_output_channels=self.sphere_channels,
-      lmax=self.lmax, mmax=self.mmax, m_size=self.m_size,
+      lmax=self.lmax,
+      mmax=self.mmax,
+      m_size=self.m_size,
       num_experts=self.num_experts,
       internal_weights=True,
       name='so2_conv_2',
@@ -320,13 +337,16 @@ class EdgewiseMoE(nn.Module):
 
     if self.act_type == 'gate':
       act = GateActivation(
-        lmax=self.lmax, mmax=self.mmax,
+        lmax=self.lmax,
+        mmax=self.mmax,
         num_channels=self.hidden_channels,
-        m_prime=True, name='act',
+        m_prime=True,
+        name='act',
       )
     else:
       act = SeparableS2Activation(
-        lmax=self.lmax, mmax=self.mmax,
+        lmax=self.lmax,
+        mmax=self.mmax,
         to_grid_mat=self.to_grid_mat,
         from_grid_mat=self.from_grid_mat,
         name='act',
@@ -341,9 +361,7 @@ class EdgewiseMoE(nn.Module):
       x_message, x_edge, expert_coefficients, edge_batch
     )
     x_message = act(x_0_gating, x_message)
-    x_message = so2_conv_2(
-      x_message, x_edge, expert_coefficients, edge_batch
-    )
+    x_message = so2_conv_2(x_message, x_edge, expert_coefficients, edge_batch)
 
     x_message = x_message * edge_envelope
     x_message = jnp.einsum('njm,nmc->njc', wigner_and_M_mapping_inv, x_message)
@@ -367,23 +385,33 @@ class UMABlockMoE(nn.Module):
   norm_type: str = 'rms_norm_sh'
   act_type: str = 'gate'
   ff_type: str = 'spectral'
-  to_grid_mat: Optional[jnp.ndarray] = None
-  from_grid_mat: Optional[jnp.ndarray] = None
+  to_grid_mat: jnp.ndarray | None = None
+  from_grid_mat: jnp.ndarray | None = None
 
   @nn.compact
   def __call__(
-    self, x, x_edge, edge_distance, edge_index,
-    wigner_and_M_mapping, wigner_and_M_mapping_inv,
-    edge_envelope, expert_coefficients, edge_batch,
-    sys_node_embedding=None, node_offset=0,
+    self,
+    x,
+    x_edge,
+    edge_distance,
+    edge_index,
+    wigner_and_M_mapping,
+    wigner_and_M_mapping_inv,
+    edge_envelope,
+    expert_coefficients,
+    edge_batch,
+    sys_node_embedding=None,
+    node_offset=0,
   ):
     from jax_md._nn.uma.blocks import SpectralAtomwise, GridAtomwise
 
     # Edgewise with MoE
     x_res = x
     norm_1 = get_normalization_layer(
-      self.norm_type, lmax=self.lmax,
-      num_channels=self.sphere_channels, name='norm_1',
+      self.norm_type,
+      lmax=self.lmax,
+      num_channels=self.sphere_channels,
+      name='norm_1',
     )
     x = norm_1(x)
 
@@ -393,9 +421,11 @@ class UMABlockMoE(nn.Module):
     edgewise = EdgewiseMoE(
       sphere_channels=self.sphere_channels,
       hidden_channels=self.hidden_channels,
-      lmax=self.lmax, mmax=self.mmax,
+      lmax=self.lmax,
+      mmax=self.mmax,
       edge_channels_list=self.edge_channels_list,
-      m_size=self.m_size, cutoff=self.cutoff,
+      m_size=self.m_size,
+      cutoff=self.cutoff,
       num_experts=self.num_experts,
       act_type=self.act_type,
       to_grid_mat=self.to_grid_mat,
@@ -403,9 +433,15 @@ class UMABlockMoE(nn.Module):
       name='edge_wise',
     )
     x = edgewise(
-      x, x_edge, edge_distance, edge_index,
-      wigner_and_M_mapping, wigner_and_M_mapping_inv,
-      edge_envelope, expert_coefficients, edge_batch,
+      x,
+      x_edge,
+      edge_distance,
+      edge_index,
+      wigner_and_M_mapping,
+      wigner_and_M_mapping_inv,
+      edge_envelope,
+      expert_coefficients,
+      edge_batch,
       node_offset,
     )
     x = x + x_res
@@ -413,8 +449,10 @@ class UMABlockMoE(nn.Module):
     # Atomwise (standard, not MoE)
     x_res = x
     norm_2 = get_normalization_layer(
-      self.norm_type, lmax=self.lmax,
-      num_channels=self.sphere_channels, name='norm_2',
+      self.norm_type,
+      lmax=self.lmax,
+      num_channels=self.sphere_channels,
+      name='norm_2',
     )
     x = norm_2(x)
 
@@ -422,14 +460,16 @@ class UMABlockMoE(nn.Module):
       atomwise = SpectralAtomwise(
         sphere_channels=self.sphere_channels,
         hidden_channels=self.hidden_channels,
-        lmax=self.lmax, mmax=self.mmax,
+        lmax=self.lmax,
+        mmax=self.mmax,
         name='atom_wise',
       )
     else:
       atomwise = GridAtomwise(
         sphere_channels=self.sphere_channels,
         hidden_channels=self.hidden_channels,
-        lmax=self.lmax, mmax=self.mmax,
+        lmax=self.lmax,
+        mmax=self.mmax,
         to_grid_mat=self.to_grid_mat,
         from_grid_mat=self.from_grid_mat,
         name='atom_wise',
@@ -467,14 +507,20 @@ class UMAMoEBackbone(nn.Module):
     )
     self.edge_channels_list = [
       cfg.num_distance_basis + 2 * cfg.edge_channels,
-      cfg.edge_channels, cfg.edge_channels,
+      cfg.edge_channels,
+      cfg.edge_channels,
     ]
 
   @nn.compact
   def __call__(
     self,
-    positions, atomic_numbers, batch, edge_index,
-    edge_distance_vec, charge, spin,
+    positions,
+    atomic_numbers,
+    batch,
+    edge_index,
+    edge_distance_vec,
+    charge,
+    spin,
     dataset_idx=None,
   ):
     cfg = self.config
@@ -492,13 +538,15 @@ class UMAMoEBackbone(nn.Module):
       embedding_type=cfg.chg_spin_emb_type,
       embedding_target='charge',
       embedding_size=cfg.sphere_channels,
-      trainable=False, name='charge_embedding',
+      trainable=False,
+      name='charge_embedding',
     )
     spin_embedding = ChgSpinEmbedding(
       embedding_type=cfg.chg_spin_emb_type,
       embedding_target='spin',
       embedding_size=cfg.sphere_channels,
-      trainable=False, name='spin_embedding',
+      trainable=False,
+      name='spin_embedding',
     )
     chg_emb = charge_embedding(charge)
     spin_emb = spin_embedding(spin)
@@ -507,7 +555,8 @@ class UMAMoEBackbone(nn.Module):
       dataset_embedding = DatasetEmbedding(
         embedding_size=cfg.sphere_channels,
         num_datasets=len(cfg.dataset_list),
-        trainable=False, name='dataset_embedding',
+        trainable=False,
+        name='dataset_embedding',
       )
       dataset_emb = dataset_embedding(dataset_idx)
       csd_cat = jnp.concatenate([chg_emb, spin_emb, dataset_emb], axis=1)
@@ -532,7 +581,11 @@ class UMAMoEBackbone(nn.Module):
       #   v1.0: include_self=True -> mean = sum / (N + 1)
       #   v1.1+: include_self=False -> mean = sum / N
       num_systems = charge.shape[0]
-      comp_sum = jnp.zeros((num_systems, cfg.sphere_channels)).at[batch].add(comp_per_atom)
+      comp_sum = (
+        jnp.zeros((num_systems, cfg.sphere_channels))
+        .at[batch]
+        .add(comp_per_atom)
+      )
       atom_counts = jnp.zeros(num_systems).at[batch].add(1.0)
       if cfg.model_version < 1.05:
         composition = comp_sum / jnp.maximum(atom_counts[:, None] + 1.0, 1.0)
@@ -560,9 +613,11 @@ class UMAMoEBackbone(nn.Module):
     edge_envelope = envelope(dist_scaled).reshape(-1, 1, 1)
 
     distance_expansion = GaussianSmearing(
-      start=0.0, stop=cfg.cutoff,
+      start=0.0,
+      stop=cfg.cutoff,
       num_gaussians=cfg.num_distance_basis,
-      basis_width_scalar=2.0, name='distance_expansion',
+      basis_width_scalar=2.0,
+      name='distance_expansion',
     )
     edge_distance_embedding = distance_expansion(edge_distance)
 
@@ -582,7 +637,8 @@ class UMAMoEBackbone(nn.Module):
     target_emb = target_embedding(atomic_numbers[edge_index[1]]) - 0.001
 
     x_edge = jnp.concatenate(
-      [edge_distance_embedding, source_emb, target_emb], axis=1,
+      [edge_distance_embedding, source_emb, target_emb],
+      axis=1,
     )
 
     # === Wigner matrices ===
@@ -593,7 +649,7 @@ class UMAMoEBackbone(nn.Module):
     if cfg.mmax != cfg.lmax:
       # PT: wigner.index_select(1, idx) → select rows only → [E, m_dim, l_dim]
       # PT: wigner_inv.index_select(2, idx) → select cols only → [E, l_dim, m_dim]
-      wigner = wigner[:, self.coefficient_index, :]      # [E, m_dim, l_dim]
+      wigner = wigner[:, self.coefficient_index, :]  # [E, m_dim, l_dim]
       wigner_inv = wigner_inv[:, :, self.coefficient_index]  # [E, l_dim, m_dim]
 
     to_m = self.mapping.to_m
@@ -613,15 +669,19 @@ class UMAMoEBackbone(nn.Module):
     # Edge degree embedding (standard, not MoE)
     edge_degree_embedding = EdgeDegreeEmbedding(
       sphere_channels=cfg.sphere_channels,
-      lmax=cfg.lmax, mmax=cfg.mmax,
+      lmax=cfg.lmax,
+      mmax=cfg.mmax,
       edge_channels_list=self.edge_channels_list,
       rescale_factor=5.0,
       m_size=self.mapping.m_size,
       name='edge_degree_embedding',
     )
     x_message = edge_degree_embedding(
-      x_message, x_edge, edge_index,
-      wigner_and_M_mapping_inv, edge_envelope,
+      x_message,
+      x_edge,
+      edge_index,
+      wigner_and_M_mapping_inv,
+      edge_envelope,
     )
 
     # Edge batch indices (for MoE)
@@ -632,7 +692,8 @@ class UMAMoEBackbone(nn.Module):
       block = UMABlockMoE(
         sphere_channels=cfg.sphere_channels,
         hidden_channels=cfg.hidden_channels,
-        lmax=cfg.lmax, mmax=cfg.mmax,
+        lmax=cfg.lmax,
+        mmax=cfg.mmax,
         m_size=self.mapping.m_size,
         edge_channels_list=self.edge_channels_list,
         cutoff=cfg.cutoff,
@@ -645,15 +706,23 @@ class UMAMoEBackbone(nn.Module):
         name=f'blocks_{i}',
       )
       x_message = block(
-        x_message, x_edge, edge_distance, edge_index,
-        wigner_and_M_mapping, wigner_and_M_mapping_inv,
-        edge_envelope, expert_coefficients, edge_batch,
+        x_message,
+        x_edge,
+        edge_distance,
+        edge_index,
+        wigner_and_M_mapping,
+        wigner_and_M_mapping_inv,
+        edge_envelope,
+        expert_coefficients,
+        edge_batch,
         sys_node_embedding=sys_node_embedding,
       )
 
     norm = get_normalization_layer(
-      cfg.norm_type, lmax=cfg.lmax,
-      num_channels=cfg.sphere_channels, name='norm',
+      cfg.norm_type,
+      lmax=cfg.lmax,
+      num_channels=cfg.sphere_channels,
+      name='norm',
     )
     x_message = norm(x_message)
 
@@ -669,6 +738,7 @@ _CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), 'checkpoints')
 def _cache_native(model_name, config, params, metadata, ckpt):
   """Cache converted params as native .npz for fast future loading."""
   import json
+
   try:
     os.makedirs(_CHECKPOINT_DIR, exist_ok=True)
     params_file = os.path.join(_CHECKPOINT_DIR, f'{model_name}.npz')
@@ -679,12 +749,16 @@ def _cache_native(model_name, config, params, metadata, ckpt):
     flat = jax.tree.leaves_with_path(params)
     param_dict = {}
     for path, value in flat:
-      key = '/'.join(str(p.key) if hasattr(p, 'key') else str(p.idx) for p in path)
+      key = '/'.join(
+        str(p.key) if hasattr(p, 'key') else str(p.idx) for p in path
+      )
       param_dict[key] = np.array(value)
     np.savez_compressed(params_file, **param_dict)
 
     # Save head params
-    ema_sd = {k.replace('module.', '', 1): v for k, v in ckpt.ema_state_dict.items()}
+    ema_sd = {
+      k.replace('module.', '', 1): v for k, v in ckpt.ema_state_dict.items()
+    }
     prefix = 'output_heads.energyandforcehead.head.energy_block.'
     head_dict = {}
     for idx in [0, 2, 4]:
@@ -693,12 +767,24 @@ def _cache_native(model_name, config, params, metadata, ckpt):
         if key in ema_sd:
           head_dict[f'energy_block_{idx}_{suffix}'] = ema_sd[key].cpu().numpy()
     if head_dict:
-      np.savez_compressed(os.path.join(_CHECKPOINT_DIR, f'{model_name}_head.npz'), **head_dict)
+      np.savez_compressed(
+        os.path.join(_CHECKPOINT_DIR, f'{model_name}_head.npz'), **head_dict
+      )
 
     # Save config
-    mc = ckpt.model_config.get('backbone', ckpt.model_config) if isinstance(ckpt.model_config, dict) else ckpt.model_config
-    get = mc.get if isinstance(mc, dict) else lambda k, d=None: getattr(mc, k, d)
-    heads_cfg = ckpt.model_config.get('heads', {}) if isinstance(ckpt.model_config, dict) else {}
+    mc = (
+      ckpt.model_config.get('backbone', ckpt.model_config)
+      if isinstance(ckpt.model_config, dict)
+      else ckpt.model_config
+    )
+    get = (
+      mc.get if isinstance(mc, dict) else lambda k, d=None: getattr(mc, k, d)
+    )
+    heads_cfg = (
+      ckpt.model_config.get('heads', {})
+      if isinstance(ckpt.model_config, dict)
+      else {}
+    )
     head_dm = None
     if isinstance(heads_cfg, dict):
       for _, hcfg in heads_cfg.items():
@@ -708,10 +794,15 @@ def _cache_native(model_name, config, params, metadata, ckpt):
             head_dm = dict(dm)
 
     cfg_dict = {f: getattr(config, f) for f in config.__dataclass_fields__}
-    cfg_dict = {k: (list(v) if isinstance(v, list | tuple) else v) for k, v in cfg_dict.items()}
+    cfg_dict = {
+      k: (list(v) if isinstance(v, list | tuple) else v)
+      for k, v in cfg_dict.items()
+    }
     if head_dm:
       cfg_dict['head_dataset_mapping'] = head_dm
-    with open(os.path.join(_CHECKPOINT_DIR, f'{model_name}_config.json'), 'w') as f:
+    with open(
+      os.path.join(_CHECKPOINT_DIR, f'{model_name}_config.json'), 'w'
+    ) as f:
       json.dump(cfg_dict, f, indent=2)
 
   except Exception:
@@ -736,7 +827,8 @@ def _load_native(model_name: str, head_dataset: str):
   config = UMAMoEConfig(
     max_num_elements=cfg['max_num_elements'],
     sphere_channels=cfg['sphere_channels'],
-    lmax=cfg['lmax'], mmax=cfg['mmax'],
+    lmax=cfg['lmax'],
+    mmax=cfg['mmax'],
     num_layers=cfg['num_layers'],
     hidden_channels=cfg['hidden_channels'],
     cutoff=cfg['cutoff'],
@@ -775,7 +867,11 @@ def _load_native(model_name: str, head_dataset: str):
     head_mapping = cfg.get('head_dataset_mapping', None)
 
     # Check if MoE head (3D weights)
-    w0_key = 'energy_block_0_weights' if 'energy_block_0_weights' in hd.files else 'energy_block_0_weight'
+    w0_key = (
+      'energy_block_0_weights'
+      if 'energy_block_0_weights' in hd.files
+      else 'energy_block_0_weight'
+    )
     is_moe_head = w0_key in hd.files and hd[w0_key].ndim == 3
 
     if is_moe_head:
@@ -796,24 +892,40 @@ def _load_native(model_name: str, head_dataset: str):
             return jnp.array(w.T) if w.ndim == 2 else jnp.array(w)
         return None
 
-      head_params = {'params': {
-        'linear_0': {'kernel': _sel('energy_block_0'),
-                     'bias': jnp.array(hd['energy_block_0_bias'])},
-        'linear_1': {'kernel': _sel('energy_block_2'),
-                     'bias': jnp.array(hd['energy_block_2_bias'])},
-        'linear_2': {'kernel': _sel('energy_block_4'),
-                     'bias': jnp.array(hd['energy_block_4_bias'])},
-      }}
+      head_params = {
+        'params': {
+          'linear_0': {
+            'kernel': _sel('energy_block_0'),
+            'bias': jnp.array(hd['energy_block_0_bias']),
+          },
+          'linear_1': {
+            'kernel': _sel('energy_block_2'),
+            'bias': jnp.array(hd['energy_block_2_bias']),
+          },
+          'linear_2': {
+            'kernel': _sel('energy_block_4'),
+            'bias': jnp.array(hd['energy_block_4_bias']),
+          },
+        }
+      }
     else:
       # Standard head — transpose [out, in] -> [in, out]
-      head_params = {'params': {
-        'linear_0': {'kernel': jnp.array(hd['energy_block_0_weight'].T),
-                     'bias': jnp.array(hd['energy_block_0_bias'])},
-        'linear_1': {'kernel': jnp.array(hd['energy_block_2_weight'].T),
-                     'bias': jnp.array(hd['energy_block_2_bias'])},
-        'linear_2': {'kernel': jnp.array(hd['energy_block_4_weight'].T),
-                     'bias': jnp.array(hd['energy_block_4_bias'])},
-      }}
+      head_params = {
+        'params': {
+          'linear_0': {
+            'kernel': jnp.array(hd['energy_block_0_weight'].T),
+            'bias': jnp.array(hd['energy_block_0_bias']),
+          },
+          'linear_1': {
+            'kernel': jnp.array(hd['energy_block_2_weight'].T),
+            'bias': jnp.array(hd['energy_block_2_bias']),
+          },
+          'linear_2': {
+            'kernel': jnp.array(hd['energy_block_4_weight'].T),
+            'bias': jnp.array(hd['energy_block_4_bias']),
+          },
+        }
+      }
 
   return config, params, head_params
 
@@ -874,8 +986,11 @@ def load_pretrained(
 
   # Fall back to .pt conversion (requires torch)
   from jax_md._nn.uma.pretrained import (
-    download_pretrained, load_checkpoint_raw, extract_config,
-    convert_checkpoint, PRETRAINED_MODELS,
+    download_pretrained,
+    load_checkpoint_raw,
+    extract_config,
+    convert_checkpoint,
+    PRETRAINED_MODELS,
   )
 
   original_name = checkpoint_path  # Save for caching
@@ -884,13 +999,18 @@ def load_pretrained(
 
   ckpt = load_checkpoint_raw(checkpoint_path)
   cfg_base = extract_config(ckpt)
-  mc = ckpt.model_config['backbone'] if isinstance(ckpt.model_config, dict) else ckpt.model_config
+  mc = (
+    ckpt.model_config['backbone']
+    if isinstance(ckpt.model_config, dict)
+    else ckpt.model_config
+  )
   get = mc.get if isinstance(mc, dict) else lambda k, d=None: getattr(mc, k, d)
 
   config = UMAMoEConfig(
     max_num_elements=cfg_base.max_num_elements,
     sphere_channels=cfg_base.sphere_channels,
-    lmax=cfg_base.lmax, mmax=cfg_base.mmax,
+    lmax=cfg_base.lmax,
+    mmax=cfg_base.mmax,
     num_layers=cfg_base.num_layers,
     hidden_channels=cfg_base.hidden_channels,
     cutoff=cfg_base.cutoff,
@@ -907,7 +1027,8 @@ def load_pretrained(
   )
 
   _, params, metadata = convert_checkpoint(
-    checkpoint_path, use_ema=True,
+    checkpoint_path,
+    use_ema=True,
   )
 
   # Infer routing_hidden_channels from converted weights
@@ -916,8 +1037,11 @@ def load_pretrained(
     kernel = p['routing_mlp']['layers_0']['kernel']
     if hasattr(kernel, 'shape'):
       config = UMAMoEConfig(
-        **{f: getattr(config, f) for f in config.__dataclass_fields__
-           if f != 'routing_hidden_channels'},
+        **{
+          f: getattr(config, f)
+          for f in config.__dataclass_fields__
+          if f != 'routing_hidden_channels'
+        },
         routing_hidden_channels=kernel.shape[1],
       )
 
@@ -949,7 +1073,9 @@ def load_pretrained(
               head_ds = sorted(dm.keys())
             dn = hcfg.get('dataset_names', None)
             if dn and not head_ds:
-              head_ds = sorted(list(dn) if not isinstance(dn, str) else eval(dn))
+              head_ds = sorted(
+                list(dn) if not isinstance(dn, str) else eval(dn)
+              )
 
       if head_ds is None or len(head_ds) != n_head_experts:
         # Fallback: infer from state dict dataset_emb_dict keys
@@ -959,8 +1085,8 @@ def load_pretrained(
           if 'dataset_emb_dict.' in k:
             parts = k.split('.')
             for i, p in enumerate(parts):
-              if p == 'dataset_emb_dict' and i+1 < len(parts):
-                ds_from_keys.add(parts[i+1])
+              if p == 'dataset_emb_dict' and i + 1 < len(parts):
+                ds_from_keys.add(parts[i + 1])
         if len(ds_from_keys) == n_head_experts:
           head_ds = sorted(ds_from_keys)
         else:
@@ -974,24 +1100,40 @@ def load_pretrained(
           return w[ds_idx].T
         return w
 
-      head_params = {'params': {
-        'linear_0': {'kernel': _select_expert(hp.get('energy_block_0_kernel')),
-                     'bias': hp.get('energy_block_0_bias')},
-        'linear_1': {'kernel': _select_expert(hp.get('energy_block_2_kernel')),
-                     'bias': hp.get('energy_block_2_bias')},
-        'linear_2': {'kernel': _select_expert(hp.get('energy_block_4_kernel')),
-                     'bias': hp.get('energy_block_4_bias')},
-      }}
+      head_params = {
+        'params': {
+          'linear_0': {
+            'kernel': _select_expert(hp.get('energy_block_0_kernel')),
+            'bias': hp.get('energy_block_0_bias'),
+          },
+          'linear_1': {
+            'kernel': _select_expert(hp.get('energy_block_2_kernel')),
+            'bias': hp.get('energy_block_2_bias'),
+          },
+          'linear_2': {
+            'kernel': _select_expert(hp.get('energy_block_4_kernel')),
+            'bias': hp.get('energy_block_4_bias'),
+          },
+        }
+      }
     else:
       # Standard head: 2D weights (already in correct format)
-      head_params = {'params': {
-        'linear_0': {'kernel': hp.get('energy_block_0_kernel'),
-                     'bias': hp.get('energy_block_0_bias')},
-        'linear_1': {'kernel': hp.get('energy_block_2_kernel'),
-                     'bias': hp.get('energy_block_2_bias')},
-        'linear_2': {'kernel': hp.get('energy_block_4_kernel'),
-                     'bias': hp.get('energy_block_4_bias')},
-      }}
+      head_params = {
+        'params': {
+          'linear_0': {
+            'kernel': hp.get('energy_block_0_kernel'),
+            'bias': hp.get('energy_block_0_bias'),
+          },
+          'linear_1': {
+            'kernel': hp.get('energy_block_2_kernel'),
+            'bias': hp.get('energy_block_2_bias'),
+          },
+          'linear_2': {
+            'kernel': hp.get('energy_block_4_kernel'),
+            'bias': hp.get('energy_block_4_bias'),
+          },
+        }
+      }
 
     # Remove None entries
     for layer in list(head_params['params'].keys()):

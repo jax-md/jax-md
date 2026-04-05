@@ -57,14 +57,19 @@ def make_structures():
 
   # 5. NaCl rocksalt (8 atoms, periodic, omat)
   from ase import Atoms
+
   a_nacl = 5.64
   nacl = Atoms(
     'NaClNaClNaClNaCl',
     scaled_positions=[
-      (0, 0, 0), (0.5, 0.5, 0.5),
-      (0.5, 0, 0), (0, 0.5, 0.5),
-      (0, 0.5, 0), (0.5, 0, 0.5),
-      (0, 0, 0.5), (0.5, 0.5, 0),
+      (0, 0, 0),
+      (0.5, 0.5, 0.5),
+      (0.5, 0, 0),
+      (0, 0.5, 0.5),
+      (0, 0.5, 0),
+      (0.5, 0, 0.5),
+      (0, 0, 0.5),
+      (0.5, 0.5, 0),
     ],
     cell=[a_nacl, a_nacl, a_nacl],
     pbc=True,
@@ -95,11 +100,13 @@ def atoms_to_data(atoms, task, cutoff, ds_list):
   cell_offsets_np = None
   if any(atoms.pbc):
     # ASE convention: center_idx, neighbor_idx, offsets (cell offset vectors)
-    center_idx, neighbor_idx, offsets = ase_nl('ijS', atoms, cutoff=cutoff, self_interaction=False)
+    center_idx, neighbor_idx, offsets = ase_nl(
+      'ijS', atoms, cutoff=cutoff, self_interaction=False
+    )
     cell = np.array(atoms.get_cell())
     # FairChem edge_index: [source=neighbor, target=center]
     idx_i = neighbor_idx  # source
-    idx_j = center_idx    # target
+    idx_j = center_idx  # target
     # Store the cell_offsets for the PT model (it computes edge_vec internally)
     # PT model convention: cell_offsets are for the SOURCE atom relative to TARGET
     # shifts = cell_offsets @ cell gives displacement from target to source image
@@ -127,8 +134,10 @@ def atoms_to_data(atoms, task, cutoff, ds_list):
         return self[k]
       except KeyError:
         raise AttributeError(k)
+
     def __setattr__(self, k, v):
       self[k] = v
+
     def get(self, k, *a, **kw):
       return super().get(k, kw.get('default', a[0] if a else None))
 
@@ -141,8 +150,13 @@ def atoms_to_data(atoms, task, cutoff, ds_list):
     edge_index=torch.tensor(ei),
     charge=torch.tensor([charge], dtype=torch.long),
     spin=torch.tensor([spin_val], dtype=torch.long),
-    dataset=[task], natoms=torch.tensor([n]),
-    cell=torch.tensor(np.array(atoms.get_cell()), dtype=torch.float32).unsqueeze(0) if any(atoms.pbc) else torch.eye(3).unsqueeze(0),
+    dataset=[task],
+    natoms=torch.tensor([n]),
+    cell=torch.tensor(
+      np.array(atoms.get_cell()), dtype=torch.float32
+    ).unsqueeze(0)
+    if any(atoms.pbc)
+    else torch.eye(3).unsqueeze(0),
     cell_offsets=torch.tensor(cell_offsets_np),
     nedges=torch.tensor([n_e]),
   )
@@ -164,7 +178,9 @@ def main():
 
   ckpt = load_checkpoint_raw(ckpt_path)
   mc = ckpt.model_config['backbone']
-  ema_sd = {k.replace('module.', '', 1): v for k, v in ckpt.ema_state_dict.items()}
+  ema_sd = {
+    k.replace('module.', '', 1): v for k, v in ckpt.ema_state_dict.items()
+  }
   get = mc.get if isinstance(mc, dict) else lambda k, d=None: getattr(mc, k, d)
   ds_list = list(get('dataset_list', ['oc20', 'omol', 'omat', 'odac', 'omc']))
   cutoff = float(get('cutoff', 6.0))
@@ -175,18 +191,32 @@ def main():
   from fairchem.core.models.uma.escn_moe import eSCNMDMoeBackbone
 
   pt_model = eSCNMDMoeBackbone(
-    num_experts=get('num_experts', 32), sphere_channels=get('sphere_channels', 128),
-    max_num_elements=get('max_num_elements', 100), lmax=get('lmax', 2), mmax=get('mmax', 2),
-    num_layers=get('num_layers', 4), hidden_channels=get('hidden_channels', 128),
-    cutoff=cutoff, edge_channels=get('edge_channels', 128),
-    num_distance_basis=get('num_distance_basis', 64), norm_type=get('norm_type', 'rms_norm_sh'),
-    act_type=get('act_type', 'gate'), ff_type=get('ff_type', 'spectral'),
-    chg_spin_emb_type=get('chg_spin_emb_type', 'rand_emb'), dataset_list=ds_list,
+    num_experts=get('num_experts', 32),
+    sphere_channels=get('sphere_channels', 128),
+    max_num_elements=get('max_num_elements', 100),
+    lmax=get('lmax', 2),
+    mmax=get('mmax', 2),
+    num_layers=get('num_layers', 4),
+    hidden_channels=get('hidden_channels', 128),
+    cutoff=cutoff,
+    edge_channels=get('edge_channels', 128),
+    num_distance_basis=get('num_distance_basis', 64),
+    norm_type=get('norm_type', 'rms_norm_sh'),
+    act_type=get('act_type', 'gate'),
+    ff_type=get('ff_type', 'spectral'),
+    chg_spin_emb_type=get('chg_spin_emb_type', 'rand_emb'),
+    dataset_list=ds_list,
     use_composition_embedding=get('use_composition_embedding', True),
-    model_version=get('model_version', 1.1), moe_dropout=0.0, otf_graph=False,
+    model_version=get('model_version', 1.1),
+    moe_dropout=0.0,
+    otf_graph=False,
   )
   pt_model.eval()
-  bb_sd = {k.replace('backbone.', ''): v for k, v in ema_sd.items() if k.startswith('backbone.')}
+  bb_sd = {
+    k.replace('backbone.', ''): v
+    for k, v in ema_sd.items()
+    if k.startswith('backbone.')
+  }
   pt_model.load_state_dict(bb_sd, strict=False)
 
   # Head weights
@@ -219,7 +249,9 @@ def main():
     w4 = ema_sd[prefix + '4.weight'].numpy()
     b4 = ema_sd[prefix + '4.bias'].numpy()
 
-    def silu(x): return x / (1 + np.exp(-x))
+    def silu(x):
+      return x / (1 + np.exp(-x))
+
     x = silu(scalar @ w0.T + b0)
     x = silu(x @ w2.T + b2)
     x = x @ w4.T + b4

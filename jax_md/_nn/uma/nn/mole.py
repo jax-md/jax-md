@@ -78,9 +78,7 @@ class MOLELinear(nn.Module):
     )
 
     # Mix experts per system: [E, O, I] x [B, E] -> [B, O, I]
-    mixed_weights = jnp.einsum(
-      'eoi,be->boi', weights, expert_coefficients
-    )
+    mixed_weights = jnp.einsum('eoi,be->boi', weights, expert_coefficients)
 
     # Get per-atom/edge mixed weight: [N, O, I]
     per_item_weights = mixed_weights[batch_indices]

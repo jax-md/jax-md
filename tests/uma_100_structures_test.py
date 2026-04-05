@@ -34,6 +34,7 @@ def _find_checkpoint(model_name):
   if not os.path.isdir(cache):
     return None
   from jax_md._nn.uma.pretrained import PRETRAINED_MODELS
+
   if model_name not in PRETRAINED_MODELS:
     return None
   fname = PRETRAINED_MODELS[model_name]['filename']
@@ -62,6 +63,7 @@ def _run_comparison(model_name, ref_dir):
     hidden_channels=config.hidden_channels,
   )
   head_params_cache = {}
+
   def get_head_params(task):
     if task not in head_params_cache:
       _, _, hp = load_pretrained(ckpt_path, head_dataset=task)
@@ -92,15 +94,21 @@ def _run_comparison(model_name, ref_dir):
     try:
       atoms = Atoms(numbers=Z, positions=positions, cell=cell, pbc=pbc)
       if any(pbc):
-        ci, ni, off = ase_nl('ijS', atoms, cutoff=config.cutoff,
-                             self_interaction=False)
-        ev = (positions[ni] + (off @ np.array(cell)) - positions[ci]).astype(np.float32)
+        ci, ni, off = ase_nl(
+          'ijS', atoms, cutoff=config.cutoff, self_interaction=False
+        )
+        ev = (positions[ni] + (off @ np.array(cell)) - positions[ci]).astype(
+          np.float32
+        )
         src, tgt = ni, ci
       else:
         src, tgt = [], []
         for i in range(n):
           for j in range(n):
-            if i != j and np.linalg.norm(positions[i]-positions[j]) < config.cutoff:
+            if (
+              i != j
+              and np.linalg.norm(positions[i] - positions[j]) < config.cutoff
+            ):
               src.append(j)
               tgt.append(i)
         src = np.array(src)
@@ -116,14 +124,21 @@ def _run_comparison(model_name, ref_dir):
       ds = dataset_names_to_indices([task], config.dataset_list)
 
       out = model.apply(
-        params, jnp.array(positions), jnp.array(Z), batch, ei,
-        jnp.array(ev), jnp.array([charge], dtype=jnp.int32),
-        jnp.array([spin_val], dtype=jnp.int32), ds,
+        params,
+        jnp.array(positions),
+        jnp.array(Z),
+        batch,
+        ei,
+        jnp.array(ev),
+        jnp.array([charge], dtype=jnp.int32),
+        jnp.array([spin_val], dtype=jnp.int32),
+        ds,
       )
       jax_emb = np.array(out['node_embedding'])
       hp = get_head_params(task)
-      e_jax = float(head.apply(
-        hp, out['node_embedding'], batch, 1)['energy'][0])
+      e_jax = float(
+        head.apply(hp, out['node_embedding'], batch, 1)['energy'][0]
+      )
 
       if not np.all(np.isfinite(jax_emb)):
         failures.append((name, 'NaN/Inf'))
@@ -152,7 +167,9 @@ class MultiModelStructureTest(test_util.JAXMDTestCase):
     super().setUp()
     self.ref_dirs = _find_ref_dirs()
     if not self.ref_dirs:
-      self.skipTest('No reference data found. Run generate_pt_reference_multi.py')
+      self.skipTest(
+        'No reference data found. Run generate_pt_reference_multi.py'
+      )
     try:
       import torch
     except ImportError:
@@ -178,12 +195,18 @@ class MultiModelStructureTest(test_util.JAXMDTestCase):
         print(f'    {name}: {reason}')
 
     print(f'\n{"=" * 60}')
-    print(f'  {model_name}: {len(ed)}/{results["total"]} structures, {elapsed:.1f}s')
+    print(
+      f'  {model_name}: {len(ed)}/{results["total"]} structures, {elapsed:.1f}s'
+    )
     print(f'{"=" * 60}')
-    print(f'  Embedding max diff:  worst={ed.max():.4e}  median={np.median(ed):.4e}  p99={np.percentile(ed,99):.4e}')
-    print(f'  Energy diff (eV):    worst={ee.max():.4e}  median={np.median(ee):.4e}  p99={np.percentile(ee,99):.4e}')
-    print(f'  % emb < 0.01:       {100*np.mean(ed < 0.01):.0f}%')
-    print(f'  % energy < 10 meV:  {100*np.mean(ee < 0.01):.0f}%')
+    print(
+      f'  Embedding max diff:  worst={ed.max():.4e}  median={np.median(ed):.4e}  p99={np.percentile(ed, 99):.4e}'
+    )
+    print(
+      f'  Energy diff (eV):    worst={ee.max():.4e}  median={np.median(ee):.4e}  p99={np.percentile(ee, 99):.4e}'
+    )
+    print(f'  % emb < 0.01:       {100 * np.mean(ed < 0.01):.0f}%')
+    print(f'  % energy < 10 meV:  {100 * np.mean(ee < 0.01):.0f}%')
 
     if results['failures']:
       print(f'  Failures ({len(results["failures"])}):')
@@ -194,7 +217,9 @@ class MultiModelStructureTest(test_util.JAXMDTestCase):
     worst = np.argsort(ed)[-5:][::-1]
     print('  Worst 5:')
     for idx in worst:
-      print(f'    {results["names"][idx]:>20}: emb={ed[idx]:.4e}  E={ee[idx]:.4e} eV')
+      print(
+        f'    {results["names"][idx]:>20}: emb={ed[idx]:.4e}  E={ee[idx]:.4e} eV'
+      )
 
     # Assertions
     self.assertEqual(len(results['failures']), 0)

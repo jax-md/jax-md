@@ -278,7 +278,7 @@ class GraphNetEncoder(hk.Module):
     self,
     n_recurrences: int,
     mlp_sizes: Tuple[int, ...],
-    mlp_kwargs: Optional[Dict[str, Any]] = None,
+    mlp_kwargs: Dict[str, Any] | None = None,
     format: partition.NeighborListFormat = partition.Dense,
     name: str = 'GraphNetEncoder',
   ):
@@ -293,9 +293,11 @@ class GraphNetEncoder(hk.Module):
       output_sizes=mlp_sizes, activate_final=True, name=name, **mlp_kwargs
     )
 
-    model_fn = lambda name: lambda *args: hk.nets.MLP(
-      output_sizes=mlp_sizes, activate_final=True, name=name, **mlp_kwargs
-    )(jnp.concatenate(args, axis=-1))
+    model_fn = lambda name: (
+      lambda *args: hk.nets.MLP(
+        output_sizes=mlp_sizes, activate_final=True, name=name, **mlp_kwargs
+      )(jnp.concatenate(args, axis=-1))
+    )
 
     if format is partition.Dense:
       self._encoder = GraphMapFeatures(
