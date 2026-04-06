@@ -150,7 +150,7 @@ class UMACalculator:
     num_atoms = len(atoms)
 
     # Build edges within cutoff
-    edge_index, edge_distance_vec = self._build_edges(atoms)
+    edge_index, edge_distance_vec, shifts = self._build_edges(atoms)
 
     # System-level properties — use int for rand_emb, float for pos_emb
     if self.config.chg_spin_emb_type == 'rand_emb':
@@ -206,7 +206,7 @@ class UMACalculator:
       atomic_numbers,
       batch,
       edge_index,
-      edge_distance_vec,
+      shifts,
       charge,
       spin,
       dataset_idx,
@@ -228,10 +228,16 @@ class UMACalculator:
     return self._results.get('forces', None)
 
   def _build_edges(self, atoms):
-    """Build edge list from ASE atoms within cutoff."""
+    """Build edge list from ASE atoms within cutoff.
+
+    Returns:
+        edge_index: [2, num_edges] array of (source, target) indices.
+        edge_distance_vec: [num_edges, 3] displacement vectors.
+        shifts: [num_edges, 3] periodic cell shifts (offsets @ cell).
+            Constant w.r.t. positions so it can be captured in a grad closure.
+    """
     positions = atoms.get_positions()
-    cell = atoms.get_cell()
-    pbc = atoms.get_pbc()
+    cell = np.array(atoms.get_cell())
 
     # Use ASE's neighbor list for correct PBC handling
     try:
@@ -243,8 +249,9 @@ class UMACalculator:
       )
       # FairChem convention: edge_index = [source=neighbor, target=center]
       # edge_vec = pos[source_shifted] - pos[target]
+      cell_shifts = offsets @ cell
       edge_distance_vec = (
-        positions[neighbor_idx] + offsets @ cell - positions[center_idx]
+        positions[neighbor_idx] + cell_shifts - positions[center_idx]
       )
       idx_src = neighbor_idx  # source
       idx_tgt = center_idx  # target
@@ -264,10 +271,12 @@ class UMACalculator:
       idx_src = np.array(idx_src, dtype=np.int32)
       idx_tgt = np.array(idx_tgt, dtype=np.int32)
       edge_distance_vec = np.array(vecs, dtype=np.float32)
+      cell_shifts = np.zeros_like(edge_distance_vec)
 
     edge_index = jnp.array(np.stack([idx_src, idx_tgt]), dtype=jnp.int32)
     edge_distance_vec = jnp.array(edge_distance_vec, dtype=jnp.float32)
-    return edge_index, edge_distance_vec
+    shifts = jnp.array(cell_shifts, dtype=jnp.float32)
+    return edge_index, edge_distance_vec, shifts
 
   def _init_params(
     self,
@@ -320,18 +329,22 @@ class UMACalculator:
     atomic_numbers,
     batch,
     edge_index,
-    edge_distance_vec,
+    shifts,
     charge,
     spin,
     dataset_idx,
   ):
-    """Compute energy and forces via autodiff."""
+    """Compute energy and forces via autodiff.
+
+    Args:
+        shifts: Periodic cell shifts per edge, shape [num_edges, 3].
+            These are constant w.r.t. positions so gradients are correct.
+    """
     backbone_params = params['backbone']
     head_params = params['head']
 
     def energy_fn(pos):
-      # Recompute edge vectors from positions (needed for gradient)
-      edge_vec = pos[edge_index[0]] - pos[edge_index[1]]
+      edge_vec = pos[edge_index[0]] + shifts - pos[edge_index[1]]
       emb = self.backbone.apply(
         backbone_params,
         pos,

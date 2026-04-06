@@ -2553,7 +2553,22 @@ def uma_neighbor_list(
   from jax_md._nn.uma.featurizer import uma_featurizer
   import flax.linen as flax_nn
 
-  if cfg is None:
+  # Load pretrained checkpoint (MoE) if provided
+  is_moe = False
+  pretrained_params = None
+  if checkpoint_path is not None:
+    from jax_md._nn.uma.model_moe import load_pretrained
+
+    moe_config, backbone_params, head_params = load_pretrained(checkpoint_path)
+    cfg = moe_config
+    is_moe = True
+    pretrained_params = {
+      'params': {
+        'backbone': backbone_params['params'],
+        'energy_head': head_params['params'],
+      }
+    }
+  elif cfg is None:
     cfg = default_config()
 
   # Build neighbor list
@@ -2570,10 +2585,16 @@ def uma_neighbor_list(
   # Combined backbone + head as a single Flax module
   class UMAEnergyModel(flax_nn.Module):
     config: object
+    use_moe: bool = False
 
     @flax_nn.compact
     def __call__(self, features):
-      backbone = UMABackbone(config=self.config, name='backbone')
+      if self.use_moe:
+        from jax_md._nn.uma.model_moe import UMAMoEBackbone
+
+        backbone = UMAMoEBackbone(config=self.config, name='backbone')
+      else:
+        backbone = UMABackbone(config=self.config, name='backbone')
       emb = backbone(
         features['positions'],
         features['atomic_numbers'],
@@ -2601,14 +2622,7 @@ def uma_neighbor_list(
       result = head(emb['node_embedding'], features['batch'], num_systems)
       return result['energy']
 
-  model = UMAEnergyModel(config=cfg)
-
-  # Optionally load pretrained weights
-  pretrained_params = None
-  if checkpoint_path is not None:
-    from jax_md._nn.uma.weight_conversion import load_pytorch_checkpoint
-
-    pretrained_params = load_pytorch_checkpoint(checkpoint_path)
+  model = UMAEnergyModel(config=cfg, use_moe=is_moe)
 
   def init_fn(key, position, neighbor, **kwargs):
     _atoms = kwargs.pop('atoms', atoms)
