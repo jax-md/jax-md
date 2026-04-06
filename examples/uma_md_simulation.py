@@ -9,20 +9,27 @@
 # ---
 
 # %% [markdown]
-# # Molecular Dynamics with UMA and JAX-MD
+# # Molecular Dynamics with Pretrained UMA and JAX-MD
 #
-# This example demonstrates running an NVE molecular dynamics simulation
-# using the UMA neural network potential with JAX-MD.
+# This example demonstrates running NVE and NVT molecular dynamics
+# using a pretrained UMA model with JAX-MD.
+#
+# Two APIs are shown:
+# - **High-level**: `energy.uma_neighbor_list` for periodic bulk systems
+# - **Low-level**: `load_pretrained` + `UMAMoEBackbone` for molecular systems
 #
 # The simulation is fully differentiable and JIT-compiled for performance.
 
 # %%
+import jax
 import jax.numpy as jnp
 from jax import jit, random
 import numpy as np
 
 from jax_md import space, energy, simulate, quantity
-from jax_md._nn.uma.model import UMAConfig
+from jax_md._nn.uma import load_pretrained, UMAMoEBackbone
+from jax_md._nn.uma.nn.embedding import dataset_names_to_indices
+from jax_md._nn.uma.heads import MLPEnergyHead
 
 # %% [markdown]
 # ## System Setup
@@ -55,21 +62,8 @@ print(f"Box: {a:.2f} x {a:.2f} x {a:.2f} A")
 # %%
 displacement_fn, shift_fn = space.periodic(a)
 
-# Small config for demo
-cfg = UMAConfig(
-  sphere_channels=32,
-  lmax=2,
-  mmax=2,
-  num_layers=1,
-  hidden_channels=32,
-  cutoff=5.0,
-  edge_channels=32,
-  num_distance_basis=64,
-  use_dataset_embedding=False,
-)
-
 neighbor_fn, init_fn, energy_fn = energy.uma_neighbor_list(
-  displacement_fn, a, cfg=cfg, atoms=atoms,
+  displacement_fn, a, checkpoint_path='uma-s-1p1', atoms=atoms,
 )
 
 # Initialize
@@ -215,22 +209,60 @@ T = 2 * KE / (3 * len(atoms))
 print(f"Final temperature: {T:.4f} (target: {kT_target})")
 
 # %% [markdown]
-# ## Using with Pretrained Weights
+# ## Low-level API: molecular systems
 #
-# ```python
-# # Load pretrained UMA checkpoint
-# neighbor_fn, init_fn, energy_fn = energy.uma_neighbor_list(
-#     displacement_fn, box,
-#     checkpoint_path='path/to/uma_sm_conserve.pt',
-#     atoms=atomic_numbers,
-# )
-#
-# nbrs = neighbor_fn.allocate(positions)
-# params = init_fn(key, positions, nbrs)
-#
-# # NVE with pretrained model
-# init_nve, apply_nve = simulate.nve(
-#     lambda R, neighbor: energy_fn(params, R, neighbor),
-#     shift_fn, dt=0.5,  # fs (with real units)
-# )
-# ```
+# For non-periodic molecular systems (or when you need direct control over
+# graph construction and dataset routing), use `load_pretrained` with
+# `UMAMoEBackbone` and `MLPEnergyHead` directly.
+
+# %%
+config, moe_params, head_params = load_pretrained('uma-s-1p1')
+model = UMAMoEBackbone(config=config)
+head = MLPEnergyHead(
+  sphere_channels=config.sphere_channels,
+  hidden_channels=config.hidden_channels,
+)
+
+def build_edges(pos, cutoff):
+  n = len(pos)
+  s, d = [], []
+  pos_np = np.asarray(pos)
+  for i in range(n):
+    for j in range(n):
+      if i != j and np.linalg.norm(pos_np[i] - pos_np[j]) < cutoff:
+        s.append(j)
+        d.append(i)
+  return jnp.array([s, d], dtype=jnp.int32)
+
+print("\n=== LiF neutral pair (omol) ===")
+lif_pos = jnp.array([
+  [0.0, 0.0, 0.0],   # Li
+  [2.0, 0.0, 0.0],   # F
+], dtype=jnp.float32)
+lif_Z = jnp.array([3, 9], dtype=jnp.int32)
+lif_batch = jnp.zeros(2, dtype=jnp.int32)
+lif_ds = dataset_names_to_indices(['omol'], config.dataset_list)
+lif_charge = jnp.array([0], dtype=jnp.int32)
+lif_spin = jnp.array([1], dtype=jnp.int32)
+
+lif_ei = build_edges(lif_pos, config.cutoff)
+
+emb_lif = model.apply(moe_params, lif_pos, lif_Z, lif_batch, lif_ei,
+                       lif_pos[lif_ei[0]] - lif_pos[lif_ei[1]],
+                       lif_charge, lif_spin, lif_ds)
+print(f"LiF embedding: {emb_lif['node_embedding'].shape}")
+print(f"Li l=0: {emb_lif['node_embedding'][0, 0, :4]}")
+print(f"F  l=0: {emb_lif['node_embedding'][1, 0, :4]}")
+
+result = head.apply(head_params, emb_lif['node_embedding'], lif_batch, 1)
+print(f"LiF energy: {float(result['energy'][0]):.6f} eV")
+
+def lif_energy(pos):
+  ev = pos[lif_ei[0]] - pos[lif_ei[1]]
+  emb = model.apply(moe_params, pos, lif_Z, lif_batch, lif_ei, ev,
+                     lif_charge, lif_spin, lif_ds)
+  return head.apply(head_params, emb['node_embedding'], lif_batch, 1)['energy'][0]
+
+forces_lif = -jax.grad(lif_energy)(lif_pos)
+print(f"LiF forces:\n{forces_lif}")
+

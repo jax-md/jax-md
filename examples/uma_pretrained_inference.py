@@ -166,11 +166,7 @@ head = MLPEnergyHead(
   hidden_channels=config.hidden_channels,
 )
 
-# Initialize head params (only needed once)
-key = jax.random.PRNGKey(0)
-head_params = head.init(key, emb, batch, 3)
-
-# Predict energy for the batch
+# head_params was loaded from the checkpoint by load_pretrained()
 result = head.apply(head_params, emb, batch, 3)
 print(f"\nPer-system energies: {result['energy']}")
 print(f"  Cu4:  {float(result['energy'][0]):.6f}")
