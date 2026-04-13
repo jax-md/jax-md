@@ -6,7 +6,7 @@ values into NumPy/JAX arrays and then operate purely in JAX downstream.
 
 import os
 from functools import partial
-from typing import Any, Mapping, NamedTuple, Optional, Sequence, Union
+from typing import Any, Mapping, NamedTuple, Optional, Sequence, TypeAlias
 
 import jax
 import jax.numpy as jnp
@@ -46,13 +46,9 @@ from jax_md.mm_forcefields.oplsaa.params import Parameters
 f32 = util.f32
 f64 = util.f64
 Array = util.Array
-NonbondedMethod = Union[
-  app.NoCutoff,
-  app.CutoffNonPeriodic,
-  app.CutoffPeriodic,
-  app.Ewald,
-  app.PME,
-]
+# TODO NonbondedMethod constants like app.NoCutoff are runtime constants and
+# aren't stable for type checking, there's probably another solution for this
+NonbondedMethod: TypeAlias = Any
 
 _KCAL_TO_KJ = 4.184
 _KJ_TO_KCAL = 1.0 / _KCAL_TO_KJ

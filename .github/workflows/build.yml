@@ -38,7 +38,7 @@ jobs:
     strategy:
       matrix:
         python-version: ['3.10', '3.11', '3.12', '3.13']
-        test-suite: ['elasticity', 'rigid_body', 'energy', 'simulate', 'nequip', 'reaxff', 'tpu', 'core']
+        test-suite: ['elasticity', 'rigid_body', 'energy', 'simulate', 'nequip', 'reaxff', 'tpu', 'core', 'amber', 'amber_fe']
     steps:
     - name: Cancel previous
       uses: styfle/cancel-workflow-action@0.11.0
@@ -73,7 +73,9 @@ jobs:
             --ignore=tests/simulate_test.py \
             --ignore=tests/nequip_test.py \
             --ignore=tests/reaxff_test.py \
-            --ignore=tests/tpu_test.py
+            --ignore=tests/tpu_test.py \
+            --ignore=tests/amber_test.py \
+            --ignore=tests/amber_fe_test.py
         else
           JAX_ENABLE_X64=1 uv run pytest tests/${{ matrix.test-suite }}_test.py --cov=jax_md --cov-report=xml --cov-report=term
         fi
