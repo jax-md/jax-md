@@ -1,0 +1,83 @@
+read rtf card append flex
+* Topology for terminal patches for HMMM truncated lipids
+*
+32 1
+
+AUTOGENERATE ANGLE DIHE
+
+PRES C2TT            ! patch to terminate C2 tail at the terminal carbon of 
+ATOM C2T CTL3 -0.27  ! general two-tail lipid types
+ATOM HTR HAL3  0.09
+ATOM HTS HAL3  0.09
+ATOM HTT HAL3  0.09
+BOND C2T HTT
+
+PRES C3TT            ! patch to terminate C3 tail at the terminal carbon of
+ATOM C3T CTL3 -0.27  ! general two-tail lipid types
+ATOM HTX HAL3  0.09
+ATOM HTY HAL3  0.09
+ATOM HTZ HAL3  0.09
+BOND C3T HTZ
+
+PRES CSTT            ! patch to terminate sphingosine tail at the terminal carbon of 
+ATOM CST CTL3 -0.27  ! sphingo lipid types
+ATOM HTS HAL3  0.09
+ATOM HTT HAL3  0.09
+ATOM HTU HAL3  0.09
+BOND CST HTU
+
+PRES CFTT            ! patch to terminate fatty acid tail at the terminal carbon of
+ATOM CFT CTL3 -0.27  ! sphingo lipid types
+ATOM HTF HAL3  0.09
+ATOM HTG HAL3  0.09
+ATOM HTH HAL3  0.09
+BOND CFT HTH
+
+PRES CATT            ! patch to terminate A tail at the terminal carbon of
+ATOM CAT CTL3 -0.27  ! cardiolipin lipid types
+ATOM HTA HAL3  0.09
+ATOM HTB HAL3  0.09
+ATOM HTC HAL3  0.09
+BOND CAT HTC
+
+PRES CBTT            ! patch to terminate B tail at the terminal carbon of
+ATOM CBT CTL3 -0.27  ! cardiolipin lipid types
+ATOM HTD HAL3  0.09
+ATOM HTE HAL3  0.09
+ATOM HTF HAL3  0.09
+BOND CBT HTF
+
+PRES CCTT            ! patch to terminate C tail at the terminal carbon of
+ATOM CCT CTL3 -0.27  ! cardiolipin lipid types
+ATOM HTR HAL3  0.09
+ATOM HTS HAL3  0.09
+ATOM HTT HAL3  0.09
+BOND CCT HTT
+
+PRES CDTT            ! patch to terminate D tail at the terminal carbon of
+ATOM CDT CTL3 -0.27  ! cardiolipin lipid types
+ATOM HTX HAL3  0.09
+ATOM HTY HAL3  0.09
+ATOM HTZ HAL3  0.09
+BOND CDT HTZ
+
+END
+
+read para card flex @app
+* new parameters
+*
+
+ANGLES
+!
+HEL1   CEL3   CTL3    40.00    116.00      ! HEL1   CEL3   CTL2    40.00    116.00   ! lip36; 1-butene; from propene, yin,adm jr., 12/95; HEL1-CEL1-CTL2
+
+
+DIHEDRALS
+!
+CTO1 CEL3 CEL3 CTL3     0.1500  1     0.00 ! CTO1 CEL3 CEL3 CTL2     0.1500  1     0.00 ! prot27; 2-butene, adm jr., 2/00 update; X CEL1 CEL1 X
+CTO1 CEL3 CEL3 CTL3     8.5000  2   180.00 ! CTO1 CEL3 CEL3 CTL2     8.5000  2   180.00 ! prot27; 2-butene, adm jr., 2/00 update; X CEL1 CEL1 X
+HEL1 CEL3 CTL3 HAL3     0.000   3     0.00 ! HEL1 CEL3 CTL2 HAL2     0.000   3     0.00 ! lip36; butene, adm jr., 2/00 update; HEL1 CEL1 CTL2 HAL2
+
+END
+
+return

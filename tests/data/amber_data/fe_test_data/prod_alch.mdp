@@ -1,0 +1,162 @@
+; VARIOUS PREPROCESSING OPTIONS
+title                    = normIons
+;cpp                      = /usr/bin/cpp
+
+; RUN CONTROL PARAMETERS
+integrator               = sd
+; Start time and timestep in ps
+tinit                    = 0
+dt                       = 0.002
+nsteps                   = 2500000
+; mode for center of mass motion removal
+comm-mode                = Linear
+; number of steps for center of mass motion removal
+nstcomm                  = 1
+
+; ENERGY MINIMIZATION OPTIONS
+; Force tolerance and initial step-size
+emtol                    = 100
+emstep                   = 0.01
+; Max number of iterations in relax_shells
+niter                    = 20
+; Step size (1/ps^2) for minimization of flexible constraints
+fcstep                   = 0
+; Frequency of steepest descents steps when doing CG
+nstcgsteep               = 1000
+nbfgscorr                = 10
+
+; OUTPUT CONTROL OPTIONS
+; Output frequency for coords (x), velocities (v) and forces (f)
+nstxout                  = 0
+nstvout                  = 0
+nstfout                  = 0
+; Checkpointing helps you continue after crashes
+nstcheckpoint            = 1000
+; Output frequency for energies to log file and energy file
+nstlog                   = 100
+nstenergy                = 100
+; Output frequency and precision for xtc file
+nstxtcout                = 1000
+xtc-precision            = 1000
+; This selects the subset of atoms for the xtc file. You can
+; select multiple groups. By default all atoms will be written.
+xtc-grps                 = 
+; Selection of energy groups
+energygrps               = 
+
+; NEIGHBORSEARCHING PARAMETERS
+; nblist update frequency
+nstlist                  = 10 ;match Karisa
+; ns algorithm (simple or grid)
+ns_type                  = grid
+; Periodic boundary conditions: xyz (default), no (vacuum)
+; or full (infinite systems only)
+pbc                      = xyz
+; nblist cut-off        
+rlist                    = 1.0
+;domain-decomposition     = no ; match Karisa
+
+; OPTIONS FOR ELECTROSTATICS AND VDW
+; Method for doing electrostatics
+coulombtype              = pme
+coulomb-modifier         = None
+;rcoulomb-switch          = 0.0
+rcoulomb                 = 1.0
+; Dielectric constant (DC) for cut-off or DC of reaction field
+;epsilon-r                = 1 ; match Karisa
+; Method for doing Van der Waals
+vdw-type                 = Switch
+; cut-off lengths       
+rvdw-switch              = 0.9
+rvdw                     = 1.0
+; Apply long range dispersion corrections for Energy and Pressure
+;DispCorr                 = EnerPres ; Match Karisa
+DispCorr                 = AllEnerPres
+; Extension of the potential lookup tables beyond the cut-off
+;table-extension          = 1 ; match Karisa
+; Spacing for the PME/PPPM FFT grid
+;fourierspacing           = 0.12
+;fourierspacing           = 0.10 ; Match Karisa
+; FFT grid size, when a value is 0 fourierspacing will be used
+fourier_nx               = 77
+fourier_ny               = 77
+fourier_nz               = 77
+; EWALD/PME/PPPM parameters
+;pme_order                = 4 ; Match Karisa
+pme_order                = 5
+ewald_rtol               = 1e-05
+;ewald_rtol               = 1e-06 ; Match Karisa
+;ewald_rtol                = 5e-04
+ewald_geometry           = 3d
+epsilon_surface          = 0
+;optimize_fft             = no
+optimize_fft             = yes ; Match Karisa
+
+; OPTIONS FOR WEAK COUPLING ALGORITHMS
+; Temperature coupling  
+Tcoupl                   = no
+; Groups to couple separately
+tc-grps                  = System
+; Time constant (ps) and reference temperature (K)
+tau_t                    = 2.0
+ref_t                    = 298.15 
+; Pressure coupling     
+Pcoupl                   = Parrinello-Rahman
+Pcoupltype               = isotropic
+; Time constant (ps), compressibility (1/bar) and reference P (bar)
+tau_p                    = 10
+compressibility          = 4.5e-5
+ref_p                    = 1.01325
+; Random seed for Andersen thermostat
+andersen_seed            = 815131
+
+; GENERATE VELOCITIES FOR STARTUP RUN
+gen_vel                  = no
+;gen_temp                 = 298.15
+;gen_seed                 = 1993
+ld_seed = -1
+
+; OPTIONS FOR BONDS    
+constraints              = hbonds
+; Type of constraint algorithm
+constraint-algorithm     = Lincs
+; Do not constrain the start configuration
+unconstrained-start      = no
+
+; Use successive overrelaxation to reduce the number of shake iterations
+Shake-SOR                = no
+; Relative tolerance of shake
+shake-tol                = 1e-04
+; Highest order in the expansion of the constraint coupling matrix
+;lincs-order              = 4
+lincs-order              = 12 ; Match Karisa
+; Number of iterations in the final step of LINCS. 1 is fine for
+; normal simulations, but use 2 to conserve energy in NVE runs.
+; For energy minimization with constraints it should be 4 to 8.
+;lincs-iter               = 2 ; Removed to Match Karisa
+; Lincs will write a warning to the stderr if in one step a bond
+; rotates over more degrees than
+lincs-warnangle          = 30
+; Convert harmonic bonds to morse potentials
+morse                    = no
+
+; ENERGY GROUP EXCLUSIONS
+; Pairs of energy groups for which all non-bonded interactions are excluded
+energygrp_excl           = 
+
+
+; Free energy control stuff                                                                     
+free-energy              = yes                                                                  
+init_lambda_state        = XXX                                                                 
+fep_lambdas              = 0.0 0.25 0.5 0.75 1.0 1.00 1.0 1.0 1.0 1.0 1.0 1.0 1.0  1.0 1.0  1.0 1.0  1.0 1.0  1.0
+vdw_lambdas              = 0.0 0.00 0.0 0.00 0.0 0.05 0.1 0.2 0.3 0.4 0.5 0.6 0.65 0.7 0.75 0.8 0.85 0.9 0.95 1.0
+couple-moltype           = mobley_3053621
+couple-lambda0           = vdw-q                                                                
+couple-lambda1           = none                                                                 
+couple-intramol          = no                                                                   
+sc-alpha                 = 0.5                                                                  
+sc-sigma                 = 0.3                                                                  
+sc-power                 = 1                                                                  
+sc-coul                  = no                                                                   
+nstdhdl                  = 100                                                                  
+calc-lambda-neighbors    = -1    

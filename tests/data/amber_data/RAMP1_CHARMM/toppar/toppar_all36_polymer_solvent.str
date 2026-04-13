@@ -1,0 +1,461 @@
+read rtf card append
+* Topology for synthetic_polymer
+*
+36 1
+
+AUTOGENERATE ANGLE DIHE
+
+RESI TCBS            0.000 ! param penalty= 130.000 ; charge penalty=   0.000
+GROUP            ! CHARGE   CH_PENALTY
+ATOM C1     CG2R61  0.098 !    0.000
+ATOM CL1    CLGR1  -0.146 !    0.000
+ATOM C2     CG2R61  0.096 !    0.000
+ATOM CL2    CLGR1  -0.146 !    0.000
+ATOM C3     CG2R61 -0.115 !    0.000
+ATOM H31    HGR62   0.151 !    0.000
+ATOM C4     CG2R61  0.044 !    0.000
+ATOM CL4    CLGR1  -0.146 !    0.000
+ATOM C5     CG2R61 -0.049 !    0.000
+ATOM H51    HGR62   0.165 !    0.000
+ATOM C6     CG2R61 -0.117 !    0.000
+ATOM H61    HGR62   0.165 !    0.000
+BOND C1   C2   C2   C3   C3   C4   C4   C5  
+BOND C5   C6   C6   C1   C1   CL1  C2   CL2 
+BOND C4   CL4  C5   H51  C3   H31  C6   H61  
+IC C2   C6    *C1   CL1        1.3750  120.00  180.00  120.00   1.7400
+IC C6   C1    C2    C3         1.3750  120.00    0.00  120.00   1.3750
+IC C3   C1    *C2   CL2        1.3750  120.00  180.00  120.00   1.7400
+IC C1   C2    C3    C4         1.3750  120.00    0.00  120.00   1.3750
+IC C4   C2    *C3   H31        1.3750  120.00  180.00  120.00   1.0800
+IC C2   C3    C4    CL4        1.3750  120.00  180.00  120.00   1.7400
+IC CL4  C3    *C4   C5         1.7400  120.00  180.00  120.00   1.3750
+IC C6   C4    *C5   H51        1.3750  120.00  180.00  120.00   1.0800
+IC C5   C1    *C6   H61        1.3750  120.00  180.00  120.00   1.0800
+PATC first none last none
+
+RESI PPOL          0.00  
+GROUP
+ATOM  C1   CG331  -0.27
+ATOM  H11  HGA3    0.09
+ATOM  H12  HGA3    0.09
+ATOM  H13  HGA3    0.09
+GROUP
+ATOM  C2   CG321  -0.18
+ATOM  H21  HGA2    0.09
+ATOM  H22  HGA2    0.09
+GROUP
+ATOM  C3   CG321  -0.18
+ATOM  H31  HGA2    0.09
+ATOM  H32  HGA2    0.09
+GROUP
+ATOM  C4   CG321   0.05
+ATOM  H41  HGA2    0.09
+ATOM  H42  HGA2    0.09
+ATOM   O1  OG311  -0.65
+ATOM  HO1  HGP1    0.42
+BOND  C1   C2     C2   C3     C3   C4
+BOND  C1   H11    C1   H12    C1   H13    C2   H21    C2   H22
+BOND  C3   H31    C3   H32    C4   H41    C4   H42    C4   O1
+BOND  O1   HO1
+IC   H11     C2    *C1   H12        1.1113  110.51  120.01  110.55   1.1114
+IC   H11     C2    *C1   H13        1.1113  110.51 -120.01  110.55   1.1114
+IC   H11     C1    C2    C3         1.1113  110.51  180.00  113.70   1.5370
+IC   C3      C1    *C2   H21        1.5370  113.70  121.46  109.01   1.1141
+IC   C3      C1    *C2   H22        1.5370  113.70 -121.46  109.01   1.1141
+IC   C1      C2    C3    C4         1.5309  113.70  180.00  112.92   1.5329
+IC   C4      C2    *C3   H31        1.5329  112.92  121.39  109.19   1.1132
+IC   C4      C2    *C3   H32        1.5329  112.92 -121.39  109.19   1.1132
+IC   C2      C3    C4    O1         1.5370  112.92  180.00  109.35   1.4225
+IC   O1      C3    *C4   H41        1.4225  109.35  120.32  109.61   1.1137
+IC   O1      C3    *C4   H42        1.4225  109.35 -120.32  109.61   1.1137
+IC   C3      C4    O1    HO1        1.5329  109.35  180.00  107.60   0.9612
+PATC first none last none
+
+RESI OCTO          0.00  ! C8H18 OCTANOL
+GROUP
+ATOM  C1   CG331  -0.27
+ATOM  H11  HGA3    0.09
+ATOM  H12  HGA3    0.09
+ATOM  H13  HGA3    0.09
+GROUP
+ATOM  C2   CG321  -0.18
+ATOM  H21  HGA2    0.09
+ATOM  H22  HGA2    0.09
+GROUP
+ATOM  C3   CG321  -0.18
+ATOM  H31  HGA2    0.09
+ATOM  H32  HGA2    0.09
+GROUP
+ATOM  C4   CG321  -0.18
+ATOM  H41  HGA2    0.09
+ATOM  H42  HGA2    0.09
+GROUP
+ATOM  C5   CG321  -0.18
+ATOM  H51  HGA2    0.09
+ATOM  H52  HGA2    0.09
+GROUP
+ATOM  C6   CG321  -0.18
+ATOM  H61  HGA2    0.09
+ATOM  H62  HGA2    0.09
+GROUP
+ATOM  C7   CG321  -0.18
+ATOM  H71  HGA2    0.09
+ATOM  H72  HGA2    0.09
+GROUP
+ATOM  C8   CG321   0.05
+ATOM  H81  HGA2    0.09
+ATOM  H82  HGA2    0.09
+ATOM   O1  OG311  -0.65
+ATOM  HO1  HGP1    0.42
+BOND  C1   C2     C2   C3     C3   C4     C4   C5
+BOND  C5   C6     C6   C7     C7   C8    
+BOND  C1   H11    C1   H12    C1   H13    C2   H21    C2   H22
+BOND  C3   H31    C3   H32    C4   H41    C4   H42    C5   H51
+BOND  C5   H52    C6   H61    C6   H62    C7   H71    C7   H72
+BOND  C8   H81    C8   H82    C8   O1     O1   HO1 
+IC  H11    C2      *C1    H12        1.1116  110.52  119.99  110.54   1.1112
+IC  H11    C2      *C1    H13        1.1116  110.52 -119.99  110.54   1.1112
+IC  H11    C1      C2     C3         1.1116  110.52  180.00  113.68   1.5348
+IC  C3     C1      *C2    H21        1.5348  113.68  121.48  109.11   1.1142
+IC  C3     C1      *C2    H22        1.5348  113.68 -121.48  109.11   1.1142
+IC  C1     C2      C3     C4         1.5313  113.68  180.00  112.61   1.5364
+IC  C4     C2      *C3    H31        1.5364  112.61  121.33  109.09   1.1131
+IC  C4     C2      *C3    H32        1.5364  112.61 -121.33  109.09   1.1131
+IC  C2     C3      C4     C5         1.5348  112.61  180.00  112.88   1.5354
+IC  C5     C3      *C4    H41        1.5354  112.88  121.35  109.02   1.1131
+IC  C5     C3      *C4    H42        1.5354  112.88 -121.35  109.02   1.1131
+IC  C3     C4      C5     C6         1.5364  112.88  180.00  112.80   1.5360
+IC  C6     C4      *C5    H51        1.5360  112.80  121.31  109.07   1.1131
+IC  C6     C4      *C5    H52        1.5360  112.80 -121.31  109.07   1.1131
+IC  C4     C5      C6     C7         1.5354  112.80 -180.00  112.70   1.5349
+IC  C7     C5      *C6    H61        1.5349  112.70  121.30  109.14   1.1131
+IC  C7     C5      *C6    H62        1.5349  112.70 -121.30  109.14   1.1131
+IC  C5     C6      C7     C8         1.5360  112.70 -180.00  113.54   1.5312
+IC  C8     C6      *C7    H71        1.5312  113.54  121.69  108.72   1.1141
+IC  C8     C6      *C7    H72        1.5312  113.54 -121.69  108.72   1.1141
+IC  C6     C7      C8     H81        1.5349  113.54  180.00  110.56   1.1114
+IC  H81    C7      *C8    H82        1.1114  110.56  120.02  110.51   1.1113
+IC   C6      C7    C8    O1         1.5370  112.92  180.00  109.35   1.4225
+IC   O1      C7    *C8   H41        1.4225  109.35  120.32  109.61   1.1137
+IC   O1      C7    *C8   H42        1.4225  109.35 -120.32  109.61   1.1137
+IC   C7      C8    O1    HO1        1.5329  109.35  180.00  107.60   0.9612
+PATC first none last none
+
+
+RESI OCTN          0.00  ! C8H18 OCTANE
+GROUP
+ATOM  C1   CG331  -0.27
+ATOM  H11  HGA3    0.09
+ATOM  H12  HGA3    0.09
+ATOM  H13  HGA3    0.09
+GROUP
+ATOM  C2   CG321  -0.18
+ATOM  H21  HGA2    0.09
+ATOM  H22  HGA2    0.09
+GROUP
+ATOM  C3   CG321  -0.18
+ATOM  H31  HGA2    0.09
+ATOM  H32  HGA2    0.09
+GROUP
+ATOM  C4   CG321  -0.18
+ATOM  H41  HGA2    0.09
+ATOM  H42  HGA2    0.09
+GROUP
+ATOM  C5   CG321  -0.18
+ATOM  H51  HGA2    0.09
+ATOM  H52  HGA2    0.09
+GROUP
+ATOM  C6   CG321  -0.18
+ATOM  H61  HGA2    0.09
+ATOM  H62  HGA2    0.09
+GROUP
+ATOM  C7   CG321  -0.18
+ATOM  H71  HGA2    0.09
+ATOM  H72  HGA2    0.09
+GROUP
+ATOM  C8   CG331  -0.27
+ATOM  H81  HGA3    0.09
+ATOM  H82  HGA3    0.09
+ATOM  H83  HGA3    0.09
+BOND  C1   C2     C2   C3     C3   C4     C4   C5
+BOND  C5   C6     C6   C7     C7   C8    
+BOND  C1   H11    C1   H12    C1   H13    C2   H21    C2   H22
+BOND  C3   H31    C3   H32    C4   H41    C4   H42    C5   H51
+BOND  C5   H52    C6   H61    C6   H62    C7   H71    C7   H72
+BOND  C8   H81    C8   H82    C8   H83
+IC  H11    C2      *C1    H12        1.1116  110.52  119.99  110.54   1.1112
+IC  H11    C2      *C1    H13        1.1116  110.52 -119.99  110.54   1.1112
+IC  H11    C1      C2     C3         1.1116  110.52  180.00  113.68   1.5348
+IC  C3     C1      *C2    H21        1.5348  113.68  121.48  109.11   1.1142
+IC  C3     C1      *C2    H22        1.5348  113.68 -121.48  109.11   1.1142
+IC  C1     C2      C3     C4         1.5313  113.68  180.00  112.61   1.5364
+IC  C4     C2      *C3    H31        1.5364  112.61  121.33  109.09   1.1131
+IC  C4     C2      *C3    H32        1.5364  112.61 -121.33  109.09   1.1131
+IC  C2     C3      C4     C5         1.5348  112.61  180.00  112.88   1.5354
+IC  C5     C3      *C4    H41        1.5354  112.88  121.35  109.02   1.1131
+IC  C5     C3      *C4    H42        1.5354  112.88 -121.35  109.02   1.1131
+IC  C3     C4      C5     C6         1.5364  112.88  180.00  112.80   1.5360
+IC  C6     C4      *C5    H51        1.5360  112.80  121.31  109.07   1.1131
+IC  C6     C4      *C5    H52        1.5360  112.80 -121.31  109.07   1.1131
+IC  C4     C5      C6     C7         1.5354  112.80 -180.00  112.70   1.5349
+IC  C7     C5      *C6    H61        1.5349  112.70  121.30  109.14   1.1131
+IC  C7     C5      *C6    H62        1.5349  112.70 -121.30  109.14   1.1131
+IC  C5     C6      C7     C8         1.5360  112.70 -180.00  113.54   1.5312
+IC  C8     C6      *C7    H71        1.5312  113.54  121.69  108.72   1.1141
+IC  C8     C6      *C7    H72        1.5312  113.54 -121.69  108.72   1.1141
+IC  C6     C7      C8     H81        1.5349  113.54  180.00  110.56   1.1114
+IC  H81    C7      *C8    H82        1.1114  110.56  120.02  110.51   1.1113
+IC  H81    C7      *C8    H83        1.1114  110.56 -120.02  110.51   1.1113
+PATC first none last none
+
+RESI CYHE            0.000 ! param penalty=   0.000 ; charge penalty=   0.000
+GROUP            ! CHARGE   CH_PENALTY
+ATOM C1     CG321  -0.180 !    0.000
+ATOM H11     HGA2    0.090 !    0.000
+ATOM H12     HGA2    0.090 !    0.000
+ATOM C2     CG321  -0.180 !    0.000
+ATOM H21     HGA2    0.090 !    0.000
+ATOM H22     HGA2    0.090 !    0.000
+ATOM C3     CG321  -0.180 !    0.000
+ATOM H31     HGA2    0.090 !    0.000
+ATOM H32     HGA2    0.090 !    0.000
+ATOM C4     CG321  -0.180 !    0.000
+ATOM H41     HGA2    0.090 !    0.000
+ATOM H42     HGA2    0.090 !    0.000
+ATOM C5     CG321  -0.180 !    0.000
+ATOM H51     HGA2    0.090 !    0.000
+ATOM H52    HGA2    0.090 !    0.000
+ATOM C6     CG321  -0.180 !    0.000
+ATOM H61    HGA2    0.090 !    0.000
+ATOM H62    HGA2    0.090 !    0.000
+BOND C1   C2  C1   C6  C2   C3  C3   C4  
+BOND C4   C5  C5   C6  C1  H11  C1  H12  
+BOND C2  H21  C2  H22  C3  H31  C3  H32  
+BOND C4  H41  C4  H42  C5  H51  C5  H52 
+BOND C6  H61  C6  H62
+IC  C2     C6  *C1   H11    1.5384  113.31  121.43  110.04   1.1126
+IC  C2     C6  *C1   H12    1.5384  113.31 -121.57  107.97   1.1136
+IC  C6     C1  C2    C3     1.5405  113.31  -30.17  112.10   1.5323
+IC  C3     C1  *C2   H21    1.5323  112.10  119.35  108.94   1.1139
+IC  C3     C1  *C2   H22    1.5323  112.10 -123.07  109.59   1.1121
+IC  C1     C2  C3    C4     1.5384  112.10   60.99  112.08   1.5384
+IC  C4     C2  *C3   H31    1.5384  112.08  122.54  110.49   1.1121
+IC  C4     C2  *C3   H32    1.5384  112.08 -119.96  107.92   1.1138
+IC  C2     C3  C4    C5     1.5323  112.08  -30.60  113.31   1.5405
+IC  C5     C3  *C4   H41    1.5405  113.31  120.63  109.57   1.1136
+IC  C5     C3  *C4   H42    1.5405  113.31 -122.41  108.33   1.1126
+IC  C6     C4  *C5   H51    1.5343  112.93  119.66  108.74   1.1138
+IC  C6     C4  *C5   H52    1.5343  112.93 -123.11  109.40   1.1124
+IC  C5     C1  *C6   H61    1.5343  112.93  119.65  108.73   1.1139
+IC  C5     C1  *C6   H62    1.5343  112.93 -123.12  109.41   1.1124
+PATC first none last none
+
+RESI ACTN           0.000 ! C2H3N acetonitrile, kevo
+GROUP
+ATOM C1   CG331   -0.17
+ATOM H11  HGA3     0.09
+ATOM H12  HGA3     0.09
+ATOM H13  HGA3     0.09
+ATOM C2   CG1N1    0.36
+ATOM N3   NG1T1   -0.46
+BOND C1  C2  C2  N3
+BOND C1  H11 C1  H12 C1  H13
+IC   N3   C2   C1   H11  0.0000  179.90    0.00    0.00   0.0000
+IC   C2   H11  *C1  H12  0.0000    0.00  120.00    0.00   0.0000
+IC   C2   H11  *C1  H13  0.0000    0.00  240.00    0.00   0.0000
+PATC first none last none
+
+RESI ACTO           0.0000 ! C3H6O Acetone
+GROUP
+ATOM O1  OG2D3   -0.48
+ATOM C1  CG2O5    0.40
+ATOM C2  CG331   -0.23 !             O1
+ATOM C3  CG331   -0.23 !             ||
+ATOM H21 HGA3     0.09 !             C1
+ATOM H22 HGA3     0.09 !            /  \
+ATOM H23 HGA3     0.09 !     H21--C2    C3--H31
+ATOM H31 HGA3     0.09 !         / |    | \
+ATOM H32 HGA3     0.09 !      H22 H32  H33 H32
+ATOM H33 HGA3     0.09
+BOND    C1 C2   C1 C3
+BOND    C2 H21  C2 H22   C2 H23
+BOND    C3 H31  C3 H32   C3 H33
+DOUBLE  O1 C1
+IMPR    C1 C2 C3 O1
+ACCE    O1
+IC C2   C1   C3  H31        1.5366  110.58  135.22  109.51   1.1328
+IC O1   C1   C3  H31        1.2237  122.95  -42.47  109.51   1.1328
+IC O1   C1   C3  H32        1.2237  122.95   77.28  104.63   1.1325
+IC O1   C1   C3  H33        1.2237  122.95 -161.85  105.76   1.0732
+IC C3   C1   C2  H21        1.5233  110.58 -153.74  111.52   1.1204
+IC O1   C1   C2  H21        1.2237  126.42   23.85  111.52   1.1204
+IC O1   C1   C2  H22        1.2237  126.42  148.26  114.11   1.1296
+IC O1   C1   C2  H23        1.2237  126.42  -90.21  101.67   1.1375
+PATC first none last none
+
+RESI HEXS           0.00 ! C6H14 hexane
+GROUP
+ATOM  C1  CG331    -0.27 !    H2
+ATOM  H11 HGA3      0.09 !     |
+ATOM  H12 HGA3      0.09 ! H1-C1-H3
+ATOM  H13 HGA3      0.09 !     |
+GROUP                    !     |
+ATOM  C2  CG321    -0.18 ! H4-C2-H5
+ATOM  H21 HGA2      0.09 !     |
+ATOM  H22 HGA2      0.09 !     |
+GROUP                    !     |
+ATOM  C3  CG321    -0.18 ! H6-C3-H7
+ATOM  H31 HGA2      0.09 !     |
+ATOM  H32 HGA2      0.09 !     |
+GROUP                    !     |
+ATOM  C4  CG321    -0.18 ! H8-C4-H10
+ATOM  H41 HGA2      0.09 !     |
+ATOM  H42 HGA2      0.09 !     |
+GROUP                    !     |
+ATOM  C5  CG321    -0.18 ! H51-C5-H152
+ATOM  H51 HGA2      0.09 !     |
+ATOM  H52 HGA2      0.09 !     |
+GROUP                    !     |
+ATOM  C6  CG331    -0.27 ! H61-C4-H62
+ATOM  H61 HGA3      0.09 !     |
+ATOM  H62 HGA3      0.09 !    H63
+ATOM  H63 HGA3      0.09
+BOND H11 C1  H12 C1  H13 C1  C1 C2
+BOND H21 C2  H22 C2  C2  C3
+BOND H31 C3  H32 C3  C3  C4
+BOND H41 C4  H42 C4  C4  C5
+BOND H51 C5  H52 C5  C5  C6
+BOND H61 C6  H62 C6  C6  H63
+IC  C1     C2    C3    C4         1.5382  118.06  163.29  112.76   1.5529
+IC  C2     C3    C4    C5         1.5391  112.76  173.65  111.32   1.5416
+IC  C3     C4    C5    C6         1.5529  111.32 -166.88  119.14   1.5397
+IC  C3     C2    C1    H11        1.5391  118.06  111.96  111.30   1.1131
+IC  H11    C2    *C1   H12        1.1131  111.30  117.95  109.39   1.1137
+IC  H11    C2    *C1   H13        1.1131  111.30 -122.15  112.62   1.1096
+IC  C1     C3    *C2   H21        1.5382  118.06  124.21  108.35   1.1166
+IC  C1     C3    *C2   H22        1.5382  118.06 -120.86  106.62   1.1142
+IC  C2     C4    *C3   H31        1.5391  112.76  122.29  108.51   1.1102
+IC  C2     C4    *C3   H32        1.5391  112.76 -121.26  108.59   1.1156
+IC  C3     C5    *C4   H41        1.5529  111.32  119.89  109.44   1.1098
+IC  C3     C5    *C4   H42        1.5529  111.32 -121.56  110.92   1.1136
+IC  C4     C6    *C5   H51        1.5416  119.14  125.15  108.80   1.1185
+IC  C4     C6    *C5   H52        1.5416  119.14 -119.41  106.74   1.1090
+IC  C4     C5    C6    H61        1.5416  119.14 -102.72  111.71   1.1148
+IC  H61    C5    *C6   H62        1.1148  111.71  122.72  112.65   1.1104
+IC  H61    C5    *C6   H63        1.1148  111.71 -117.80  108.81   1.1102
+PATC first none last none
+
+RESI DIBPL           0.000 ! 
+GROUP            ! CHARGE   
+ATOM C1     CG2R61 -0.115 ! 
+ATOM H11    HGR61   0.115 ! 
+ATOM C2     CG2R61 -0.110 ! 
+ATOM H21    HGR61   0.115 ! 
+ATOM C3     CG2R61  0.087 ! 
+ATOM C4     CG2R61  0.087 ! 
+ATOM C5     CG2R61 -0.110 ! 
+ATOM H51    HGR61   0.115 ! 
+ATOM C6     CG2R61 -0.115 ! 
+ATOM H61    HGR61   0.115 ! 
+ATOM C7     CG2O2   0.468 ! 
+ATOM O1     OG2D1  -0.493 ! 
+ATOM O2     OG302  -0.306 ! 
+ATOM C8     CG321   0.055 ! 
+ATOM H81    HGA2    0.090 ! 
+ATOM H82    HGA2    0.090 ! 
+ATOM C9     CG311  -0.084 ! 
+ATOM H91    HGA1    0.090 ! 
+ATOM C10    CG331  -0.271 ! 
+ATOM H101   HGA3    0.090 ! 
+ATOM H102   HGA3    0.090 ! 
+ATOM H103   HGA3    0.090 ! 
+ATOM C11    CG331  -0.271 ! 
+ATOM H111   HGA3    0.090 ! 
+ATOM H112   HGA3    0.090 ! 
+ATOM H113   HGA3    0.090 ! 
+ATOM C12    CG2O2   0.468 ! 
+ATOM O3     OG2D1  -0.493 ! 
+ATOM O4     OG302  -0.306 ! 
+ATOM C13    CG321   0.055 ! 
+ATOM H131   HGA2    0.090 ! 
+ATOM H132   HGA2    0.090 ! 
+ATOM C14    CG311  -0.084 ! 
+ATOM H141   HGA1    0.090 ! 
+ATOM C15    CG331  -0.271 ! 
+ATOM H151   HGA3    0.090 ! 
+ATOM H152   HGA3    0.090 ! 
+ATOM H153   HGA3    0.090 ! 
+ATOM C16    CG331  -0.271 ! 
+ATOM H161   HGA3    0.090 ! 
+ATOM H162   HGA3    0.090 ! 
+ATOM H163   HGA3    0.090 ! 
+BOND C1   C2   C2   C3   C3   C4   C4   C5  
+BOND C5   C6   C6   C1   C3   C7   C8   C9  
+BOND C9   C10  C9   C11  C7   O1   C7   O2  
+BOND O2   C8   C4   C12  C13  C14  C14  C15 
+BOND C14  C16  C12  O3   C12  O4   O4   C13 
+BOND C1   H11   C2   H21   C5   H51   C6   H61  
+BOND C8   H81   C8   H82   C9   H91   C10  H101  
+BOND C10  H102   C10  H103  C11  H111  C11  H112 
+BOND C11  H113  C13  H131  C13  H132  C14  H141 
+BOND C15  H151  C15  H152  C15  H153  C16  H161
+BOND C16  H162  C16  H163 
+IMPR C7     C3     O1     O2    
+IMPR C12    C4     O3     O4    
+IC    C2     C6      *C1      H11        1.3750  120.00  180.00  120.00   1.0800
+IC    C6     C1      C2       C3         1.3750  120.00    0.00  120.00   1.3750
+IC    C3     C1      *C2      H21        1.3750  120.00  180.00  120.00   1.0800
+IC    C1     C2      C3       C4         1.3750  120.00    0.00  120.00   1.3750
+IC    C4     C2      *C3      C7         1.3750  120.00  180.00  120.00   1.4800
+IC    C2     C3      C4       C12        1.3750  120.00  180.00  120.00   1.4800
+IC    C12    C3      *C4      C5         1.4800  120.00  180.00  120.00   1.3750
+IC    C6     C4      *C5      H51        1.3750  120.00  180.00  120.00   1.0800
+IC    C5     C1      *C6      H61        1.3750  120.00  180.00  120.00   1.0800
+IC    C2     C3      C7       O2         1.3750  120.00   90.00  111.00   1.3340
+IC    O2     C3      *C7      O1         1.3340  111.00  180.00  123.10   1.2200
+IC    C3     C7      O2       C8         1.4800  111.00  180.00  109.60   1.4400
+IC    C7     O2      C8       C9         1.3340  109.60  180.00  110.10   1.5380
+IC    C9     O2      *C8      H81        1.5380  110.10  120.00  109.50   1.1110
+IC    C9     O2      *C8      H82        1.5380  110.10 -120.00  109.50   1.1110
+IC    O2     C8      C9       C10        1.4400  110.10  180.00  114.00   1.5380
+IC    C10    C8      *C9      C11        1.5380  114.00  120.00  114.00   1.5380
+IC    C10    C8      *C9      H91        1.5380  114.00 -120.00  110.10   1.1110
+IC    C8     C9      C10      H101       1.5380  114.00  180.00  110.10   1.1110
+IC    H101   C9      *C10     H102       1.1110  110.10  120.00  110.10   1.1110
+IC    H101   C9      *C10     H103       1.1110  110.10 -120.00  110.10   1.1110
+IC    C8     C9      C11      H111       1.5380  114.00  180.00  110.10   1.1110
+IC    H111   C9      *C11     H112       1.1110  110.10  120.00  110.10   1.1110
+IC    H111   C9      *C11     H113       1.1110  110.10 -120.00  110.10   1.1110
+IC    C3     C4      C12      O4         1.3750  120.00   90.00  111.00   1.3340
+IC    O4     C4      *C12     O3         1.3340  111.00  180.00  123.10   1.2200
+IC    C4     C12     O4       C13        1.4800  111.00  180.00  109.60   1.4400
+IC    C12    O4      C13      C14        1.3340  109.60  180.00  110.10   1.5380
+IC    C14    O4      *C13     H131       1.5380  110.10  120.00  109.50   1.1110
+IC    C14    O4      *C13     H132       1.5380  110.10 -120.00  109.50   1.1110
+IC    O4     C13     C14      C15        1.4400  110.10  180.00  114.00   1.5380
+IC    C15    C13     *C14     C16        1.5380  114.00  120.00  114.00   1.5380
+IC    C15    C13     *C14     H141       1.5380  114.00 -120.00  110.10   1.1110
+IC    C13    C14     C15      H151       1.5380  114.00  180.00  110.10   1.1110
+IC    H151   C14     *C15     H152       1.1110  110.10  120.00  110.10   1.1110
+IC    H151   C14     *C15     H153       1.1110  110.10 -120.00  110.10   1.1110
+IC    C13    C14     C16      H161       1.5380  114.00  180.00  110.10   1.1110
+IC    H161   C14     *C16     H162       1.1110  110.10  120.00  110.10   1.1110
+IC    H161   C14     *C16     H163       1.1110  110.10 -120.00  110.10   1.1110
+
+END
+read param card flex append
+* synthetic polymer parameter
+*
+BONDS
+
+ANGLES
+
+DIHEDRALS
+CG2O2  CG2R61 CG2R61 CG2O2      3.1000  2   180.00 ! DIBPL , from CG2O2 CG261 CG2R61 CG2R61, PENALTY= 45
+
+IMPROPERS
+
+END
+
+RETURN
+

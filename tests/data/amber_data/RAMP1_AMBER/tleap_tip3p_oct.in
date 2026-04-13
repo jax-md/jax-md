@@ -1,0 +1,9 @@
+source leaprc.protein.ff19SB
+source leaprc.water.tip3p
+ramp = loadpdb RAMP1.pdb
+bond ramp.27.SG ramp.82.SG
+bond ramp.40.SG ramp.72.SG
+bond ramp.57.SG ramp.104.SG
+addIons ramp Na+ 2
+solvateOct ramp TIP3PBOX 10.0
+saveAmberParm ramp RAMP1_tip3p_oct.prmtop RAMP1_tip3p_oct.inpcrd

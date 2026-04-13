@@ -1,0 +1,87 @@
+-I: Adding /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/prep to search path.
+-I: Adding /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/lib to search path.
+-I: Adding /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/parm to search path.
+-I: Adding /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/cmd to search path.
+-f: Source tleap_tip3p_oct.in.
+
+Welcome to LEaP!
+(no leaprc in search path)
+Sourcing: ./tleap_tip3p_oct.in
+----- Source: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/cmd/leaprc.protein.ff19SB
+----- Source of /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/cmd/leaprc.protein.ff19SB done
+Log file: ./leap.log
+Loading parameters: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/parm/parm19.dat
+Reading title:
+PARM99 + frcmod.ff99SB + frcmod.parmbsc0 + OL3 for RNA + ff19SB
+Loading parameters: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/parm/frcmod.ff19SB
+Reading force field modification type file (frcmod)
+Reading title:
+ff19SB AA-specific backbone CMAPs for protein 07/25/2019
+Loading library: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/lib/amino19.lib
+Loading library: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/lib/aminoct12.lib
+Loading library: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/lib/aminont12.lib
+----- Source: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/cmd/leaprc.water.tip3p
+----- Source of /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/cmd/leaprc.water.tip3p done
+Loading library: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/lib/atomic_ions.lib
+Loading library: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/lib/solvents.lib
+Loading parameters: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/parm/frcmod.tip3p
+Reading force field modification type file (frcmod)
+Reading title:
+This is the additional/replacement parameter set for TIP3P water
+Loading parameters: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/parm/frcmod.ions1lm_126_tip3p
+Reading force field modification type file (frcmod)
+Reading title:
+Li/Merz ion parameters of monovalent ions for TIP3P water model (12-6 normal usage set)
+Loading parameters: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/parm/frcmod.ionsjc_tip3p
+Reading force field modification type file (frcmod)
+Reading title:
+Monovalent ion parameters for Ewald and TIP3P water from Joung & Cheatham JPCB (2008)
+Loading parameters: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/parm/frcmod.ions234lm_126_tip3p
+Reading force field modification type file (frcmod)
+Reading title:
+Li/Merz ion parameters of divalent to tetravalent ions for TIP3P water model (12-6 normal usage set)
+Loading PDB file: ./RAMP1.pdb
+  Added missing heavy atom: .R<CSER 107>.A<OXT 12>
+  total atoms in file: 666
+  Leap added 623 missing atoms according to residue templates:
+       1 Heavy
+       622 H / lone pairs
+Adding 2 counter ions to "ramp" using 1A grid
+Grid extends from solute vdw + 1.37  to  7.35
+Resolution:      1.00 Angstrom.
+ (no solvent present)
+Calculating grid charges
+Placed Na+ in ramp at (1.83, 9.82, 25.26).
+Placed Na+ in ramp at (5.83, 35.82, 40.26).
+
+Done adding ions.
+Scaling up box by a factor of 1.433979 to meet diagonal cut criterion
+  Solute vdw bounding box:              45.252 31.465 28.835
+  Total bounding box for atom centers:  73.931 73.931 73.931
+      (box expansion for 'iso' is  58.0%)
+  Solvent unit box:                     18.774 18.774 18.774
+  Volume: 210356.574 A^3 (oct)
+  Total mass 111197.108 amu,  Density 0.878 g/cc
+  Added 5642 residues.
+Checking Unit.
+Building topology.
+Building atom parameters.
+Building bond parameters.
+Building angle parameters.
+Building proper torsion parameters.
+Building improper torsion parameters.
+ total 303 improper torsions applied
+Building H-Bond parameters.
+Incorporating Non-Bonded adjustments.
+Not Marking per-residue atom chain types.
+Marking per-residue atom chain types.
+  (Residues lacking connect0/connect1 - 
+   these don't have chain types marked:
+
+	res	total affected
+
+	CSER	1
+	NCYX	1
+	WAT	5642
+  )
+ (no restraints)

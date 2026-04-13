@@ -1,0 +1,54 @@
+-I: Adding /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/prep to search path.
+-I: Adding /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/lib to search path.
+-I: Adding /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/parm to search path.
+-I: Adding /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/cmd to search path.
+-f: Source tleap_gas.in.
+
+Welcome to LEaP!
+(no leaprc in search path)
+Sourcing: ./tleap_gas.in
+----- Source: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/cmd/leaprc.protein.ff19SB
+----- Source of /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/cmd/leaprc.protein.ff19SB done
+Log file: ./leap.log
+Loading parameters: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/parm/parm19.dat
+Reading title:
+PARM99 + frcmod.ff99SB + frcmod.parmbsc0 + OL3 for RNA + ff19SB
+Loading parameters: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/parm/frcmod.ff19SB
+Reading force field modification type file (frcmod)
+Reading title:
+ff19SB AA-specific backbone CMAPs for protein 07/25/2019
+Loading library: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/lib/amino19.lib
+Loading library: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/lib/aminoct12.lib
+Loading library: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/lib/aminont12.lib
+Loading PDB file: ./RAMP1.pdb
+  Added missing heavy atom: .R<CSER 107>.A<OXT 12>
+  total atoms in file: 666
+  Leap added 623 missing atoms according to residue templates:
+       1 Heavy
+       622 H / lone pairs
+Checking Unit.
+
+Warning: The unperturbed charge of the unit (-2.000000) is not zero.
+
+Note: Ignoring the warning from Unit Checking.
+
+Building topology.
+Building atom parameters.
+Building bond parameters.
+Building angle parameters.
+Building proper torsion parameters.
+Building improper torsion parameters.
+ total 303 improper torsions applied
+Building H-Bond parameters.
+Incorporating Non-Bonded adjustments.
+Not Marking per-residue atom chain types.
+Marking per-residue atom chain types.
+  (Residues lacking connect0/connect1 - 
+   these don't have chain types marked:
+
+	res	total affected
+
+	CSER	1
+	NCYX	1
+  )
+ (no restraints)

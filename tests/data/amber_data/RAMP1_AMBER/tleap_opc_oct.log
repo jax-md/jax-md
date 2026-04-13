@@ -1,0 +1,120 @@
+-I: Adding /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/prep to search path.
+-I: Adding /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/lib to search path.
+-I: Adding /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/parm to search path.
+-I: Adding /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/cmd to search path.
+-f: Source tleap_opc_oct.in.
+
+Welcome to LEaP!
+(no leaprc in search path)
+Sourcing: ./tleap_opc_oct.in
+----- Source: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/cmd/leaprc.protein.ff19SB
+----- Source of /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/cmd/leaprc.protein.ff19SB done
+Log file: ./leap.log
+Loading parameters: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/parm/parm19.dat
+Reading title:
+PARM99 + frcmod.ff99SB + frcmod.parmbsc0 + OL3 for RNA + ff19SB
+Loading parameters: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/parm/frcmod.ff19SB
+Reading force field modification type file (frcmod)
+Reading title:
+ff19SB AA-specific backbone CMAPs for protein 07/25/2019
+Loading library: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/lib/amino19.lib
+Loading library: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/lib/aminoct12.lib
+Loading library: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/lib/aminont12.lib
+----- Source: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/cmd/leaprc.water.opc
+----- Source of /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/cmd/leaprc.water.opc done
+Loading library: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/lib/atomic_ions.lib
+Loading library: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/lib/solvents.lib
+Loading parameters: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/parm/frcmod.opc
+Reading force field modification type file (frcmod)
+Reading title:
+Parameters for OPC water (JPCL, 2014, 5 (21), pp 3863-3871)
+Loading parameters: /opt/software-current/2023.06/x86_64/intel/skylake_avx512/software/Amber/22.5-foss-2023a-AmberTools-23.6-CUDA-12.1.1/dat/leap/parm/frcmod.ionslm_126_opc
+Reading force field modification type file (frcmod)
+Reading title:
+Li/Merz ion parameters of atomic ions for the OPC water model (12-6 set)
+Loading PDB file: ./RAMP1.pdb
+  Added missing heavy atom: .R<CSER 107>.A<OXT 12>
+  total atoms in file: 666
+  Leap added 623 missing atoms according to residue templates:
+       1 Heavy
+       622 H / lone pairs
+Adding 2 counter ions to "ramp" using 1A grid
+Grid extends from solute vdw + 1.47  to  7.45
+Resolution:      1.00 Angstrom.
+ (no solvent present)
+Calculating grid charges
+Placed Na+ in ramp at (5.73, 35.72, 38.16).
+Placed Na+ in ramp at (0.73, 11.72, 25.16).
+
+Done adding ions.
+Scaling up box by a factor of 1.381751 to meet diagonal cut criterion
+  Solute vdw bounding box:              45.230 31.431 28.791
+  Total bounding box for atom centers:  72.865 72.865 72.865
+      (box expansion for 'iso' is  59.3%)
+  Solvent unit box:                     18.865 18.478 19.006
+  Volume: 201502.159 A^3 (oct)
+  Total mass 107089.460 amu,  Density 0.883 g/cc
+  Added 5414 residues.
+Adding 38 counter ions to "ramp". 5376 solvent molecules will remain.
+0: Placed Na+ in ramp at (-12.40, 22.52, -13.50).
+Placed Cl- in ramp at (-19.61, 22.68, 0.68).
+0: Placed Na+ in ramp at (9.18, 27.79, -12.13).
+Placed Cl- in ramp at (2.90, 15.16, 11.24).
+0: Placed Na+ in ramp at (-19.61, 12.42, 11.77).
+Placed Cl- in ramp at (28.58, 13.58, 0.14).
+0: Placed Na+ in ramp at (24.49, -5.02, -10.85).
+Placed Cl- in ramp at (6.14, 26.71, -7.50).
+0: Placed Na+ in ramp at (-29.84, 21.16, 10.13).
+Placed Cl- in ramp at (-17.88, -1.95, -26.15).
+0: Placed Na+ in ramp at (7.43, 16.80, -9.39).
+Placed Cl- in ramp at (7.50, 21.89, -16.69).
+0: Placed Na+ in ramp at (4.04, -5.49, 25.56).
+Placed Cl- in ramp at (-23.14, 6.84, 8.92).
+0: Placed Na+ in ramp at (24.58, -19.32, 16.19).
+Placed Cl- in ramp at (-20.14, 20.87, 4.10).
+0: Placed Na+ in ramp at (17.89, -18.93, -3.81).
+Placed Cl- in ramp at (-30.14, -1.90, -2.94).
+0: Placed Na+ in ramp at (13.46, -11.46, -23.55).
+Placed Cl- in ramp at (3.51, 16.81, 21.58).
+0: Placed Na+ in ramp at (3.75, 23.68, -1.16).
+Placed Cl- in ramp at (18.76, -4.40, 31.66).
+0: Placed Na+ in ramp at (-9.96, -13.39, 1.53).
+Placed Cl- in ramp at (-11.44, -25.82, -1.27).
+0: Placed Na+ in ramp at (-10.44, 27.66, -12.47).
+Placed Cl- in ramp at (-17.28, -17.08, -20.85).
+0: Placed Na+ in ramp at (25.67, 8.33, -6.45).
+Placed Cl- in ramp at (25.20, 17.66, -17.16).
+0: Placed Na+ in ramp at (30.10, -17.39, -0.62).
+Placed Cl- in ramp at (13.45, 1.34, -27.57).
+0: Placed Na+ in ramp at (8.04, 13.59, 12.20).
+Placed Cl- in ramp at (12.41, 28.75, 1.88).
+0: Placed Na+ in ramp at (-2.67, 28.34, -20.94).
+Placed Cl- in ramp at (-2.44, 30.68, 8.97).
+0: Placed Na+ in ramp at (-27.53, 16.37, 17.70).
+Placed Cl- in ramp at (-26.51, -1.09, 12.30).
+0: Placed Na+ in ramp at (3.10, 29.70, 3.17).
+Placed Cl- in ramp at (18.95, 22.66, 1.39).
+Checking Unit.
+
+Note: Ignoring the warnings from Unit Checking.
+
+Building topology.
+Building atom parameters.
+Building bond parameters.
+Building angle parameters.
+Building proper torsion parameters.
+Building improper torsion parameters.
+ total 303 improper torsions applied
+Building H-Bond parameters.
+Incorporating Non-Bonded adjustments.
+Not Marking per-residue atom chain types.
+Marking per-residue atom chain types.
+  (Residues lacking connect0/connect1 - 
+   these don't have chain types marked:
+
+	res	total affected
+
+	CSER	1
+	NCYX	1
+  )
+ (no restraints)

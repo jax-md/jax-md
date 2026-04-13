@@ -1,0 +1,7 @@
+# note: not a neutral system
+source leaprc.protein.ff19SB
+ramp = loadpdb RAMP1.pdb
+bond ramp.27.SG ramp.82.SG
+bond ramp.40.SG ramp.72.SG
+bond ramp.57.SG ramp.104.SG
+saveAmberParm ramp RAMP1_gas.prmtop RAMP1_gas.inpcrd
