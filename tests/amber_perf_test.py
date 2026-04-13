@@ -1,5 +1,6 @@
 import os
 import sys
+import unittest
 from typing import Any
 
 import jax
@@ -46,6 +47,7 @@ _AKMA_TO_FS = (
 ).value_in_unit(unit.femtosecond)
 _FS_TO_AKMA = 1.0 / _AKMA_TO_FS
 
+
 def _make_coulomb_handler(
   nb_method: Any,
   r_cut: float,
@@ -60,6 +62,7 @@ def _make_coulomb_handler(
   if nb_method == app.Ewald:
     return electrostatics.EwaldCoulomb(r_cut=r_cut)
   return electrostatics.CutoffCoulomb(r_cut=r_cut)
+
 
 class AMBERPerfTest(jtu.JAXMDTestCase, parameterized.TestCase):
   @parameterized.product(
@@ -80,32 +83,40 @@ class AMBERPerfTest(jtu.JAXMDTestCase, parameterized.TestCase):
     kT = target_temp * _KB_KCAL_MOL_K
     r_cut = 8.0
 
-    n_water = 2 ** system_size
+    n_water = 2**system_size
     n_atoms = n_water * 3
     forcefield = app.ForceField('tip3p.xml')
     omm_modeller = app.Modeller(app.Topology(), [])
     omm_modeller.addSolvent(forcefield, model='tip3p', numAdded=n_water)
-    omm_system = forcefield.createSystem(omm_modeller.topology,
-                                     nonbondedMethod=app.PME,
-                                     constraints=None,
-                                     rigidWater=False,
-                                     removeCMMotion=False,
-                                     nonbondedCutoff=r_cut*unit.angstrom)
+    omm_system = forcefield.createSystem(
+      omm_modeller.topology,
+      nonbondedMethod=app.PME,
+      constraints=None,
+      rigidWater=False,
+      removeCMMotion=False,
+      nonbondedCutoff=r_cut * unit.angstrom,
+    )
     integrator = openmm.VerletIntegrator(dt_base * unit.femtosecond)
     platform = openmm.Platform.getPlatformByName('OpenCL')
     properties = {'Precision': precision}
-    simulation = app.Simulation(omm_modeller.topology, omm_system, integrator, platform, properties)
+    simulation = app.Simulation(
+      omm_modeller.topology, omm_system, integrator, platform, properties
+    )
     simulation.context.setPositions(omm_modeller.getPositions())
     simulation.minimizeEnergy()
 
-    omm_state = simulation.context.getState(positions=True, enforcePeriodicBox=True)
+    omm_state = simulation.context.getState(
+      positions=True, enforcePeriodicBox=True
+    )
     omm_topology = omm_modeller.topology
     omm_positions = omm_state.getPositions(asNumpy=True)
     omm_box_vectors = omm_state.getPeriodicBoxVectors(asNumpy=True)
-    phi = n_atoms/omm_state.getPeriodicBoxVolume().value_in_unit(unit.angstrom**3)
+    phi = n_atoms / omm_state.getPeriodicBoxVolume().value_in_unit(
+      unit.angstrom**3
+    )
 
     if mode == 'jax':
-      print("JAX simulation")
+      print('JAX simulation')
       nb_method = app.PME
       mm = convert_openmm_system(
         omm_system,
@@ -140,7 +151,11 @@ class AMBERPerfTest(jtu.JAXMDTestCase, parameterized.TestCase):
 
       init_fn, apply_fn = simulate.nve(energy_fn_jit, shift_fn, dt)
       state = init_fn(
-        jax.random.PRNGKey(0), mm.positions, mass=mm.masses, kT=kT, nbr_list=nbrs
+        jax.random.PRNGKey(0),
+        mm.positions,
+        mass=mm.masses,
+        kT=kT,
+        nbr_list=nbrs,
       )
 
       def body_fn(i, state):
@@ -154,7 +169,7 @@ class AMBERPerfTest(jtu.JAXMDTestCase, parameterized.TestCase):
       new_state.position.block_until_ready()
 
       step = 0
-      print("step , PE , KE , TotalE - in kJ/mol, kT")
+      print('step , PE , KE , TotalE - in kJ/mol, kT')
       pE = energy_fn_jit(state.position, nbr_list=nbrs, params=mm.params)
       kE = quantity.kinetic_energy(momentum=state.momentum, mass=state.mass)
       temp = (
@@ -162,7 +177,7 @@ class AMBERPerfTest(jtu.JAXMDTestCase, parameterized.TestCase):
         / _KB_KCAL_MOL_K
       )
       jax.debug.print(
-        "{step}, {pE}, {kE}, {pEkE}, {temp}",
+        '{step}, {pE}, {kE}, {pEkE}, {temp}',
         step=step,
         pE=pE * 4.184,
         kE=kE * 4.184,
@@ -173,7 +188,9 @@ class AMBERPerfTest(jtu.JAXMDTestCase, parameterized.TestCase):
       t0 = time.perf_counter()
 
       for i in range(iter_count):
-        new_state, nbrs = jax.lax.fori_loop(0, n_steps_inner, body_fn, (state, nbrs))
+        new_state, nbrs = jax.lax.fori_loop(
+          0, n_steps_inner, body_fn, (state, nbrs)
+        )
         if jnp.any(nbrs.did_buffer_overflow):
           print('Neighbor list overflowed, reallocating.')
           nbrs = neighbor_fn.allocate(state.position)
@@ -187,7 +204,7 @@ class AMBERPerfTest(jtu.JAXMDTestCase, parameterized.TestCase):
           / _KB_KCAL_MOL_K
         )
         jax.debug.print(
-          "{step}, {pE}, {kE}, {pEkE}, {temp}",
+          '{step}, {pE}, {kE}, {pEkE}, {temp}',
           step=step,
           pE=pE * 4.184,
           kE=kE * 4.184,
@@ -221,7 +238,7 @@ class AMBERPerfTest(jtu.JAXMDTestCase, parameterized.TestCase):
       omm_ke = omm_state.getKineticEnergy().value_in_unit(
         unit.kilojoules_per_mole
       )
-      print("step 0", omm_pe, omm_ke)
+      print('step 0', omm_pe, omm_ke)
 
       t0_omm = time.perf_counter()
       simulation.step(n_steps)
@@ -237,6 +254,18 @@ class AMBERPerfTest(jtu.JAXMDTestCase, parameterized.TestCase):
     )
 
     return
+
+
+if os.environ.get('RUN_AMBER_PERF_TESTS', '').strip().lower() not in (
+  '1',
+  'true',
+  'yes',
+  'on',
+):
+  AMBERPerfTest = unittest.skip(
+    'Skipping amber_perf_test.py; set RUN_AMBER_PERF_TESTS=1 to enable.'
+  )(AMBERPerfTest)
+
 
 if __name__ == '__main__':
   absltest.main()

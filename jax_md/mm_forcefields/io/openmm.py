@@ -83,28 +83,32 @@ def _eval_nonbonded_switch_integral(
   r5 = r * r4
   r6 = r * r5
   r9 = r3 * r6
-  return sig6 * A3 * (
-    (
-      sig6
-      * (
-        +rs3 * 28.0 * (6.0 * rs2 * A2 + 15.0 * r_switch * A + 10.0)
-        - r * rs2 * 945.0 * (rs2 * A2 + 2.0 * r_switch * A + 1.0)
-        + r2 * r_switch * 1080.0 * (2.0 * rs2 * A2 + 3.0 * r_switch * A + 1.0)
-        - r3 * 420.0 * (6.0 * rs2 * A2 + 6.0 * r_switch * A + 1.0)
-        + r4 * 756.0 * (2.0 * r_switch * A2 + A)
-        - r5 * 378.0 * A2
+  return (
+    sig6
+    * A3
+    * (
+      (
+        sig6
+        * (
+          +rs3 * 28.0 * (6.0 * rs2 * A2 + 15.0 * r_switch * A + 10.0)
+          - r * rs2 * 945.0 * (rs2 * A2 + 2.0 * r_switch * A + 1.0)
+          + r2 * r_switch * 1080.0 * (2.0 * rs2 * A2 + 3.0 * r_switch * A + 1.0)
+          - r3 * 420.0 * (6.0 * rs2 * A2 + 6.0 * r_switch * A + 1.0)
+          + r4 * 756.0 * (2.0 * r_switch * A2 + A)
+          - r5 * 378.0 * A2
+        )
+        - r6
+        * (
+          +rs3 * 84.0 * (6.0 * rs2 * A2 + 15.0 * r_switch * A + 10.0)
+          - r * rs2 * 3780.0 * (rs2 * A2 + 2.0 * r_switch * A + 1.0)
+          + r2 * r_switch * 7560.0 * (2.0 * rs2 * A2 + 3.0 * r_switch * A + 1.0)
+        )
       )
-      - r6
-      * (
-        +rs3 * 84.0 * (6.0 * rs2 * A2 + 15.0 * r_switch * A + 10.0)
-        - r * rs2 * 3780.0 * (rs2 * A2 + 2.0 * r_switch * A + 1.0)
-        + r2 * r_switch * 7560.0 * (2.0 * rs2 * A2 + 3.0 * r_switch * A + 1.0)
-      )
+      / (252.0 * r9)
+      - np.log(r) * 10.0 * (6.0 * rs2 * A2 + 6.0 * r_switch * A + 1.0)
+      + r * 15.0 * (2.0 * r_switch * A2 + A)
+      - r2 * 3.0 * A2
     )
-    / (252.0 * r9)
-    - np.log(r) * 10.0 * (6.0 * rs2 * A2 + 6.0 * r_switch * A + 1.0)
-    + r * 15.0 * (2.0 * r_switch * A2 + A)
-    - r2 * 3.0 * A2
   )
 
 
@@ -479,17 +483,19 @@ def convert_openmm_system(
         if hasattr(virtual_site, 'getWeight12'):
           vsite_weights[idx, 0] = float(virtual_site.getWeight12())
           vsite_weights[idx, 1] = float(virtual_site.getWeight13())
-          vsite_weights[idx, 2] = float(virtual_site.getWeightCross())
+          vsite_weights[idx, 2] = (
+            float(virtual_site.getWeightCross()) * _ANG_TO_NM
+          )
         else:
           vsite_weights[idx, 0] = float(virtual_site.getWeight(0))
           vsite_weights[idx, 1] = float(virtual_site.getWeight(1))
-          vsite_weights[idx, 2] = float(virtual_site.getWeight(2))
+          vsite_weights[idx, 2] = float(virtual_site.getWeight(2)) * _ANG_TO_NM
       elif local_cls is not None and isinstance(virtual_site, local_cls):
         vsite_type[idx] = 4
         # Local coordinate frame defined by (origin, x, y) particles.
-        vsite_parent_idx[idx, 0] = int(virtual_site.getOriginParticle())
-        vsite_parent_idx[idx, 1] = int(virtual_site.getXParticle())
-        vsite_parent_idx[idx, 2] = int(virtual_site.getYParticle())
+        vsite_parent_idx[idx, 0] = int(virtual_site.getParticle(0))
+        vsite_parent_idx[idx, 1] = int(virtual_site.getParticle(1))
+        vsite_parent_idx[idx, 2] = int(virtual_site.getParticle(2))
         vsite_origin_weights[idx] = _vec3_to_arr(
           virtual_site.getOriginWeights()
         )
@@ -748,13 +754,19 @@ def convert_openmm_system(
         use_switch = force.getUseSwitchingFunction()
         sum3 = 0.0
         if use_switch:
-          r_switch_cur = force.getSwitchingDistance().value_in_unit(unit.angstrom)
+          r_switch_cur = force.getSwitchingDistance().value_in_unit(
+            unit.angstrom
+          )
           sum3 = np.sum(
             count_s
             * values[:, 1]
             * (
-              _eval_nonbonded_switch_integral(r_cut, r_switch_cur, r_cut, values[:, 0])
-              - _eval_nonbonded_switch_integral(r_switch_cur, r_switch_cur, r_cut, values[:, 0])
+              _eval_nonbonded_switch_integral(
+                r_cut, r_switch_cur, r_cut, values[:, 0]
+              )
+              - _eval_nonbonded_switch_integral(
+                r_switch_cur, r_switch_cur, r_cut, values[:, 0]
+              )
             )
           )
 
@@ -767,7 +779,9 @@ def convert_openmm_system(
             * eps_c
             * (
               _eval_nonbonded_switch_integral(r_cut, r_switch_cur, r_cut, sig_c)
-              - _eval_nonbonded_switch_integral(r_switch_cur, r_switch_cur, r_cut, sig_c)
+              - _eval_nonbonded_switch_integral(
+                r_switch_cur, r_switch_cur, r_cut, sig_c
+              )
             )
           )
         sum3 = sum3 / denom

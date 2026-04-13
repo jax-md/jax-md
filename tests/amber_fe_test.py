@@ -26,10 +26,10 @@ except ImportError:
   u = None
 
 # TODO change to files in data directory
-_GRO = Path('data/amber_data/fe_test_data/mobley_3053621.gro')
-_TOP = Path('data/amber_data/fe_test_data/mobley_3053621.top')
-_INCLUDE_DIR = Path('data/amber_data/fe_test_data/gromacs_ffs')
-_XVG_DIR = Path('data/amber_data/fe_test_data/sp_alch')
+_GRO = Path('tests/data/amber_data/fe_test_data/mobley_3053621.gro')
+_TOP = Path('tests/data/amber_data/fe_test_data/mobley_3053621.top')
+_INCLUDE_DIR = Path('tests/data/amber_data/fe_test_data/gromacs_ffs')
+_XVG_DIR = Path('tests/data/amber_data/fe_test_data/sp_alch')
 
 # copied from prod.X.mdp files in FreeSolv repository
 # NOTE some options from the original FreeSolv setup were changed to be
@@ -37,16 +37,48 @@ _XVG_DIR = Path('data/amber_data/fe_test_data/sp_alch')
 # values with pymbar are close, but obtaining identical results to the
 # original publication may require further changes to the test setup
 _LAMBDA_Q_SCHEDULE = [
-  1.00, 0.75, 0.50, 0.25, 0.00,
-  0.00, 0.00, 0.00, 0.00, 0.00,
-  0.00, 0.00, 0.00, 0.00, 0.00,
-  0.00, 0.00, 0.00, 0.00, 0.00,
+  1.00,
+  0.75,
+  0.50,
+  0.25,
+  0.00,
+  0.00,
+  0.00,
+  0.00,
+  0.00,
+  0.00,
+  0.00,
+  0.00,
+  0.00,
+  0.00,
+  0.00,
+  0.00,
+  0.00,
+  0.00,
+  0.00,
+  0.00,
 ]
 _LAMBDA_LJ_SCHEDULE = [
-  1.00, 1.00, 1.00, 1.00, 1.00,
-  0.95, 0.90, 0.80, 0.70, 0.60,
-  0.50, 0.40, 0.35, 0.30, 0.25,
-  0.20, 0.15, 0.10, 0.05, 0.00,
+  1.00,
+  1.00,
+  1.00,
+  1.00,
+  1.00,
+  0.95,
+  0.90,
+  0.80,
+  0.70,
+  0.60,
+  0.50,
+  0.40,
+  0.35,
+  0.30,
+  0.25,
+  0.20,
+  0.15,
+  0.10,
+  0.05,
+  0.00,
 ]
 
 _OMM_GMX_TOL_KJ = 0.3
@@ -93,7 +125,9 @@ def _scale_solute_charges_in_context(
 ) -> None:
   for particle_index, full_charge in zip(solute_indices, full_solute_charges):
     _, sigma, epsilon = nbforce.getParticleParameters(particle_index)
-    nbforce.setParticleParameters(particle_index, lambda_q * full_charge, sigma, epsilon)
+    nbforce.setParticleParameters(
+      particle_index, lambda_q * full_charge, sigma, epsilon
+    )
   nbforce.updateParametersInContext(context)
 
 
@@ -124,7 +158,9 @@ def read_gromacs_potential_from_xvg(xvg_path: Path) -> float:
         continue
       if line.startswith('@'):
         parts = line.split()
-        if len(parts) >= 4 and parts[1].startswith('s') and parts[2] == 'legend':
+        if (
+          len(parts) >= 4 and parts[1].startswith('s') and parts[2] == 'legend'
+        ):
           try:
             series_idx = int(parts[1][1:])
           except ValueError:
@@ -161,7 +197,9 @@ def modify_alchemical_system(
 
   nbforce = _get_nonbonded_force(system)
   alchemical_particles = set(solute_indices)
-  chemical_particles = set(range(system.getNumParticles())) - alchemical_particles
+  chemical_particles = (
+    set(range(system.getNumParticles())) - alchemical_particles
+  )
 
   softcore_fn = '4.0*lambdaLJ*epsilon*x*(x-1.0); x=(1.0/reff_sterics);'
   softcore_fn += 'reff_sterics=(0.5*(1.0-lambdaLJ)+((r/sigma)^6));'
@@ -205,8 +243,12 @@ def modify_alchemical_system(
     solute_lj_force.addExclusion(p1, p2)
 
   softcore_force.addInteractionGroup(alchemical_particles, chemical_particles)
-  solute_coul_force.addInteractionGroup(alchemical_particles, alchemical_particles)
-  solute_lj_force.addInteractionGroup(alchemical_particles, alchemical_particles)
+  solute_coul_force.addInteractionGroup(
+    alchemical_particles, alchemical_particles
+  )
+  solute_lj_force.addInteractionGroup(
+    alchemical_particles, alchemical_particles
+  )
 
   softcore_force.setCutoffDistance(10.0 * u.angstroms)
   softcore_force.setNonbondedMethod(mm.CustomNonbondedForce.CutoffPeriodic)
@@ -244,7 +286,9 @@ def build_jax_alchemical_components(
   softcore_lrc_points: int,
 ):
   # trick to deep copy the system to avoid conflicting changes
-  conversion_system = mm.XmlSerializer.deserialize(mm.XmlSerializer.serialize(base_system))
+  conversion_system = mm.XmlSerializer.deserialize(
+    mm.XmlSerializer.serialize(base_system)
+  )
   _configure_nbforce_for_jax_conversion(
     conversion_system,
     use_switch=use_switch,
@@ -329,7 +373,6 @@ def compute_alchemical_energy_jax(
 
 
 class AMBERFETest(jtu.JAXMDTestCase, parameterized.TestCase):
-
   def test_amber_fe_schedule(self):
     lambda_q_schedule = _LAMBDA_Q_SCHEDULE
     lambda_lj_schedule = _LAMBDA_LJ_SCHEDULE
@@ -357,35 +400,43 @@ class AMBERFETest(jtu.JAXMDTestCase, parameterized.TestCase):
     )
 
     # trick to deep copy system to avoid conflicting changes with alchemical modifications
-    alchemical_system = mm.XmlSerializer.deserialize(mm.XmlSerializer.serialize(base_system))
-    alchemical_system, solute_indices, full_solute_charges = modify_alchemical_system(
-      top.topology, alchemical_system
+    alchemical_system = mm.XmlSerializer.deserialize(
+      mm.XmlSerializer.serialize(base_system)
+    )
+    alchemical_system, solute_indices, full_solute_charges = (
+      modify_alchemical_system(top.topology, alchemical_system)
     )
     alchemical_nbforce = _get_nonbonded_force(alchemical_system)
 
-    platform = mm.Platform.getPlatformByName("Reference")
+    platform = mm.Platform.getPlatformByName('Reference')
     omm_integrator = mm.VerletIntegrator(1.0 * u.femtoseconds)
     omm_context = mm.Context(alchemical_system, omm_integrator, platform)
     omm_context.setPositions(gro.getPositions())
 
-    converted, energy_fn, neighbor_fn, nbr, sc_mask = build_jax_alchemical_components(
-      base_system=base_system,
-      omm_topology=top.topology,
-      omm_positions=gro.getPositions(),
-      omm_box_vectors=gro.getPeriodicBoxVectors(),
-      solute_indices=solute_indices,
-      use_switch=True,
-      switch_nm=0.9,
-      use_dispersion_correction=True,
-      use_softcore_lrc=True,
-      softcore_lrc_points=96,
+    converted, energy_fn, neighbor_fn, nbr, sc_mask = (
+      build_jax_alchemical_components(
+        base_system=base_system,
+        omm_topology=top.topology,
+        omm_positions=gro.getPositions(),
+        omm_box_vectors=gro.getPeriodicBoxVectors(),
+        solute_indices=solute_indices,
+        use_switch=True,
+        switch_nm=0.9,
+        use_dispersion_correction=True,
+        use_softcore_lrc=True,
+        softcore_lrc_points=96,
+      )
     )
 
     if _VERBOSE_TESTS:
       print('\nWindow comparison:')
-      print('window  lambdaQ  lambdaLJ      openmm_kj         jax_kj     gromacs_kj    omm-gmx    jax-gmx    jax-omm')
+      print(
+        'window  lambdaQ  lambdaLJ      openmm_kj         jax_kj     gromacs_kj    omm-gmx    jax-gmx    jax-omm'
+      )
 
-    for window, (lambda_q, lambda_lj) in enumerate(zip(lambda_q_schedule, lambda_lj_schedule)):
+    for window, (lambda_q, lambda_lj) in enumerate(
+      zip(lambda_q_schedule, lambda_lj_schedule)
+    ):
       omm_kj = compute_alchemical_energy(
         alchemical_system,
         omm_context,

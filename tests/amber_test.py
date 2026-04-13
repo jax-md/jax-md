@@ -138,7 +138,10 @@ def _min_and_heat() -> None:
 
 
 def _openmm_energy_force(
-  system: Any, positions: Any, platform_name: str = 'Reference', has_virtual_sites=False,
+  system: Any,
+  positions: Any,
+  platform_name: str = 'Reference',
+  has_virtual_sites=False,
 ) -> tuple[dict[str, float], np.ndarray]:
   """Compute OpenMM potential energy, broken down by Force.
 
@@ -230,8 +233,8 @@ def rms_frc_error(f1, f2):
 
 # symmetric relative energy error
 def rel_nrg_error(e1, e2):
-  num = 2.0 * jnp.abs(e1-e2)
-  den = (jnp.abs(e1) + jnp.abs(e2))
+  num = 2.0 * jnp.abs(e1 - e2)
+  den = jnp.abs(e1) + jnp.abs(e2)
   return num / den
 
 
@@ -464,7 +467,9 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
 
     nlist = neighbor_fn.allocate(mm.positions)
     energy_dict = energy_fn_vs(mm.positions, nlist)
-    ref_terms, omm_frcs = _openmm_energy_force(omm_system, omm_positions, has_virtual_sites=has_virtual_sites)
+    ref_terms, omm_frcs = _openmm_energy_force(
+      omm_system, omm_positions, has_virtual_sites=has_virtual_sites
+    )
 
     # print("\njax energy dict", energy_dict)
     # print("\nomm energy dict", ref_terms)
@@ -540,7 +545,7 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
       ),
     ],
   )
-  def test_virtual_sites(self, system_info):
+  def test_virtual_sites_solvent(self, system_info):
     dt = 1.0 * _FS_TO_AKMA
     n_steps = 10
     n_steps_inner = 1
@@ -736,34 +741,168 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     )
 
     self.assertAllClose(first_step_jax, first_step_omm, rtol=1e-4, atol=0.0)
-    # NOTE basic force comparisons need to get worked out first, but keep in
-    # mind that OpenMM doesn't zero out virtual site forces
-    # self.assertAllClose(
-    #   first_step_jax_grads
-    #   * ~mm.virtual_sites.is_virtual_site.reshape(-1, 1),
-    #   first_step_omm_grads
-    #   * ~mm.virtual_sites.is_virtual_site.reshape(-1, 1),
-    #   rtol=1e-5,
-    #   atol=0.0,
-    # )
+    real_mask = ~jnp.asarray(mm.virtual_sites.is_virtual_site)
+    frc = jnp.asarray(first_step_omm_grads, dtype=first_step_jax_grads.dtype)
+    self.assertAllClose(
+      first_step_jax_grads[real_mask],
+      frc[real_mask],
+      rtol=1e-4,
+      atol=2e-5,
+    )
 
     # Summary diagnostics (virtual site systems are especially sensitive).
     pos_delta = vs_pos_jax - jnp.asarray(vs_pos_omm, dtype=mm.positions.dtype)
     max_abs_pos = float(jnp.max(jnp.abs(pos_delta)))
     rms_abs_pos = float(jnp.sqrt(jnp.mean(pos_delta**2)))
 
-    frc = jnp.asarray(first_step_omm_grads, dtype=first_step_jax_grads.dtype)
-    df = first_step_jax_grads - frc
+    df = first_step_jax_grads[real_mask] - frc[real_mask]
     max_abs_f = float(jnp.max(jnp.abs(df)))
     rms_abs_f = float(jnp.sqrt(jnp.mean(df**2)))
-    rms_rel_f = float(rms_abs_f / (jnp.sqrt(jnp.mean(frc**2)) + 1e-12))
+    rms_rel_f = float(
+      rms_abs_f / (jnp.sqrt(jnp.mean(frc[real_mask] ** 2)) + 1e-12)
+    )
 
     _vprint(
       '[vsites] '
       f'{prmtop_name}  '
       f'pos_err: max_abs={max_abs_pos:.3e} rms_abs={rms_abs_pos:.3e}  '
       f'E0_jax={first_step_jax:.6f} E0_omm={first_step_omm:.6f} kJ/mol  '
-      f'F0_err: max_abs={max_abs_f:.3e} rms_abs={rms_abs_f:.3e} rms_rel={rms_rel_f:.3e}'
+      f'F0_err(real): max_abs={max_abs_f:.3e} rms_abs={rms_abs_f:.3e} rms_rel={rms_rel_f:.3e}'
+    )
+
+  def _build_synthetic_vsite_system(
+    self, vsite_kind: str
+  ) -> tuple[Any, Any, Any, Any, int]:
+    system = openmm.System()
+    topology = app.Topology()
+    chain = topology.addChain()
+    residue = topology.addResidue('VS', chain)
+
+    # Positions chosen to be non colinear
+    base_pos_ang = np.asarray(
+      [
+        [0.0, 0.0, 0.0],  # 0
+        [1.3, 0.2, 0.1],  # 1
+        [0.2, 1.1, 0.4],  # 2
+        [0.6, 0.4, 1.5],  # 3
+        [0.0, 0.0, 0.0],  # 4 (virtual site)
+      ],
+      dtype=np.float64,
+    )
+    positions = unit.Quantity(base_pos_ang, unit.angstrom)
+
+    for i in range(4):
+      system.addParticle(12.0 * unit.dalton)
+      topology.addAtom(f'R{i}', app.element.carbon, residue)
+    vsite_index = 4
+    system.addParticle(0.0 * unit.dalton)
+    topology.addAtom('VS', app.element.hydrogen, residue)
+
+    # Adding a simple force to satisfy conversion utilities
+    nb = openmm.NonbondedForce()
+    nb.setNonbondedMethod(openmm.NonbondedForce.NoCutoff)
+    for _ in range(system.getNumParticles()):
+      nb.addParticle(
+        0.0 * unit.elementary_charge,
+        0.3 * unit.nanometer,
+        0.0 * unit.kilojoule_per_mole,
+      )
+    system.addForce(nb)
+
+    if vsite_kind == 'two_avg':
+      system.setVirtualSite(
+        vsite_index, openmm.TwoParticleAverageSite(0, 1, 0.25, 0.75)
+      )
+      expected_type = 1
+    elif vsite_kind == 'oop':
+      system.setVirtualSite(
+        vsite_index, openmm.OutOfPlaneSite(0, 1, 2, 0.2, 0.3, 0.15)
+      )
+      expected_type = 3
+    elif vsite_kind == 'local':
+      system.setVirtualSite(
+        vsite_index,
+        openmm.LocalCoordinatesSite(
+          0,
+          1,
+          2,
+          openmm.Vec3(1.0, 0.0, 0.0),
+          openmm.Vec3(-1.0, 0.5, 0.5),
+          openmm.Vec3(0.0, -1.0, 1.0),
+          openmm.Vec3(0.2, -0.1, 0.35),
+        ),
+      )
+      expected_type = 4
+
+    return system, topology, positions, None, expected_type
+
+  @parameterized.product(
+    vsite_kind=[
+      'two_avg',
+      'oop',
+      'local',
+    ]
+  )
+  def test_virtual_sites_synthetic(self, vsite_kind):
+    if openmm is None:
+      self.skipTest('OpenMM is not installed.')
+
+    omm_system, omm_topology, omm_positions, omm_box_vectors, expected_type = (
+      self._build_synthetic_vsite_system(vsite_kind)
+    )
+
+    mm = convert_openmm_system(
+      omm_system,
+      omm_topology,
+      omm_positions,
+      omm_box_vectors,
+      format=partition.NeighborListFormat.OrderedSparse,
+    )
+
+    self.assertIsNotNone(mm.virtual_sites)
+    vs = mm.virtual_sites
+    vs_mask = np.asarray(jax.device_get(vs.is_virtual_site), dtype=bool)
+    self.assertEqual(int(vs_mask.sum()), 1)
+
+    vs_idx = int(np.where(vs_mask)[0][0])
+    vs_type = int(jax.device_get(vs.vsite_type[vs_idx]))
+    self.assertEqual(vs_type, expected_type)
+
+    disp_fn, shift_fn = space.free()
+    pos_jax = virtual_site_apply_positions(
+      mm.positions,
+      vs,
+      displacement_fn=disp_fn,
+      shift_fn=shift_fn,
+      box=mm.box_vectors,
+      use_periodic_general=mm.nb_options.use_periodic_general,
+    )
+
+    integrator = openmm.VerletIntegrator(1.0 * unit.femtosecond)
+    platform = openmm.Platform.getPlatformByName('Reference')
+    sim = app.Simulation(omm_topology, omm_system, integrator, platform)
+    sim.context.setPositions(omm_positions)
+    sim.context.computeVirtualSites()
+    pos_omm = (
+      sim.context.getState(getPositions=True)
+      .getPositions(asNumpy=True)
+      .value_in_unit(unit.angstrom)
+    )
+    pos_omm = jnp.asarray(np.asarray(pos_omm), dtype=pos_jax.dtype)
+
+    self.assertAllClose(
+      pos_jax[vs_mask], pos_omm[vs_mask], rtol=1e-10, atol=1e-10
+    )
+    self.assertAllClose(
+      pos_jax[~vs_mask], mm.positions[~vs_mask], rtol=0.0, atol=0.0
+    )
+
+    pos_delta = pos_jax[vs_mask] - pos_omm[vs_mask]
+    _vprint(
+      '[vsites-synth] '
+      f'{vsite_kind} type={vs_type} idx={vs_idx} '
+      f'max_abs={float(jnp.max(jnp.abs(pos_delta))):.3e} '
+      f'rms_abs={float(jnp.sqrt(jnp.mean(pos_delta**2))):.3e}'
     )
 
   def test_nve(self):
@@ -1409,6 +1548,21 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
       .value_in_unit(unit.angstrom)
     )
 
+    # Randomly chosen initial velocities to ensure constraints aren't satisfied
+    rng = np.random.default_rng(0)
+    vel_init = rng.normal(
+      loc=0.0,
+      scale=1.0,
+      size=(omm_system.getNumParticles(), 3),
+    )
+    sim.context.setVelocities(vel_init * unit.angstrom / unit.picosecond)
+    sim.context.applyVelocityConstraints(tol)
+    vel_omm_constrained = np.asarray(
+      sim.context.getState(getVelocities=True)
+      .getVelocities(asNumpy=True)
+      .value_in_unit(unit.angstrom / unit.picosecond)
+    )
+
     mm = convert_openmm_system(
       omm_system,
       omm_topology,
@@ -1512,11 +1666,78 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
       f'init max={max_jax_init:.3e} mean={mean_jax_init:.3e} rms={rms_jax_init:.3e}  '
       f'after max={max_jax:.3e} mean={mean_jax:.3e} rms={rms_jax:.3e}'
     )
-    pos_delta = pos_jax - jnp.asarray(pos_omm_constrained, dtype=pos0.dtype)
+    pos_omm_c = jnp.asarray(pos_omm_constrained, dtype=pos0.dtype)
+    pos_delta = jax.vmap(disp_fn)(pos_jax, pos_omm_c)
     _vprint(
       '[constraints] '
       f'pos diff vs OpenMM: max_abs={float(jnp.max(jnp.abs(pos_delta))):.3e} '
       f'rms_abs={float(jnp.sqrt(jnp.mean(pos_delta**2))):.3e}'
+    )
+
+    # Velocity constraints
+    # Check projection of relative velocity out to bond component as well as
+    # absolute velocity match between OMM and JAX
+    # NOTE: with the current prepare_settle_ccma split, applying SETTLE first and
+    # then CCMA is probably better because the split can leave some coupled constraints
+    # in CCMA that involve atoms touched by SETTLE. This requires more thought,
+    # especially if other coupled constraint algorithms are applied
+
+    vel0 = jnp.asarray(vel_init, dtype=pos0.dtype)
+    pos_vel_ref = jnp.asarray(pos_omm_constrained, dtype=pos0.dtype)
+    vel_jax = amber_constraints.settle_apply_velocities(
+      pos_vel_ref,
+      vel0,
+      settle_data,
+      mm.masses,
+      disp_fn,
+      box=mm.box_vectors,
+      use_periodic_general=mm.nb_options.use_periodic_general,
+      tolerance=tol,
+    )
+    vel_jax = amber_constraints.ccma_apply_velocities(
+      pos_vel_ref,
+      vel_jax,
+      ccma_data,
+      mm.masses,
+      disp_fn,
+      box=mm.box_vectors,
+      use_periodic_general=mm.nb_options.use_periodic_general,
+      tolerance=tol,
+      max_iters=150,
+    )
+    vel_omm = jnp.asarray(vel_omm_constrained, dtype=pos0.dtype)
+
+    self.assertEqual(vel_jax.shape, pos_jax.shape)
+    self.assertTrue(jnp.all(jnp.isfinite(vel_jax)))
+    self.assertTrue(jnp.all(jnp.isfinite(vel_omm)))
+
+    # For each constrained pair, require (v_i-v_j) dot r_ij ~= 0.
+    rij_jax = jax.vmap(disp_fn)(pos_vel_ref[i], pos_vel_ref[j])
+    vij_jax = vel_jax[i] - vel_jax[j]
+    proj_jax = jnp.sum(vij_jax * rij_jax, axis=1)
+
+    pos_omm_c = jnp.asarray(pos_omm_constrained, dtype=pos0.dtype)
+    rij_omm = jax.vmap(disp_fn)(pos_omm_c[i], pos_omm_c[j])
+    vij_omm = vel_omm[i] - vel_omm[j]
+    proj_omm = jnp.sum(vij_omm * rij_omm, axis=1)
+
+    max_proj_jax = float(jnp.max(jnp.abs(proj_jax)))
+    max_proj_omm = float(jnp.max(jnp.abs(proj_omm)))
+    self.assertLess(max_proj_jax, 1e-6)
+    self.assertLess(max_proj_omm, 1e-6)
+
+    # Absolute component wise velocity comparison
+    self.assertAllClose(vel_jax, vel_omm, rtol=1e-5, atol=1e-6)
+
+    vel_delta = vel_jax - vel_omm
+    _vprint(
+      '[constraints] '
+      f'vel diff vs OpenMM: max_abs={float(jnp.max(jnp.abs(vel_delta))):.3e} '
+      f'rms_abs={float(jnp.sqrt(jnp.mean(vel_delta**2))):.3e}'
+    )
+    _vprint(
+      '[constraints] '
+      f'max |(vi-vj) dot rij| after projection: jax={max_proj_jax:.3e} omm={max_proj_omm:.3e}'
     )
 
 
