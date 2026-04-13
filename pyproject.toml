@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "jax-md"
-version = "0.2.27"
+version = "0.2.28"
 description = "Differentiable, Hardware Accelerated, Molecular Dynamics"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -45,7 +45,6 @@ dependencies = [
     "einops",
     "ml_collections",
     "e3nn-jax",
-    "dm-haiku",
     "optax",
     "frozendict",
     "pymatgen",
@@ -68,6 +67,10 @@ docs = [
     "matplotlib",
     "seaborn",
     "ase",
+    "ase-db-backends",
+    "symd",
+    "importlib-resources",
+    "networkx",
     "tqdm",
 ]
 

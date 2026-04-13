@@ -92,7 +92,7 @@ base_url_nve = 'https://raw.githubusercontent.com/abhijeetgangan/silicon_data/ma
 download_file(base_url_nve + 'step_1.traj', 'step_1.traj')
 
 data_lammps = pd.read_csv(
-  'velocity_rescale_nvt.dat', delim_whitespace=True, header=None
+  'velocity_rescale_nvt.dat', sep=r'\s+', header=None
 )
 data_lammps = data_lammps.dropna(axis=1)
 data_lammps.columns = ['Time', 'T', 'P', 'V', 'E', 'H']
