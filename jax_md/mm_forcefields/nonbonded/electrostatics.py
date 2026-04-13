@@ -111,7 +111,7 @@ class CutoffCoulomb(CoulombHandler):
       charge_sq=None,
     )
 
-    return (bond_coul_fn)
+    return bond_coul_fn
 
   def energy_smap(
     self,

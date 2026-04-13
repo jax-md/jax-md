@@ -967,12 +967,12 @@ def neighbor_list(
 
     return jnp.stack((receiver_idx, sender_idx)), max_occupancy
 
-  _cell_offsets_2d = onp.stack(
-    list(_neighboring_cells(2)), axis=0
-  ).astype(onp.int32)
-  _cell_offsets_3d = onp.stack(
-    list(_neighboring_cells(3)), axis=0
-  ).astype(onp.int32)
+  _cell_offsets_2d = onp.stack(list(_neighboring_cells(2)), axis=0).astype(
+    onp.int32
+  )
+  _cell_offsets_3d = onp.stack(list(_neighboring_cells(3)), axis=0).astype(
+    onp.int32
+  )
 
   def _edge_from_cell_list(
     position: Array, cl: CellList, max_edges: int, ordered: bool, **kwargs
@@ -1071,7 +1071,9 @@ def neighbor_list(
         mask = mask & (receiver < sender[:, None])
 
       receiver_flat = jnp.reshape(receiver, (-1,))
-      sender_flat = jnp.reshape(jnp.broadcast_to(sender[:, None], receiver.shape), (-1,))
+      sender_flat = jnp.reshape(
+        jnp.broadcast_to(sender[:, None], receiver.shape), (-1,)
+      )
       mask_flat = jnp.reshape(mask, (-1,))
 
       # Pack valid pairs into the front of fixed-size buffers.
@@ -1179,7 +1181,7 @@ def neighbor_list(
       # the initial call site may pass NumPy arrays (e.g. on allocation). Ensure
       # all indexing below is performed on JAX arrays to avoid tracer conversion
       # errors.
-      #position = jnp.asarray(position)
+      # position = jnp.asarray(position)
       N = position.shape[0]
 
       cl_fn = None
