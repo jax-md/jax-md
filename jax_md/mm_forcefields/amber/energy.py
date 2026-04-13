@@ -542,8 +542,10 @@ def energy(
   pair_coul_1r_edge_fn = None
   if use_softcore_vdw and use_linear_coul:
     coul_1r_wrapped = ele_cutoff_fn(
-      lambda dr, charge_sq, **unused_kwargs: COULOMB_CONSTANT
-      * (charge_sq / jnp.where(jnp.isclose(dr, 0.0), 1.0, dr))
+      lambda dr, charge_sq, **unused_kwargs: (
+        COULOMB_CONSTANT
+        * (charge_sq / jnp.where(jnp.isclose(dr, 0.0), 1.0, dr))
+      )
     )
     pair_coul_1r_edge_fn = smap.pair_neighbor_list(
       coul_1r_wrapped,
