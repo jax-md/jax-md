@@ -49,6 +49,9 @@ dependencies = [
     "optax",
     "frozendict",
     "pymatgen",
+    "openmm",
+    "openmmforcefields",
+    "parmed",
 ]
 
 [dependency-groups]
