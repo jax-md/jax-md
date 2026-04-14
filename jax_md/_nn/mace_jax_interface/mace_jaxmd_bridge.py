@@ -169,7 +169,7 @@ def make_mace_jaxmd_energy(
         valid_e = valid_k.reshape(-1)
 
         receivers = jnp.where(valid_e, receivers, senders)
-
+        #receivers = jnp.where(valid_e, receivers, jnp.zeros_like(receivers))
         # ---- Differentiable minimum-image displacement for selected edges ----
         Ri_e = R_real[senders]
         Rj_e = R_real[receivers]
@@ -180,14 +180,28 @@ def make_mace_jaxmd_energy(
         delta = (Rj_e - Ri_e)
         shifts = dR_model - delta
 
-        unit_shifts_int = jnp.rint(shifts @ inv_cell).astype(jnp.int32)
+        exact_shifts = (dR_model - delta).astype(shift_dtype)
+
+        unit_shifts_int = jnp.rint(exact_shifts @ inv_cell).astype(jnp.int32)
         unit_shifts_int = lax.stop_gradient(unit_shifts_int)
 
         unit_shifts = unit_shifts_int.astype(us_dtype)
         unit_shifts = lax.stop_gradient(unit_shifts)
 
-        shifts = (unit_shifts @ cell).astype(shift_dtype)
-        shifts = lax.stop_gradient(shifts)
+        shifts = lax.stop_gradient(exact_shifts)
+
+        # --- DEBUG: check internal consistency of displacement reconstruction ---
+        #recon = delta + shifts
+        #recon_err = jnp.linalg.norm(recon - dR_model, axis=1)
+
+        #valid_recon_err = jnp.where(valid_e, recon_err, 0.0)
+        #n_valid = jnp.maximum(jnp.sum(valid_e.astype(jnp.int32)), 1)
+
+        #jax.debug.print(
+         #   "recon err | max={mx:.6e} mean={mn:.6e}",
+         #   mx=jnp.max(valid_recon_err),
+         #   mn=jnp.sum(valid_recon_err) / n_valid,
+        #)
 
         shifts = jnp.where(valid_e[:, None], shifts, FAR_SHIFT[None, :])
         unit_shifts = jnp.where(
