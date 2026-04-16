@@ -29,29 +29,36 @@ def make_mace_jaxmd_energy(
     template_batch: dict,
     config: dict,
     box,
-    z_atomic,                      # (N_real,) atomic numbers (Z) for REAL atoms only
+    z_atomic,                      # (N_real,) atomic numbers for real atoms only
     r_cutoff: float,
     dr_threshold: float,
-    k_neighbors: int = 64,         # keep first k neighbor slots (no ranking!)
+    k_neighbors: int = 64,
     capacity_multiplier: float = 2.0,
     include_head: bool = True,
 ):
     """
     MACE(JAX) potential wrapped for jax-md with neighbor lists.
 
-    Key design choice for stable MD:
-    - NO distance-based top-k ranking (which causes discontinuous edge sets and energy blow-up).
-    - We take the FIRST k neighbor slots from the jax-md neighbor buffer (piecewise-constant
-      between neighbor-list rebuilds, which is what the skin is for).
+    Returns:
+      neighbor_fn, shift_fn, energy_fn
 
-    Returns: neighbor_fn, shift_fn, energy_fn
-      energy_fn(R, *, neighbors=None, neighbor_idx=None) -> scalar
+    energy_fn signature:
+      energy_fn(R, *, box=None, neighbors=None, neighbor_idx=None) -> scalar
+
+    Notes:
+    - neighbor_fn / shift_fn are built from the default box passed here.
+    - energy_fn can accept a runtime box for stress/pressure calculations.
+    - shifts are kept as exact continuous shifts, while unit_shifts are rounded
+      lattice-image bookkeeping.
     """
 
-    displacement_fn, shift_fn = space.periodic(box)
+    box_default = jnp.asarray(box)
+
+    # Fixed-box neighbor function for MD.
+    displacement_fn_fixed, shift_fn = space.periodic(box_default)
     neighbor_fn = partition.neighbor_list(
-        displacement_fn,
-        box,
+        displacement_fn_fixed,
+        box_default,
         r_cutoff=r_cutoff,
         dr_threshold=dr_threshold,
         mask=True,
@@ -63,7 +70,6 @@ def make_mace_jaxmd_energy(
     E_template = int(template_batch["edge_index"].shape[1])
     C_node = int(template_batch["node_attrs"].shape[1])
 
-    # Hard sizing rule: E_template must cover N_template * k_neighbors
     if E_template < N_template * k_neighbors:
         raise ValueError(
             f"E_template ({E_template}) must be >= N_template*k_neighbors "
@@ -79,11 +85,10 @@ def make_mace_jaxmd_energy(
     node_idx_dtype = template_batch["node_attrs_index"].dtype
     cell_dtype = template_batch["cell"].dtype
 
-    # Finite far shift to neutralize invalid/padded edges safely (float32 friendly)
     far = jnp.asarray(r_cutoff + 2.0 * dr_threshold + 1.0, dtype=shift_dtype)
     FAR_SHIFT = jnp.array([far, 0.0, 0.0], dtype=shift_dtype)
 
-    # Z -> species index lookup (index into config["atomic_numbers"])
+    # Z -> species index lookup
     atomic_numbers = tuple(int(x) for x in config["atomic_numbers"])
     max_Z = int(max(atomic_numbers))
     Z_to_index = -jnp.ones((max_Z + 1,), dtype=jnp.int32)
@@ -96,35 +101,40 @@ def make_mace_jaxmd_energy(
     if include_head and ("head" in template_batch):
         head_value = template_batch["head"].astype(jnp.int32).reshape(-1)
 
-    # Cell / inv cell (static w.r.t. positions)
-    cell_1x3x3 = _make_cell_1x3x3(box, cell_dtype)
-    cell = cell_1x3x3[0]
-    inv_cell = jnp.linalg.inv(cell)
-
     @jax.jit
-    def make_batch_from_firstk(R_real, neighbor_idx):
+    def make_batch_from_firstk(R_real, neighbor_idx, box_now):
         """
-        Build a MACE batch dict of fixed template shapes using:
-        - nodes: real atoms padded to N_template, padded nodes masked via node_attrs=0
-        - edges: FIRST k neighbor slots per atom (N*k edges), then pad to E_template
-
-        IMPORTANT: jax-md neighbor lists use sentinel index == N for empty slots.
-        We must mask with (idx < N), not just (idx >= 0).
+        Build a fixed-shape MACE batch using:
+        - real atoms padded to N_template
+        - first k neighbor slots per atom from jax-md neighbor list
+        - runtime box for displacement/cell/shifts
         """
         R_real = jnp.asarray(R_real, dtype=pos_dtype)
         neighbor_idx = jnp.asarray(neighbor_idx, dtype=jnp.int32)
+
+        cell_1x3x3 = _make_cell_1x3x3(box_now, cell_dtype)
+        cell = cell_1x3x3[0]
+        inv_cell = jnp.linalg.inv(cell)
+
+        box_arr = jnp.asarray(box_now)
+        if box_arr.shape == (3,):
+           disp_now, _ = space.periodic(box_arr)
+        elif box_arr.shape == (3, 3):
+           disp_now, _ = space.periodic_general(box_arr)
+        else:
+           raise ValueError(f"Unexpected runtime box shape: {box_arr.shape}")
 
         N = R_real.shape[0]
         M = neighbor_idx.shape[1]
         E_real = N * k_neighbors
 
-        # ---- Positions (pad to N_template) ----
+        # ---- Positions ----
         positions = jnp.zeros((N_template, 3), dtype=pos_dtype)
         positions = positions.at[:N].set(R_real)
 
         # ---- Node attrs ----
         species_idx = jnp.zeros((N_template,), dtype=jnp.int32)
-        species_idx_real = Z_to_index[z_atomic[:N]]  # (N,)
+        species_idx_real = Z_to_index[z_atomic[:N]]
         species_idx = species_idx.at[:N].set(species_idx_real)
 
         node_mask = (jnp.arange(N_template, dtype=jnp.int32) < N).astype(node_attrs_dtype)
@@ -135,20 +145,17 @@ def make_mace_jaxmd_energy(
             node_mask > 0, species_idx, jnp.zeros_like(species_idx)
         ).astype(node_idx_dtype)
 
-        # ---- Validity mask (handle sentinel idx == N) ----
+        # ---- Valid slots ----
         valid_slot = (neighbor_idx >= 0) & (neighbor_idx < N)
 
-        # Build receivers0 with invalid slots -> 0 (safe gather index)
         receivers0 = jnp.where(valid_slot, neighbor_idx, jnp.zeros_like(neighbor_idx))
 
-        # Forbid self edges (i -> i)
         self_edge = receivers0 == jnp.arange(N, dtype=jnp.int32)[:, None]
         valid_slot = valid_slot & (~self_edge)
 
-        # Rebuild receivers0 after masking
         receivers0 = jnp.where(valid_slot, neighbor_idx, jnp.zeros_like(neighbor_idx))
 
-        # ---- Take FIRST k neighbor slots (no ranking) ----
+        # ---- Take first k slots ----
         if M < k_neighbors:
             extra = k_neighbors - M
             recv_p = jnp.concatenate(
@@ -169,19 +176,20 @@ def make_mace_jaxmd_energy(
         valid_e = valid_k.reshape(-1)
 
         receivers = jnp.where(valid_e, receivers, senders)
-        #receivers = jnp.where(valid_e, receivers, jnp.zeros_like(receivers))
-        # ---- Differentiable minimum-image displacement for selected edges ----
+
+        # ---- Edge geometry ----
         Ri_e = R_real[senders]
         Rj_e = R_real[receivers]
 
-        dR_min_e = jax.vmap(displacement_fn)(Ri_e, Rj_e)  # jax-md convention
-        dR_model = -dR_min_e                               # what MACE expects
+        dR_min_e = jax.vmap(disp_now)(Ri_e, Rj_e)
+        dR_model = -dR_min_e
 
-        delta = (Rj_e - Ri_e)
-        shifts = dR_model - delta
+        delta = Rj_e - Ri_e
 
+        # Exact continuous shifts: crucial for force/stress consistency
         exact_shifts = (dR_model - delta).astype(shift_dtype)
 
+        # Integer image bookkeeping
         unit_shifts_int = jnp.rint(exact_shifts @ inv_cell).astype(jnp.int32)
         unit_shifts_int = lax.stop_gradient(unit_shifts_int)
 
@@ -190,25 +198,13 @@ def make_mace_jaxmd_energy(
 
         shifts = lax.stop_gradient(exact_shifts)
 
-        # --- DEBUG: check internal consistency of displacement reconstruction ---
-        #recon = delta + shifts
-        #recon_err = jnp.linalg.norm(recon - dR_model, axis=1)
-
-        #valid_recon_err = jnp.where(valid_e, recon_err, 0.0)
-        #n_valid = jnp.maximum(jnp.sum(valid_e.astype(jnp.int32)), 1)
-
-        #jax.debug.print(
-         #   "recon err | max={mx:.6e} mean={mn:.6e}",
-         #   mx=jnp.max(valid_recon_err),
-         #   mn=jnp.sum(valid_recon_err) / n_valid,
-        #)
-
+        # Mask invalid edges
         shifts = jnp.where(valid_e[:, None], shifts, FAR_SHIFT[None, :])
         unit_shifts = jnp.where(
             valid_e[:, None], unit_shifts, jnp.zeros((E_real, 3), dtype=us_dtype)
         )
 
-        # ---- Pad edges to E_template (tail padding) ----
+        # ---- Pad edges ----
         pad_n = E_template - E_real
 
         send_pad = jnp.zeros((pad_n,), dtype=jnp.int32)
@@ -238,20 +234,95 @@ def make_mace_jaxmd_energy(
             out["head"] = head_value
         return out
 
+
     @jax.jit
-    def energy_fn(R, *, neighbors=None, neighbor_idx=None):
+    def graph_data_fn(R, *, box=None, neighbors=None, neighbor_idx=None):
         if neighbor_idx is None:
             if neighbors is None:
                 raise ValueError("Provide either neighbors=... or neighbor_idx=...")
             neighbor_idx = neighbors.idx
 
-        batch = make_batch_from_firstk(R, neighbor_idx)
+        box_now = box_default if box is None else box
 
-        # NNX: call the module directly (no variables/apply)
+        cell_1x3x3 = _make_cell_1x3x3(box_now, cell_dtype)
+        cell = cell_1x3x3[0]
+        inv_cell = jnp.linalg.inv(cell)
+
+        box_arr = jnp.asarray(box_now)
+        if box_arr.shape == (3,):
+            disp_now, _ = space.periodic(box_arr)
+        elif box_arr.shape == (3, 3):
+            disp_now, _ = space.periodic_general(box_arr)
+        else:
+            raise ValueError(f"Unexpected runtime box shape: {box_arr.shape}")
+
+        R_real = jnp.asarray(R, dtype=pos_dtype)
+        neighbor_idx = jnp.asarray(neighbor_idx, dtype=jnp.int32)
+
+        N = R_real.shape[0]
+        M = neighbor_idx.shape[1]
+        E_real = N * k_neighbors
+
+        valid_slot = (neighbor_idx >= 0) & (neighbor_idx < N)
+        receivers0 = jnp.where(valid_slot, neighbor_idx, jnp.zeros_like(neighbor_idx))
+
+        self_edge = receivers0 == jnp.arange(N, dtype=jnp.int32)[:, None]
+        valid_slot = valid_slot & (~self_edge)
+        receivers0 = jnp.where(valid_slot, neighbor_idx, jnp.zeros_like(neighbor_idx))
+
+        if M < k_neighbors:
+            extra = k_neighbors - M
+            recv_p = jnp.concatenate(
+                [receivers0, jnp.zeros((N, extra), dtype=receivers0.dtype)], axis=1
+            )
+            valid_p = jnp.concatenate(
+                [valid_slot, jnp.zeros((N, extra), dtype=valid_slot.dtype)], axis=1
+            )
+        else:
+            recv_p = receivers0
+            valid_p = valid_slot
+
+        receivers_k = recv_p[:, :k_neighbors]
+        valid_k = valid_p[:, :k_neighbors]
+
+        senders = jnp.repeat(jnp.arange(N, dtype=jnp.int32), k_neighbors)
+        receivers = receivers_k.reshape(-1).astype(jnp.int32)
+        valid_e = valid_k.reshape(-1)
+
+        receivers = jnp.where(valid_e, receivers, senders)
+
+        Ri_e = R_real[senders]
+        Rj_e = R_real[receivers]
+
+        dR_min_e = jax.vmap(disp_now)(Ri_e, Rj_e)
+        dR_model = -dR_min_e
+        delta = Rj_e - Ri_e
+
+        exact_shifts = (dR_model - delta).astype(shift_dtype)
+        unit_shifts_int = jnp.rint(exact_shifts @ inv_cell).astype(jnp.int32)
+        unit_shifts_int = lax.stop_gradient(unit_shifts_int)
+
+        return {
+            "neighbor_idx": neighbor_idx,
+            "senders": senders,
+            "receivers": receivers,
+            "valid_e": valid_e,
+            "unit_shifts_int": unit_shifts_int,
+        }
+
+
+    @jax.jit
+    def energy_fn(R, *, box=None, neighbors=None, neighbor_idx=None):
+        if neighbor_idx is None:
+            if neighbors is None:
+                raise ValueError("Provide either neighbors=... or neighbor_idx=...")
+            neighbor_idx = neighbors.idx
+
+        box_now = box_default if box is None else box
+        batch = make_batch_from_firstk(R, neighbor_idx, box_now)
+
         out = jax_model(batch)
-
         e = out["energy"] if isinstance(out, dict) and "energy" in out else out
         return _as_scalar(e)
 
-    return neighbor_fn, shift_fn, energy_fn
-
+    return neighbor_fn, shift_fn, energy_fn, graph_data_fn
