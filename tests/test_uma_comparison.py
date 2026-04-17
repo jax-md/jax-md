@@ -541,9 +541,8 @@ class DatasetEmbedding(nn.Module):
   trainable: bool = False
 
   @nn.compact
-  def __call__(self, dataset_names: List[str]) -> jnp.ndarray:
-    dataset_to_idx = {name: i for i, name in enumerate(self.dataset_list)}
-    indices = jnp.array([dataset_to_idx.get(name, 0) for name in dataset_names])
+  def __call__(self, dataset_idx) -> jnp.ndarray:
+    indices = jnp.asarray(dataset_idx, dtype=jnp.int32)
     emb = nn.Embed(
       num_embeddings=len(self.dataset_list),
       features=self.embedding_size,
