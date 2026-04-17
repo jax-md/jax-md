@@ -20,7 +20,10 @@ import sys
 from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Optional, Tuple, NamedTuple
 
+import pytest
 import numpy as np
+
+pytest.importorskip('torch', reason='torch required for UMA comparison tests')
 
 # =============================================================================
 # JAX imports and implementation
@@ -30,9 +33,6 @@ import jax
 import jax.numpy as jnp
 from jax.nn import initializers
 import flax.linen as nn
-
-# Enable 64-bit precision for comparison
-jax.config.update('jax_enable_x64', False)
 
 EPS = 1e-7
 
