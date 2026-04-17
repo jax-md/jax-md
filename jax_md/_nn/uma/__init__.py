@@ -42,37 +42,3 @@ from jax_md._nn.uma.pretrained import (
   print_conversion_report,
   PRETRAINED_MODELS,
 )
-
-# ASE calculator (optional dependency)
-try:
-  from jax_md._nn.uma.ase_calculator import UMACalculator
-
-  _HAS_ASE = True
-except ImportError:
-  _HAS_ASE = False
-
-__all__ = [
-  'UMABackbone',
-  'UMAConfig',
-  'default_config',
-  'UMABlock',
-  'MLPEnergyHead',
-  'LinearEnergyHead',
-  'LinearForceHead',
-  'uma_featurizer',
-  'load_pytorch_checkpoint',
-  'convert_pytorch_state_dict',
-  'config_from_pytorch_checkpoint',
-  'UMAMoEBackbone',
-  'UMAMoEConfig',
-  'load_pretrained',
-  'dataset_names_to_indices',
-  'download_pretrained',
-  'convert_checkpoint',
-  'load_checkpoint_raw',
-  'print_conversion_report',
-  'PRETRAINED_MODELS',
-]
-
-if _HAS_ASE:
-  __all__.append('UMACalculator')

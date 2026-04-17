@@ -176,78 +176,9 @@ except ImportError:
   print("matplotlib not available, skipping plots")
 
 # %% [markdown]
-# ## 2. ASE Integration
-#
-# For users who prefer ASE's ecosystem (BFGS, constraints, trajectory I/O),
-# we provide `UMACalculator` — an ASE-compatible calculator backed by JAX.
-
-# %%
-try:
-  from ase import Atoms
-  from ase.build import bulk
-  from ase.optimize import BFGS, FIRE as ASE_FIRE
-  from ase.constraints import ExpCellFilter
-  from jax_md._nn.uma.ase_calculator import UMACalculator
-
-  # === Create ASE Atoms ===
-  si = bulk('Si', 'diamond', a=5.43)
-  si = si.repeat((2, 2, 2))  # 2x2x2 supercell = 64 atoms
-
-  # Perturb positions
-  rng = np.random.default_rng(42)
-  si.positions += rng.normal(scale=0.05, size=si.positions.shape)
-
-  print(f"ASE system: {len(si)} atoms, PBC={si.pbc}")
-
-  # === Attach UMA Calculator ===
-  calc = UMACalculator(
-    config=cfg,
-    task_name='omat',
-    # For pretrained: checkpoint_path='path/to/uma.pt'
-  )
-  si.calc = calc
-
-  # === Relaxation with BFGS ===
-  print("\nRunning BFGS relaxation...")
-  opt = BFGS(si, logfile='-')
-  opt.run(fmax=0.05, steps=50)
-
-  print(f"\nFinal energy: {si.get_potential_energy():.6f} eV")
-  print(f"Final max force: {np.max(np.abs(si.get_forces())):.6f} eV/A")
-
-  # === Cell Relaxation (Volume + Positions) ===
-  # Wrap with ExpCellFilter to relax cell parameters too
-  print("\n--- Cell + Position Relaxation ---")
-  si2 = bulk('Si', 'diamond', a=5.50)  # Wrong lattice constant
-  si2.calc = UMACalculator(config=cfg, task_name='omat')
-
-  ecf = ExpCellFilter(si2)
-  opt2 = BFGS(ecf, logfile='-')
-  opt2.run(fmax=0.05, steps=50)
-
-  print(f"\nRelaxed lattice constant: {si2.cell.lengths()[0]:.3f} A")
-
-except ImportError as e:
-  print(f"ASE not available ({e}), skipping ASE examples.")
-  print("Install with: pip install ase")
-
-# %% [markdown]
-# ## 3. Loading Pretrained Checkpoints
+# ## 2. Loading Pretrained Checkpoints
 #
 # To use a pretrained UMA model from FairChem:
-#
-# ```python
-# from jax_md._nn.uma.ase_calculator import UMACalculator
-#
-# # Automatically loads config + weights from checkpoint
-# calc = UMACalculator(checkpoint_path='uma_sm_conserve.pt', task_name='omat')
-#
-# atoms.calc = calc
-# energy = atoms.get_potential_energy()
-# forces = atoms.get_forces()
-# ```
-#
-# For JAX-MD native usage:
 #
 # ```python
 # from jax_md import space, energy
@@ -255,7 +186,7 @@ except ImportError as e:
 # displacement_fn, shift_fn = space.periodic_general(cell)
 # neighbor_fn, init_fn, energy_fn = energy.uma_neighbor_list(
 #     displacement_fn, cell,
-#     checkpoint_path='uma_sm_conserve.pt',
+#     checkpoint_path='uma-s-1p1',
 #     atoms=atomic_numbers,
 # )
 #
@@ -268,10 +199,6 @@ except ImportError as e:
 # %% [markdown]
 # ## Tips
 #
-# - **Performance**: JAX-MD native is faster (fully JIT-compiled loop).
-#   ASE calls back into Python each step.
-# - **Periodic boundaries**: Both approaches handle PBC correctly.
-#   JAX-MD via `space.periodic()`, ASE via `atoms.pbc`.
 # - **Pretrained models**: Pass `checkpoint_path` to load FairChem weights.
 # - **GPU**: JAX automatically uses GPU if available. No code changes needed.
 # - **Float64**: For tight energy conservation in MD, set

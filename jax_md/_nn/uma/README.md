@@ -145,38 +145,6 @@ for _ in range(200):
 relaxed_positions = state.position
 ```
 
-### ASE Integration (BFGS, FIRE, etc.)
-
-```python
-from ase.build import bulk
-from ase.optimize import BFGS
-from jax_md._nn.uma.ase_calculator import UMACalculator
-
-atoms = bulk('Cu', 'fcc', a=3.6, cubic=True)
-atoms.calc = UMACalculator(checkpoint_path='uma_checkpoint.pt', task_name='omat')
-
-opt = BFGS(atoms, logfile='-')
-opt.run(fmax=0.01)
-
-energy = atoms.get_potential_energy()
-forces = atoms.get_forces()
-```
-
-### ASE Cell Relaxation
-
-```python
-from ase.constraints import ExpCellFilter
-
-atoms = bulk('Si', 'diamond', a=5.50)  # Wrong lattice constant
-atoms.calc = UMACalculator(checkpoint_path='uma_checkpoint.pt')
-
-ecf = ExpCellFilter(atoms)
-opt = BFGS(ecf, logfile='-')
-opt.run(fmax=0.05)
-
-print(f"Relaxed lattice: {atoms.cell.lengths()}")
-```
-
 ## Molecular Dynamics
 
 ```python
