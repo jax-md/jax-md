@@ -16,22 +16,3 @@ from jax_md._nn.uma.nn.embedding import AtomicEmbedding
 from jax_md._nn.uma.nn.embedding import ChgSpinEmbedding
 from jax_md._nn.uma.nn.embedding import DatasetEmbedding
 from jax_md._nn.uma.nn.embedding import EdgeDegreeEmbedding
-
-__all__ = [
-  'SO3Linear',
-  'SO2Convolution',
-  'SO2MConv',
-  'GaussianSmearing',
-  'PolynomialEnvelope',
-  'RadialMLP',
-  'GateActivation',
-  'ScaledSiLU',
-  'SeparableS2Activation',
-  'EquivariantRMSNorm',
-  'EquivariantLayerNorm',
-  'get_normalization_layer',
-  'AtomicEmbedding',
-  'ChgSpinEmbedding',
-  'DatasetEmbedding',
-  'EdgeDegreeEmbedding',
-]
