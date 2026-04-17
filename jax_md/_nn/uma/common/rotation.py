@@ -24,13 +24,6 @@ _JD_FILE = os.path.join(os.path.dirname(__file__), '..', 'Jd.pt')
 _JD_NPY_DIR = os.path.join(os.path.dirname(__file__), '..', 'Jd_npy')
 
 
-# --------------------------------------------------------------------------- #
-# safe_acos: matches PyTorch Safeacos custom autograd Function                #
-#   - forward: exact arccos(x) (no clamping)                                 #
-#   - backward: gradient computed with clamped x to avoid NaN at ±1          #
-# --------------------------------------------------------------------------- #
-
-
 @jax.custom_jvp
 def safe_acos(x: jnp.ndarray) -> jnp.ndarray:
   """Numerically stable arccos matching PyTorch's Safeacos.

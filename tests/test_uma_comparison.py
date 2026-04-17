@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """
 Standalone test script for comparing JAX UMA implementation with PyTorch.
 
@@ -24,10 +23,6 @@ import pytest
 import numpy as np
 
 pytest.importorskip('torch', reason='torch required for UMA comparison tests')
-
-# =============================================================================
-# JAX imports and implementation
-# =============================================================================
 
 import jax
 import jax.numpy as jnp
@@ -1304,11 +1299,6 @@ class UMABackbone(nn.Module):
     }
 
 
-# =============================================================================
-# PyTorch imports and setup
-# =============================================================================
-
-
 def test_pytorch_model():
   """Test PyTorch UMA model if available."""
   try:
@@ -1327,11 +1317,6 @@ def test_pytorch_model():
   except ImportError as e:
     print(f'PyTorch model not available: {e}')
     return False, None
-
-
-# =============================================================================
-# Main test function
-# =============================================================================
 
 
 def create_test_data(num_atoms=10, num_systems=2, seed=42):

@@ -79,11 +79,6 @@ def create_test_data(num_atoms=10, num_systems=2, cutoff=5.0, seed=42):
   }
 
 
-# ============================================================
-# Phase 0: Foundation tests
-# ============================================================
-
-
 class SafeAcosTest(test_util.JAXMDTestCase):
   """Tests for safe_acos."""
 
@@ -148,11 +143,6 @@ class WignerDTest(test_util.JAXMDTestCase):
     product = jnp.einsum('bij,bkj->bik', wigner, wigner)
     expected = jnp.eye(9).reshape(1, 9, 9)
     self.assertTrue(jnp.allclose(product, expected, atol=1e-5))
-
-
-# ============================================================
-# Phase 1: NN layer tests
-# ============================================================
 
 
 class SO2MConvTest(test_util.JAXMDTestCase):
@@ -238,11 +228,6 @@ class RadialMLPTest(test_util.JAXMDTestCase):
     self.assertAlmostEqual(float(out[4]), 0.0, places=5)
 
 
-# ============================================================
-# Phase 2: Module tests
-# ============================================================
-
-
 class DatasetEmbeddingTest(test_util.JAXMDTestCase):
   """Tests for DatasetEmbedding with integer indices."""
 
@@ -277,11 +262,6 @@ class EquivariantRMSNormTest(test_util.JAXMDTestCase):
     out = norm.apply(params, x)
     self.assertEqual(out.shape, (5, 9, 32))
     self.assertTrue(jnp.all(jnp.isfinite(out)))
-
-
-# ============================================================
-# Phase 3+: Full model tests
-# ============================================================
 
 
 class UMAConfigTest(test_util.JAXMDTestCase):
@@ -644,11 +624,6 @@ class UMAGradientTest(test_util.JAXMDTestCase):
 
     self.assertEqual(forces.shape, data['positions'].shape)
     self.assertTrue(jnp.all(jnp.isfinite(forces)))
-
-
-# ============================================================
-# PyTorch vs JAX comparison tests
-# ============================================================
 
 
 def _load_pt_module(module_name, file_path):

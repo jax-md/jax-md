@@ -77,7 +77,19 @@ jobs:
             --ignore=tests/nequip_test.py \
             --ignore=tests/reaxff_test.py \
             --ignore=tests/tpu_test.py \
-            --ignore=tests/uma_test.py
+            --ignore=tests/uma_test.py \
+            --ignore=tests/test_uma_comparison.py \
+            --ignore=tests/uma_100_structures_test.py \
+            --ignore=tests/uma_pretrained_test.py \
+            --ignore=tests/uma_relaxation_test.py
+        elif [ "${{ matrix.test-suite }}" == "uma" ]; then
+          JAX_ENABLE_X64=1 uv run pytest \
+            tests/uma_test.py \
+            tests/test_uma_comparison.py \
+            tests/uma_pretrained_test.py \
+            tests/uma_relaxation_test.py \
+            tests/uma_100_structures_test.py \
+            --cov=jax_md --cov-report=xml --cov-report=term
         else
           JAX_ENABLE_X64=1 uv run pytest tests/${{ matrix.test-suite }}_test.py --cov=jax_md --cov-report=xml --cov-report=term
         fi
