@@ -1430,7 +1430,9 @@ def test_jax_forward_pass():
   edge_distance_vec = jnp.array(data['edge_distance_vec'])
   charge = jnp.array(data['charge'])
   spin = jnp.array(data['spin'])
-  dataset = data['dataset']
+  from jax_md._nn.uma.nn.embedding import dataset_names_to_indices
+
+  dataset_idx = dataset_names_to_indices(data['dataset'], config.dataset_list)
 
   # Initialize parameters
   key = jax.random.PRNGKey(0)
@@ -1443,7 +1445,7 @@ def test_jax_forward_pass():
     edge_distance_vec,
     charge,
     spin,
-    dataset,
+    dataset_idx,
   )
 
   print(
@@ -1460,7 +1462,7 @@ def test_jax_forward_pass():
     edge_distance_vec,
     charge,
     spin,
-    dataset,
+    dataset_idx,
   )
 
   node_embedding = output['node_embedding']
@@ -1486,7 +1488,7 @@ def test_jax_forward_pass():
     edge_distance_vec,
     charge,
     spin,
-    dataset,
+    dataset_idx,
   )
 
   # Timing
@@ -1501,7 +1503,7 @@ def test_jax_forward_pass():
       edge_distance_vec,
       charge,
       spin,
-      dataset,
+      dataset_idx,
     )
   jax.block_until_ready(output['node_embedding'])
   elapsed = time.time() - start
@@ -1547,22 +1549,37 @@ def test_pytorch_forward_pass():
   # Create test data
   data = create_test_data(num_atoms=10, num_systems=2)
 
-  # Convert to PyTorch tensors
-  data_dict = {
-    'pos': torch.tensor(data['positions']),
-    'atomic_numbers': torch.tensor(data['atomic_numbers']).long(),
-    'batch': torch.tensor(data['batch']).long(),
-    'edge_index': torch.tensor(data['edge_index']).long(),
-    'cell_offsets': torch.zeros(data['edge_index'].shape[1], 3),
-    'cell': torch.eye(3).unsqueeze(0).expand(2, 3, 3),
-    'charge': torch.tensor(data['charge']),
-    'spin': torch.tensor(data['spin']),
-    'dataset': data['dataset'],
-    'natoms': torch.tensor(data['natoms']),
-    'nedges': torch.tensor(
+  # FairChem expects a dict-like with .get(key, default=...) keyword support
+  class AtomicDataDict(dict):
+    def __getattr__(self, k):
+      try:
+        return self[k]
+      except KeyError:
+        raise AttributeError(k)
+
+    def __setattr__(self, k, v):
+      self[k] = v
+
+    def get(self, k, *a, **kw):
+      return super().get(k, kw.get('default', a[0] if a else None))
+
+  data_dict = AtomicDataDict(
+    pos=torch.tensor(data['positions']),
+    atomic_numbers=torch.tensor(data['atomic_numbers']).long(),
+    atomic_numbers_full=torch.tensor(data['atomic_numbers']).long(),
+    batch=torch.tensor(data['batch']).long(),
+    batch_full=torch.tensor(data['batch']).long(),
+    edge_index=torch.tensor(data['edge_index']).long(),
+    cell_offsets=torch.zeros(data['edge_index'].shape[1], 3),
+    cell=torch.eye(3).unsqueeze(0).expand(2, 3, 3),
+    charge=torch.tensor(data['charge']),
+    spin=torch.tensor(data['spin']),
+    dataset=data['dataset'],
+    natoms=torch.tensor(data['natoms']),
+    nedges=torch.tensor(
       [data['edge_index'].shape[1] // 2, data['edge_index'].shape[1] // 2]
     ),
-  }
+  )
 
   # Forward pass
   with torch.no_grad():

@@ -53,9 +53,24 @@ def _safe_acos_jvp(primals, tangents):
   return primal_out, tangent_out
 
 
+@jax.custom_jvp
 def safe_atan2(y: jnp.ndarray, x: jnp.ndarray) -> jnp.ndarray:
-  """Numerically stable atan2."""
+  """Numerically stable atan2 with safe backward pass.
+
+  Forward: exact atan2(y, x).
+  Backward: clamps denominator x^2+y^2 to avoid NaN at the origin.
+  """
   return jnp.arctan2(y, x)
+
+
+@safe_atan2.defjvp
+def _safe_atan2_jvp(primals, tangents):
+  y, x = primals
+  y_dot, x_dot = tangents
+  primal_out = safe_atan2(y, x)
+  denom = jnp.maximum(x**2 + y**2, EPS**2)
+  tangent_out = (x * y_dot - y * x_dot) / denom
+  return primal_out, tangent_out
 
 
 def init_edge_rot_euler_angles(

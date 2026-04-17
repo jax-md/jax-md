@@ -41,10 +41,29 @@ forces = -jax.grad(energy_fn, argnums=1)(params, positions, nbrs)
 ```python
 neighbor_fn, init_fn, energy_fn = energy.uma_neighbor_list(
     displacement_fn, box_size,
-    checkpoint_path='path/to/uma_checkpoint.pt',
+    checkpoint_path='uma-s-1p1',  # downloads from HuggingFace
     atoms=atoms,
 )
 params = init_fn(key, positions, nbrs)  # Returns pretrained weights
+```
+
+### Pretrained MoE (direct usage)
+
+```python
+from jax_md._nn.uma import load_pretrained, UMAMoEBackbone
+from jax_md._nn.uma.heads import MLPEnergyHead
+
+config, params, head_params = load_pretrained('uma-s-1p1')
+model = UMAMoEBackbone(config=config)
+head = MLPEnergyHead(
+    sphere_channels=config.sphere_channels,
+    hidden_channels=config.hidden_channels,
+)
+
+emb = model.apply(params, positions, atomic_numbers, batch,
+                   edge_index, edge_vec, charge, spin, dataset_idx)
+result = head.apply(head_params, emb['node_embedding'], batch, num_systems)
+energy = result['energy']
 ```
 
 ### Direct Model Usage
@@ -127,7 +146,7 @@ cfg = UMAConfig(sphere_channels=128, num_layers=4, hidden_channels=128)
 
 neighbor_fn, init_fn, energy_fn = energy.uma_neighbor_list(
     displacement_fn, box_size, cfg=cfg, atoms=atoms,
-    checkpoint_path='uma_checkpoint.pt',
+    checkpoint_path='uma-s-1p1',
 )
 
 nbrs = neighbor_fn.allocate(positions)
@@ -167,16 +186,20 @@ for _ in range(1000):
 ```
 jax_md/_nn/uma/
 ├── model.py                 # UMABackbone, UMAConfig
+├── model_moe.py             # UMAMoEBackbone, UMAMoEConfig, load_pretrained
 ├── blocks.py                # UMABlock, Edgewise, Atomwise
 ├── heads.py                 # Energy/Force prediction heads
 ├── featurizer.py            # JAX-MD neighbor list -> UMA input
-├── weight_conversion.py     # PyTorch -> JAX conversion
+├── pretrained.py            # Download, convert, cache pretrained checkpoints
+├── weight_conversion.py     # PyTorch -> JAX weight conversion
+├── checkpoints/             # JSON configs for pretrained models
 ├── common/
 │   ├── so3.py              # CoefficientMapping, SO3Grid
 │   └── rotation.py         # Wigner D-matrix computation
 └── nn/
     ├── so3_layers.py       # SO3Linear
     ├── so2_layers.py       # SO2Convolution, SO2MConv
+    ├── mole.py             # MOLE (Mixture of Layer Experts)
     ├── radial.py           # GaussianSmearing, PolynomialEnvelope
     ├── activation.py       # GateActivation, S2Activation
     ├── layer_norm.py       # Equivariant normalization
