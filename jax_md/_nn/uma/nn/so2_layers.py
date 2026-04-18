@@ -8,7 +8,7 @@ Ported from FairChem's UMA implementation.
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 import flax.linen as nn
 import jax.numpy as jnp

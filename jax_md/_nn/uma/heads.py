@@ -11,7 +11,7 @@ Ported from FairChem's UMA implementation.
 
 from __future__ import annotations
 
-from typing import Dict, Literal, Optional
+from typing import Dict, Literal
 
 import flax.linen as nn
 import jax.numpy as jnp

@@ -1,7 +1,6 @@
-#!/usr/bin/env python
 """
 Generate PT reference data for multiple pretrained model configs.
-Reuses the same 61 structures from generate_pt_reference.py.
+Uses 60+ structures from uma_structures.py.
 
 Usage:
     uv run python tests/generate_pt_reference_multi.py

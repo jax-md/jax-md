@@ -9,7 +9,7 @@ Ported from FairChem's UMA implementation.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import flax.linen as nn
 import jax.numpy as jnp

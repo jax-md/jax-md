@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """
 Generate PyTorch reference data for relaxation comparison tests.
 
