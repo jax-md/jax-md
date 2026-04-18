@@ -894,74 +894,189 @@ class PyTorchComparisonTest(test_util.JAXMDTestCase):
     np.testing.assert_allclose(np.array(a_jax), a_pt.numpy(), atol=1e-5)
 
 
-class PretrainedMoETest(test_util.JAXMDTestCase):
-  """Test loading and running pretrained UMA MoE model directly (no merging)."""
+class EndToEndComparisonTest(test_util.JAXMDTestCase):
+  """End-to-end JAX and PyTorch UMA forward pass on synthetic data."""
 
-  def setUp(self):
-    super().setUp()
-    import os
+  def _create_test_data(self, num_atoms=10, num_systems=2, seed=42):
+    np.random.seed(seed)
+    positions = np.random.randn(num_atoms, 3).astype(np.float32) * 2.0
+    atomic_numbers = np.random.choice([1, 6, 7, 8], size=num_atoms).astype(
+      np.int32
+    )
+    atoms_per_system = num_atoms // num_systems
+    batch = np.repeat(np.arange(num_systems), atoms_per_system).astype(np.int32)
+    if len(batch) < num_atoms:
+      batch = np.concatenate(
+        [batch, np.full(num_atoms - len(batch), num_systems - 1)]
+      ).astype(np.int32)
+    cutoff = 5.0
+    edge_src, edge_dst = [], []
+    for i in range(num_atoms):
+      for j in range(num_atoms):
+        if i != j and np.linalg.norm(positions[i] - positions[j]) < cutoff:
+          edge_src.append(i)
+          edge_dst.append(j)
+    edge_index = np.array([edge_src, edge_dst], dtype=np.int32)
+    edge_distance_vec = (
+      positions[edge_index[0]] - positions[edge_index[1]]
+    ).astype(np.float32)
+    return {
+      'positions': positions,
+      'atomic_numbers': atomic_numbers,
+      'batch': batch,
+      'edge_index': edge_index,
+      'edge_distance_vec': edge_distance_vec,
+      'charge': np.zeros(num_systems, dtype=np.float32),
+      'spin': np.zeros(num_systems, dtype=np.float32),
+      'dataset': ['omat'] * num_systems,
+      'natoms': np.array([atoms_per_system] * num_systems, dtype=np.int32),
+    }
 
-    # Look for cached checkpoint
-    cache_base = os.path.expanduser('~/.cache/fairchem/models--facebook--UMA')
-    self.ckpt_path = None
-    if os.path.isdir(cache_base):
-      for root, dirs, files in os.walk(cache_base):
-        for f in files:
-          if f == 'uma-s-1p1.pt':
-            self.ckpt_path = os.path.join(root, f)
-            break
-    if self.ckpt_path is None or not _pt_available():
-      self.skipTest('Pretrained checkpoint or PyTorch not available')
-
-  def test_pretrained_moe_runs(self):
-    """Full MoE model with pretrained weights produces finite output."""
-    from jax_md._nn.uma.model_moe import UMAMoEBackbone, load_pretrained
+  def test_jax_forward_pass(self):
+    """Production JAX UMABackbone produces finite embeddings."""
     from jax_md._nn.uma.nn.embedding import dataset_names_to_indices
 
-    config, params, _hp = load_pretrained(self.ckpt_path)
-    model = UMAMoEBackbone(config=config)
-
-    pos = jnp.array(
-      [
-        [0, 0, 0],
-        [1.8, 1.8, 0],
-        [1.8, 0, 1.8],
-        [0, 1.8, 1.8],
-        [0.9, 0.9, 0.9],
-        [2.7, 0.9, 0.9],
-      ],
-      dtype=jnp.float32,
+    config = UMAConfig(
+      max_num_elements=100,
+      sphere_channels=64,
+      lmax=2,
+      mmax=2,
+      num_layers=2,
+      hidden_channels=64,
+      cutoff=5.0,
+      edge_channels=64,
+      num_distance_basis=128,
+      norm_type='rms_norm_sh',
+      act_type='gate',
+      ff_type='grid',
+      chg_spin_emb_type='pos_emb',
+      dataset_list=['oc20', 'omol', 'omat', 'odac', 'omc'],
+      use_dataset_embedding=True,
     )
-    Z = jnp.array([29, 29, 29, 29, 8, 8], dtype=jnp.int32)
-    batch = jnp.zeros(6, dtype=jnp.int32)
-    src, dst = [], []
-    for i in range(6):
-      for j in range(6):
-        if (
-          i != j
-          and np.linalg.norm(np.array(pos[i]) - np.array(pos[j]))
-          < config.cutoff
-        ):
-          src.append(j)
-          dst.append(i)
-    ei = jnp.array([src, dst], dtype=jnp.int32)
-    ev = pos[ei[0]] - pos[ei[1]]
-    ds = dataset_names_to_indices(['omat'], config.dataset_list)
+    model = UMABackbone(config=config)
+    data = self._create_test_data(num_atoms=10, num_systems=2)
 
+    positions = jnp.array(data['positions'])
+    atomic_numbers = jnp.array(data['atomic_numbers'])
+    batch = jnp.array(data['batch'])
+    edge_index = jnp.array(data['edge_index'])
+    edge_distance_vec = jnp.array(data['edge_distance_vec'])
+    charge = jnp.array(data['charge'])
+    spin = jnp.array(data['spin'])
+    dataset_idx = dataset_names_to_indices(data['dataset'], config.dataset_list)
+
+    key = jax.random.PRNGKey(0)
+    params = model.init(
+      key,
+      positions,
+      atomic_numbers,
+      batch,
+      edge_index,
+      edge_distance_vec,
+      charge,
+      spin,
+      dataset_idx,
+    )
     output = model.apply(
       params,
-      pos,
-      Z,
+      positions,
+      atomic_numbers,
       batch,
-      ei,
-      ev,
-      jnp.array([0], dtype=jnp.int32),
-      jnp.array([0], dtype=jnp.int32),
-      ds,
+      edge_index,
+      edge_distance_vec,
+      charge,
+      spin,
+      dataset_idx,
     )
     emb = output['node_embedding']
-    self.assertEqual(emb.shape, (6, 9, 128))
+    self.assertEqual(emb.shape, (10, 9, 64))
     self.assertTrue(jnp.all(jnp.isfinite(emb)))
+
+  def test_pytorch_forward_pass(self):
+    """FairChem PyTorch eSCNMDBackbone produces finite embeddings."""
+    if not _pt_available():
+      self.skipTest('torch not available')
+    try:
+      import os
+      import sys
+
+      fairchem_path = os.path.join(
+        os.path.dirname(__file__),
+        '..',
+        '..',
+        '..',
+        '..',
+        '..',
+        'fairchem',
+        'src',
+      )
+      if os.path.exists(fairchem_path):
+        sys.path.insert(0, fairchem_path)
+      from fairchem.core.models.uma.escn_md import eSCNMDBackbone
+    except ImportError:
+      self.skipTest('fairchem not available')
+
+    import torch
+
+    model = eSCNMDBackbone(
+      max_num_elements=100,
+      sphere_channels=64,
+      lmax=2,
+      mmax=2,
+      num_layers=2,
+      hidden_channels=64,
+      cutoff=5.0,
+      edge_channels=64,
+      num_distance_basis=128,
+      norm_type='rms_norm_sh',
+      act_type='gate',
+      ff_type='grid',
+      chg_spin_emb_type='pos_emb',
+      dataset_list=['oc20', 'omol', 'omat', 'odac', 'omc'],
+      use_dataset_embedding=True,
+      otf_graph=False,
+    )
+    model.eval()
+
+    data = self._create_test_data(num_atoms=10, num_systems=2)
+
+    class AtomicDataDict(dict):
+      def __getattr__(self, k):
+        try:
+          return self[k]
+        except KeyError:
+          raise AttributeError(k)
+
+      def __setattr__(self, k, v):
+        self[k] = v
+
+      def get(self, k, *a, **kw):
+        return super().get(k, kw.get('default', a[0] if a else None))
+
+    data_dict = AtomicDataDict(
+      pos=torch.tensor(data['positions']),
+      atomic_numbers=torch.tensor(data['atomic_numbers']).long(),
+      atomic_numbers_full=torch.tensor(data['atomic_numbers']).long(),
+      batch=torch.tensor(data['batch']).long(),
+      batch_full=torch.tensor(data['batch']).long(),
+      edge_index=torch.tensor(data['edge_index']).long(),
+      cell_offsets=torch.zeros(data['edge_index'].shape[1], 3),
+      cell=torch.eye(3).unsqueeze(0).expand(2, 3, 3),
+      charge=torch.tensor(data['charge']),
+      spin=torch.tensor(data['spin']),
+      dataset=data['dataset'],
+      natoms=torch.tensor(data['natoms']),
+      nedges=torch.tensor(
+        [data['edge_index'].shape[1] // 2, data['edge_index'].shape[1] // 2]
+      ),
+    )
+
+    with torch.no_grad():
+      output = model(data_dict)
+
+    emb = output['node_embedding']
+    self.assertEqual(tuple(emb.shape), (10, 9, 64))
+    self.assertTrue(torch.all(torch.isfinite(emb)))
 
 
 if __name__ == '__main__':

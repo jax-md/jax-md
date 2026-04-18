@@ -15,7 +15,7 @@ import torch
 
 # Import structure builder from the existing script
 sys.path.insert(0, os.path.dirname(__file__))
-from test_structures import make_structures
+from uma_structures import make_structures
 from generate_pt_reference import atoms_to_data
 
 
