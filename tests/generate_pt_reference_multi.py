@@ -121,7 +121,7 @@ def generate_for_model(model_name, ckpt_path):
   os.makedirs(out_dir, exist_ok=True)
 
   structures = make_structures()
-  print(f'\n=== {model_name}: {len(structures)} structures ===')
+  print(f'{model_name}: {len(structures)} structures')
   t0 = time.perf_counter()
   count = 0
 

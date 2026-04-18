@@ -160,12 +160,6 @@ class RealStructureComparisonTest(test_util.JAXMDTestCase):
     task = str(ref['task'])
     n = len(ref['atomic_numbers'])
 
-    print(f'\n{name} ({task}, {n} atoms):')
-    print(f'  Embedding: max_diff={emb_max:.4e}, mean_diff={emb_mean:.4e}')
-    print(f'  PT energy (raw):  {pt_energy:.6f} eV')
-    print(f'  JAX energy (raw): {jax_energy:.6f} eV')
-    print(f'  Energy diff: {energy_diff:.4e} eV')
-
     # Correctness checks:
     # 1. JAX output must be finite
     self.assertTrue(np.all(np.isfinite(jax_emb)), 'JAX embedding has NaN/Inf')

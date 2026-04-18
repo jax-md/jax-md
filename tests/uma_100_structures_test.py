@@ -189,38 +189,6 @@ class MultiModelStructureTest(test_util.JAXMDTestCase):
     ed = results['emb_diffs']
     ee = results['energy_diffs']
 
-    if results['failures']:
-      print('\n  First 3 failures:')
-      for name, reason in results['failures'][:3]:
-        print(f'    {name}: {reason}')
-
-    print(f'\n{"=" * 60}')
-    print(
-      f'  {model_name}: {len(ed)}/{results["total"]} structures, {elapsed:.1f}s'
-    )
-    print(f'{"=" * 60}')
-    print(
-      f'  Embedding max diff:  worst={ed.max():.4e}  median={np.median(ed):.4e}  p99={np.percentile(ed, 99):.4e}'
-    )
-    print(
-      f'  Energy diff (eV):    worst={ee.max():.4e}  median={np.median(ee):.4e}  p99={np.percentile(ee, 99):.4e}'
-    )
-    print(f'  % emb < 0.01:       {100 * np.mean(ed < 0.01):.0f}%')
-    print(f'  % energy < 10 meV:  {100 * np.mean(ee < 0.01):.0f}%')
-
-    if results['failures']:
-      print(f'  Failures ({len(results["failures"])}):')
-      for name, reason in results['failures']:
-        print(f'    {name}: {reason}')
-
-    # Worst 5
-    worst = np.argsort(ed)[-5:][::-1]
-    print('  Worst 5:')
-    for idx in worst:
-      print(
-        f'    {results["names"][idx]:>20}: emb={ed[idx]:.4e}  E={ee[idx]:.4e} eV'
-      )
-
     # Assertions
     self.assertEqual(len(results['failures']), 0)
     self.assertLess(ed.max(), 0.05)

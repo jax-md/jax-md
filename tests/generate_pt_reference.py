@@ -230,7 +230,7 @@ def main():
   print(f'Generating PT reference for {len(structures)} structures...')
 
   for name, (atoms, task) in structures.items():
-    print(f'\n--- {name} ({task}, {len(atoms)} atoms) ---')
+    print(f'{name} ({task}, {len(atoms)} atoms)')
     data = atoms_to_data(atoms, task, cutoff, ds_list)
 
     with torch.no_grad():
@@ -278,7 +278,7 @@ def main():
     )
     print(f'  Saved to {out_dir}/{name}.npz')
 
-  print(f'\nDone! Reference data in {out_dir}/')
+  print(f'Done: {out_dir}/')
 
 
 if __name__ == '__main__':

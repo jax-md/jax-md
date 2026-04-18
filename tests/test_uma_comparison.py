@@ -1377,11 +1377,6 @@ def create_test_data(num_atoms=10, num_systems=2, seed=42):
 
 def test_jax_forward_pass():
   """Test JAX UMA forward pass."""
-  print('=' * 60)
-  print('Testing JAX UMA Forward Pass')
-  print('=' * 60)
-
-  # Create config
   config = UMAConfig(
     max_num_elements=100,
     sphere_channels=64,  # Smaller for testing
@@ -1432,10 +1427,6 @@ def test_jax_forward_pass():
     dataset_idx,
   )
 
-  print(
-    f'Number of parameters: {sum(p.size for p in jax.tree_util.tree_leaves(params))}'
-  )
-
   # Forward pass
   output = model.apply(
     params,
@@ -1450,62 +1441,15 @@ def test_jax_forward_pass():
   )
 
   node_embedding = output['node_embedding']
-  print(f'Node embedding shape: {node_embedding.shape}')
-  print('Node embedding stats:')
-  print(f'  Mean: {float(jnp.mean(node_embedding)):.6f}')
-  print(f'  Std: {float(jnp.std(node_embedding)):.6f}')
-  print(f'  Min: {float(jnp.min(node_embedding)):.6f}')
-  print(f'  Max: {float(jnp.max(node_embedding)):.6f}')
-
-  # JIT compile and time
-  import time
-
-  jit_apply = jax.jit(model.apply)
-
-  # Warmup
-  _ = jit_apply(
-    params,
-    positions,
-    atomic_numbers,
-    batch,
-    edge_index,
-    edge_distance_vec,
-    charge,
-    spin,
-    dataset_idx,
-  )
-
-  # Timing
-  start = time.time()
-  for _ in range(10):
-    _ = jit_apply(
-      params,
-      positions,
-      atomic_numbers,
-      batch,
-      edge_index,
-      edge_distance_vec,
-      charge,
-      spin,
-      dataset_idx,
-    )
-  jax.block_until_ready(output['node_embedding'])
-  elapsed = time.time() - start
-  print(f'JIT forward pass time (avg of 10): {elapsed / 10 * 1000:.2f} ms')
-
-  return True, output, params
+  assert node_embedding.shape == (10, 9, 64)
+  assert jnp.all(jnp.isfinite(node_embedding))
 
 
 def test_pytorch_forward_pass():
   """Test PyTorch UMA forward pass if available."""
   available, eSCNMDBackbone = test_pytorch_model()
   if not available:
-    print('\nPyTorch model not available for comparison')
     return False, None, None
-
-  print('\n' + '=' * 60)
-  print('Testing PyTorch UMA Forward Pass')
-  print('=' * 60)
 
   import torch
 
@@ -1570,89 +1514,10 @@ def test_pytorch_forward_pass():
     output = model(data_dict)
 
   node_embedding = output['node_embedding']
-  print(f'Node embedding shape: {tuple(node_embedding.shape)}')
-  print('Node embedding stats:')
-  print(f'  Mean: {float(node_embedding.mean()):.6f}')
-  print(f'  Std: {float(node_embedding.std()):.6f}')
-  print(f'  Min: {float(node_embedding.min()):.6f}')
-  print(f'  Max: {float(node_embedding.max()):.6f}')
-
-  return True, output, model
-
-
-def compare_outputs():
-  """Compare JAX and PyTorch outputs."""
-  print('\n' + '=' * 60)
-  print('Comparing JAX and PyTorch Outputs')
-  print('=' * 60)
-
-  # Run JAX model
-  jax_success, jax_output, jax_params = test_jax_forward_pass()
-
-  # Run PyTorch model
-  pt_success, pt_output, pt_model = test_pytorch_forward_pass()
-
-  if not jax_success:
-    print('JAX model failed!')
-    return False
-
-  if not pt_success:
-    print(
-      '\nNote: PyTorch comparison not available, but JAX model works correctly!'
-    )
-    return True
-
-  # Compare outputs
-  jax_emb = np.array(jax_output['node_embedding'])
-  pt_emb = pt_output['node_embedding'].numpy()
-
-  print(f'\nJAX embedding shape: {jax_emb.shape}')
-  print(f'PyTorch embedding shape: {pt_emb.shape}')
-
-  if jax_emb.shape != pt_emb.shape:
-    print('Shape mismatch!')
-    return False
-
-  # Note: Without weight transfer, outputs will differ due to random initialization
-  # This test verifies that both models run without errors
-  print('\nBoth models executed successfully!')
-  print('Note: Outputs differ due to random initialization.')
-  print(
-    'For numerical equivalence, use weight_conversion.py to transfer PyTorch weights.'
-  )
-
-  return True
-
-
-def main():
-  """Main entry point."""
-  print('UMA Model Comparison Test')
-  print('=' * 60)
-
-  # Test JAX model
-  jax_success, jax_output, jax_params = test_jax_forward_pass()
-
-  if jax_success:
-    print('\n[PASS] JAX UMA model works correctly!')
-  else:
-    print('\n[FAIL] JAX UMA model failed!')
-    return 1
-
-  # Try PyTorch comparison
-  pt_success, pt_output, pt_model = test_pytorch_forward_pass()
-
-  if pt_success:
-    print('\n[PASS] PyTorch UMA model works correctly!')
-    print('\nBoth models run successfully.')
-    print(
-      'To compare numerical outputs, transfer weights using weight_conversion.py'
-    )
-  else:
-    print('\n[INFO] PyTorch model not available for comparison')
-    print('The JAX implementation is working correctly.')
-
-  return 0
+  assert node_embedding.shape == (10, 9, 64)
+  assert torch.all(torch.isfinite(node_embedding))
 
 
 if __name__ == '__main__':
-  sys.exit(main())
+  test_jax_forward_pass()
+  test_pytorch_forward_pass()
