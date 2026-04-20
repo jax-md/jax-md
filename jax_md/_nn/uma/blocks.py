@@ -20,7 +20,6 @@ from jax_md._nn.uma.nn.activation import (
   SeparableS2Activation,
 )
 from jax_md._nn.uma.nn.layer_norm import get_normalization_layer
-from jax_md._nn.uma.nn.radial import PolynomialEnvelope
 
 
 class Edgewise(nn.Module):
@@ -49,6 +48,7 @@ class Edgewise(nn.Module):
   act_type: Literal['gate', 's2'] = 'gate'
   to_grid_mat: jnp.ndarray | None = None
   from_grid_mat: jnp.ndarray | None = None
+  mapping_to_m: jnp.ndarray | None = None
 
   @nn.compact
   def __call__(
@@ -124,11 +124,9 @@ class Edgewise(nn.Module):
         mmax=self.mmax,
         to_grid_mat=self.to_grid_mat,
         from_grid_mat=self.from_grid_mat,
+        mapping_to_m=self.mapping_to_m,
         name='act',
       )
-
-    # Envelope function
-    envelope = PolynomialEnvelope(exponent=5, name='envelope')
 
     # Get source and target node features
     x_source = x[edge_index[0]]
@@ -314,6 +312,7 @@ class UMABlock(nn.Module):
   ff_type: Literal['spectral', 'grid'] = 'grid'
   to_grid_mat: jnp.ndarray | None = None
   from_grid_mat: jnp.ndarray | None = None
+  mapping_to_m: jnp.ndarray | None = None
 
   @nn.compact
   def __call__(
@@ -372,6 +371,7 @@ class UMABlock(nn.Module):
       act_type=self.act_type,
       to_grid_mat=self.to_grid_mat,
       from_grid_mat=self.from_grid_mat,
+      mapping_to_m=self.mapping_to_m,
       name='edge_wise',
     )
     x = edgewise(

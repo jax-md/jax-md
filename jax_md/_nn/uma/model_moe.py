@@ -14,6 +14,7 @@ The MoE mechanism:
 
 from __future__ import annotations
 
+import ast
 import os
 from dataclasses import dataclass
 from typing import Dict, List, Tuple
@@ -277,6 +278,7 @@ class EdgewiseMoE(nn.Module):
   act_type: str = 'gate'
   to_grid_mat: jnp.ndarray | None = None
   from_grid_mat: jnp.ndarray | None = None
+  mapping_to_m: jnp.ndarray | None = None
 
   @nn.compact
   def __call__(
@@ -335,6 +337,7 @@ class EdgewiseMoE(nn.Module):
         mmax=self.mmax,
         to_grid_mat=self.to_grid_mat,
         from_grid_mat=self.from_grid_mat,
+        mapping_to_m=self.mapping_to_m,
         name='act',
       )
 
@@ -373,6 +376,7 @@ class UMABlockMoE(nn.Module):
   ff_type: str = 'spectral'
   to_grid_mat: jnp.ndarray | None = None
   from_grid_mat: jnp.ndarray | None = None
+  mapping_to_m: jnp.ndarray | None = None
 
   @nn.compact
   def __call__(
@@ -416,6 +420,7 @@ class UMABlockMoE(nn.Module):
       act_type=self.act_type,
       to_grid_mat=self.to_grid_mat,
       from_grid_mat=self.from_grid_mat,
+      mapping_to_m=self.mapping_to_m,
       name='edge_wise',
     )
     x = edgewise(
@@ -607,20 +612,28 @@ class UMAMoEBackbone(nn.Module):
     )
     edge_distance_embedding = distance_expansion(edge_distance)
 
+    def _symmetric_uniform(scale):
+      def init(key, shape, dtype=jnp.float32):
+        return jax.random.uniform(
+          key, shape, dtype, minval=-scale, maxval=scale
+        )
+
+      return init
+
     source_embedding = nn.Embed(
       num_embeddings=cfg.max_num_elements,
       features=cfg.edge_channels,
-      embedding_init=initializers.uniform(scale=0.002),
+      embedding_init=_symmetric_uniform(0.001),
       name='source_embedding',
     )
     target_embedding = nn.Embed(
       num_embeddings=cfg.max_num_elements,
       features=cfg.edge_channels,
-      embedding_init=initializers.uniform(scale=0.002),
+      embedding_init=_symmetric_uniform(0.001),
       name='target_embedding',
     )
-    source_emb = source_embedding(atomic_numbers[edge_index[0]]) - 0.001
-    target_emb = target_embedding(atomic_numbers[edge_index[1]]) - 0.001
+    source_emb = source_embedding(atomic_numbers[edge_index[0]])
+    target_emb = target_embedding(atomic_numbers[edge_index[1]])
 
     x_edge = jnp.concatenate(
       [edge_distance_embedding, source_emb, target_emb],
@@ -689,6 +702,7 @@ class UMAMoEBackbone(nn.Module):
         ff_type=cfg.ff_type,
         to_grid_mat=self.so3_grid_lmax_lmax.to_grid_mat,
         from_grid_mat=self.so3_grid_lmax_lmax.from_grid_mat,
+        mapping_to_m=self.mapping.to_m,
         name=f'blocks_{i}',
       )
       x_message = block(
@@ -1060,7 +1074,7 @@ def load_pretrained(
             dn = hcfg.get('dataset_names', None)
             if dn and not head_ds:
               head_ds = sorted(
-                list(dn) if not isinstance(dn, str) else eval(dn)
+                list(dn) if not isinstance(dn, str) else ast.literal_eval(dn)
               )
 
       if head_ds is None or len(head_ds) != n_head_experts:

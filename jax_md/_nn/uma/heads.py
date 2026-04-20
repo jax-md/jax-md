@@ -149,7 +149,7 @@ class LinearForceHead(nn.Module):
     linear = SO3Linear(
       out_features=1,
       lmax=1,
-      use_bias=True,
+      use_bias=False,
       name='linear',
     )
 

@@ -119,17 +119,26 @@ class SeparableS2Activation(nn.Module):
   Scalar features are processed with SiLU, while vector features are
   projected to a grid, activated, and projected back.
 
+  When ``mapping_to_m`` is provided the input is assumed to be in m-major
+  ordering (the output of SO(2) convolutions) and is converted to l-major
+  before the grid projection and back to m-major afterwards.  This matches
+  the PyTorch ``SeparableS2Activation_M`` variant.
+
   Attributes:
       lmax: Maximum degree l.
       mmax: Maximum order m.
-      to_grid_mat: Matrix for coefficients -> grid transformation.
-      from_grid_mat: Matrix for grid -> coefficients transformation.
+      to_grid_mat: Matrix for coefficients -> grid transformation (l-major).
+      from_grid_mat: Matrix for grid -> coefficients transformation (l-major).
+      mapping_to_m: Permutation matrix from l-major to m-major ordering.
+          When set, the transpose is used to convert m-major inputs to
+          l-major before the grid transform.
   """
 
   lmax: int
   mmax: int
   to_grid_mat: jnp.ndarray
   from_grid_mat: jnp.ndarray
+  mapping_to_m: jnp.ndarray | None = None
 
   @nn.compact
   def __call__(
@@ -152,6 +161,12 @@ class SeparableS2Activation(nn.Module):
       output_scalars.shape[0], 1, output_scalars.shape[-1]
     )
 
+    # Convert from m-major to l-major if needed (SO(2) conv output is m-major
+    # but grid matrices are in l-major ordering)
+    if self.mapping_to_m is not None:
+      from_m = self.mapping_to_m.T
+      input_tensors = jnp.einsum('mk,zkc->zmc', from_m, input_tensors)
+
     # Project to grid
     x_grid = jnp.einsum('bai,zic->zbac', self.to_grid_mat, input_tensors)
 
@@ -160,6 +175,12 @@ class SeparableS2Activation(nn.Module):
 
     # Project back to coefficients
     output_tensors = jnp.einsum('bai,zbac->zic', self.from_grid_mat, x_grid)
+
+    # Convert from l-major back to m-major if needed
+    if self.mapping_to_m is not None:
+      output_tensors = jnp.einsum(
+        'mk,zkc->zmc', self.mapping_to_m, output_tensors
+      )
 
     # Combine scalars and higher-l components
     return jnp.concatenate(

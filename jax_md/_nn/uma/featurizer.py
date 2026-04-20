@@ -78,8 +78,14 @@ def uma_featurizer(
     R_receivers = position[receivers]
     edge_distance_vec = d_fn(R_receivers, R_senders)
 
-    # Mask out invalid edges
-    edge_distance_vec = jnp.where(mask[:, None], edge_distance_vec, 0.0)
+    # Replace invalid edge vectors with a displacement whose norm exceeds
+    # the cutoff so the backbone's PolynomialEnvelope returns exactly 0.
+    # Using zero would give norm=0 < cutoff, causing envelope=1 and
+    # degenerate Wigner matrices for padding entries.
+    _beyond_cutoff = jnp.array([cutoff + 1.0, 0.0, 0.0])
+    edge_distance_vec = jnp.where(
+      mask[:, None], edge_distance_vec, _beyond_cutoff
+    )
 
     # Filter edges beyond cutoff
     edge_distance = jnp.linalg.norm(edge_distance_vec, axis=-1)

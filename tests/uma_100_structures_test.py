@@ -193,6 +193,9 @@ class MultiModelStructureTest(test_util.JAXMDTestCase):
     self.assertEqual(len(results['failures']), 0)
     self.assertLess(ed.max(), 0.05)
     self.assertLess(np.median(ed), 0.005)
+    if len(ee) > 0:
+      self.assertLess(ee.max(), 0.05)
+      self.assertLess(np.median(ee), 0.005)
 
     return results
 

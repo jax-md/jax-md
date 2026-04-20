@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List
 
 import flax.linen as nn
+import jax
 import jax.numpy as jnp
 from jax.nn import initializers
 
@@ -245,25 +246,31 @@ class UMABackbone(nn.Module):
     )
     edge_distance_embedding = distance_expansion(edge_distance)
 
-    # Source/target embeddings for edges
+    # Source/target embeddings for edges (symmetric uniform matches
+    # PyTorch's nn.init.uniform_(-0.001, 0.001) without runtime bias)
+    def _symmetric_uniform(scale):
+      def init(key, shape, dtype=jnp.float32):
+        return jax.random.uniform(
+          key, shape, dtype, minval=-scale, maxval=scale
+        )
+
+      return init
+
     source_embedding = nn.Embed(
       num_embeddings=cfg.max_num_elements,
       features=cfg.edge_channels,
-      embedding_init=initializers.uniform(scale=0.002),
+      embedding_init=_symmetric_uniform(0.001),
       name='source_embedding',
     )
     target_embedding = nn.Embed(
       num_embeddings=cfg.max_num_elements,
       features=cfg.edge_channels,
-      embedding_init=initializers.uniform(scale=0.002),
+      embedding_init=_symmetric_uniform(0.001),
       name='target_embedding',
     )
 
     source_emb = source_embedding(atomic_numbers[edge_index[0]])
     target_emb = target_embedding(atomic_numbers[edge_index[1]])
-    # Shift to [-0.001, 0.001]
-    source_emb = source_emb - 0.001
-    target_emb = target_emb - 0.001
 
     x_edge = jnp.concatenate(
       [edge_distance_embedding, source_emb, target_emb],
@@ -335,6 +342,7 @@ class UMABackbone(nn.Module):
         ff_type=cfg.ff_type,
         to_grid_mat=self.so3_grid_lmax_lmax.to_grid_mat,
         from_grid_mat=self.so3_grid_lmax_lmax.from_grid_mat,
+        mapping_to_m=self.mapping.to_m,
         name=f'blocks_{i}',
       )
 
