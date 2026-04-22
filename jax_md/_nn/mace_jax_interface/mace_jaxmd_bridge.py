@@ -40,16 +40,25 @@ def make_mace_jaxmd_energy(
     MACE(JAX) potential wrapped for jax-md with neighbor lists.
 
     Returns:
-      neighbor_fn, shift_fn, energy_fn
+      neighbor_fn, shift_fn, energy_fn, graph_data_fn, make_fixed_graph_energy_fn
 
     energy_fn signature:
       energy_fn(R, *, box=None, neighbors=None, neighbor_idx=None) -> scalar
+
+    graph_data_fn signature:
+      graph_data_fn(R, *, box=None, neighbors=None, neighbor_idx=None) -> dict
+
+    make_fixed_graph_energy_fn signature:
+      make_fixed_graph_energy_fn(fixed_graph) -> fixed_energy_fn
+      fixed_energy_fn(R, *, box=None) -> scalar
 
     Notes:
     - neighbor_fn / shift_fn are built from the default box passed here.
     - energy_fn can accept a runtime box for stress/pressure calculations.
     - shifts are kept as exact continuous shifts, while unit_shifts are rounded
       lattice-image bookkeeping.
+    - fixed_graph_energy_fn freezes graph topology and integer image bookkeeping,
+      which is useful for stress / pressure derivatives with respect to strain.
     """
 
     box_default = jnp.asarray(box)
@@ -118,11 +127,11 @@ def make_mace_jaxmd_energy(
 
         box_arr = jnp.asarray(box_now)
         if box_arr.shape == (3,):
-           disp_now, _ = space.periodic(box_arr)
+            disp_now, _ = space.periodic(box_arr)
         elif box_arr.shape == (3, 3):
-           disp_now, _ = space.periodic_general(box_arr)
+            disp_now, _ = space.periodic_general(box_arr)
         else:
-           raise ValueError(f"Unexpected runtime box shape: {box_arr.shape}")
+            raise ValueError(f"Unexpected runtime box shape: {box_arr.shape}")
 
         N = R_real.shape[0]
         M = neighbor_idx.shape[1]
@@ -234,9 +243,8 @@ def make_mace_jaxmd_energy(
             out["head"] = head_value
         return out
 
-
     @jax.jit
-    def graph_data_fn(R, *, box=None, neighbors=None, neighbor_idx=None):
+    def freeze_graph_fn(R, *, box=None, neighbors=None, neighbor_idx=None):
         if neighbor_idx is None:
             if neighbors is None:
                 raise ValueError("Provide either neighbors=... or neighbor_idx=...")
@@ -261,7 +269,6 @@ def make_mace_jaxmd_energy(
 
         N = R_real.shape[0]
         M = neighbor_idx.shape[1]
-        E_real = N * k_neighbors
 
         valid_slot = (neighbor_idx >= 0) & (neighbor_idx < N)
         receivers0 = jnp.where(valid_slot, neighbor_idx, jnp.zeros_like(neighbor_idx))
@@ -310,6 +317,103 @@ def make_mace_jaxmd_energy(
             "unit_shifts_int": unit_shifts_int,
         }
 
+    def make_fixed_graph_energy_fn(fixed_graph):
+        """
+        Freeze graph topology and integer image bookkeeping from a reference
+        configuration, then return an energy function that only updates:
+        - positions
+        - cell
+        - continuous shifts = unit_shifts @ cell
+
+        This is intended for stress / pressure calculations where the graph
+        must remain fixed under infinitesimal strain.
+        """
+        senders = jnp.asarray(fixed_graph["senders"], dtype=jnp.int32)
+        receivers = jnp.asarray(fixed_graph["receivers"], dtype=jnp.int32)
+        valid_e = jnp.asarray(fixed_graph["valid_e"], dtype=bool)
+        unit_shifts_int = jnp.asarray(fixed_graph["unit_shifts_int"], dtype=jnp.int32)
+
+        E_real = int(senders.shape[0])
+
+        if E_real > E_template:
+            raise ValueError(
+                f"Fixed graph has {E_real} edges, but template only supports "
+                f"{E_template}. Reconvert model with a larger e_template."
+            )
+
+        pad_n = E_template - E_real
+
+        send_pad = jnp.zeros((pad_n,), dtype=jnp.int32)
+        recv_pad = jnp.zeros((pad_n,), dtype=jnp.int32)
+        us_pad = jnp.zeros((pad_n, 3), dtype=us_dtype)
+        sh_pad = jnp.tile(FAR_SHIFT[None, :], (pad_n, 1))
+
+        send2 = jnp.concatenate([senders, send_pad], axis=0)
+        recv2 = jnp.concatenate([receivers, recv_pad], axis=0)
+        edge_index = jnp.stack([send2, recv2], axis=0).astype(edge_dtype)
+
+        @jax.jit
+        def fixed_energy_fn(R, *, box=None):
+            box_now = box_default if box is None else box
+
+            R_real = jnp.asarray(R, dtype=pos_dtype)
+            N = R_real.shape[0]
+
+            cell_1x3x3 = _make_cell_1x3x3(box_now, cell_dtype)
+            cell = cell_1x3x3[0]
+
+            # ---- Positions ----
+            positions = jnp.zeros((N_template, 3), dtype=pos_dtype)
+            positions = positions.at[:N].set(R_real)
+
+            # ---- Node attrs ----
+            species_idx = jnp.zeros((N_template,), dtype=jnp.int32)
+            species_idx_real = Z_to_index[z_atomic[:N]]
+            species_idx = species_idx.at[:N].set(species_idx_real)
+
+            node_mask = (jnp.arange(N_template, dtype=jnp.int32) < N).astype(node_attrs_dtype)
+            node_attrs = jax.nn.one_hot(
+                species_idx, num_classes=C_node, dtype=node_attrs_dtype
+            )
+            node_attrs = node_attrs * node_mask[:, None]
+
+            node_attrs_index = jnp.where(
+                node_mask > 0, species_idx, jnp.zeros_like(species_idx)
+            ).astype(node_idx_dtype)
+
+            # ---- Frozen graph, runtime shifts ----
+            unit_shifts = unit_shifts_int.astype(us_dtype)
+            unit_shifts = lax.stop_gradient(unit_shifts)
+
+            shifts = (unit_shifts @ cell).astype(shift_dtype)
+
+            shifts = jnp.where(valid_e[:, None], shifts, FAR_SHIFT[None, :])
+            unit_shifts = jnp.where(
+                valid_e[:, None], unit_shifts, jnp.zeros((E_real, 3), dtype=us_dtype)
+            )
+
+            us2 = jnp.concatenate([unit_shifts, us_pad], axis=0)
+            sh2 = jnp.concatenate([shifts, sh_pad], axis=0)
+
+            batch = {
+                "positions": positions,
+                "node_attrs": node_attrs,
+                "node_attrs_index": node_attrs_index,
+                "edge_index": edge_index,
+                "shifts": sh2.astype(shift_dtype),
+                "unit_shifts": us2.astype(us_dtype),
+                "batch": template_batch["batch"],
+                "ptr": template_batch["ptr"],
+                "cell": cell_1x3x3,
+            }
+            if head_value is not None:
+                batch["head"] = head_value
+
+            out = jax_model(batch)
+            e = out["energy"] if isinstance(out, dict) and "energy" in out else out
+            return _as_scalar(e)
+
+        return fixed_energy_fn
 
     @jax.jit
     def energy_fn(R, *, box=None, neighbors=None, neighbor_idx=None):
@@ -325,4 +429,4 @@ def make_mace_jaxmd_energy(
         e = out["energy"] if isinstance(out, dict) and "energy" in out else out
         return _as_scalar(e)
 
-    return neighbor_fn, shift_fn, energy_fn, graph_data_fn
+    return neighbor_fn, shift_fn, energy_fn, freeze_graph_fn, make_fixed_graph_energy_fn
