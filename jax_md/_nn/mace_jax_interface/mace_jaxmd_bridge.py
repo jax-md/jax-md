@@ -23,6 +23,13 @@ def _make_cell_1x3x3(box_in, dtype):
     return cell[None, :, :].astype(dtype)
 
 
+def _to_cartesian(R, cell, fractional_coordinates: bool):
+    R = jnp.asarray(R)
+    if fractional_coordinates:
+        return R @ cell
+    return R
+
+
 def make_mace_jaxmd_energy(
     *,
     jax_model,
@@ -35,46 +42,62 @@ def make_mace_jaxmd_energy(
     k_neighbors: int = 64,
     capacity_multiplier: float = 2.0,
     include_head: bool = True,
+    fractional_coordinates: bool = False,
 ):
     """
     MACE(JAX) potential wrapped for jax-md with neighbor lists.
 
     Returns:
-      neighbor_fn, shift_fn, energy_fn, graph_data_fn, make_fixed_graph_energy_fn
+      neighbor_fn, shift_fn, energy_fn, freeze_graph_fn, make_fixed_graph_energy_fn
 
     energy_fn signature:
       energy_fn(R, *, box=None, neighbors=None, neighbor_idx=None) -> scalar
 
-    graph_data_fn signature:
-      graph_data_fn(R, *, box=None, neighbors=None, neighbor_idx=None) -> dict
+    freeze_graph_fn signature:
+      freeze_graph_fn(R, *, box=None, neighbors=None, neighbor_idx=None) -> dict
 
     make_fixed_graph_energy_fn signature:
       make_fixed_graph_energy_fn(fixed_graph) -> fixed_energy_fn
       fixed_energy_fn(R, *, box=None) -> scalar
 
-    Notes:
-    - neighbor_fn / shift_fn are built from the default box passed here.
-    - energy_fn can accept a runtime box for stress/pressure calculations.
-    - shifts are kept as exact continuous shifts, while unit_shifts are rounded
-      lattice-image bookkeeping.
-    - fixed_graph_energy_fn freezes graph topology and integer image bookkeeping,
-      which is useful for stress / pressure derivatives with respect to strain.
+    Notes
+    -----
+    - If fractional_coordinates=False:
+        R is interpreted as Cartesian coordinates.
+    - If fractional_coordinates=True:
+        R is interpreted as fractional coordinates in the unit cell.
+        The MACE model still receives Cartesian positions/shifts internally.
     """
 
     box_default = jnp.asarray(box)
 
-    # Fixed-box neighbor function for MD.
-    displacement_fn_fixed, shift_fn = space.periodic(box_default)
-    neighbor_fn = partition.neighbor_list(
-        displacement_fn_fixed,
-        box_default,
-        r_cutoff=r_cutoff,
-        dr_threshold=dr_threshold,
-        mask=True,
-        capacity_multiplier=capacity_multiplier,
-    )
+    # Space / shift / neighbor list setup
+    if fractional_coordinates:
+        displacement_fn_fixed, shift_fn = space.periodic_general(
+            box_default,
+            fractional_coordinates=True,
+        )
+        neighbor_fn = partition.neighbor_list(
+            displacement_fn_fixed,
+            box_default,
+            r_cutoff=r_cutoff,
+            dr_threshold=dr_threshold,
+            mask=True,
+            capacity_multiplier=capacity_multiplier,
+            fractional_coordinates=True,
+        )
+    else:
+        displacement_fn_fixed, shift_fn = space.periodic(box_default)
+        neighbor_fn = partition.neighbor_list(
+            displacement_fn_fixed,
+            box_default,
+            r_cutoff=r_cutoff,
+            dr_threshold=dr_threshold,
+            mask=True,
+            capacity_multiplier=capacity_multiplier,
+        )
 
-    # Template sizes/dtypes expected by the converted model
+    # Template sizes / dtypes expected by converted MACE model
     N_template = int(template_batch["positions"].shape[0])
     E_template = int(template_batch["edge_index"].shape[1])
     C_node = int(template_batch["node_attrs"].shape[1])
@@ -110,6 +133,21 @@ def make_mace_jaxmd_energy(
     if include_head and ("head" in template_batch):
         head_value = template_batch["head"].astype(jnp.int32).reshape(-1)
 
+    def _runtime_displacement_fn(box_now):
+        box_arr = jnp.asarray(box_now)
+        if fractional_coordinates:
+            return space.periodic_general(
+                box_arr,
+                fractional_coordinates=True,
+            )[0]
+        else:
+            if box_arr.shape == (3,):
+                return space.periodic(box_arr)[0]
+            elif box_arr.shape == (3, 3):
+                return space.periodic_general(box_arr)[0]
+            else:
+                raise ValueError(f"Unexpected runtime box shape: {box_arr.shape}")
+
     @jax.jit
     def make_batch_from_firstk(R_real, neighbor_idx, box_now):
         """
@@ -118,50 +156,51 @@ def make_mace_jaxmd_energy(
         - first k neighbor slots per atom from jax-md neighbor list
         - runtime box for displacement/cell/shifts
         """
-        R_real = jnp.asarray(R_real, dtype=pos_dtype)
+        R_input = jnp.asarray(R_real, dtype=pos_dtype)
         neighbor_idx = jnp.asarray(neighbor_idx, dtype=jnp.int32)
 
         cell_1x3x3 = _make_cell_1x3x3(box_now, cell_dtype)
         cell = cell_1x3x3[0]
         inv_cell = jnp.linalg.inv(cell)
 
-        box_arr = jnp.asarray(box_now)
-        if box_arr.shape == (3,):
-            disp_now, _ = space.periodic(box_arr)
-        elif box_arr.shape == (3, 3):
-            disp_now, _ = space.periodic_general(box_arr)
-        else:
-            raise ValueError(f"Unexpected runtime box shape: {box_arr.shape}")
+        disp_now = _runtime_displacement_fn(box_now)
 
-        N = R_real.shape[0]
+        N = R_input.shape[0]
         M = neighbor_idx.shape[1]
         E_real = N * k_neighbors
 
+        R_cart = _to_cartesian(R_input, cell, fractional_coordinates).astype(pos_dtype)
+
         # ---- Positions ----
         positions = jnp.zeros((N_template, 3), dtype=pos_dtype)
-        positions = positions.at[:N].set(R_real)
+        positions = positions.at[:N].set(R_cart)
 
         # ---- Node attrs ----
-        species_idx = jnp.zeros((N_template,), dtype=jnp.int32)
         species_idx_real = Z_to_index[z_atomic[:N]]
+
+        species_idx = jnp.zeros((N_template,), dtype=jnp.int32)
         species_idx = species_idx.at[:N].set(species_idx_real)
 
-        node_mask = (jnp.arange(N_template, dtype=jnp.int32) < N).astype(node_attrs_dtype)
-        node_attrs = jax.nn.one_hot(species_idx, num_classes=C_node, dtype=node_attrs_dtype)
-        node_attrs = node_attrs * node_mask[:, None]
+        node_attrs = jnp.zeros((N_template, C_node), dtype=node_attrs_dtype)
+        node_attrs = node_attrs.at[:N].set(
+            jax.nn.one_hot(
+                species_idx_real,
+                num_classes=C_node,
+                dtype=node_attrs_dtype,
+            )
+        )
 
-        node_attrs_index = jnp.where(
-            node_mask > 0, species_idx, jnp.zeros_like(species_idx)
-        ).astype(node_idx_dtype)
+        node_attrs_index = jnp.zeros((N_template,), dtype=node_idx_dtype)
+        node_attrs_index = node_attrs_index.at[:N].set(
+            species_idx_real.astype(node_idx_dtype)
+        )
 
         # ---- Valid slots ----
         valid_slot = (neighbor_idx >= 0) & (neighbor_idx < N)
-
         receivers0 = jnp.where(valid_slot, neighbor_idx, jnp.zeros_like(neighbor_idx))
 
         self_edge = receivers0 == jnp.arange(N, dtype=jnp.int32)[:, None]
         valid_slot = valid_slot & (~self_edge)
-
         receivers0 = jnp.where(valid_slot, neighbor_idx, jnp.zeros_like(neighbor_idx))
 
         # ---- Take first k slots ----
@@ -187,16 +226,19 @@ def make_mace_jaxmd_energy(
         receivers = jnp.where(valid_e, receivers, senders)
 
         # ---- Edge geometry ----
-        Ri_e = R_real[senders]
-        Rj_e = R_real[receivers]
+        Ri_in = R_input[senders]
+        Rj_in = R_input[receivers]
+        dR_min_in = jax.vmap(disp_now)(Ri_in, Rj_in)
 
-        dR_min_e = jax.vmap(disp_now)(Ri_e, Rj_e)
-        dR_model = -dR_min_e
+        # IMPORTANT:
+        # In fractional_coordinates=True mode, periodic_general already returns
+        # a physical-space displacement, so no additional @ cell is needed.
+        dR_model = -dR_min_in
 
-        delta = Rj_e - Ri_e
+        delta_cart = R_cart[receivers] - R_cart[senders]
 
         # Exact continuous shifts: crucial for force/stress consistency
-        exact_shifts = (dR_model - delta).astype(shift_dtype)
+        exact_shifts = (dR_model - delta_cart).astype(shift_dtype)
 
         # Integer image bookkeeping
         unit_shifts_int = jnp.rint(exact_shifts @ inv_cell).astype(jnp.int32)
@@ -256,18 +298,12 @@ def make_mace_jaxmd_energy(
         cell = cell_1x3x3[0]
         inv_cell = jnp.linalg.inv(cell)
 
-        box_arr = jnp.asarray(box_now)
-        if box_arr.shape == (3,):
-            disp_now, _ = space.periodic(box_arr)
-        elif box_arr.shape == (3, 3):
-            disp_now, _ = space.periodic_general(box_arr)
-        else:
-            raise ValueError(f"Unexpected runtime box shape: {box_arr.shape}")
+        disp_now = _runtime_displacement_fn(box_now)
 
-        R_real = jnp.asarray(R, dtype=pos_dtype)
+        R_input = jnp.asarray(R, dtype=pos_dtype)
         neighbor_idx = jnp.asarray(neighbor_idx, dtype=jnp.int32)
 
-        N = R_real.shape[0]
+        N = R_input.shape[0]
         M = neighbor_idx.shape[1]
 
         valid_slot = (neighbor_idx >= 0) & (neighbor_idx < N)
@@ -298,14 +334,20 @@ def make_mace_jaxmd_energy(
 
         receivers = jnp.where(valid_e, receivers, senders)
 
-        Ri_e = R_real[senders]
-        Rj_e = R_real[receivers]
+        R_cart = _to_cartesian(R_input, cell, fractional_coordinates).astype(pos_dtype)
 
-        dR_min_e = jax.vmap(disp_now)(Ri_e, Rj_e)
-        dR_model = -dR_min_e
-        delta = Rj_e - Ri_e
+        Ri_in = R_input[senders]
+        Rj_in = R_input[receivers]
+        dR_min_in = jax.vmap(disp_now)(Ri_in, Rj_in)
 
-        exact_shifts = (dR_model - delta).astype(shift_dtype)
+        # IMPORTANT:
+        # In fractional_coordinates=True mode, periodic_general already returns
+        # a physical-space displacement, so no additional @ cell is needed.
+        dR_model = -dR_min_in
+
+        delta_cart = R_cart[receivers] - R_cart[senders]
+
+        exact_shifts = (dR_model - delta_cart).astype(shift_dtype)
         unit_shifts_int = jnp.rint(exact_shifts @ inv_cell).astype(jnp.int32)
         unit_shifts_int = lax.stop_gradient(unit_shifts_int)
 
@@ -356,30 +398,37 @@ def make_mace_jaxmd_energy(
         def fixed_energy_fn(R, *, box=None):
             box_now = box_default if box is None else box
 
-            R_real = jnp.asarray(R, dtype=pos_dtype)
-            N = R_real.shape[0]
+            R_input = jnp.asarray(R, dtype=pos_dtype)
+            N = R_input.shape[0]
 
             cell_1x3x3 = _make_cell_1x3x3(box_now, cell_dtype)
             cell = cell_1x3x3[0]
 
+            R_cart = _to_cartesian(R_input, cell, fractional_coordinates).astype(pos_dtype)
+
             # ---- Positions ----
             positions = jnp.zeros((N_template, 3), dtype=pos_dtype)
-            positions = positions.at[:N].set(R_real)
+            positions = positions.at[:N].set(R_cart)
 
             # ---- Node attrs ----
-            species_idx = jnp.zeros((N_template,), dtype=jnp.int32)
             species_idx_real = Z_to_index[z_atomic[:N]]
+
+            species_idx = jnp.zeros((N_template,), dtype=jnp.int32)
             species_idx = species_idx.at[:N].set(species_idx_real)
 
-            node_mask = (jnp.arange(N_template, dtype=jnp.int32) < N).astype(node_attrs_dtype)
-            node_attrs = jax.nn.one_hot(
-                species_idx, num_classes=C_node, dtype=node_attrs_dtype
+            node_attrs = jnp.zeros((N_template, C_node), dtype=node_attrs_dtype)
+            node_attrs = node_attrs.at[:N].set(
+                jax.nn.one_hot(
+                    species_idx_real,
+                    num_classes=C_node,
+                    dtype=node_attrs_dtype,
+                )
             )
-            node_attrs = node_attrs * node_mask[:, None]
 
-            node_attrs_index = jnp.where(
-                node_mask > 0, species_idx, jnp.zeros_like(species_idx)
-            ).astype(node_idx_dtype)
+            node_attrs_index = jnp.zeros((N_template,), dtype=node_idx_dtype)
+            node_attrs_index = node_attrs_index.at[:N].set(
+                species_idx_real.astype(node_idx_dtype)
+            )
 
             # ---- Frozen graph, runtime shifts ----
             unit_shifts = unit_shifts_int.astype(us_dtype)
