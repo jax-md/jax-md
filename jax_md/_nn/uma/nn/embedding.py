@@ -13,6 +13,8 @@ from typing import List, Literal
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+
+
 from jax.nn import initializers
 
 from jax_md._nn.uma.nn.radial import RadialMLP
@@ -26,6 +28,16 @@ _DATASET_ALIASES = {
   'mptrj': 'omat',
   'salex': 'omat',
 }
+
+
+def symmetric_uniform(scale):
+  """Initializer producing values in [-scale, scale), matching PyTorch's
+  ``nn.init.uniform_(-scale, scale)``."""
+
+  def init(key, shape, dtype=jnp.float32):
+    return jax.random.uniform(key, shape, dtype, minval=-scale, maxval=scale)
+
+  return init
 
 
 def dataset_name_to_idx(name: str, dataset_list: List[str]) -> int:

@@ -7,7 +7,7 @@ input format expected by the UMA backbone model.
 from __future__ import annotations
 
 from functools import partial
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict
 
 import jax.numpy as jnp
 from jax import vmap
@@ -57,9 +57,9 @@ def uma_featurizer(
 
     # Build edge index from neighbor list
     if hasattr(neighbor, 'idx') and neighbor.format == partition.Sparse:
-      # Sparse format: idx is [2, num_neighbors]
-      senders = neighbor.idx[0]
-      receivers = neighbor.idx[1]
+      # Sparse format: idx is [2, num_neighbors] = [receivers, senders]
+      receivers = neighbor.idx[0]
+      senders = neighbor.idx[1]
       mask = partition.neighbor_list_mask(neighbor, True)
     elif hasattr(neighbor, 'idx'):
       # Dense format: convert to sparse

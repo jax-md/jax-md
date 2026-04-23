@@ -44,7 +44,6 @@ class Edgewise(nn.Module):
   mmax: int
   edge_channels_list: List[int]
   m_size: List[int]
-  cutoff: float
   act_type: Literal['gate', 's2'] = 'gate'
   to_grid_mat: jnp.ndarray | None = None
   from_grid_mat: jnp.ndarray | None = None
@@ -55,7 +54,6 @@ class Edgewise(nn.Module):
     self,
     x: jnp.ndarray,
     x_edge: jnp.ndarray,
-    edge_distance: jnp.ndarray,
     edge_index: jnp.ndarray,
     wigner_and_M_mapping: jnp.ndarray,
     wigner_and_M_mapping_inv: jnp.ndarray,
@@ -67,7 +65,6 @@ class Edgewise(nn.Module):
     Args:
         x: Node features, shape [num_nodes, num_m_coeffs, sphere_channels].
         x_edge: Edge scalar features, shape [num_edges, edge_channels].
-        edge_distance: Edge distances, shape [num_edges].
         edge_index: Edge connectivity, shape [2, num_edges].
         wigner_and_M_mapping: Forward Wigner rotation + M mapping.
         wigner_and_M_mapping_inv: Inverse Wigner rotation + M mapping.
@@ -175,7 +172,6 @@ class SpectralAtomwise(nn.Module):
   sphere_channels: int
   hidden_channels: int
   lmax: int
-  mmax: int
 
   @nn.compact
   def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
@@ -241,8 +237,6 @@ class GridAtomwise(nn.Module):
 
   sphere_channels: int
   hidden_channels: int
-  lmax: int
-  mmax: int
   to_grid_mat: jnp.ndarray
   from_grid_mat: jnp.ndarray
 
@@ -306,7 +300,6 @@ class UMABlock(nn.Module):
   mmax: int
   m_size: List[int]
   edge_channels_list: List[int]
-  cutoff: float
   norm_type: str = 'rms_norm_sh'
   act_type: Literal['gate', 's2'] = 'gate'
   ff_type: Literal['spectral', 'grid'] = 'grid'
@@ -319,7 +312,6 @@ class UMABlock(nn.Module):
     self,
     x: jnp.ndarray,
     x_edge: jnp.ndarray,
-    edge_distance: jnp.ndarray,
     edge_index: jnp.ndarray,
     wigner_and_M_mapping: jnp.ndarray,
     wigner_and_M_mapping_inv: jnp.ndarray,
@@ -332,7 +324,6 @@ class UMABlock(nn.Module):
     Args:
         x: Node features, shape [num_nodes, (lmax+1)^2, sphere_channels].
         x_edge: Edge scalar features, shape [num_edges, edge_channels].
-        edge_distance: Edge distances, shape [num_edges].
         edge_index: Edge connectivity, shape [2, num_edges].
         wigner_and_M_mapping: Forward Wigner rotation + M mapping.
         wigner_and_M_mapping_inv: Inverse Wigner rotation + M mapping.
@@ -367,7 +358,6 @@ class UMABlock(nn.Module):
       mmax=self.mmax,
       edge_channels_list=self.edge_channels_list,
       m_size=self.m_size,
-      cutoff=self.cutoff,
       act_type=self.act_type,
       to_grid_mat=self.to_grid_mat,
       from_grid_mat=self.from_grid_mat,
@@ -377,7 +367,6 @@ class UMABlock(nn.Module):
     x = edgewise(
       x,
       x_edge,
-      edge_distance,
       edge_index,
       wigner_and_M_mapping,
       wigner_and_M_mapping_inv,
@@ -404,15 +393,12 @@ class UMABlock(nn.Module):
         sphere_channels=self.sphere_channels,
         hidden_channels=self.hidden_channels,
         lmax=self.lmax,
-        mmax=self.mmax,
         name='atom_wise',
       )
     else:
       atomwise = GridAtomwise(
         sphere_channels=self.sphere_channels,
         hidden_channels=self.hidden_channels,
-        lmax=self.lmax,
-        mmax=self.mmax,
         to_grid_mat=self.to_grid_mat,
         from_grid_mat=self.from_grid_mat,
         name='atom_wise',

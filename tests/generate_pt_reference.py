@@ -218,9 +218,6 @@ def main():
   }
   pt_model.load_state_dict(bb_sd, strict=False)
 
-  # Head weights
-  head_sd = {k: v for k, v in ema_sd.items() if 'output_heads' in k}
-
   # Output dir
   out_dir = os.path.join(os.path.dirname(__file__), 'data', 'pt_reference')
   os.makedirs(out_dir, exist_ok=True)

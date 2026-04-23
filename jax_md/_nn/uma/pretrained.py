@@ -28,7 +28,7 @@ from __future__ import annotations
 import os
 import pickle
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 import jax.numpy as jnp
 import numpy as np
@@ -484,17 +484,6 @@ def _convert_head_key(key: str) -> str | None:
         param = parts[j + 2] if j + 2 < len(parts) else 'weight'
         flax_param = 'kernel' if param in ('weight', 'weights') else param
         return f'energy_block_{idx}_{flax_param}'
-  return None
-
-
-def _convert_dataset_emb_key(
-  key: str, dataset_list: List[str]
-) -> Tuple[str, ...] | None:
-  """Convert dataset_embedding.dataset_emb_dict.{name}.weight."""
-  for ds_name in dataset_list:
-    if f'dataset_emb_dict.{ds_name}.weight' in key:
-      idx = dataset_list.index(ds_name)
-      return ('dataset_embedding', 'embedding', 'embedding', f'_{idx}')
   return None
 
 

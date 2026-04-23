@@ -34,14 +34,12 @@ class SO2MConv(nn.Module):
       sphere_channels: Number of input spherical channels.
       m_output_channels: Number of output channels.
       lmax: Maximum degree l.
-      mmax: Maximum order m.
   """
 
   m: int
   sphere_channels: int
   m_output_channels: int
   lmax: int
-  mmax: int
 
   @nn.compact
   def __call__(self, x_m: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray]:
@@ -56,7 +54,6 @@ class SO2MConv(nn.Module):
         [num_edges, num_coeffs, m_output_channels].
     """
     num_coefficients = self.lmax - self.m + 1
-    num_channels = num_coefficients * self.sphere_channels
 
     # out_channels_half = m_output_channels * num_coefficients
     # (matching PyTorch: self.m_output_channels * (num_channels // self.sphere_channels))
@@ -226,7 +223,6 @@ class SO2Convolution(nn.Module):
         sphere_channels=self.sphere_channels,
         m_output_channels=self.m_output_channels,
         lmax=self.lmax,
-        mmax=self.mmax,
         name=f'so2_m_conv_{m}',
       )
       x_m_r, x_m_i = so2_m_conv(x_m)

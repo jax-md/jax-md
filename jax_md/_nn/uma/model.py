@@ -14,7 +14,6 @@ from typing import Dict, List
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
-from jax.nn import initializers
 
 from jax_md._nn.uma.common.so3 import (
   create_coefficient_mapping,
@@ -31,6 +30,7 @@ from jax_md._nn.uma.nn.embedding import (
   ChgSpinEmbedding,
   DatasetEmbedding,
   EdgeDegreeEmbedding,
+  symmetric_uniform,
 )
 from jax_md._nn.uma.nn.layer_norm import get_normalization_layer
 from jax_md._nn.uma.blocks import UMABlock
@@ -125,9 +125,6 @@ class UMABackbone(nn.Module):
     # Create SO3 grids
     self.so3_grid_lmax_lmax = create_so3_grid(
       cfg.lmax, cfg.lmax, resolution=cfg.grid_resolution, rescale=True
-    )
-    self.so3_grid_lmax_mmax = create_so3_grid(
-      cfg.lmax, cfg.mmax, resolution=cfg.grid_resolution, rescale=True
     )
 
     # Load Jacobi matrices for Wigner D-matrix computation
@@ -246,26 +243,16 @@ class UMABackbone(nn.Module):
     )
     edge_distance_embedding = distance_expansion(edge_distance)
 
-    # Source/target embeddings for edges (symmetric uniform matches
-    # PyTorch's nn.init.uniform_(-0.001, 0.001) without runtime bias)
-    def _symmetric_uniform(scale):
-      def init(key, shape, dtype=jnp.float32):
-        return jax.random.uniform(
-          key, shape, dtype, minval=-scale, maxval=scale
-        )
-
-      return init
-
     source_embedding = nn.Embed(
       num_embeddings=cfg.max_num_elements,
       features=cfg.edge_channels,
-      embedding_init=_symmetric_uniform(0.001),
+      embedding_init=symmetric_uniform(0.001),
       name='source_embedding',
     )
     target_embedding = nn.Embed(
       num_embeddings=cfg.max_num_elements,
       features=cfg.edge_channels,
-      embedding_init=_symmetric_uniform(0.001),
+      embedding_init=symmetric_uniform(0.001),
       name='target_embedding',
     )
 
@@ -336,7 +323,6 @@ class UMABackbone(nn.Module):
         mmax=cfg.mmax,
         m_size=self.mapping.m_size,
         edge_channels_list=self.edge_channels_list,
-        cutoff=cfg.cutoff,
         norm_type=cfg.norm_type,
         act_type=cfg.act_type,
         ff_type=cfg.ff_type,
@@ -359,7 +345,6 @@ class UMABackbone(nn.Module):
       x_message = block(
         x_message,
         x_edge,
-        edge_distance,
         edge_index,
         wigner_and_M_mapping,
         wigner_and_M_mapping_inv,

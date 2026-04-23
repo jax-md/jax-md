@@ -23,7 +23,6 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax.nn import initializers
 
 from jax_md._nn.uma.model import UMAConfig
 from jax_md._nn.uma.common.so3 import (
@@ -45,6 +44,7 @@ from jax_md._nn.uma.nn.embedding import (
   ChgSpinEmbedding,
   DatasetEmbedding,
   EdgeDegreeEmbedding,
+  symmetric_uniform,
 )
 from jax_md._nn.uma.nn.layer_norm import get_normalization_layer
 from jax_md._nn.uma.nn.activation import GateActivation, SeparableS2Activation
@@ -76,7 +76,6 @@ class SO2MConvMoE(nn.Module):
       sphere_channels: Number of input spherical channels.
       m_output_channels: Number of output channels.
       lmax: Maximum degree l.
-      mmax: Maximum order m.
       num_experts: Number of MoE experts.
   """
 
@@ -84,7 +83,6 @@ class SO2MConvMoE(nn.Module):
   sphere_channels: int
   m_output_channels: int
   lmax: int
-  mmax: int
   num_experts: int
 
   @nn.compact
@@ -249,7 +247,6 @@ class SO2ConvolutionMoE(nn.Module):
         sphere_channels=self.sphere_channels,
         m_output_channels=self.m_output_channels,
         lmax=self.lmax,
-        mmax=self.mmax,
         num_experts=self.num_experts,
         name=f'so2_m_conv_{m}',
       )
@@ -273,7 +270,6 @@ class EdgewiseMoE(nn.Module):
   mmax: int
   edge_channels_list: List[int]
   m_size: List[int]
-  cutoff: float
   num_experts: int
   act_type: str = 'gate'
   to_grid_mat: jnp.ndarray | None = None
@@ -285,7 +281,6 @@ class EdgewiseMoE(nn.Module):
     self,
     x,
     x_edge,
-    edge_distance,
     edge_index,
     wigner_and_M_mapping,
     wigner_and_M_mapping_inv,
@@ -369,7 +364,6 @@ class UMABlockMoE(nn.Module):
   mmax: int
   m_size: List[int]
   edge_channels_list: List[int]
-  cutoff: float
   num_experts: int
   norm_type: str = 'rms_norm_sh'
   act_type: str = 'gate'
@@ -383,7 +377,6 @@ class UMABlockMoE(nn.Module):
     self,
     x,
     x_edge,
-    edge_distance,
     edge_index,
     wigner_and_M_mapping,
     wigner_and_M_mapping_inv,
@@ -415,7 +408,6 @@ class UMABlockMoE(nn.Module):
       mmax=self.mmax,
       edge_channels_list=self.edge_channels_list,
       m_size=self.m_size,
-      cutoff=self.cutoff,
       num_experts=self.num_experts,
       act_type=self.act_type,
       to_grid_mat=self.to_grid_mat,
@@ -426,7 +418,6 @@ class UMABlockMoE(nn.Module):
     x = edgewise(
       x,
       x_edge,
-      edge_distance,
       edge_index,
       wigner_and_M_mapping,
       wigner_and_M_mapping_inv,
@@ -452,15 +443,12 @@ class UMABlockMoE(nn.Module):
         sphere_channels=self.sphere_channels,
         hidden_channels=self.hidden_channels,
         lmax=self.lmax,
-        mmax=self.mmax,
         name='atom_wise',
       )
     else:
       atomwise = GridAtomwise(
         sphere_channels=self.sphere_channels,
         hidden_channels=self.hidden_channels,
-        lmax=self.lmax,
-        mmax=self.mmax,
         to_grid_mat=self.to_grid_mat,
         from_grid_mat=self.from_grid_mat,
         name='atom_wise',
@@ -612,24 +600,16 @@ class UMAMoEBackbone(nn.Module):
     )
     edge_distance_embedding = distance_expansion(edge_distance)
 
-    def _symmetric_uniform(scale):
-      def init(key, shape, dtype=jnp.float32):
-        return jax.random.uniform(
-          key, shape, dtype, minval=-scale, maxval=scale
-        )
-
-      return init
-
     source_embedding = nn.Embed(
       num_embeddings=cfg.max_num_elements,
       features=cfg.edge_channels,
-      embedding_init=_symmetric_uniform(0.001),
+      embedding_init=symmetric_uniform(0.001),
       name='source_embedding',
     )
     target_embedding = nn.Embed(
       num_embeddings=cfg.max_num_elements,
       features=cfg.edge_channels,
-      embedding_init=_symmetric_uniform(0.001),
+      embedding_init=symmetric_uniform(0.001),
       name='target_embedding',
     )
     source_emb = source_embedding(atomic_numbers[edge_index[0]])
@@ -695,7 +675,6 @@ class UMAMoEBackbone(nn.Module):
         mmax=cfg.mmax,
         m_size=self.mapping.m_size,
         edge_channels_list=self.edge_channels_list,
-        cutoff=cfg.cutoff,
         num_experts=cfg.num_experts,
         norm_type=cfg.norm_type,
         act_type=cfg.act_type,
@@ -708,7 +687,6 @@ class UMAMoEBackbone(nn.Module):
       x_message = block(
         x_message,
         x_edge,
-        edge_distance,
         edge_index,
         wigner_and_M_mapping,
         wigner_and_M_mapping_inv,

@@ -3,6 +3,8 @@
 These tests verify the UMA model components and full forward pass work correctly.
 """
 
+import os
+
 from absl.testing import absltest
 
 import jax
@@ -150,9 +152,7 @@ class SO2MConvTest(test_util.JAXMDTestCase):
 
   def test_so2mconv_output_shape(self):
     """Test SO2MConv produces correct output shape."""
-    conv = SO2MConv(
-      m=1, sphere_channels=32, m_output_channels=16, lmax=2, mmax=2
-    )
+    conv = SO2MConv(m=1, sphere_channels=32, m_output_channels=16, lmax=2)
     key = jax.random.PRNGKey(0)
     # m=1: num_coefficients = lmax - m + 1 = 2
     # Input: (E, 2, num_coeffs * sphere_channels) = (5, 2, 64)
@@ -165,9 +165,7 @@ class SO2MConvTest(test_util.JAXMDTestCase):
 
   def test_so2mconv_jit(self):
     """Test SO2MConv is JIT-compatible."""
-    conv = SO2MConv(
-      m=1, sphere_channels=16, m_output_channels=8, lmax=2, mmax=2
-    )
+    conv = SO2MConv(m=1, sphere_channels=16, m_output_channels=8, lmax=2)
     key = jax.random.PRNGKey(0)
     x = jax.random.normal(key, (3, 2, 2 * 16))
     params = conv.init(key, x)
@@ -653,7 +651,10 @@ def _stub_fairchem():
       sys.modules[name] = types.ModuleType(name)
 
 
-_FAIRCHEM_SRC = '/Users/emirhankurtulus/workspace/fairchem_jaxmd/fairchem/src/fairchem/core/models/uma'
+_FAIRCHEM_SRC = os.environ.get(
+  'FAIRCHEM_SRC',
+  '/Users/emirhankurtulus/workspace/fairchem_jaxmd/fairchem/src/fairchem/core/models/uma',
+)
 
 
 def _pt_available():
@@ -786,7 +787,7 @@ class PyTorchComparisonTest(test_util.JAXMDTestCase):
       return x_m_r, x_m_i
 
     jax_conv = SO2MConv(
-      m=m, sphere_channels=sc, m_output_channels=moc, lmax=lmax, mmax=mmax
+      m=m, sphere_channels=sc, m_output_channels=moc, lmax=lmax
     )
 
     np.random.seed(123)
@@ -934,8 +935,6 @@ class EndToEndComparisonTest(test_util.JAXMDTestCase):
 
   def test_jax_forward_pass(self):
     """Production JAX UMABackbone produces finite embeddings."""
-    from jax_md._nn.uma.nn.embedding import dataset_names_to_indices
-
     config = UMAConfig(
       max_num_elements=100,
       sphere_channels=64,

@@ -390,10 +390,7 @@ def get_wigner_and_mapping(
     wigner_inv = wigner_inv[:, :, coefficient_index]  # [E, l_dim, m_dim]
 
   # Combine with M mapping
-  to_m_selected = to_m
-  wigner_and_M_mapping = jnp.einsum('mk,nkj->nmj', to_m_selected, wigner)
-  wigner_and_M_mapping_inv = jnp.einsum(
-    'njk,mk->njm', wigner_inv, to_m_selected
-  )
+  wigner_and_M_mapping = jnp.einsum('mk,nkj->nmj', to_m, wigner)
+  wigner_and_M_mapping_inv = jnp.einsum('njk,mk->njm', wigner_inv, to_m)
 
   return wigner_and_M_mapping, wigner_and_M_mapping_inv
