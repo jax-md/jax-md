@@ -651,20 +651,27 @@ def _stub_fairchem():
       sys.modules[name] = types.ModuleType(name)
 
 
-_FAIRCHEM_SRC = os.environ.get(
-  'FAIRCHEM_SRC',
-  '/Users/emirhankurtulus/workspace/fairchem_jaxmd/fairchem/src/fairchem/core/models/uma',
-)
+def _find_fairchem_src():
+  """Locate FairChem UMA source"""
+  if 'FAIRCHEM_SRC' in os.environ:
+    return os.environ['FAIRCHEM_SRC']
+  try:
+    import fairchem.core.models.uma as _uma
+
+    return os.path.dirname(_uma.__file__)
+  except ImportError:
+    return None
+
+
+_FAIRCHEM_SRC = _find_fairchem_src()
 
 
 def _pt_available():
   """Check if PyTorch and fairchem source are accessible."""
-  import os
-
   try:
-    import torch
+    import torch  # noqa: F401
 
-    return os.path.isdir(_FAIRCHEM_SRC)
+    return _FAIRCHEM_SRC is not None and os.path.isdir(_FAIRCHEM_SRC)
   except ImportError:
     return False
 

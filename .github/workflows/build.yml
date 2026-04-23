@@ -58,15 +58,26 @@ jobs:
       run: |
         uv pip install .
         uv pip install pytest pytest-cov netCDF4 ase
-        # Install torch for UMA tests
+        # Install torch + fairchem for UMA tests (PT comparison + pretrained)
         if [ "${{ matrix.test-suite }}" == "uma" ]; then
           uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+          uv pip install fairchem-core --no-deps
+          uv pip install huggingface-hub
         fi
     - name: Set Swap Space
       uses: pierotofy/set-swap-space@master
       with:
        swap-size-gb: 12
+    - name: Cache UMA pretrained checkpoints
+      if: matrix.test-suite == 'uma'
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/fairchem
+        key: uma-checkpoints-v1
     - name: Test with pytest and generate coverage report
+      env:
+        # Used by huggingface_hub to download gated UMA checkpoints.
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
       run: |
         if [ "${{ matrix.test-suite }}" == "core" ]; then
           JAX_ENABLE_X64=1 uv run pytest tests --cov=jax_md --cov-report=xml --cov-report=term \
@@ -78,15 +89,11 @@ jobs:
             --ignore=tests/reaxff_test.py \
             --ignore=tests/tpu_test.py \
             --ignore=tests/uma_test.py \
-            --ignore=tests/uma_100_structures_test.py \
-            --ignore=tests/uma_pretrained_test.py \
-            --ignore=tests/uma_relaxation_test.py
+            --ignore=tests/uma_pretrained_test.py
         elif [ "${{ matrix.test-suite }}" == "uma" ]; then
           JAX_ENABLE_X64=1 uv run pytest \
             tests/uma_test.py \
             tests/uma_pretrained_test.py \
-            tests/uma_relaxation_test.py \
-            tests/uma_100_structures_test.py \
             --cov=jax_md --cov-report=xml --cov-report=term
         else
           JAX_ENABLE_X64=1 uv run pytest tests/${{ matrix.test-suite }}_test.py --cov=jax_md --cov-report=xml --cov-report=term
