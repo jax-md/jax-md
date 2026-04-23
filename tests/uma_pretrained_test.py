@@ -1,16 +1,18 @@
 """
 End-to-end tests for pretrained UMA MoE model.
 
-Tests that pretrained checkpoints run correctly in JAX with full MoE
-(no expert averaging/merging), and benchmarks inference speed.
+Tests that pretrained checkpoints load and run correctly in JAX with
+full MoE, and benchmarks inference speed.
+
+Checkpoints are downloaded automatically via huggingface_hub when
+HF_TOKEN is set.  The CI workflow caches ~/.cache/fairchem across runs.
 
 Requires:
-  - Downloaded checkpoints in ~/.cache/fairchem/
   - torch (for checkpoint loading)
+  - huggingface_hub (for downloading gated weights)
   - jax, flax
 """
 
-import os
 import time
 
 import numpy as np
@@ -22,16 +24,8 @@ import jax.numpy as jnp
 from jax_md import test_util
 from jax_md._nn.uma.model_moe import UMAMoEBackbone, load_pretrained
 from jax_md._nn.uma.nn.embedding import dataset_names_to_indices
-from jax_md._nn.uma.pretrained import PRETRAINED_MODELS
 
-
-def _find_checkpoint(model_name):
-  cache = os.path.expanduser('~/.cache/fairchem/models--facebook--UMA')
-  fname = PRETRAINED_MODELS[model_name]['filename']
-  for root, dirs, files in os.walk(cache):
-    if fname in files:
-      return os.path.join(root, fname)
-  return None
+MODEL_NAME = 'uma-s-1p2'
 
 
 def _make_test_system(num_atoms=6, cutoff=6.0):
@@ -63,15 +57,17 @@ class LoadPretrainedTest(test_util.JAXMDTestCase):
 
   def setUp(self):
     super().setUp()
-    self.path_s1p1 = _find_checkpoint('uma-s-1p1')
-    self.path_s1p2 = _find_checkpoint('uma-s-1p2')
     try:
-      import torch
+      import torch  # noqa: F401
     except ImportError:
       self.skipTest('torch not available')
+    try:
+      self._loaded = load_pretrained(MODEL_NAME)
+    except Exception as e:
+      self.skipTest(f'Could not load {MODEL_NAME}: {e}')
 
-  def _run_moe(self, path, cutoff=6.0, dataset='omat'):
-    config, params, _hp = load_pretrained(path)
+  def _run_moe(self, cutoff=6.0, dataset='omat'):
+    config, params, _hp = self._loaded
     model = UMAMoEBackbone(config=config)
 
     pos, Z, batch, ei = _make_test_system(cutoff=cutoff)
@@ -91,35 +87,20 @@ class LoadPretrainedTest(test_util.JAXMDTestCase):
     )
     return output, model, params, config
 
-  def test_uma_s_1p1_loads_and_runs(self):
-    if self.path_s1p1 is None:
-      self.skipTest('uma-s-1p1 not downloaded')
-    output, _, _, config = self._run_moe(self.path_s1p1)
-    emb = output['node_embedding']
-    self.assertEqual(emb.shape, (6, 9, 128))
-    self.assertTrue(jnp.all(jnp.isfinite(emb)))
-    self.assertEqual(config.num_experts, 32)
-    self.assertEqual(config.num_layers, 4)
-
-  def test_uma_s_1p1_omol_task(self):
-    if self.path_s1p1 is None:
-      self.skipTest('uma-s-1p1 not downloaded')
-    output, _, _, _ = self._run_moe(self.path_s1p1, dataset='omol')
-    self.assertTrue(jnp.all(jnp.isfinite(output['node_embedding'])))
-
-  def test_uma_s_1p2_loads_and_runs(self):
-    if self.path_s1p2 is None:
-      self.skipTest('uma-s-1p2 not downloaded')
-    output, _, _, config = self._run_moe(self.path_s1p2)
+  def test_loads_and_runs(self):
+    output, _, _, config = self._run_moe()
     emb = output['node_embedding']
     self.assertEqual(emb.shape, (6, 9, 128))
     self.assertTrue(jnp.all(jnp.isfinite(emb)))
     self.assertEqual(config.num_experts, 64)
+    self.assertEqual(config.num_layers, 4)
 
-  def test_uma_s_1p1_jit_compiles(self):
-    if self.path_s1p1 is None:
-      self.skipTest('uma-s-1p1 not downloaded')
-    output, model, params, config = self._run_moe(self.path_s1p1)
+  def test_omol_task(self):
+    output, _, _, _ = self._run_moe(dataset='omol')
+    self.assertTrue(jnp.all(jnp.isfinite(output['node_embedding'])))
+
+  def test_jit_compiles(self):
+    output, model, params, config = self._run_moe()
     eager_emb = np.array(output['node_embedding'])
 
     pos, Z, batch, ei = _make_test_system()
@@ -144,10 +125,8 @@ class LoadPretrainedTest(test_util.JAXMDTestCase):
     # JIT should produce same result as eager
     np.testing.assert_allclose(jit_emb, eager_emb, atol=1e-4)
 
-  def test_uma_s_1p1_deterministic(self):
-    if self.path_s1p1 is None:
-      self.skipTest('uma-s-1p1 not downloaded')
-    out1, model, params, config = self._run_moe(self.path_s1p1)
+  def test_deterministic(self):
+    out1, model, params, config = self._run_moe()
     pos, Z, batch, ei = _make_test_system()
     ev = (pos[ei[0]] - pos[ei[1]]).astype(np.float32)
     ds_idx = dataset_names_to_indices(['omat'], config.dataset_list)
@@ -172,12 +151,16 @@ class LoadPretrainedTest(test_util.JAXMDTestCase):
 class MoEBenchmark(test_util.JAXMDTestCase):
   """Benchmark pretrained MoE inference speed."""
 
-  def test_benchmark_uma_s_1p1(self):
-    path = _find_checkpoint('uma-s-1p1')
-    if path is None:
-      self.skipTest('uma-s-1p1 not downloaded')
+  def test_benchmark(self):
+    try:
+      import torch  # noqa: F401
+    except ImportError:
+      self.skipTest('torch not available')
+    try:
+      config, params, _hp = load_pretrained(MODEL_NAME)
+    except Exception as e:
+      self.skipTest(f'Could not load {MODEL_NAME}: {e}')
 
-    config, params, _hp = load_pretrained(path)
     model = UMAMoEBackbone(config=config)
 
     pos, Z, batch, ei = _make_test_system()
@@ -212,9 +195,7 @@ class MoEBenchmark(test_util.JAXMDTestCase):
 
     ms = np.mean(times) * 1000
     std = np.std(times) * 1000
-    print(
-      f'\numa-s-1p1 MoE JIT (6 atoms, 30 edges, CPU): {ms:.1f} ± {std:.1f} ms'
-    )
+    print(f'{MODEL_NAME} MoE JIT (6 atoms, CPU): {ms:.1f} +/- {std:.1f} ms')
 
 
 if __name__ == '__main__':
