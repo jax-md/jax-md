@@ -566,9 +566,9 @@ class SimulateTest(test_util.JAXMDTestCase):
     particle_count = 4
     spatial_dimension = 2
 
-    R = np.arange(
-      particle_count * spatial_dimension, dtype=dtype
-    ).reshape((particle_count, spatial_dimension))
+    R = np.arange(particle_count * spatial_dimension, dtype=dtype).reshape(
+      (particle_count, spatial_dimension)
+    )
     mass = np.array([1.0, 2.0, 3.0, 4.0], dtype=dtype)
     momenta = np.arange(
       particle_count * spatial_dimension, dtype=dtype
@@ -582,7 +582,11 @@ class SimulateTest(test_util.JAXMDTestCase):
     periodic_energy = lambda positions, box, **kwargs: np.sum(positions**2)
 
     thermostat_cases = [
-      ('nve', simulate.nve(free_energy, free_shift, 1e-3)[0], {'kT': dtype(1.0)}),
+      (
+        'nve',
+        simulate.nve(free_energy, free_shift, 1e-3)[0],
+        {'kT': dtype(1.0)},
+      ),
       (
         'nvt_nose_hoover',
         simulate.nvt_nose_hoover(free_energy, free_shift, 1e-3, dtype(1.0))[0],
@@ -605,7 +609,12 @@ class SimulateTest(test_util.JAXMDTestCase):
       (
         'temp_rescale',
         simulate.temp_rescale(
-          free_energy, free_shift, 1e-3, dtype(1.0), window=dtype(0.2), fraction=dtype(0.5)
+          free_energy,
+          free_shift,
+          1e-3,
+          dtype(1.0),
+          window=dtype(0.2),
+          fraction=dtype(0.5),
         )[0],
         {},
       ),
@@ -628,7 +637,9 @@ class SimulateTest(test_util.JAXMDTestCase):
 
     for _, init_fn, extra_kwargs in thermostat_cases:
       state = init_fn(key, R, mass=mass, momenta=momenta, **extra_kwargs)
-      alt_state = init_fn(alt_key, R, mass=mass, momenta=momenta, **extra_kwargs)
+      alt_state = init_fn(
+        alt_key, R, mass=mass, momenta=momenta, **extra_kwargs
+      )
       self.assertAllClose(state.momentum, momenta)
       self.assertAllClose(state.velocity, momenta / mass[:, None])
       self.assertAllClose(alt_state.momentum, momenta)
