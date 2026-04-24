@@ -245,6 +245,32 @@ class JAXMDTestCase(parameterized.TestCase):
 # JAX MD specific utilities.
 
 
+def make_fcc_fractional(n_cells, a, dtype):
+  """Create an FCC crystal in fractional coordinates.
+
+  Args:
+    n_cells: Number of unit cells along each axis.
+    a: Lattice parameter.
+    dtype: Data type for positions and box.
+
+  Returns:
+    ``(R, box)`` where ``R`` has shape ``[4 * n_cells**3, 3]`` in ``[0, 1)``
+    and ``box`` is a ``(3, 3)`` diagonal matrix.
+  """
+  basis = onp.array(
+    [[0.0, 0.0, 0.0], [0.5, 0.5, 0.0], [0.5, 0.0, 0.5], [0.0, 0.5, 0.5]]
+  )
+  positions = []
+  for i in range(n_cells):
+    for j in range(n_cells):
+      for k in range(n_cells):
+        for b in basis:
+          positions.append((onp.array([i, j, k]) + b) / n_cells)
+  R = jnp.array(positions, dtype=dtype)
+  box = jnp.eye(3, dtype=dtype) * a * n_cells
+  return R, box
+
+
 def update_test_tolerance(f32_tol=5e-3, f64_tol=1e-5):
   _DEFAULT_TOLERANCE[onp.dtype(onp.float32)] = f32_tol
   _DEFAULT_TOLERANCE[onp.dtype(onp.float64)] = f64_tol

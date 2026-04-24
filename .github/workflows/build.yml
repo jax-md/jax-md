@@ -19,7 +19,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Install uv
-      uses: astral-sh/setup-uv@v4
+      uses: astral-sh/setup-uv@v5
     - name: Set up Python
       run: uv python install 3.12
     - name: Create virtual environment
@@ -49,7 +49,7 @@ jobs:
         sudo apt-get -y install pandoc
     - uses: actions/checkout@v3
     - name: Install uv
-      uses: astral-sh/setup-uv@v4
+      uses: astral-sh/setup-uv@v5
     - name: Set up Python ${{ matrix.python-version }}
       run: uv python install ${{ matrix.python-version }}
     - name: Create virtual environment
