@@ -218,41 +218,6 @@ def _build_configuration(
     )
 
 
-#def _pad_template_dict(data: dict[str, jnp.ndarray], *, n_node: int, n_edge: int) -> dict[str, jnp.ndarray]:
-#    out = dict(data)
-
-#    def pad0(x, n):
-#        cur = int(x.shape[0])
-#        if cur > n:
-#            raise ValueError(f"Template has {cur} > cap {n}")
-#        if cur == n:
-#            return x
-#        pad = jnp.zeros((n - cur, *x.shape[1:]), dtype=x.dtype)
-#        return jnp.concatenate([x, pad], axis=0)
-
-    # Nodes
-#    out["positions"] = pad0(out["positions"], n_node)
-#    out["node_attrs"] = pad0(out["node_attrs"], n_node)
-#    out["node_attrs_index"] = pad0(out["node_attrs_index"], n_node)
-#    out["batch"] = pad0(out["batch"], n_node)
-
-    # ptr is [0, n_node] for a single graph
-#    out["ptr"] = out["ptr"].at[-1].set(jnp.asarray(n_node, dtype=out["ptr"].dtype))
-
-    # Edges
-#    E0 = int(out["edge_index"].shape[1])
-#    if E0 > n_edge:
-#        raise ValueError(f"Template has {E0} edges > cap {n_edge}")
-#    if E0 < n_edge:
-#        pad = jnp.zeros((2, n_edge - E0), dtype=out["edge_index"].dtype)
-#        out["edge_index"] = jnp.concatenate([out["edge_index"], pad], axis=1)
-
-#    out["shifts"] = pad0(out["shifts"], n_edge)
-#    out["unit_shifts"] = pad0(out["unit_shifts"], n_edge)
-
-    # head and cell already correct shape (1,) and (1,3,3)
-#    return out
-
 def _pad_template_dict(data: dict[str, jnp.ndarray], *, n_node: int, n_edge: int, r_max: float) -> dict[str, jnp.ndarray]:
     out = dict(data)
 
@@ -313,13 +278,6 @@ def _prepare_template_data(
     atomic_numbers = tuple(int(z) for z in config['atomic_numbers'])
     configuration = _build_configuration(atomic_numbers, config['r_max'])
     graph = graph_from_configuration(configuration, cutoff=config['r_max'])
-#    data = _graph_to_data(graph, num_species=len(atomic_numbers))
-
-#    if n_node is not None or n_edge is not None:
-#        n_node = int(n_node or data["positions"].shape[0])
-#        n_edge = int(n_edge or data["edge_index"].shape[1])
-#        data = _pad_template_dict(data, n_node=n_node, n_edge=n_edge)
-
 
     data = _graph_to_data(graph, num_species=len(atomic_numbers))
 
@@ -330,12 +288,6 @@ def _prepare_template_data(
 
     return data
 
-
-#def _prepare_template_data(config: dict[str, Any]) -> dict[str, jnp.ndarray]:
-#    atomic_numbers = tuple(int(z) for z in config['atomic_numbers'])
-#    configuration = _build_configuration(atomic_numbers, config['r_max'])
-#    graph = graph_from_configuration(configuration, cutoff=config['r_max'])
-#    return _graph_to_data(graph, num_species=len(atomic_numbers))
 
 def _build_jax_model(
     config: dict[str, Any],
