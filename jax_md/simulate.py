@@ -158,7 +158,7 @@ def initialize_momenta(state: T, key: Array, kT: float) -> T:
   return state.set(momentum=tree_unflatten(treedef, P))
 
 
-def canonicalize_momenta(state: T, momenta: Optional[Array]) -> T:
+def canonicalize_momenta(state: T, momenta: Array | None) -> T:
   if momenta is None:
     return state
   return state.set(momentum=momenta)
