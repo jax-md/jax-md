@@ -66,16 +66,39 @@ class MOLELinear(nn.Module):
     # Mix experts per system: [E, O, I] x [B, E] -> [B, O, I]
     mixed_weights = jnp.einsum('eoi,be->boi', weights, expert_coefficients)
 
-    # Get per-atom/edge mixed weight: [N, O, I]
-    per_item_weights = mixed_weights[batch_indices]
-
-    # Apply: handle 2D and 3D inputs
+    # Avoid materializing [N, O, I] per-item weights
     if x.ndim == 2:
-      # x: [N, I] -> [N, O]
-      out = jnp.einsum('ni,noi->no', x, per_item_weights)
+      if mixed_weights.shape[0] == 1:
+        out = jnp.einsum('ni,oi->no', x, mixed_weights[0])
+      else:
+
+        def apply_system(acc, inputs):
+          system_weights, system_idx = inputs
+          system_out = jnp.einsum('ni,oi->no', x, system_weights)
+          mask = batch_indices == system_idx
+          return acc + jnp.where(mask[:, None], system_out, 0.0), None
+
+        init = jnp.zeros(x.shape[:-1] + (self.out_features,), dtype=x.dtype)
+        system_ids = jnp.arange(
+          mixed_weights.shape[0], dtype=batch_indices.dtype
+        )
+        out, _ = jax.lax.scan(apply_system, init, (mixed_weights, system_ids))
     elif x.ndim == 3:
-      # x: [N, C, I] -> [N, C, O]
-      out = jnp.einsum('nci,noi->nco', x, per_item_weights)
+      if mixed_weights.shape[0] == 1:
+        out = jnp.einsum('nci,oi->nco', x, mixed_weights[0])
+      else:
+
+        def apply_system(acc, inputs):
+          system_weights, system_idx = inputs
+          system_out = jnp.einsum('nci,oi->nco', x, system_weights)
+          mask = batch_indices == system_idx
+          return acc + jnp.where(mask[:, None, None], system_out, 0.0), None
+
+        init = jnp.zeros(x.shape[:-1] + (self.out_features,), dtype=x.dtype)
+        system_ids = jnp.arange(
+          mixed_weights.shape[0], dtype=batch_indices.dtype
+        )
+        out, _ = jax.lax.scan(apply_system, init, (mixed_weights, system_ids))
     else:
       raise ValueError(f'MOLELinear: unsupported input ndim={x.ndim}')
 

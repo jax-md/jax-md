@@ -2515,6 +2515,7 @@ def uma_neighbor_list(
   checkpoint_path=None,
   head_type='mlp',
   neighbor_list_fn: Callable = partition.neighbor_list,
+  featurizer_fn: Callable | None = None,
   charge=None,
   spin=None,
   dataset_idx=None,
@@ -2536,6 +2537,10 @@ def uma_neighbor_list(
         random initialization.
     head_type: Energy head type: ``'mlp'`` or ``'linear'``.
     neighbor_list_fn: Neighbor list constructor (default: ``partition.neighbor_list``).
+    featurizer_fn: Function to create a UMA featurizer. Defaults to
+        ``uma_featurizer`` for standard MIC neighbor lists. When using
+        ``custom_partition.neighbor_list_multi_image``, pass
+        ``uma_multi_image_featurizer`` explicitly.
     charge: System charge(s), shape ``[num_systems]`` (default: ``[0]``).
     spin: System spin(s), shape ``[num_systems]`` (default: ``[0]``).
     dataset_idx: Integer dataset index, shape ``[num_systems]`` (default: ``[0]``).
@@ -2548,9 +2553,9 @@ def uma_neighbor_list(
     - ``init_fn(key, position, neighbor, **kw)``: Returns model parameters.
     - ``energy_fn(params, position, neighbor, **kw)``: Returns scalar energy.
   """
-  from jax_md._nn.uma.model import UMABackbone, UMAConfig, default_config
+  from jax_md._nn.uma.model import UMABackbone, default_config
   from jax_md._nn.uma.heads import MLPEnergyHead, LinearEnergyHead
-  from jax_md._nn.uma.featurizer import uma_featurizer
+  from jax_md._nn.uma.featurizer import uma_multi_image_featurizer
   import flax.linen as flax_nn
 
   # Load pretrained checkpoint (MoE) if provided
@@ -2571,6 +2576,10 @@ def uma_neighbor_list(
   elif cfg is None:
     cfg = default_config()
 
+  # If callers provide a preloaded MoE config/params pair, use the MoE
+  # backbone even when checkpoint_path is not passed here.
+  is_moe = is_moe or hasattr(cfg, 'num_experts')
+
   # Build neighbor list
   neighbor_fn = neighbor_list_fn(
     displacement_fn,
@@ -2580,7 +2589,10 @@ def uma_neighbor_list(
     **nl_kwargs,
   )
 
-  featurizer = uma_featurizer(displacement_fn, cutoff=cfg.cutoff)
+  if featurizer_fn is None:
+    featurizer_fn = uma_multi_image_featurizer
+
+  featurizer = featurizer_fn(displacement_fn, cutoff=cfg.cutoff)
 
   # Combined backbone + head as a single Flax module
   class UMAEnergyModel(flax_nn.Module):
