@@ -39,10 +39,18 @@ forces = -jax.grad(energy_fn, argnums=1)(params, positions, nbrs)
 ### Loading Pretrained Weights
 
 ```python
+from jax_md._nn.uma import load_pretrained
+from jax_md._nn.uma.nn.embedding import dataset_names_to_indices
+
+model_name = 'uma-s-1p1'
+config, _, _ = load_pretrained(model_name)
+dataset_idx = dataset_names_to_indices(['omat'], config.dataset_list)
+
 neighbor_fn, init_fn, energy_fn = energy.uma_neighbor_list(
     displacement_fn, box_size,
-    checkpoint_path='uma-s-1p1',  # downloads from HuggingFace
+    checkpoint_path=model_name,  # loads native weights or falls back to HF
     atoms=atoms,
+    dataset_idx=dataset_idx,
 )
 params = init_fn(key, positions, nbrs)  # Returns pretrained weights
 ```
@@ -52,6 +60,7 @@ params = init_fn(key, positions, nbrs)  # Returns pretrained weights
 ```python
 from jax_md._nn.uma import load_pretrained, UMAMoEBackbone
 from jax_md._nn.uma.heads import MLPEnergyHead
+from jax_md._nn.uma.nn.embedding import dataset_names_to_indices
 
 config, params, head_params = load_pretrained('uma-s-1p1')
 model = UMAMoEBackbone(config=config)
@@ -59,6 +68,7 @@ head = MLPEnergyHead(
     sphere_channels=config.sphere_channels,
     hidden_channels=config.hidden_channels,
 )
+dataset_idx = dataset_names_to_indices(['omat'], config.dataset_list)
 
 emb = model.apply(params, positions, atomic_numbers, batch,
                    edge_index, edge_vec, charge, spin, dataset_idx)
@@ -71,12 +81,13 @@ energy = result['energy']
 ```python
 from jax_md._nn import uma
 
-config = uma.UMAConfig(sphere_channels=128, lmax=2, mmax=2)
+config = uma.default_config()
 model = uma.UMABackbone(config=config)
 
 # Dataset names must be converted to integer indices outside JIT
 dataset_idx = uma.dataset_names_to_indices(['omat'], config.dataset_list)
 
+# `params` can come from model.init(...) or converted pretrained weights.
 output = model.apply(
     params,
     positions,           # [num_atoms, 3]
@@ -91,31 +102,13 @@ output = model.apply(
 node_embedding = output['node_embedding']  # [N, (lmax+1)^2, C]
 ```
 
-## Architecture
-
-```
-Input: positions, atomic_numbers, edges
-         |
-  Atomic Embedding + Charge/Spin/Dataset
-         |
-  Edge Degree Embedding
-         |
-  UMA Blocks (x N):
-    Norm -> Edgewise (SO2 Conv) -> Residual
-    Norm -> Atomwise (Grid FFN)  -> Residual
-         |
-  Final Norm
-         |
-Output: node_embedding [N, (lmax+1)^2, C]
-```
-
 ## Key Design Decisions
 
-- **Integer dataset indices**: Dataset names are converted to integers via `dataset_names_to_indices()` *outside* JIT for full JIT compatibility.
-- **Scatter-add aggregation**: Uses `jnp.zeros(...).at[idx].add(...)` instead of deprecated `jax.ops.segment_sum`.
-- **Custom safe_acos**: Uses `jax.custom_jvp` to match PyTorch's `Safeacos` (exact forward, clamped backward).
-- **Grid matrices**: Uses PyTorch e3nn when available for exact numerical matching; falls back to numpy computation.
-- **Energy-conserving forces**: Use `jax.grad(energy_fn)` via the `uma_neighbor_list` integration rather than direct force prediction.
+- **Integer dataset indices**: Dataset names are converted to integers via `dataset_names_to_indices()` outside jitted code.
+- **Scatter-add aggregation**: Standard backbone and head aggregations use `jnp.zeros(...).at[idx].add(...)`; optional fused edgewise kernels may use segment reductions.
+- **Custom safe_acos**: Uses `jax.custom_jvp` with exact `arccos` in the forward pass and a clamped derivative to match PyTorch's `Safeacos` behavior near +/-1.
+- **Grid matrices**: Uses PyTorch e3nn when available for FairChem-compatible SO(3) grid matrices; falls back to a NumPy implementation that may differ slightly.
+- **Energy-conserving forces**: The `uma_neighbor_list` path exposes a scalar energy, so forces are computed with `-jax.grad(energy_fn)`. Direct force heads remain lower-level utilities.
 
 ## Configuration
 
@@ -133,53 +126,9 @@ Output: node_embedding [N, (lmax+1)^2, C]
 | `ff_type` | 'grid' | FFN type ('grid' or 'spectral') |
 | `activation_checkpointing` | False | Use `nn.remat` for memory savings |
 
-## Relaxation
-
-### JAX-MD Native (FIRE)
-
-```python
-from jax_md import space, energy, minimize
-from jax_md._nn.uma.model import UMAConfig
-
-displacement_fn, shift_fn = space.periodic(box_size)
-cfg = UMAConfig(sphere_channels=128, num_layers=4, hidden_channels=128)
-
-neighbor_fn, init_fn, energy_fn = energy.uma_neighbor_list(
-    displacement_fn, box_size, cfg=cfg, atoms=atoms,
-    checkpoint_path='uma-s-1p1',
-)
-
-nbrs = neighbor_fn.allocate(positions)
-params = init_fn(key, positions, nbrs)
-
-def uma_energy(R, **kwargs):
-    return energy_fn(params, R, nbrs.update(R))
-
-fire_init, fire_apply = minimize.fire_descent(uma_energy, shift_fn)
-fire_apply = jax.jit(fire_apply)
-state = fire_init(positions)
-
-for _ in range(200):
-    state = fire_apply(state)
-relaxed_positions = state.position
-```
-
-## Molecular Dynamics
-
-```python
-from jax_md import simulate, quantity
-
-def nve_energy(R, neighbor, **kw):
-    return energy_fn(params, R, neighbor)
-
-init_nve, apply_nve = simulate.nve(nve_energy, shift_fn, dt=0.001)
-apply_nve = jax.jit(apply_nve)
-
-state = init_nve(key, positions, kT=0.1, neighbor=nbrs)
-for _ in range(1000):
-    nbrs = nbrs.update(state.position)
-    state = apply_nve(state, neighbor=nbrs)
-```
+Pretrained checkpoints load their own architecture values from checkpoint
+metadata. For example, the pretrained UMA cutoff and distance-basis size may
+differ from the random `UMAConfig()` defaults above.
 
 ## File Structure
 
