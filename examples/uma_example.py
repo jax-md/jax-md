@@ -33,7 +33,7 @@ from jax_md._nn.uma.heads import MLPEnergyHead
 # ## 1. Load pretrained model
 
 # %%
-config, params, head_params = load_pretrained('uma-s-1p1')
+config, params, head_params = load_pretrained('uma-s-1p2')
 model = UMAMoEBackbone(config=config)
 head = MLPEnergyHead(
   sphere_channels=config.sphere_channels,
@@ -158,7 +158,7 @@ si_Z = jnp.array([14] * 8, dtype=jnp.int32)
 
 displacement_fn, shift_fn = space.periodic(a_si)
 neighbor_fn, init_fn, energy_fn = energy.uma_neighbor_list(
-  displacement_fn, a_si, checkpoint_path='uma-s-1p1', atoms=si_Z,
+  displacement_fn, a_si, checkpoint_path='uma-s-1p2', atoms=si_Z,
 )
 
 key = random.PRNGKey(0)
@@ -248,7 +248,7 @@ try:
     print(f"  {name}: {info['description']}")
 
   # Download from HuggingFace
-  ckpt_path = download_pretrained('uma-s-1p1')
+  ckpt_path = download_pretrained('uma-s-1p2')
 
   # Inspect raw checkpoint
   ckpt = load_checkpoint_raw(ckpt_path)
@@ -269,7 +269,7 @@ try:
     '/'.join(str(p.key) if hasattr(p, 'key') else str(p.idx) for p in path): np.array(v)
     for path, v in flat
   }
-  npz_path = os.path.join(save_dir, 'uma-s-1p1_jax.npz')
+  npz_path = os.path.join(save_dir, 'uma-s-1p2_jax.npz')
   np.savez_compressed(npz_path, **param_dict)
   print(f"Saved {len(param_dict)} arrays to {npz_path}")
 

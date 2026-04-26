@@ -63,6 +63,41 @@ class UMAMoEConfig(UMAConfig):
   use_composition_embedding: bool = True
   model_version: float = 1.1
   routing_hidden_channels: int = 64
+  charge_balanced_channels: Tuple[int, ...] = ()
+  spin_balanced_channels: Tuple[int, ...] = ()
+
+
+def channel_range(channels: Tuple[int, ...]) -> Tuple[int, int]:
+  if not channels:
+    return 0, 0
+  sorted_channels = sorted(channels)
+  expected = list(range(sorted_channels[0], sorted_channels[-1] + 1))
+  if sorted_channels != expected:
+    raise ValueError(f'Balanced channels must be contiguous, got {channels}')
+  return sorted_channels[0], sorted_channels[-1] + 1
+
+
+def balance_channels(
+  emb: jnp.ndarray,
+  target: jnp.ndarray,
+  batch: jnp.ndarray,
+  start_idx: int,
+  end_idx: int,
+  target_offset: float = 0.0,
+) -> jnp.ndarray:
+  if end_idx <= start_idx:
+    return emb
+  channels = emb[:, 0, start_idx:end_idx]
+  num_systems = target.shape[0]
+  system_sums = (
+    jnp.zeros((num_systems, end_idx - start_idx), dtype=emb.dtype)
+    .at[batch]
+    .add(channels)
+  )
+  natoms = jnp.zeros((num_systems,), dtype=emb.dtype).at[batch].add(1.0)
+  target_sums = (target.astype(emb.dtype) - target_offset)[:, None]
+  corrections = (system_sums - target_sums) / natoms[:, None]
+  return emb.at[:, 0, start_idx:end_idx].set(channels - corrections[batch])
 
 
 class SO2MConvMoE(nn.Module):
@@ -477,6 +512,12 @@ class UMAMoEBackbone(nn.Module):
     cfg = self.config
     self.sph_feature_size = (cfg.lmax + 1) ** 2
     self.mapping = create_coefficient_mapping(cfg.lmax, cfg.mmax)
+    self.charge_channel_start, self.charge_channel_end = channel_range(
+      cfg.charge_balanced_channels
+    )
+    self.spin_channel_start, self.spin_channel_end = channel_range(
+      cfg.spin_balanced_channels
+    )
     self.so3_grid_lmax_lmax = create_so3_grid(
       cfg.lmax, cfg.lmax, resolution=cfg.grid_resolution, rescale=True
     )
@@ -695,6 +736,22 @@ class UMAMoEBackbone(nn.Module):
         edge_batch,
         sys_node_embedding=sys_node_embedding,
       )
+      x_message = balance_channels(
+        x_message,
+        charge,
+        batch,
+        self.charge_channel_start,
+        self.charge_channel_end,
+        target_offset=0.0,
+      )
+      x_message = balance_channels(
+        x_message,
+        spin,
+        batch,
+        self.spin_channel_start,
+        self.spin_channel_end,
+        target_offset=1.0,
+      )
 
     norm = get_normalization_layer(
       cfg.norm_type,
@@ -819,8 +876,17 @@ def _load_native(model_name: str, head_dataset: str):
     dataset_list=cfg.get('dataset_list', []),
     num_experts=cfg.get('num_experts', 32),
     use_composition_embedding=cfg.get('use_composition_embedding', True),
-    model_version=cfg.get('model_version', 1.1),
+    model_version=1.0
+    if model_name == 'uma-s-1p2'
+    else cfg.get('model_version', 1.0),
     routing_hidden_channels=cfg.get('routing_hidden_channels', 64),
+    charge_balanced_channels=tuple(
+      cfg.get(
+        'charge_balanced_channels',
+        (0, 1, 2) if model_name == 'uma-s-1p2' else (),
+      )
+    ),
+    spin_balanced_channels=tuple(cfg.get('spin_balanced_channels', ())),
   )
 
   # Load params — unflatten from key/value pairs
@@ -857,7 +923,7 @@ def _load_native(model_name: str, head_dataset: str):
       if head_mapping:
         sorted_ds = sorted(head_mapping.keys())
       else:
-        sorted_ds = sorted(config.dataset_list)
+        sorted_ds = sorted(config.dataset_list or [])
       ds_idx = sorted_ds.index(head_dataset) if head_dataset in sorted_ds else 0
 
       def _sel(key_base):
@@ -911,7 +977,7 @@ def _load_native(model_name: str, head_dataset: str):
 def load_pretrained(
   checkpoint_path: str,
   head_dataset: str = 'omat',
-) -> Tuple[UMAMoEConfig, Dict]:
+) -> Tuple[UMAMoEConfig, Dict, Dict | None]:
   """Load a pretrained UMA checkpoint for use with UMAMoEBackbone.
 
   This is the primary way to load pretrained models. It preserves the
@@ -1001,7 +1067,9 @@ def load_pretrained(
     dataset_list=cfg_base.dataset_list,
     num_experts=get('num_experts', 32),
     use_composition_embedding=get('use_composition_embedding', True),
-    model_version=float(get('model_version', 1.1)),
+    model_version=float(get('model_version', 1.0)),
+    charge_balanced_channels=tuple(get('charge_balanced_channels', ())),
+    spin_balanced_channels=tuple(get('spin_balanced_channels', ())),
   )
 
   _, params, metadata = convert_checkpoint(

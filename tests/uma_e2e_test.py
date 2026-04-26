@@ -5,6 +5,8 @@ Runs both the original PyTorch eSCNMDMoeBackbone and the JAX UMAMoEBackbone
 on the same structures and compares backbone embeddings and energies.
 No pre-generated .npz files needed -- PT reference is computed on-the-fly."""
 
+import ast
+import inspect
 import sys
 
 import numpy as np
@@ -282,6 +284,45 @@ def _silu_np(x):
   return x / (1 + np.exp(-np.clip(x, -88, 88)))
 
 
+def dataset_names_from_config(mc):
+  get = mc.get if isinstance(mc, dict) else lambda k, d=None: getattr(mc, k, d)
+  dataset_list = get('dataset_list', None)
+  if dataset_list is not None and len(dataset_list) > 0:
+    return list(dataset_list)
+  dataset_mapping = get('dataset_mapping', None)
+  if isinstance(dataset_mapping, dict):
+    return sorted(dataset_mapping.keys())
+  return ['oc20', 'omol', 'omat', 'odac', 'omc']
+
+
+def head_dataset_order(ckpt, fallback):
+  model_config = ckpt.model_config
+  heads_cfg = (
+    model_config.get('heads', {}) if isinstance(model_config, dict) else {}
+  )
+  if isinstance(heads_cfg, dict):
+    for hcfg in heads_cfg.values():
+      if not isinstance(hcfg, dict):
+        continue
+      dataset_mapping = hcfg.get('dataset_mapping', None)
+      if isinstance(dataset_mapping, dict):
+        return sorted(dataset_mapping.keys())
+      dataset_names = hcfg.get('dataset_names', None)
+      if dataset_names:
+        if isinstance(dataset_names, str):
+          dataset_names = ast.literal_eval(dataset_names)
+        return sorted(dataset_names)
+  return sorted(fallback)
+
+
+def select_head_tensor(tensor, dataset_idx, *, is_bias=False):
+  if tensor.ndim == 3:
+    return tensor[dataset_idx]
+  if is_bias and tensor.ndim == 2:
+    return tensor[dataset_idx]
+  return tensor
+
+
 class EndToEndParityTest(test_util.JAXMDTestCase):
   """Compare FairChem PyTorch and JAX UMA on 20 diverse structures."""
 
@@ -326,36 +367,24 @@ class EndToEndParityTest(test_util.JAXMDTestCase):
     get = (
       mc.get if isinstance(mc, dict) else (lambda k, d=None: getattr(mc, k, d))
     )
-    ds_list = list(get('dataset_list', ['oc20', 'omol', 'omat', 'odac', 'omc']))
+    ds_list = dataset_names_from_config(mc)
     cls.ds_list = ds_list
     cls.cutoff = float(get('cutoff', 6.0))
 
     for k in list(sys.modules.keys()):
       if k.startswith('fairchem') and not hasattr(sys.modules[k], '__file__'):
         del sys.modules[k]
+    from fairchem.core.models.uma.escn_md import eSCNMDBackbone
     from fairchem.core.models.uma.escn_moe import eSCNMDMoeBackbone
 
-    cls.pt_model = eSCNMDMoeBackbone(
-      num_experts=get('num_experts', 64),
-      sphere_channels=get('sphere_channels', 128),
-      max_num_elements=get('max_num_elements', 100),
-      lmax=get('lmax', 2),
-      mmax=get('mmax', 2),
-      num_layers=get('num_layers', 4),
-      hidden_channels=get('hidden_channels', 128),
-      cutoff=cls.cutoff,
-      edge_channels=get('edge_channels', 128),
-      num_distance_basis=get('num_distance_basis', 32),
-      norm_type=get('norm_type', 'rms_norm_sh'),
-      act_type=get('act_type', 'gate'),
-      ff_type=get('ff_type', 'spectral'),
-      chg_spin_emb_type=get('chg_spin_emb_type', 'rand_emb'),
-      dataset_list=ds_list,
-      use_composition_embedding=get('use_composition_embedding', True),
-      model_version=get('model_version', 1.1),
-      moe_dropout=0.0,
-      otf_graph=False,
+    backbone_cfg = dict(mc) if isinstance(mc, dict) else vars(mc)
+    backbone_cfg.pop('_target_', None)
+    allowed = set(inspect.signature(eSCNMDMoeBackbone).parameters) | set(
+      inspect.signature(eSCNMDBackbone).parameters
     )
+    backbone_cfg = {k: v for k, v in backbone_cfg.items() if k in allowed}
+    backbone_cfg['otf_graph'] = False
+    cls.pt_model = eSCNMDMoeBackbone(**backbone_cfg)
     cls.pt_model.eval()
     bb_sd = {
       k.replace('backbone.', ''): v
@@ -364,29 +393,42 @@ class EndToEndParityTest(test_util.JAXMDTestCase):
     }
     cls.pt_model.load_state_dict(bb_sd, strict=False)
 
-    cls.head_weights = cls._extract_head_weights(cls.ema_sd)
-
     all_structures = make_structures()
     cls.structures = {
       k: v for k, v in all_structures.items() if k in E2E_STRUCTURES
     }
+    cls.tasks = sorted({task for _, task in cls.structures.values()})
+    cls.head_weights_by_dataset = {
+      task: cls._extract_head_weights(cls.ema_sd, ckpt, task)
+      for task in cls.tasks
+    }
+    cls.jax_head_params_by_dataset = {'omat': jax_head_params}
+    for task in cls.tasks:
+      if task not in cls.jax_head_params_by_dataset:
+        _, _, task_head_params = load_pretrained(MODEL_NAME, head_dataset=task)
+        cls.jax_head_params_by_dataset[task] = task_head_params
 
   @staticmethod
-  def _extract_head_weights(ema_sd):
+  def _extract_head_weights(ema_sd, ckpt, dataset):
     prefix = 'output_heads.energyandforcehead.head.energy_block.'
+    head_datasets = head_dataset_order(ckpt, [])
+    head_dataset_idx = (
+      head_datasets.index(dataset) if dataset in head_datasets else 0
+    )
     weights = {}
     for idx in [0, 2, 4]:
-      wkey = f'{prefix}{idx}.weight'
-      bkey = f'{prefix}{idx}.bias'
-      if wkey in ema_sd:
-        weights[f'w{idx}'] = ema_sd[wkey].numpy()
-        weights[f'b{idx}'] = ema_sd[bkey].numpy()
-    if not weights:
-      for k, v in ema_sd.items():
-        if 'energy_block' in k and 'weight' in k:
-          weights[k] = v.numpy()
-        elif 'energy_block' in k and 'bias' in k:
-          weights[k] = v.numpy()
+      wkey = f'{prefix}{idx}.weights'
+      if wkey not in ema_sd:
+        wkey = f'{prefix}{idx}.weight'
+      bkey = f'{prefix}{idx}.biases'
+      if bkey not in ema_sd:
+        bkey = f'{prefix}{idx}.bias'
+      weights[f'w{idx}'] = select_head_tensor(
+        ema_sd[wkey], head_dataset_idx
+      ).numpy()
+      weights[f'b{idx}'] = select_head_tensor(
+        ema_sd[bkey], head_dataset_idx, is_bias=True
+      ).numpy()
     return weights
 
   def _run_comparison(self, name):
@@ -398,9 +440,9 @@ class EndToEndParityTest(test_util.JAXMDTestCase):
     data = _atoms_to_pt_data(atoms, task, self.cutoff, self.ds_list)
     with torch.no_grad():
       pt_out = self.pt_model(data)
-    pt_emb = pt_out['node_embedding'].numpy()
+    pt_emb = pt_out['node_embedding'].detach().numpy()
 
-    hw = self.head_weights
+    hw = self.head_weights_by_dataset[task]
     scalar = pt_emb[:, 0, :]
     x = _silu_np(scalar @ hw['w0'].T + hw['b0'])
     x = _silu_np(x @ hw['w2'].T + hw['b2'])
@@ -428,7 +470,7 @@ class EndToEndParityTest(test_util.JAXMDTestCase):
     jax_emb = np.array(jax_out['node_embedding'])
 
     e_result = self.jax_head.apply(
-      self.jax_head_params,
+      self.jax_head_params_by_dataset[task],
       jax_out['node_embedding'],
       batch,
       1,
