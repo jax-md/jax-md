@@ -84,6 +84,8 @@ class CellList:
     id_buffer: An ndarray of int32 particle ids of shape `S`. Note that empty
       slots are specified by `id = N` where `N` is the number of particles in
       the system.
+    particle_cell_id: An ndarray of int32 with shape `[N, spatial_dimension]`
+      storing each particle's dimension-wise cell index.
     named_buffer: A dictionary of ndarrays of shape `S + [...]`. This contains
       side data placed into the cell list.
     did_buffer_overflow: A boolean specifying whether or not the cell list
@@ -95,6 +97,7 @@ class CellList:
 
   position_buffer: Array
   id_buffer: Array
+  particle_cell_id: Array
   named_buffer: Dict[str, Array]
 
   did_buffer_overflow: Array
@@ -185,6 +188,7 @@ def count_cell_filling(
   hash_multipliers = _compute_hash_constants(dim, cells_per_side)
 
   particle_index = jnp.array(position / cell_size, dtype=i32)
+  particle_index = jnp.mod(particle_index, cells_per_side)
   particle_hash = jnp.sum(particle_index * hash_multipliers, axis=1)
 
   filling = ops.segment_sum(
@@ -211,6 +215,17 @@ def _compute_hash_constants(
 def _neighboring_cells(dimension: int) -> Generator[onp.ndarray, None, None]:
   for dindex in onp.ndindex(*([3] * dimension)):
     yield onp.array(dindex, dtype=i32) - 1
+
+
+@partial(jit, static_argnums=(0, 1))
+def _neighboring_cells_arr(ndim: int, dist: int = 1) -> Array:
+  return jnp.stack(
+    [
+      lax.broadcasted_iota(i32, [dist * 2 + 1] * ndim, d) - dist
+      for d in range(ndim)
+    ],
+    axis=-1,
+  ).reshape((-1, ndim))
 
 
 def _estimate_cell_capacity(
@@ -389,6 +404,7 @@ def cell_list(
       )
     #  pytype: enable=attribute-error
     indices = jnp.array(position / cell_size, dtype=i32)
+    indices = jnp.mod(indices, cells_per_side)
     hashes = jnp.sum(indices * hash_multipliers, axis=1)
 
     # Copy the particle data into the grid. Here we use a trick to allow us to
@@ -431,6 +447,7 @@ def cell_list(
     return CellList(
       cell_position,
       cell_id,
+      indices,
       cell_kwargs,
       overflow,
       cell_capacity,
@@ -851,6 +868,7 @@ def neighbor_list(
     list and a method to update an existing neighbor list.
   """
   is_format_valid(format)
+  _always_rebuild = dr_threshold == 0
   box = lax.stop_gradient(box)
   r_cutoff = lax.stop_gradient(r_cutoff)
   dr_threshold = lax.stop_gradient(dr_threshold)
@@ -869,31 +887,47 @@ def neighbor_list(
       candidates[None, :], (positionShape[0], positionShape[0])
     )
 
-  @partial(jit, static_argnums=1)
-  def cell_list_candidate_fn(cl_id_buffer, positionShape) -> Array:
+  @partial(jit, static_argnums=2)
+  def cell_list_candidate_fn(
+    cl_id_buffer,
+    particle_cell_id,
+    positionShape,
+    position,
+    position_buffer,
+    **metric_kwargs,
+  ) -> Array:
     N, dim = positionShape
+    cell_capacity = cl_id_buffer.shape[dim]
+    buf_shape = cl_id_buffer.shape[:dim]
+    n_shifts = 3**dim
 
-    idx = cl_id_buffer
+    cells_per_side = jnp.array(buf_shape[::-1], i32)
+    shifts = _neighboring_cells_arr(dim)
+    shifted = particle_cell_id[:, None, :] + shifts[None, :, :]
+    shifted = jnp.mod(shifted, cells_per_side[None, None, :])
 
-    cell_idx = [idx]
+    hash_mult_vals = [1]
+    for i in range(1, dim):
+      hash_mult_vals.append(hash_mult_vals[-1] * buf_shape[dim - i])
+    hash_mult = jnp.array(hash_mult_vals, dtype=i32)
+    cell_1d = jnp.sum(shifted * hash_mult, axis=2)
 
-    for dindex in _neighboring_cells(dim):
-      if onp.all(dindex == 0):
-        continue
-      cell_idx += [shift_array(idx, dindex)]
+    flat_cell_list = cl_id_buffer.reshape((-1, cell_capacity))
+    cell_1d_flat = cell_1d.reshape(-1)
+    result = flat_cell_list[cell_1d_flat]
+    result = result.reshape(N, n_shifts * cell_capacity)
 
-    cell_idx = jnp.concatenate(cell_idx, axis=-2)
-    cell_idx = cell_idx[..., jnp.newaxis, :, :]
-    cell_idx = jnp.broadcast_to(cell_idx, idx.shape[:-1] + cell_idx.shape[-2:])
+    flat_pos_buf = position_buffer.reshape((-1, cell_capacity, dim))
+    nbr_pos = flat_pos_buf[cell_1d_flat]
+    nbr_pos = nbr_pos.reshape(N, n_shifts * cell_capacity, dim)
 
-    def copy_values_from_cell(value, cell_value, cell_id):
-      scatter_indices = jnp.reshape(cell_id, (-1,))
-      cell_value = jnp.reshape(cell_value, (-1,) + cell_value.shape[-2:])
-      return value.at[scatter_indices].set(cell_value)
+    d = space.map_bond(partial(metric_sq, **metric_kwargs))
+    pos_expanded = jnp.broadcast_to(position[:, None, :], nbr_pos.shape)
+    dR = d(pos_expanded.reshape(-1, dim), nbr_pos.reshape(-1, dim)).reshape(
+      N, n_shifts * cell_capacity
+    )
 
-    neighbor_idx = jnp.zeros((N + 1,) + cell_idx.shape[-2:], i32)
-    neighbor_idx = copy_values_from_cell(neighbor_idx, cell_idx, idx)
-    return neighbor_idx[:-1, :, 0]
+    return jnp.where(dR < cutoff_sq, result, N)
 
   @jit
   def mask_self_fn(idx: Array) -> Array:
@@ -950,6 +984,28 @@ def neighbor_list(
 
     return jnp.stack((receiver_idx, sender_idx)), max_occupancy
 
+  @jit
+  def prune_cell_list_sparse(position: Array, idx: Array, **kwargs) -> Array:
+    N = position.shape[0]
+    sender_idx = jnp.broadcast_to(jnp.arange(N, dtype=i32)[:, None], idx.shape)
+
+    sender_idx = jnp.reshape(sender_idx, (-1,))
+    receiver_idx = jnp.reshape(idx, (-1,))
+
+    mask = receiver_idx < N
+    if format is NeighborListFormat.OrderedSparse:
+      mask = mask & (receiver_idx < sender_idx)
+
+    out_idx = N * jnp.ones(receiver_idx.shape, i32)
+
+    cumsum = jnp.cumsum(mask)
+    index = jnp.where(mask, cumsum - 1, len(receiver_idx) - 1)
+    receiver_idx = out_idx.at[index].set(receiver_idx)
+    sender_idx = out_idx.at[index].set(sender_idx)
+    max_occupancy = cumsum[-1]
+
+    return jnp.stack((receiver_idx, sender_idx)), max_occupancy
+
   def neighbor_list_fn(
     position: Array, neighbors=None, extra_capacity: int = 0, **kwargs
   ) -> NeighborList:
@@ -977,12 +1033,20 @@ def neighbor_list(
           if cl_fn is not None:
             cl = cl_fn.update(position, neighbors.cell_list_capacity)
 
-      if cl is None:
+      use_cell_list = cl is not None
+      if not use_cell_list:
         cl_capacity = None
         idx = candidate_fn(position.shape)
       else:
         err = err.update(PEC.CELL_LIST_OVERFLOW, cl.did_buffer_overflow)
-        idx = cell_list_candidate_fn(cl.id_buffer, position.shape)
+        idx = cell_list_candidate_fn(
+          cl.id_buffer,
+          cl.particle_cell_id,
+          position.shape,
+          position,
+          cl.position_buffer,
+          **kwargs,
+        )
         cl_capacity = cl.cell_capacity
 
       if mask_self:
@@ -991,7 +1055,10 @@ def neighbor_list(
         idx = custom_mask_function(idx)
 
       if is_sparse(format):
-        idx, occupancy = prune_neighbor_list_sparse(position, idx, **kwargs)
+        if use_cell_list:
+          idx, occupancy = prune_cell_list_sparse(position, idx, **kwargs)
+        else:
+          idx, occupancy = prune_neighbor_list_sparse(position, idx, **kwargs)
       else:
         idx, occupancy = prune_neighbor_list_dense(position, idx, **kwargs)
 
@@ -1038,16 +1105,20 @@ def neighbor_list(
           'Neighbor list cannot accept a box keyword argument '
           'if fractional_coordinates is not enabled.'
         )
-      # `cell_size` is really the minimum cell size.
-      cur_cell_size = _cell_size(1.0, nbrs.cell_size)
-      new_cell_size = _cell_size(
-        1.0, _fractional_cell_size(kwargs['box'], cutoff)
-      )
-      err = nbrs.error.update(
-        PEC.CELL_SIZE_TOO_SMALL, new_cell_size > cur_cell_size
-      )
+      err = nbrs.error
+      if nbrs.cell_list_fn is not None:
+        cur_cell_size = _cell_size(1.0, nbrs.cell_size)
+        new_cell_size = _cell_size(
+          1.0, _fractional_cell_size(kwargs['box'], cutoff)
+        )
+        err = err.update(PEC.CELL_SIZE_TOO_SMALL, new_cell_size > cur_cell_size)
       err = err.update(PEC.MALFORMED_BOX, is_box_valid(kwargs['box']))
       nbrs = dataclasses.replace(nbrs, error=err)
+
+    if _always_rebuild:
+      return neighbor_fn(
+        (position, nbrs.error), max_occupancy=nbrs.max_occupancy
+      )
 
     d = partial(metric_sq, **kwargs)
     d = vmap(d)
