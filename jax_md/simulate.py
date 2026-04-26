@@ -35,7 +35,7 @@ can be used for testing purposes, but is not often used otherwise.
 
 from collections import namedtuple
 
-from typing import Any, Callable, TypeVar, Union, Tuple, Dict, Optional
+from typing import Any, Callable, TypeVar, Union, Tuple, Dict
 
 import functools
 
@@ -158,7 +158,7 @@ def initialize_momenta(state: T, key: Array, kT: float) -> T:
   return state.set(momentum=tree_unflatten(treedef, P))
 
 
-def canonicalize_momenta(state: T, momenta: Optional[Array]) -> T:
+def canonicalize_momenta(state: T, momenta: Array | None) -> T:
   if momenta is None:
     return state
   return state.set(momentum=momenta)
@@ -565,7 +565,7 @@ def nvt_nose_hoover(
   chain_length: int = 5,
   chain_steps: int = 2,
   sy_steps: int = 3,
-  tau: Optional[float] = None,
+  tau: float | None = None,
   **sim_kwargs,
 ) -> Simulator:
   """Simulation in the NVT ensemble using a Nose Hoover Chain thermostat.
@@ -773,8 +773,8 @@ def npt_nose_hoover(
   dt: float,
   pressure: float,
   kT: float,
-  barostat_kwargs: Optional[Dict] = None,
-  thermostat_kwargs: Optional[Dict] = None,
+  barostat_kwargs: Dict | None = None,
+  thermostat_kwargs: Dict | None = None,
 ) -> Simulator:
   """Simulation in the NPT ensemble using a pair of Nose Hoover Chains.
 
@@ -1291,7 +1291,7 @@ def hybrid_swap_mc(
   kT: float,
   t_md: float,
   N_swap: int,
-  sigma_fn: Optional[Callable[[Array], Array]] = None,
+  sigma_fn: Callable[[Array], Array] | None = None,
 ) -> Simulator:
   """Simulation of Hybrid Swap Monte-Carlo.
 

@@ -90,7 +90,7 @@ def simple_spring(
 def simple_spring_bond(
   displacement_or_metric: DisplacementOrMetricFn,
   bond: Array,
-  bond_type: Optional[Array] = None,
+  bond_type: Array | None = None,
   length: Array = 1,
   epsilon: Array = 1,
   alpha: Array = 2,
@@ -164,7 +164,7 @@ def soft_sphere(
 
 def soft_sphere_pair(
   displacement_or_metric: DisplacementOrMetricFn,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   sigma: Array = 1.0,
   epsilon: Array = 1.0,
   alpha: Array = 2.0,
@@ -189,7 +189,7 @@ def soft_sphere_pair(
 def soft_sphere_neighbor_list(
   displacement_or_metric: DisplacementOrMetricFn,
   box_size: Box,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   sigma: Array = 1.0,
   epsilon: Array = 1.0,
   alpha: Array = 2.0,
@@ -260,7 +260,7 @@ def lennard_jones(
 
 def lennard_jones_pair(
   displacement_or_metric: DisplacementOrMetricFn,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   sigma: Array = 1.0,
   epsilon: Array = 1.0,
   r_onset: Array = 2.0,
@@ -286,7 +286,7 @@ def lennard_jones_pair(
 def lennard_jones_neighbor_list(
   displacement_or_metric: DisplacementOrMetricFn,
   box_size: Box,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   sigma: Array = 1.0,
   epsilon: Array = 1.0,
   r_onset: float = 2.0,
@@ -359,7 +359,7 @@ def morse(
 
 def morse_pair(
   displacement_or_metric: DisplacementOrMetricFn,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   sigma: Array = 1.0,
   epsilon: Array = 5.0,
   alpha: Array = 5.0,
@@ -386,7 +386,7 @@ def morse_pair(
 def morse_neighbor_list(
   displacement_or_metric: DisplacementOrMetricFn,
   box_size: Box,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   sigma: Array = 1.0,
   epsilon: Array = 5.0,
   alpha: Array = 5.0,
@@ -1220,7 +1220,7 @@ def _ters_repulsive(A: f64, lam1: f64, R: f64, D: f64, dr: Array) -> Array:
 def tersoff(
   displacement: DisplacementFn,
   params: Array,
-  species: Optional[Array] = None,
+  species: Array | None = None,
 ) -> Callable[[Array], Array]:
   """Computes the Tersoff potential.
 
@@ -1302,7 +1302,7 @@ def tersoff_neighbor_list(
   displacement: DisplacementFn,
   box_size: float,
   params: Array,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   dr_threshold: float = 0.5,
   disable_cell_list: bool = False,
   fractional_coordinates: bool = True,
@@ -1747,7 +1747,7 @@ def eam(
   charge_fn: Callable[[Array], Array],
   embedding_fn: Callable[[Array], Array],
   pairwise_fn: Callable[[Array], Array],
-  axis: Optional[Tuple[int, ...]] = None,
+  axis: Tuple[int, ...] | None = None,
 ) -> Callable[[Array], Array]:
   """.. _eam-pot:
 
@@ -1831,7 +1831,7 @@ def eam_neighbor_list(
   pairwise_fn: Callable[[Array], Array],
   cutoff: float,
   dr_threshold: float = 0.5,
-  axis: Optional[Tuple[int, ...]] = None,
+  axis: Tuple[int, ...] | None = None,
   fractional_coordinates: bool = True,
   format: partition.NeighborListFormat = partition.Sparse,
   neighbor_list_fn: Callable = partition.neighbor_list,
@@ -1951,9 +1951,9 @@ def behler_parrinello(
   displacement: DisplacementFn,
   *,
   key: jax.Array,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   mlp_sizes: Tuple[int, ...] = (30, 30),
-  sym_kwargs: Optional[Dict[str, Any]] = None,
+  sym_kwargs: Dict[str, Any] | None = None,
   per_particle: bool = False,
   spatial_dimension: int = 3,
   activation: Callable = jnp.tanh,
@@ -2002,9 +2002,9 @@ def behler_parrinello_neighbor_list(
   box_size: float,
   *,
   key: jax.Array,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   mlp_sizes: Tuple[int, ...] = (30, 30),
-  sym_kwargs: Optional[Dict[str, Any]] = None,
+  sym_kwargs: Dict[str, Any] | None = None,
   dr_threshold: float = 0.5,
   fractional_coordinates: bool = False,
   format: partition.NeighborListFormat = partition.Sparse,
@@ -2103,7 +2103,7 @@ class EnergyGraphNet(nnx.Module):
     bias_init: Callable = nn.DEFAULT_BIAS_INIT,
     format: partition.NeighborListFormat = partition.Dense,
     dr_threshold: float = 0.0,
-    nodes: Optional[Array] = None,
+    nodes: Array | None = None,
   ):
     rngs = nnx.Rngs(key)
 
@@ -2160,7 +2160,7 @@ class EnergyGraphNet(nnx.Module):
     return output
 
 
-def canonicalize_node_state(nodes: Optional[Array]) -> Optional[Array]:
+def canonicalize_node_state(nodes: Array | None) -> Array | None:
   if nodes is None:
     return nodes
 
@@ -2176,8 +2176,8 @@ def canonicalize_node_state(nodes: Optional[Array]) -> Optional[Array]:
 
 
 def node_state_or_default(
-  nodes: Optional[Array], R: Array, kwargs: Dict[str, Any]
-) -> Optional[Array]:
+  nodes: Array | None, R: Array, kwargs: Dict[str, Any]
+) -> Array | None:
   if 'nodes' in kwargs:
     return canonicalize_node_state(kwargs['nodes'])
   return jnp.zeros((R.shape[0], 1), R.dtype) if nodes is None else nodes
@@ -2186,7 +2186,7 @@ def node_state_or_default(
 def dense_graph_input(
   displacement_fn: DisplacementFn,
   r_cutoff: float,
-  nodes: Optional[Array],
+  nodes: Array | None,
   R: Array,
   **kwargs,
 ) -> nn.GraphsTuple:
@@ -2209,7 +2209,7 @@ def neighbor_graph_input(
   r_cutoff: float,
   dr_threshold: float,
   format: partition.NeighborListFormat,
-  nodes: Optional[Array],
+  nodes: Array | None,
   R: Array,
   neighbor: NeighborList,
   **kwargs,
@@ -2254,7 +2254,7 @@ def graph_network(
   r_cutoff: float,
   *,
   key: jax.Array,
-  nodes: Optional[Array] = None,
+  nodes: Array | None = None,
   spatial_dimension: int = 3,
   n_recurrences: int = 2,
   mlp_sizes: Tuple[int, ...] = (64, 64),
@@ -2311,7 +2311,7 @@ def graph_network_neighbor_list(
   dr_threshold: float,
   *,
   key: jax.Array,
-  nodes: Optional[Array] = None,
+  nodes: Array | None = None,
   spatial_dimension: int = 3,
   n_recurrences: int = 2,
   mlp_sizes: Tuple[int, ...] = (64, 64),
@@ -2505,3 +2505,179 @@ def load_gnome_model_neighbor_list(
     return model.apply(params, graph)[0, 0]
 
   return neighbor_fn, energy_fn
+
+
+def uma_neighbor_list(
+  displacement_fn,
+  box,
+  cfg=None,
+  atoms=None,
+  checkpoint_path=None,
+  head_type='mlp',
+  neighbor_list_fn: Callable = partition.neighbor_list,
+  featurizer_fn: Callable | None = None,
+  charge=None,
+  spin=None,
+  dataset_idx=None,
+  **nl_kwargs,
+):
+  """Convenience wrapper to compute UMA energy using a neighbor list.
+
+  This follows the standard JAX-MD pattern of returning
+  (neighbor_fn, init_fn, energy_fn). Forces can be computed via
+  ``jax.grad(energy_fn)`` which ensures energy conservation.
+
+  Args:
+    displacement_fn: Displacement function from ``jax_md.space``.
+    box: Box matrix with columns as lattice vectors, shape ``(dim, dim)``.
+    cfg: ``UMAConfig`` instance. If None, uses default config.
+    atoms: Integer atomic numbers, shape ``[num_atoms]``.
+    checkpoint_path: Path to a PyTorch checkpoint to load pretrained weights.
+        If provided, ``init_fn`` returns the converted weights instead of
+        random initialization.
+    head_type: Energy head type: ``'mlp'`` or ``'linear'``.
+    neighbor_list_fn: Neighbor list constructor (default: ``partition.neighbor_list``).
+    featurizer_fn: Function to create a UMA featurizer. Defaults to
+        ``uma_featurizer`` for standard MIC neighbor lists. When using
+        ``custom_partition.neighbor_list_multi_image``, pass
+        ``uma_multi_image_featurizer`` explicitly.
+    charge: System charge(s), shape ``[num_systems]`` (default: ``[0]``).
+    spin: System spin(s), shape ``[num_systems]`` (default: ``[0]``).
+    dataset_idx: Integer dataset index, shape ``[num_systems]`` (default: ``[0]``).
+    **nl_kwargs: Additional kwargs for neighbor list (e.g., ``fractional_coordinates``).
+
+  Returns:
+    Tuple of ``(neighbor_fn, init_fn, energy_fn)`` where:
+
+    - ``neighbor_fn``: Allocates/updates neighbor list.
+    - ``init_fn(key, position, neighbor, **kw)``: Returns model parameters.
+    - ``energy_fn(params, position, neighbor, **kw)``: Returns scalar energy.
+  """
+  from jax_md._nn.uma.model import UMABackbone, default_config
+  from jax_md._nn.uma.heads import MLPEnergyHead, LinearEnergyHead
+  from jax_md._nn.uma.featurizer import uma_multi_image_featurizer
+  import flax.linen as flax_nn
+
+  # Load pretrained checkpoint (MoE) if provided
+  is_moe = False
+  pretrained_params = None
+  if checkpoint_path is not None:
+    from jax_md._nn.uma.model_moe import load_pretrained
+
+    moe_config, backbone_params, head_params = load_pretrained(checkpoint_path)
+    cfg = moe_config
+    is_moe = True
+    pretrained_params = {
+      'params': {
+        'backbone': backbone_params['params'],
+        'energy_head': head_params['params'],
+      }
+    }
+  elif cfg is None:
+    cfg = default_config()
+
+  # If callers provide a preloaded MoE config/params pair, use the MoE
+  # backbone even when checkpoint_path is not passed here.
+  is_moe = is_moe or hasattr(cfg, 'num_experts')
+
+  # Build neighbor list
+  neighbor_fn = neighbor_list_fn(
+    displacement_fn,
+    box,
+    cfg.cutoff,
+    format=partition.Sparse,
+    **nl_kwargs,
+  )
+
+  if featurizer_fn is None:
+    featurizer_fn = uma_multi_image_featurizer
+
+  featurizer = featurizer_fn(displacement_fn, cutoff=cfg.cutoff)
+
+  # Combined backbone + head as a single Flax module
+  class UMAEnergyModel(flax_nn.Module):
+    config: object
+    use_moe: bool = False
+
+    @flax_nn.compact
+    def __call__(self, features):
+      if self.use_moe:
+        from jax_md._nn.uma.model_moe import UMAMoEBackbone
+
+        backbone = UMAMoEBackbone(config=self.config, name='backbone')
+      else:
+        backbone = UMABackbone(config=self.config, name='backbone')
+      emb = backbone(
+        features['positions'],
+        features['atomic_numbers'],
+        features['batch'],
+        features['edge_index'],
+        features['edge_distance_vec'],
+        features['charge'],
+        features['spin'],
+        features.get('dataset_idx'),
+      )
+
+      if head_type == 'mlp':
+        head = MLPEnergyHead(
+          sphere_channels=self.config.sphere_channels,
+          hidden_channels=self.config.hidden_channels,
+          name='energy_head',
+        )
+      else:
+        head = LinearEnergyHead(
+          sphere_channels=self.config.sphere_channels,
+          name='energy_head',
+        )
+
+      num_systems = features['charge'].shape[0]
+      result = head(emb['node_embedding'], features['batch'], num_systems)
+      return result['energy']
+
+  model = UMAEnergyModel(config=cfg, use_moe=is_moe)
+
+  def init_fn(key, position, neighbor, **kwargs):
+    _atoms = kwargs.pop('atoms', atoms)
+    if _atoms is None:
+      raise ValueError('Integer atomic numbers are required.')
+
+    _charge = kwargs.pop('charge', charge)
+    _spin = kwargs.pop('spin', spin)
+    _dataset_idx = kwargs.pop('dataset_idx', dataset_idx)
+
+    features = featurizer(
+      _atoms,
+      position,
+      neighbor,
+      charge=_charge,
+      spin=_spin,
+      dataset_idx=_dataset_idx,
+      **kwargs,
+    )
+
+    if pretrained_params is not None:
+      return pretrained_params
+    return model.init(key, features)
+
+  def energy_fn(params, position, neighbor, **kwargs):
+    _atoms = kwargs.pop('atoms', atoms)
+    if _atoms is None:
+      raise ValueError('Integer atomic numbers are required.')
+
+    _charge = kwargs.pop('charge', charge)
+    _spin = kwargs.pop('spin', spin)
+    _dataset_idx = kwargs.pop('dataset_idx', dataset_idx)
+
+    features = featurizer(
+      _atoms,
+      position,
+      neighbor,
+      charge=_charge,
+      spin=_spin,
+      dataset_idx=_dataset_idx,
+      **kwargs,
+    )
+    # Sum over systems (typically 1 for MD)
+    return model.apply(params, features).sum()
+
+  return neighbor_fn, init_fn, energy_fn

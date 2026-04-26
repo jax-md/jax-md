@@ -662,7 +662,7 @@ def estimate_max_neighbors_from_box(
   r_cutoff: float,
   n_atoms: int,
   safety_factor: float = 2.0,
-  pbc: Optional[Array] = None,  # [dim]
+  pbc: Array | None = None,  # [dim]
 ) -> int:
   r"""Estimate maximum neighbors per atom from box and atom count.
 
@@ -774,7 +774,7 @@ def neighbor_list_multi_image(
   r_cutoff: float,
   dr_threshold: float = 0.0,
   capacity_multiplier: float = 1.25,
-  pbc: Optional[Array] = None,  # [dim]
+  pbc: Array | None = None,  # [dim]
   fractional_coordinates: bool = True,
   ordered: bool = False,
   format: NeighborListFormat = NeighborListFormat.Sparse,
@@ -1013,7 +1013,7 @@ def neighbor_list_multi_image(
 
   def neighbor_list_fn(
     position: Array,  # [N, dim]
-    neighbors: Optional[NeighborListMultiImage] = None,
+    neighbors: NeighborListMultiImage | None = None,
     **kwargs,
   ) -> NeighborListMultiImage:
     """Build or update neighbor list.

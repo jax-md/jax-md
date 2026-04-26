@@ -1,0 +1,162 @@
+"""Prediction heads for UMA model.
+
+This module provides prediction heads for energy and forces
+that operate on UMA backbone embeddings.
+
+For energy-conserving forces, use jax.grad of the energy function
+(done automatically in the JAX-MD integration via uma_neighbor_list).
+
+Ported from FairChem's UMA implementation.
+"""
+
+from __future__ import annotations
+
+from typing import Dict, Literal
+
+import flax.linen as nn
+import jax.numpy as jnp
+
+from jax_md._nn.uma.nn.so3_layers import SO3Linear
+
+
+class MLPEnergyHead(nn.Module):
+  """MLP head for energy prediction.
+
+  Uses a 3-layer MLP to predict per-atom energies which are summed
+  to get the total energy.
+
+  Attributes:
+      sphere_channels: Number of input channels.
+      hidden_channels: Number of hidden channels.
+      reduce: Reduction method ('sum' or 'mean').
+  """
+
+  sphere_channels: int
+  hidden_channels: int
+  reduce: Literal['sum', 'mean'] = 'sum'
+
+  @nn.compact
+  def __call__(
+    self,
+    node_embedding: jnp.ndarray,
+    batch: jnp.ndarray,
+    num_systems: int,
+    natoms: jnp.ndarray | None = None,
+  ) -> Dict[str, jnp.ndarray]:
+    """Predict energy from embeddings.
+
+    Args:
+        node_embedding: Node embeddings, shape [num_atoms, (lmax+1)^2, sphere_channels].
+        batch: Batch indices, shape [num_atoms].
+        num_systems: Number of systems in batch.
+        natoms: Number of atoms per system, shape [num_systems].
+
+    Returns:
+        Dictionary with 'energy' key, shape [num_systems].
+    """
+    # Extract scalar (l=0) component
+    scalar_input = node_embedding[:, 0, :]
+
+    # MLP: Linear -> SiLU -> Linear -> SiLU -> Linear
+    x = nn.Dense(self.hidden_channels, use_bias=True, name='linear_0')(
+      scalar_input
+    )
+    x = nn.silu(x)
+    x = nn.Dense(self.hidden_channels, use_bias=True, name='linear_1')(x)
+    x = nn.silu(x)
+    x = nn.Dense(1, use_bias=True, name='linear_2')(x)
+
+    node_energy = x.squeeze(-1)
+
+    # Aggregate per-atom energies via scatter-add
+    energy = jnp.zeros(num_systems).at[batch].add(node_energy)
+
+    if self.reduce == 'mean' and natoms is not None:
+      energy = energy / natoms
+
+    return {'energy': energy}
+
+
+class LinearEnergyHead(nn.Module):
+  """Simple linear head for energy prediction.
+
+  Uses a single linear layer for fast inference.
+
+  Attributes:
+      sphere_channels: Number of input channels.
+      reduce: Reduction method ('sum' or 'mean').
+  """
+
+  sphere_channels: int
+  reduce: Literal['sum', 'mean'] = 'sum'
+
+  @nn.compact
+  def __call__(
+    self,
+    node_embedding: jnp.ndarray,
+    batch: jnp.ndarray,
+    num_systems: int,
+    natoms: jnp.ndarray | None = None,
+  ) -> Dict[str, jnp.ndarray]:
+    """Predict energy from embeddings.
+
+    Args:
+        node_embedding: Node embeddings, shape [num_atoms, (lmax+1)^2, sphere_channels].
+        batch: Batch indices, shape [num_atoms].
+        num_systems: Number of systems in batch.
+        natoms: Number of atoms per system, shape [num_systems].
+
+    Returns:
+        Dictionary with 'energy' key, shape [num_systems].
+    """
+    scalar_input = node_embedding[:, 0, :]
+    linear = nn.Dense(1, use_bias=True, name='energy_block')
+    node_energy = linear(scalar_input).squeeze(-1)
+
+    energy = jnp.zeros(num_systems).at[batch].add(node_energy)
+
+    if self.reduce == 'mean' and natoms is not None:
+      energy = energy / natoms
+
+    return {'energy': energy}
+
+
+class LinearForceHead(nn.Module):
+  """Linear head for direct force prediction.
+
+  Uses an SO(3) linear layer to directly predict forces from
+  the equivariant embeddings.
+
+  Attributes:
+      sphere_channels: Number of input channels.
+  """
+
+  sphere_channels: int
+
+  @nn.compact
+  def __call__(
+    self,
+    node_embedding: jnp.ndarray,
+  ) -> Dict[str, jnp.ndarray]:
+    """Predict forces from embeddings.
+
+    Args:
+        node_embedding: Node embeddings, shape [num_atoms, (lmax+1)^2, sphere_channels].
+
+    Returns:
+        Dictionary with 'forces' key, shape [num_atoms, 3].
+    """
+    linear = SO3Linear(
+      out_features=1,
+      lmax=1,
+      use_bias=False,
+      name='linear',
+    )
+
+    # Select l=0 and l=1 components
+    forces = linear(node_embedding[:, :4, :])
+
+    # Extract l=1 (vector) components (indices 1, 2, 3)
+    forces = forces[:, 1:4, 0]  # [num_atoms, 3]
+
+    return {'forces': forces}
