@@ -1,5 +1,7 @@
 import os
 import sys
+import tarfile
+from pathlib import Path
 import unittest
 from typing import Any
 
@@ -36,7 +38,24 @@ except ImportError:
   app = None
   unit = None
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), 'data', 'amber_data')
+_DATA_ROOT = Path(__file__).parent / 'data'
+_AMBER_DATA_DIR = _DATA_ROOT / 'amber_data'
+_AMBER_DATA_TARBALL = _DATA_ROOT / 'amber_data.tar.gz'
+
+
+def _ensure_amber_data_extracted() -> None:
+  if _AMBER_DATA_DIR.exists():
+    return
+  if not _AMBER_DATA_TARBALL.exists():
+    raise FileNotFoundError(
+      f'Missing amber test data and tarball: {_AMBER_DATA_TARBALL}'
+    )
+  with tarfile.open(_AMBER_DATA_TARBALL, 'r:gz') as tf:
+    tf.extractall(_DATA_ROOT)
+
+
+_ensure_amber_data_extracted()
+DATA_DIR = str(_AMBER_DATA_DIR)
 
 # Constants
 _KB_KCAL_MOL_K = (
