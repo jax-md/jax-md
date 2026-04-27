@@ -89,7 +89,7 @@ def safe_mask(mask, fn, operand, placeholder=0):
 
 def high_precision_sum(
   X: Array,
-  axis: Optional[Union[Iterable[int], int]] = None,
+  axis: Union[Iterable[int], int] | None = None,
   keepdims: bool = False,
 ):
   """Sums over axes at 64-bit precision then casts back to original dtype."""

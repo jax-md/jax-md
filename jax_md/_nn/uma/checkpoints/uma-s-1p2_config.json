@@ -1,0 +1,47 @@
+{
+  "max_num_elements": 100,
+  "sphere_channels": 128,
+  "lmax": 2,
+  "mmax": 2,
+  "num_layers": 4,
+  "hidden_channels": 128,
+  "cutoff": 6,
+  "edge_channels": 128,
+  "num_distance_basis": 32,
+  "norm_type": "rms_norm_sh",
+  "act_type": "gate",
+  "ff_type": "spectral",
+  "grid_resolution": null,
+  "chg_spin_emb_type": "rand_emb",
+  "dataset_list": [
+    "oc20",
+    "oc22",
+    "oc25",
+    "odac",
+    "omat",
+    "omc",
+    "omol"
+  ],
+  "use_dataset_embedding": true,
+  "activation_checkpointing": false,
+  "num_experts": 64,
+  "moe_dropout": 0.05,
+  "use_composition_embedding": true,
+  "model_version": 1.0,
+  "routing_hidden_channels": 128,
+  "charge_balanced_channels": [
+    0,
+    1,
+    2
+  ],
+  "spin_balanced_channels": [],
+  "head_dataset_mapping": {
+    "oc20": "oc20",
+    "oc22": "oc22",
+    "oc25": "oc25",
+    "omol": "omol",
+    "omat": "omat",
+    "odac": "odac",
+    "omc": "omc"
+  }
+}
