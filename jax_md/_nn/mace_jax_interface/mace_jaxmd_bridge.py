@@ -1,4 +1,3 @@
-# mace_jaxmd_bridge.py
 from __future__ import annotations
 
 import jax
@@ -26,7 +25,7 @@ def _make_cell_1x3x3(box_in, dtype):
 def _to_cartesian(R, cell, fractional_coordinates: bool):
   R = jnp.asarray(R)
   if fractional_coordinates:
-    return R @ cell
+    return space.transform(cell, R)
   return R
 
 
@@ -87,15 +86,34 @@ def make_mace_jaxmd_energy(
       fractional_coordinates=True,
     )
   else:
-    displacement_fn_fixed, shift_fn = space.periodic(box_default)
-    neighbor_fn = partition.neighbor_list(
-      displacement_fn_fixed,
-      box_default,
-      r_cutoff=r_cutoff,
-      dr_threshold=dr_threshold,
-      mask=True,
-      capacity_multiplier=capacity_multiplier,
-    )
+    if box_default.shape == (3,):
+      displacement_fn_fixed, shift_fn = space.periodic(box_default)
+      neighbor_fn = partition.neighbor_list(
+        displacement_fn_fixed,
+        box_default,
+        r_cutoff=r_cutoff,
+        dr_threshold=dr_threshold,
+        mask=True,
+        capacity_multiplier=capacity_multiplier,
+      )
+    elif box_default.shape == (3, 3):
+      displacement_fn_fixed, shift_fn = space.periodic_general(
+        box_default,
+        fractional_coordinates=False,
+      )
+      neighbor_fn = partition.neighbor_list(
+        displacement_fn_fixed,
+        box_default,
+        r_cutoff=r_cutoff,
+        dr_threshold=dr_threshold,
+        mask=True,
+        capacity_multiplier=capacity_multiplier,
+        disable_cell_list=True,
+      )
+    else:
+      raise ValueError(
+        f'Unexpected box shape {box_default.shape} (expected (3,) or (3,3))'
+      )
 
   # Template sizes / dtypes expected by converted MACE model
   N_template = int(template_batch['positions'].shape[0])
@@ -144,7 +162,10 @@ def make_mace_jaxmd_energy(
       if box_arr.shape == (3,):
         return space.periodic(box_arr)[0]
       elif box_arr.shape == (3, 3):
-        return space.periodic_general(box_arr)[0]
+        return space.periodic_general(
+          box_arr,
+          fractional_coordinates=False,
+        )[0]
       else:
         raise ValueError(f'Unexpected runtime box shape: {box_arr.shape}')
 
@@ -247,7 +268,9 @@ def make_mace_jaxmd_energy(
     exact_shifts = (dR_model - delta_cart).astype(shift_dtype)
 
     # Integer image bookkeeping
-    unit_shifts_int = jnp.rint(exact_shifts @ inv_cell).astype(jnp.int32)
+    unit_shifts_int = jnp.rint(space.transform(inv_cell, exact_shifts)).astype(
+      jnp.int32
+    )
     unit_shifts_int = lax.stop_gradient(unit_shifts_int)
 
     unit_shifts = unit_shifts_int.astype(us_dtype)
@@ -360,7 +383,9 @@ def make_mace_jaxmd_energy(
     delta_cart = R_cart[receivers] - R_cart[senders]
 
     exact_shifts = (dR_model - delta_cart).astype(shift_dtype)
-    unit_shifts_int = jnp.rint(exact_shifts @ inv_cell).astype(jnp.int32)
+    unit_shifts_int = jnp.rint(space.transform(inv_cell, exact_shifts)).astype(
+      jnp.int32
+    )
     unit_shifts_int = lax.stop_gradient(unit_shifts_int)
 
     return {
@@ -377,7 +402,7 @@ def make_mace_jaxmd_energy(
     configuration, then return an energy function that only updates:
     - positions
     - cell
-    - continuous shifts = unit_shifts @ cell
+    - continuous shifts = space.transform(cell, unit_shifts)
 
     This is intended for stress / pressure calculations where the graph
     must remain fixed under infinitesimal strain.
@@ -450,7 +475,7 @@ def make_mace_jaxmd_energy(
       unit_shifts = unit_shifts_int.astype(us_dtype)
       unit_shifts = lax.stop_gradient(unit_shifts)
 
-      shifts = (unit_shifts @ cell).astype(shift_dtype)
+      shifts = space.transform(cell, unit_shifts).astype(shift_dtype)
 
       shifts = jnp.where(valid_e[:, None], shifts, FAR_SHIFT[None, :])
       unit_shifts = jnp.where(

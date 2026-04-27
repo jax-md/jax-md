@@ -74,6 +74,11 @@ testing = [
     "pytest",
     "ase",
 ]
+mace = [
+    "mace_jax @ git+https://github.com/ACEsuit/mace-jax@64460f07358fdad667ac9dfe44e55f7764a1275d ; python_version >= '3.11'",
+    "jax>=0.5.0,<0.9 ; python_version >= '3.11'",
+    "jaxlib>=0.5.0,<0.9 ; python_version >= '3.11'",
+]
 uma = [
     "torch>=2.0.0",           # Loading PyTorch UMA checkpoints
     "huggingface_hub",        # Downloading pretrained models
@@ -81,6 +86,8 @@ uma = [
 dev = [
     "pytest",
     "ase",
+    "ruff",
+    "pre-commit",
     "torch>=2.0.0",
     "e3nn",                   # Exact grid matrix computation
     "huggingface_hub",
@@ -121,6 +128,14 @@ exclude_lines = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.uv]
+conflicts = [
+    [
+        { group = "dev" },
+        { group = "mace" },
+    ],
+]
 
 [tool.ruff]
 line-length = 80
