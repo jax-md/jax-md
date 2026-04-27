@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
 import os
+import tarfile
+from pathlib import Path
 
 import jax
 from absl.testing import absltest, parameterized
@@ -25,11 +26,28 @@ except ImportError:
   app = None
   u = None
 
-# TODO change to files in data directory
-_GRO = Path('tests/data/amber_data/fe_test_data/mobley_3053621.gro')
-_TOP = Path('tests/data/amber_data/fe_test_data/mobley_3053621.top')
-_INCLUDE_DIR = Path('tests/data/amber_data/fe_test_data/gromacs_ffs')
-_XVG_DIR = Path('tests/data/amber_data/fe_test_data/sp_alch')
+_DATA_ROOT = Path(__file__).parent / 'data'
+_AMBER_DATA_DIR = _DATA_ROOT / 'amber_data'
+_AMBER_DATA_TARBALL = _DATA_ROOT / 'amber_data.tar.gz'
+
+
+def _ensure_amber_data_extracted() -> None:
+  if _AMBER_DATA_DIR.exists():
+    return
+  if not _AMBER_DATA_TARBALL.exists():
+    raise FileNotFoundError(
+      f'Missing amber test data and tarball: {_AMBER_DATA_TARBALL}'
+    )
+  with tarfile.open(_AMBER_DATA_TARBALL, 'r:gz') as tf:
+    tf.extractall(_DATA_ROOT)
+
+
+_ensure_amber_data_extracted()
+
+_GRO = _AMBER_DATA_DIR / 'fe_test_data' / 'mobley_3053621.gro'
+_TOP = _AMBER_DATA_DIR / 'fe_test_data' / 'mobley_3053621.top'
+_INCLUDE_DIR = _AMBER_DATA_DIR / 'fe_test_data' / 'gromacs_ffs'
+_XVG_DIR = _AMBER_DATA_DIR / 'fe_test_data' / 'sp_alch'
 
 # copied from prod.X.mdp files in FreeSolv repository
 # NOTE some options from the original FreeSolv setup were changed to be
