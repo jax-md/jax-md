@@ -1033,6 +1033,8 @@ def neighbor_list_multi_image(
       # First call: allocate with capacity computed from position
       return allocate_fn(position, **kwargs)
 
+    position = position.astype(neighbors.reference_position.dtype)
+
     # Update: reuse existing capacity and precomputed integer shifts.
     # Real-space shifts (shifts @ box.T) are recomputed inside build_fn
     # using the traced box argument, so this is safe inside JIT.

@@ -128,7 +128,9 @@ def mace_featurizer(
   return featurize
 
 
-def mace_multi_image_featurizer(config, z_atomic, *, head=None):
+def mace_multi_image_featurizer(
+  config, z_atomic, *, fractional_coordinates=False, head=None
+):
   """Create a featurizer for multi-image neighbor lists with explicit shifts.
 
   Works with ``custom_partition.neighbor_list_multi_image`` which stores
@@ -177,9 +179,9 @@ def mace_multi_image_featurizer(config, z_atomic, *, head=None):
     N = R_in.shape[0]
 
     if partition.is_sparse(neighbor.format):
-      r0, s0 = neighbor.idx
-      send = jnp.asarray(r0, dtype=jnp.int32)
-      recv = jnp.asarray(s0, dtype=jnp.int32)
+      receivers, senders = neighbor.idx
+      send = jnp.asarray(senders, dtype=jnp.int32)
+      recv = jnp.asarray(receivers, dtype=jnp.int32)
       valid = (send >= 0) & (send < N) & (recv >= 0) & (recv < N)
       send = jnp.where(valid, send, jnp.zeros_like(send))
       recv = jnp.where(valid, recv, send)
@@ -187,14 +189,14 @@ def mace_multi_image_featurizer(config, z_atomic, *, head=None):
       idx = jnp.asarray(neighbor.idx, dtype=jnp.int32)
       M = idx.shape[1]
       slot_valid = (idx >= 0) & (idx < N)
-      recv = jnp.where(slot_valid, idx, jnp.zeros_like(idx))
-      send = jnp.repeat(jnp.arange(N, dtype=jnp.int32), M)
-      recv = recv.reshape(-1).astype(jnp.int32)
+      send = jnp.where(slot_valid, idx, jnp.zeros_like(idx))
+      recv = jnp.repeat(jnp.arange(N, dtype=jnp.int32), M)
+      send = send.reshape(-1).astype(jnp.int32)
       valid = slot_valid.reshape(-1)
-      recv = jnp.where(valid, recv, send)
+      send = jnp.where(valid, send, recv)
 
     unit_shifts = lax.stop_gradient(
-      jnp.asarray(neighbor.shifts, dtype=jnp.float32)
+      -jnp.asarray(neighbor.shifts, dtype=jnp.float32)
     )
     if unit_shifts.ndim == 3:
       unit_shifts = unit_shifts.reshape((-1, 3))
@@ -208,7 +210,8 @@ def mace_multi_image_featurizer(config, z_atomic, *, head=None):
       valid[:, None], unit_shifts, jnp.zeros_like(unit_shifts)
     )
 
-    R_cart = R_in
+    R_cart = space.transform(cell, R_in) if fractional_coordinates else R_in
+    R_cart = R_cart.astype(jnp.float32)
     if perturbation is not None:
       pert = jnp.asarray(perturbation)
       if pert.ndim == 0:

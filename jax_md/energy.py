@@ -2739,7 +2739,9 @@ def mace_neighbor_list(
   if featurizer_fn is None:
     featurizer_fn = mace_featurizer
   if featurizer_fn is mace_multi_image_featurizer:
-    featurize = featurizer_fn(config, z_atomic, head=head)
+    featurize = featurizer_fn(
+      config, z_atomic, fractional_coordinates=fractional_coordinates, head=head
+    )
   else:
     featurize = featurizer_fn(
       displacement_fn,
