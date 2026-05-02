@@ -47,7 +47,7 @@ def make_bridge(box, *, fractional_coordinates):
   )
 
 
-class MaceJaxmdBridgeTest(absltest.TestCase):
+class MaceTest(absltest.TestCase):
   def test_fractional_matrix_box_uses_jax_md_transform_convention(self):
     cell = jnp.array(
       [

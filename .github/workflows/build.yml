@@ -103,7 +103,7 @@ jobs:
             --ignore=tests/uma_test.py \
             --ignore=tests/uma_pretrained_test.py \
             --ignore=tests/uma_e2e_test.py \
-            --ignore=tests/mace_jaxmd_bridge_test.py
+            --ignore=tests/mace_test.py
         elif [ "${{ matrix.test-suite }}" == "uma" ]; then
           JAX_ENABLE_X64=1 uv run pytest \
             tests/uma_test.py \
@@ -112,7 +112,7 @@ jobs:
             --cov=jax_md --cov-report=xml --cov-report=term
         elif [ "${{ matrix.test-suite }}" == "mace" ]; then
           JAX_ENABLE_X64=1 uv run pytest \
-            tests/mace_jaxmd_bridge_test.py \
+            tests/mace_test.py \
             --cov=jax_md --cov-report=xml --cov-report=term
         else
           JAX_ENABLE_X64=1 uv run pytest tests/${{ matrix.test-suite }}_test.py --cov=jax_md --cov-report=xml --cov-report=term

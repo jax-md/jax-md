@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Convert a pre-trained Torch MACE foundation model to MACE-JAX parameters."""
 
 from __future__ import annotations
@@ -10,7 +9,6 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
 
-import jax
 import numpy as np
 
 from mace_jax.modules.wrapper_ops import CuEquivarianceConfig
@@ -22,7 +20,6 @@ warnings.filterwarnings(
 )
 
 import torch
-from flax import core as flax_core
 from flax import serialization
 from flax import nnx
 from mace.calculators import foundations_models
