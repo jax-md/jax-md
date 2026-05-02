@@ -17,3 +17,4 @@ from . import nequip
 from . import gnome
 from . import util
 from . import uma
+from . import mace

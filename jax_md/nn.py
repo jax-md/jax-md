@@ -32,6 +32,7 @@ from ._nn import behler_parrinello
 from ._nn import nequip
 from ._nn import gnome
 from ._nn import util
+from ._nn import mace
 
 # Typing
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import warnings
 from dataclasses import asdict, is_dataclass
@@ -11,32 +12,18 @@ from typing import Any
 
 import numpy as np
 
-from mace_jax.modules.wrapper_ops import CuEquivarianceConfig
-
 warnings.filterwarnings(
   'ignore',
   message='Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected.*',
   category=UserWarning,
 )
 
-import torch
-from flax import serialization
-from flax import nnx
-from mace.calculators import foundations_models
-from mace.tools.scripts_utils import extract_config_mace_model
-from mace_jax.nnx_utils import state_to_pure_dict
-from mace_jax.nnx_utils import state_to_serializable_dict
-from mace_jax.tools.import_from_torch import import_from_torch
-from jax_md._nn.mace_jax_interface.model_builder import (
-  _as_irreps,
-  _build_jax_model,
-  _prepare_template_data,
-)
 
+def load_torch_model_from_foundations(source: str, model: str | None):
+  foundations_models = importlib.import_module(
+    'mace.calculators.foundations_models'
+  )
 
-def _load_torch_model_from_foundations(
-  source: str, model: str | None
-) -> torch.nn.Module:
   source = source.lower()
   if source not in {'mp', 'off', 'anicc', 'omol'}:
     raise ValueError(
@@ -52,7 +39,7 @@ def _load_torch_model_from_foundations(
     if model is not None:
       loader_kwargs['model'] = model
   else:  # anicc
-    loader = foundations_models.mace_anicc
+    loader = getattr(foundations_models, 'mace_anicc')
     if model is not None:
       loader_kwargs['model_path'] = model
 
@@ -70,9 +57,11 @@ def _load_torch_model_from_foundations(
     return torch_model
 
 
-def _maybe_update_hidden_irreps_from_torch(
-  torch_model: torch.nn.Module, config: dict[str, Any]
+def maybe_update_hidden_irreps_from_torch(
+  torch_model, config: dict[str, Any]
 ) -> None:
+  from jax_md._nn.mace_jax_interface.model_builder import as_irreps
+
   try:
     num_interactions = int(config.get('num_interactions', 0))
   except Exception:
@@ -99,8 +88,8 @@ def _maybe_update_hidden_irreps_from_torch(
     return
 
   try:
-    torch_irreps = _as_irreps(torch_hidden)
-    config_irreps = _as_irreps(config['hidden_irreps'])
+    torch_irreps = as_irreps(torch_hidden)
+    config_irreps = as_irreps(config['hidden_irreps'])
   except Exception:
     return
 
@@ -114,25 +103,31 @@ def _maybe_update_hidden_irreps_from_torch(
     config['hidden_irreps'] = str(torch_irreps)
 
 
-def _serialize_for_json(value: Any) -> Any:
+def serialize_for_json(value: Any) -> Any:
   if is_dataclass(value):
-    return {str(k): _serialize_for_json(v) for k, v in asdict(value).items()}
+    return {str(k): serialize_for_json(v) for k, v in asdict(value).items()}
   if isinstance(value, dict):
-    return {str(k): _serialize_for_json(v) for k, v in value.items()}
+    return {str(k): serialize_for_json(v) for k, v in value.items()}
   if isinstance(value, (list, tuple)):
-    return [_serialize_for_json(v) for v in value]
+    return [serialize_for_json(v) for v in value]
   if isinstance(value, set):
-    return [_serialize_for_json(v) for v in sorted(value)]
-  if isinstance(value, torch.Tensor):
+    return [serialize_for_json(v) for v in sorted(value)]
+  if (
+    hasattr(value, 'detach')
+    and hasattr(value, 'cpu')
+    and hasattr(value, 'numpy')
+  ):
     arr = value.detach().cpu().numpy()
     if arr.ndim == 0:
       return arr.item()
     return arr.tolist()
-  if isinstance(value, torch.device):
+  value_module = getattr(value.__class__, '__module__', '')
+  value_class = value.__class__.__name__
+  if value_module.startswith('torch') and value_class == 'device':
     return str(value)
-  if isinstance(value, torch.dtype):
+  if value_module.startswith('torch') and value_class == 'dtype':
     return str(value).replace('torch.', '')
-  if isinstance(value, torch.Size):
+  if value_module.startswith('torch') and value_class == 'Size':
     return list(value)
   if isinstance(value, np.ndarray):
     return value.tolist()
@@ -156,24 +151,37 @@ def convert_model(
   torch_model,
   config: dict[str, Any],
   *,
-  cueq_config: CuEquivarianceConfig | None = None,
+  cueq_config: Any | None = None,
   n_template: int | None = None,
   e_template: int | None = None,
 ):
+  from flax import nnx
+  from mace_jax.nnx_utils import state_to_serializable_dict
+  from mace_jax.tools.import_from_torch import import_from_torch
+  from jax_md._nn.mace_jax_interface.model_builder import (
+    build_jax_model,
+    prepare_template_data,
+  )
+
   # avoid mutating caller config
   config = dict(config)
 
-  _maybe_update_hidden_irreps_from_torch(torch_model, config)
+  if not hasattr(nnx.Variable, 'get_value'):
+    nnx.Variable.get_value = lambda self: self.raw_value  # pylint: disable=protected-access
+  if not hasattr(nnx.Variable, 'set_value'):
+    nnx.Variable.set_value = lambda self, value: setattr(
+      self, 'raw_value', value
+    )
 
-  # Build NNX model (your _build_jax_model expects rngs, and supports cueq_config)
-  jax_model = _build_jax_model(
+  maybe_update_hidden_irreps_from_torch(torch_model, config)
+
+  jax_model = build_jax_model(
     config,
     cueq_config=cueq_config,
     rngs=nnx.Rngs(0),
   )
 
-  # Use your padded template builder
-  template_data = _prepare_template_data(
+  template_data = prepare_template_data(
     config,
     n_node=n_template,
     n_edge=e_template,
@@ -200,6 +208,15 @@ def convert_model(
 
 
 def main():
+  import torch
+  from flax import serialization
+  from mace_jax.nnx_utils import state_to_pure_dict
+
+  scripts_utils = importlib.import_module('mace.tools.scripts_utils')
+  extract_config_mace_model = getattr(
+    scripts_utils, 'extract_config_mace_model'
+  )
+
   parser = argparse.ArgumentParser(
     description='Convert Torch MACE model to JAX parameters'
   )
@@ -220,9 +237,19 @@ def main():
   parser.add_argument(
     '--output',
     help=(
-      "Output file for serialized JAX parameters. Defaults to '<checkpoint>-jax.npz' "
-      "(or '<source>-<model>-jax.npz' for foundation downloads)."
+      "Output file for serialized JAX parameters. Defaults to '<checkpoint>-jax.msgpack' "
+      "(or '<source>-<model>-jax.msgpack' for foundation downloads)."
     ),
+  )
+  parser.add_argument(
+    '--n-template',
+    type=int,
+    help='Optional atom capacity for the fixed-shape JAX-MD template.',
+  )
+  parser.add_argument(
+    '--e-template',
+    type=int,
+    help='Optional edge capacity for the fixed-shape JAX-MD template.',
   )
   args = parser.parse_args()
 
@@ -234,10 +261,10 @@ def main():
       else bundle
     )
     default_output = Path(args.torch_model).with_name(
-      Path(args.torch_model).stem + '-jax.npz'
+      Path(args.torch_model).stem + '-jax.msgpack'
     )
   else:
-    torch_model = _load_torch_model_from_foundations(
+    torch_model = load_torch_model_from_foundations(
       args.foundation, args.model_name
     )
   torch_model.eval()
@@ -247,7 +274,7 @@ def main():
       output_path = default_output
     else:
       model_tag = args.model_name or args.foundation
-      output_path = Path(f'{args.foundation}-{model_tag}-jax.npz')
+      output_path = Path(f'{args.foundation}-{model_tag}-jax.msgpack')
   else:
     output_path = Path(args.output)
 
@@ -256,7 +283,15 @@ def main():
     raise RuntimeError(config['error'])
   config['torch_model_class'] = torch_model.__class__.__name__
 
-  graphdef, state, template_data, config = convert_model(torch_model, config)
+  graphdef, state, template_data, config = convert_model(
+    torch_model,
+    config,
+    n_template=args.n_template,
+    e_template=args.e_template,
+  )
+  del graphdef
+  config['template_n_node'] = int(template_data['positions'].shape[0])
+  config['template_n_edge'] = int(template_data['edge_index'].shape[1])
 
   variables = state_to_pure_dict(state)
   params_bytes = serialization.to_bytes(variables)
@@ -264,7 +299,7 @@ def main():
   print(f'Serialized JAX parameters written to {output_path}')
   # Persist config alongside parameters.
   config_path = output_path.with_suffix('.json')
-  config_path.write_text(json.dumps(_serialize_for_json(config), indent=2))
+  config_path.write_text(json.dumps(serialize_for_json(config), indent=2))
   print(f'Config written to {config_path}')
 
 

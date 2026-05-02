@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 from typing import Any
 
 import jax.numpy as jnp
@@ -11,14 +12,55 @@ from e3nn_jax import Irreps
 from flax import nnx
 
 from mace_jax.adapters.nnx import resolve_gate_callable
-from mace_jax.data.utils import Configuration, graph_from_configuration
 from mace_jax.modules import interaction_classes, readout_classes
 from mace_jax.modules.models import MACE, ScaleShiftMACE
 from mace_jax.modules.wrapper_ops import CuEquivarianceConfig
-from mace_jax.tools.gin_model import _graph_to_data  # type: ignore[attr-defined]
 
 
-def _normalize_atomic_config(
+def cueq_ops_jax_installed() -> bool:
+  return importlib.util.find_spec('cuequivariance_ops_jax') is not None
+
+
+def normalize_cueq_config(
+  config: dict[str, Any],
+  cueq_config: CuEquivarianceConfig | None,
+) -> CuEquivarianceConfig | None:
+  if cueq_config is not None:
+    return cueq_config
+
+  raw_config = config.get('cueq_config')
+  if isinstance(raw_config, CuEquivarianceConfig):
+    return raw_config
+
+  if isinstance(raw_config, dict):
+    raw_config = dict(raw_config)
+    if not raw_config.get('enabled', False):
+      return None
+    if raw_config.get('conv_fusion', False) and not cueq_ops_jax_installed():
+      raw_config['conv_fusion'] = False
+    optimize_keys = (
+      'optimize_all',
+      'optimize_linear',
+      'optimize_channelwise',
+      'optimize_symmetric',
+      'optimize_fctp',
+    )
+    if not any(raw_config.get(key, False) for key in optimize_keys):
+      raw_config['optimize_all'] = True
+    return CuEquivarianceConfig(**raw_config)
+
+  if config.get('cue_conv_fusion'):
+    return CuEquivarianceConfig(
+      enabled=True,
+      optimize_all=True,
+      conv_fusion=cueq_ops_jax_installed(),
+      layout='mul_ir',
+    )
+
+  return None
+
+
+def normalize_atomic_config(
   config: dict[str, Any],
   *,
   dtype: np.dtype = np.float32,
@@ -51,7 +93,7 @@ def _normalize_atomic_config(
   return normalized, atomic_numbers, atomic_energies
 
 
-def _parse_parity(parity: Any) -> int:
+def parse_parity(parity: Any) -> int:
   if parity is None:
     return 1
   if isinstance(parity, str):
@@ -67,7 +109,7 @@ def _parse_parity(parity: Any) -> int:
   return 1 if parity_int >= 0 else -1
 
 
-def _as_l_parity(rep: Any):
+def as_l_parity(rep: Any):
   """
   Best-effort extraction of (l, parity) from torch/e3nn Irrep-like objects.
   """
@@ -86,21 +128,21 @@ def _as_l_parity(rep: Any):
 
   if hasattr(rep, 'l') and hasattr(rep, 'p'):
     try:
-      return int(rep.l), _parse_parity(rep.p)
+      return int(rep.l), parse_parity(rep.p)
     except Exception:
       return None
 
   if module.startswith('e3nn.o3') and hasattr(rep, '__len__'):
     try:
       if len(rep) == 2 and all(isinstance(x, (int, np.integer)) for x in rep):
-        return int(rep[0]), _parse_parity(rep[1])
+        return int(rep[0]), parse_parity(rep[1])
     except Exception:
       return None
 
   return None
 
 
-def _as_irrep_entry(entry: Any):
+def as_irrep_entry(entry: Any):
   if isinstance(entry, dict):
     mul = entry.get('mul') or entry.get('multiplicity') or entry.get('n')
     rep = entry.get('irrep') or entry.get('rep') or entry.get('l')
@@ -112,48 +154,48 @@ def _as_irrep_entry(entry: Any):
       l_val = rep
     if mul is None or l_val is None:
       return None
-    return int(mul), (int(l_val), _parse_parity(parity))
+    return int(mul), (int(l_val), parse_parity(parity))
 
   if isinstance(entry, (list, tuple)):
     if len(entry) == 2 and isinstance(entry[0], (int, np.integer)):
       mul = int(entry[0])
       rep = entry[1]
-      l_parity = _as_l_parity(rep)
+      l_parity = as_l_parity(rep)
       if l_parity is not None:
         return mul, l_parity
       if isinstance(rep, (list, tuple)):
         if rep is None:
           return None
         l_val = int(rep[0])
-        parity = _parse_parity(rep[1] if len(rep) > 1 else None)
+        parity = parse_parity(rep[1] if len(rep) > 1 else None)
         return mul, (l_val, parity)
       if isinstance(rep, dict):
         l_val = rep.get('l')
         parity = rep.get('p') or rep.get('parity')
         if l_val is None:
           return None
-        return mul, (int(l_val), _parse_parity(parity))
+        return mul, (int(l_val), parse_parity(parity))
       if isinstance(rep, (int, np.integer)):
         return mul, (int(rep), 1)
-  l_parity = _as_l_parity(entry)
+  l_parity = as_l_parity(entry)
   if l_parity is not None:
     return 1, l_parity
   return None
 
 
-def _normalize_irreps(value: Any):
+def normalize_irreps(value: Any):
   if isinstance(value, dict):
     value = [value]
 
   if isinstance(value, (list, tuple)):
-    if value and _as_irrep_entry(value) is not None:
+    if value and as_irrep_entry(value) is not None:
       entries = [value]
     else:
       entries = value
 
     parsed = []
     for item in entries:
-      entry = _as_irrep_entry(item)
+      entry = as_irrep_entry(item)
       if entry is None:
         return None
       parsed.append(entry)
@@ -163,7 +205,7 @@ def _normalize_irreps(value: Any):
   return None
 
 
-def _as_irreps(value: Any) -> Irreps:
+def as_irreps(value: Any) -> Irreps:
   if isinstance(value, Irreps):
     return value
   module = getattr(value, '__module__', '')
@@ -176,29 +218,29 @@ def _as_irreps(value: Any) -> Irreps:
     return Irreps(value)
   if isinstance(value, int):
     return Irreps(f'{value}x0e')
-  normalized = _normalize_irreps(value)
+  normalized = normalize_irreps(value)
   if normalized is not None:
     return Irreps(normalized)
   return Irreps(str(value))
 
 
-def _interaction(name_or_cls: Any):
+def interaction(name_or_cls: Any):
   name = name_or_cls if isinstance(name_or_cls, str) else name_or_cls.__name__
   if name not in interaction_classes:
     raise ValueError(f'Unsupported interaction class {name!r} in config')
   return interaction_classes[name]
 
 
-def _readout(name_or_cls: Any):
+def readout(name_or_cls: Any):
   if name_or_cls is None:
     return readout_classes['NonLinearReadoutBlock']
   name = name_or_cls if isinstance(name_or_cls, str) else name_or_cls.__name__
-  return readout_classes.get(name, readout_classes['NonLinearReadoutBlock'])
+  if name not in readout_classes:
+    raise ValueError(f'Unsupported readout class {name!r} in config')
+  return readout_classes[name]
 
 
-def _build_configuration(
-  atomic_numbers: tuple[int, ...], r_max: float
-) -> Configuration:
+def build_configuration(atomic_numbers: tuple[int, ...], r_max: float):
   num_atoms = len(atomic_numbers)
   spacing = max(r_max / max(num_atoms, 1), 0.5)
   positions = np.zeros((num_atoms, 3), dtype=float)
@@ -206,18 +248,11 @@ def _build_configuration(
     positions[i, 0] = spacing * i
     positions[i, 1] = spacing * (i % 2)
     positions[i, 2] = 0.0
-  return Configuration(
-    atomic_numbers=np.array(atomic_numbers, dtype=int),
-    positions=positions,
-    energy=np.array(0.0),
-    forces=np.zeros_like(positions),
-    stress=np.zeros((3, 3)),
-    cell=np.eye(3) * (spacing * max(num_atoms, 1) * 2),
-    pbc=(False, False, False),
-  )
+  cell = np.eye(3) * (spacing * max(num_atoms, 1) * 2)
+  return positions, cell
 
 
-def _pad_template_dict(
+def pad_template_dict(
   data: dict[str, jnp.ndarray], *, n_node: int, n_edge: int, r_max: float
 ) -> dict[str, jnp.ndarray]:
   out = dict(data)
@@ -262,41 +297,54 @@ def _pad_template_dict(
       [out['shifts'], sh_pad.astype(out['shifts'].dtype)], axis=0
     )
 
-    # unit_shifts: if present, pad zeros (it won’t matter because shifts is far)
-    if 'unit_shifts' in out:
-      us_pad = jnp.zeros((pad_n, 3), dtype=out['unit_shifts'].dtype)
-      out['unit_shifts'] = jnp.concatenate([out['unit_shifts'], us_pad], axis=0)
-  else:
-    out['shifts'] = out['shifts']
-    if 'unit_shifts' in out:
-      out['unit_shifts'] = out['unit_shifts']
+    us_pad = jnp.zeros((pad_n, 3), dtype=out['unit_shifts'].dtype)
+    out['unit_shifts'] = jnp.concatenate([out['unit_shifts'], us_pad], axis=0)
 
   return out
 
 
-def _prepare_template_data(
+def prepare_template_data(
   config: dict[str, Any],
   *,
   n_node: int | None = None,
   n_edge: int | None = None,
 ) -> dict[str, jnp.ndarray]:
   atomic_numbers = tuple(int(z) for z in config['atomic_numbers'])
-  configuration = _build_configuration(atomic_numbers, config['r_max'])
-  graph = graph_from_configuration(configuration, cutoff=config['r_max'])
+  positions_np, cell_np = build_configuration(atomic_numbers, config['r_max'])
+  num_atoms = len(atomic_numbers)
+  senders = []
+  receivers = []
+  for sender in range(num_atoms):
+    for receiver in range(num_atoms):
+      if sender != receiver:
+        senders.append(sender)
+        receivers.append(receiver)
 
-  data = _graph_to_data(graph, num_species=len(atomic_numbers))
+  edge_index = jnp.array([senders, receivers], dtype=jnp.int32)
+  edge_count = int(edge_index.shape[1])
+  data = {
+    'positions': jnp.asarray(positions_np, dtype=jnp.float32),
+    'node_attrs': jnp.eye(num_atoms, dtype=jnp.float32),
+    'node_attrs_index': jnp.arange(num_atoms, dtype=jnp.int32),
+    'edge_index': edge_index,
+    'shifts': jnp.zeros((edge_count, 3), dtype=jnp.float32),
+    'unit_shifts': jnp.zeros((edge_count, 3), dtype=jnp.float32),
+    'batch': jnp.zeros((num_atoms,), dtype=jnp.int32),
+    'ptr': jnp.array([0, num_atoms], dtype=jnp.int32),
+    'cell': jnp.asarray(cell_np[None, :, :], dtype=jnp.float32),
+  }
 
   if n_node is not None or n_edge is not None:
     n_node = int(n_node or data['positions'].shape[0])
     n_edge = int(n_edge or data['edge_index'].shape[1])
-    data = _pad_template_dict(
+    data = pad_template_dict(
       data, n_node=n_node, n_edge=n_edge, r_max=float(config['r_max'])
     )
 
   return data
 
 
-def _build_jax_model(
+def build_jax_model(
   config: dict[str, Any],
   *,
   cueq_config: CuEquivarianceConfig | None = None,
@@ -312,23 +360,14 @@ def _build_jax_model(
       num_interactions = 0
     if num_interactions == 1 and config.get('hidden_irreps') is not None:
       try:
-        hidden_irreps = _as_irreps(config['hidden_irreps'])
+        hidden_irreps = as_irreps(config['hidden_irreps'])
         collapse_hidden_irreps = len(hidden_irreps) <= 1
       except Exception:
         collapse_hidden_irreps = None
 
-  cue_config_obj: CuEquivarianceConfig | None = None
-  if cueq_config is not None:
-    cue_config_obj = cueq_config
-  elif config.get('cue_conv_fusion'):
-    cue_config_obj = CuEquivarianceConfig(
-      enabled=False,
-      optimize_channelwise=True,
-      conv_fusion=bool(config['cue_conv_fusion']),
-      layout='mul_ir',
-    )
+  cue_config_obj = normalize_cueq_config(config, cueq_config)
 
-  config, atomic_numbers, atomic_energies = _normalize_atomic_config(
+  config, atomic_numbers, atomic_energies = normalize_atomic_config(
     config,
     dtype=np.float32,
   )
@@ -339,12 +378,12 @@ def _build_jax_model(
     num_bessel=config['num_bessel'],
     num_polynomial_cutoff=config['num_polynomial_cutoff'],
     max_ell=config['max_ell'],
-    interaction_cls=_interaction(config['interaction_cls']),
-    interaction_cls_first=_interaction(config['interaction_cls_first']),
+    interaction_cls=interaction(config['interaction_cls']),
+    interaction_cls_first=interaction(config['interaction_cls_first']),
     num_interactions=config['num_interactions'],
     num_elements=num_elements,
-    hidden_irreps=_as_irreps(config['hidden_irreps']),
-    MLP_irreps=_as_irreps(config['MLP_irreps']),
+    hidden_irreps=as_irreps(config['hidden_irreps']),
+    MLP_irreps=as_irreps(config['MLP_irreps']),
     atomic_numbers=atomic_numbers,
     atomic_energies=atomic_energies,
     avg_num_neighbors=float(config['avg_num_neighbors']),
@@ -361,7 +400,7 @@ def _build_jax_model(
     collapse_hidden_irreps=(
       True if collapse_hidden_irreps is None else bool(collapse_hidden_irreps)
     ),
-    readout_cls=_readout(config.get('readout_cls', None)),
+    readout_cls=readout(config.get('readout_cls', None)),
     gate=resolve_gate_callable(config.get('gate', None)),
     cueq_config=cue_config_obj,
   )
@@ -375,7 +414,7 @@ def _build_jax_model(
     common_kwargs['radial_MLP'] = tuple(int(x) for x in config['radial_MLP'])
 
   if config.get('edge_irreps') is not None:
-    common_kwargs['edge_irreps'] = _as_irreps(config['edge_irreps'])
+    common_kwargs['edge_irreps'] = as_irreps(config['edge_irreps'])
 
   if config.get('apply_cutoff') is not None:
     common_kwargs['apply_cutoff'] = bool(config['apply_cutoff'])
@@ -389,11 +428,3 @@ def _build_jax_model(
       **common_kwargs,
     )
   return MACE(rngs=rngs, **common_kwargs)
-
-
-__all__ = [
-  '_as_irreps',
-  '_build_jax_model',
-  '_normalize_atomic_config',
-  '_prepare_template_data',
-]
