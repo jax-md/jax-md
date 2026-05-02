@@ -1,7 +1,5 @@
 """Convert a pre-trained Torch MACE foundation model to MACE-JAX parameters."""
 
-from __future__ import annotations
-
 import importlib
 import json
 import warnings

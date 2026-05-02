@@ -1,7 +1,5 @@
 """Shared helpers to build MACE-JAX models from serialized configs."""
 
-from __future__ import annotations
-
 from typing import Any
 
 import jax.numpy as jnp
