@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 from typing import Any
 
 import jax.numpy as jnp
@@ -15,10 +14,6 @@ from mace_jax.adapters.nnx import resolve_gate_callable
 from mace_jax.modules import interaction_classes, readout_classes
 from mace_jax.modules.models import MACE, ScaleShiftMACE
 from mace_jax.modules.wrapper_ops import CuEquivarianceConfig
-
-
-def cueq_ops_jax_installed() -> bool:
-  return importlib.util.find_spec('cuequivariance_ops_jax') is not None
 
 
 def normalize_cueq_config(
@@ -36,24 +31,13 @@ def normalize_cueq_config(
     raw_config = dict(raw_config)
     if not raw_config.get('enabled', False):
       return None
-    if raw_config.get('conv_fusion', False) and not cueq_ops_jax_installed():
-      raw_config['conv_fusion'] = False
-    optimize_keys = (
-      'optimize_all',
-      'optimize_linear',
-      'optimize_channelwise',
-      'optimize_symmetric',
-      'optimize_fctp',
-    )
-    if not any(raw_config.get(key, False) for key in optimize_keys):
-      raw_config['optimize_all'] = True
     return CuEquivarianceConfig(**raw_config)
 
   if config.get('cue_conv_fusion'):
     return CuEquivarianceConfig(
       enabled=True,
       optimize_all=True,
-      conv_fusion=cueq_ops_jax_installed(),
+      conv_fusion=True,
       layout='mul_ir',
     )
 

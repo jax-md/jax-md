@@ -6,26 +6,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from jax_md import partition, quantity, space
-from jax_md._nn import mace
+from jax_md import energy, partition, quantity, space
 from jax_md.custom_partition import neighbor_list_multi_image
 
 jax.config.parse_flags_with_absl()
-
-
-def template_batch(n_particles=2, k_neighbors=1, n_species=1):
-  edge_count = n_particles * k_neighbors
-  return {
-    'positions': jnp.zeros((n_particles, 3), dtype=jnp.float32),
-    'edge_index': jnp.zeros((2, edge_count), dtype=jnp.int32),
-    'shifts': jnp.zeros((edge_count, 3), dtype=jnp.float32),
-    'unit_shifts': jnp.zeros((edge_count, 3), dtype=jnp.float32),
-    'node_attrs': jnp.zeros((n_particles, n_species), dtype=jnp.float32),
-    'node_attrs_index': jnp.zeros((n_particles,), dtype=jnp.int32),
-    'batch': jnp.zeros((n_particles,), dtype=jnp.int32),
-    'ptr': jnp.array([0, n_particles], dtype=jnp.int32),
-    'cell': jnp.zeros((1, 3, 3), dtype=jnp.float32),
-  }
 
 
 def shift_projection_model(batch):
@@ -67,20 +51,17 @@ def make_mace_energy(
   box,
   *,
   fractional_coordinates,
-  jax_model=shift_projection_model,
+  model=shift_projection_model,
   format=partition.Dense,
   neighbor_list_fn=partition.neighbor_list,
-  k_neighbors=1,
 ):
-  return mace.mace_neighbor_list(
-    jax_model=jax_model,
-    template_batch=template_batch(k_neighbors=k_neighbors),
+  return energy.mace_neighbor_list(
+    model=model,
     config={'atomic_numbers': (1,)},
     box=box,
     z_atomic=jnp.array([1, 1], dtype=jnp.int32),
     r_cutoff=1.0,
     dr_threshold=0.0,
-    k_neighbors=k_neighbors,
     include_head=False,
     fractional_coordinates=fractional_coordinates,
     format=format,
@@ -89,7 +70,7 @@ def make_mace_energy(
 
 
 class MaceTest(absltest.TestCase):
-  def test_cueq_config_normalization_enables_runnable_default(self):
+  def test_cueq_config_normalization_passes_through_enabled(self):
     try:
       from jax_md._nn.mace_jax_interface import model_builder
     except ImportError as err:
@@ -102,7 +83,6 @@ class MaceTest(absltest.TestCase):
 
     self.assertIsNotNone(cueq_config)
     self.assertTrue(cueq_config.enabled)
-    self.assertTrue(cueq_config.optimize_all)
 
   def test_fractional_matrix_box_uses_jax_md_transform_convention(self):
     cell = jnp.array(
@@ -120,8 +100,7 @@ class MaceTest(absltest.TestCase):
       ],
       dtype=jnp.float32,
     )
-    R_cart = mace.to_cartesian(R_frac, cell, fractional_coordinates=True)
-    np.testing.assert_allclose(R_cart, space.transform(cell, R_frac))
+    np.testing.assert_allclose(space.transform(cell, R_frac), R_frac @ cell.T)
 
     neighbor_fn, energy_fn = make_mace_energy(cell, fractional_coordinates=True)
     neighbors = neighbor_fn.allocate(R_frac, box=cell)
@@ -235,7 +214,7 @@ class MaceTest(absltest.TestCase):
         box,
         fractional_coordinates=False,
         format=neighbor_format,
-        jax_model=nearest_edge_distance_model,
+        model=nearest_edge_distance_model,
       )
       neighbors = neighbor_fn.allocate(R)
       energy = energy_fn(R, neighbor=neighbors)
@@ -273,8 +252,7 @@ class MaceTest(absltest.TestCase):
         fractional_coordinates=True,
         format=neighbor_format,
         neighbor_list_fn=neighbor_list_multi_image,
-        k_neighbors=2,
-        jax_model=nearest_edge_distance_model,
+        model=nearest_edge_distance_model,
       )
       neighbors = neighbor_fn.allocate(R_frac, box=cell)
       energy = energy_fn(R_frac, neighbor=neighbors)
@@ -284,45 +262,16 @@ class MaceTest(absltest.TestCase):
 
     np.testing.assert_allclose(energies, jnp.repeat(energies[0], 3), rtol=1e-6)
 
-  def test_neighbor_capacity_overflow_raises_instead_of_truncating(self):
-    box = jnp.array([3.0, 3.0, 3.0], dtype=jnp.float32)
-    _, energy_fn = mace.mace_neighbor_list(
-      jax_model=shift_projection_model,
-      template_batch=template_batch(n_particles=3, k_neighbors=1),
-      config={'atomic_numbers': (1,)},
-      box=box,
-      z_atomic=jnp.array([1, 1, 1], dtype=jnp.int32),
-      r_cutoff=2.0,
-      dr_threshold=0.0,
-      k_neighbors=1,
-      include_head=False,
-      fractional_coordinates=False,
-    )
-    R = jnp.array(
-      [
-        [0.0, 0.0, 0.0],
-        [0.5, 0.0, 0.0],
-        [1.0, 0.0, 0.0],
-      ],
-      dtype=jnp.float32,
-    )
-    neighbor_idx = jnp.array([[1, 2], [0, 2], [0, 1]], dtype=jnp.int32)
-
-    with self.assertRaisesRegex(ValueError, 'template only supports'):
-      energy_fn(R, neighbor_idx=neighbor_idx)
-
   def test_unsupported_atomic_number_raises(self):
     box = jnp.array([2.0, 2.0, 2.0], dtype=jnp.float32)
     with self.assertRaisesRegex(ValueError, 'not present in config'):
-      mace.mace_neighbor_list(
-        jax_model=shift_projection_model,
-        template_batch=template_batch(),
+      energy.mace_neighbor_list(
+        model=shift_projection_model,
         config={'atomic_numbers': (1,)},
         box=box,
         z_atomic=jnp.array([1, 6], dtype=jnp.int32),
         r_cutoff=1.0,
         dr_threshold=0.0,
-        k_neighbors=1,
         include_head=False,
         fractional_coordinates=False,
       )
@@ -347,7 +296,7 @@ class MaceTest(absltest.TestCase):
     neighbor_fn, energy_fn = make_mace_energy(
       cell,
       fractional_coordinates=False,
-      jax_model=quadratic_edge_model,
+      model=quadratic_edge_model,
     )
     neighbors = neighbor_fn.allocate(R_cart, box=cell)
 
@@ -376,7 +325,7 @@ class MaceTest(absltest.TestCase):
     neighbor_fn, energy_fn = make_mace_energy(
       box,
       fractional_coordinates=False,
-      jax_model=quadratic_edge_model,
+      model=quadratic_edge_model,
     )
     neighbors = neighbor_fn.allocate(R)
 
@@ -412,7 +361,7 @@ class MaceTest(absltest.TestCase):
     neighbor_fn, energy_fn = make_mace_energy(
       cell,
       fractional_coordinates=True,
-      jax_model=quadratic_edge_model,
+      model=quadratic_edge_model,
     )
     neighbors = neighbor_fn.allocate(R_frac, box=cell)
 
@@ -438,15 +387,13 @@ class MaceTest(absltest.TestCase):
       ],
       dtype=jnp.float32,
     )
-    neighbor_fn, energy_fn = mace.mace_neighbor_list(
-      jax_model=species_projection_model,
-      template_batch=template_batch(n_species=2),
+    neighbor_fn, energy_fn = energy.mace_neighbor_list(
+      model=species_projection_model,
       config={'atomic_numbers': (1, 8)},
       box=box,
       z_atomic=jnp.array([1, 8], dtype=jnp.int32),
       r_cutoff=1.0,
       dr_threshold=0.0,
-      k_neighbors=1,
       include_head=False,
       fractional_coordinates=False,
     )
@@ -479,11 +426,6 @@ class MaceTest(absltest.TestCase):
     }
 
     jax_model = model_builder.build_jax_model(config, rngs=nnx.Rngs(0))
-    real_template_batch = dict(
-      model_builder.prepare_template_data(config, n_node=2, n_edge=2)
-    )
-
-    self.assertIn('unit_shifts', real_template_batch)
 
     cell = jnp.array(
       [
@@ -502,23 +444,21 @@ class MaceTest(absltest.TestCase):
     )
     R_cart = space.transform(cell, R_frac)
 
-    neighbor_fn, energy_fn = mace.mace_neighbor_list(
-      jax_model=jax_model,
-      template_batch=real_template_batch,
+    neighbor_fn, energy_fn = energy.mace_neighbor_list(
+      model=jax_model,
       config=config,
       box=cell,
       z_atomic=jnp.array([1, 1], dtype=jnp.int32),
       r_cutoff=1.0,
       dr_threshold=0.0,
-      k_neighbors=1,
       include_head=False,
       fractional_coordinates=False,
     )
     neighbors = neighbor_fn.allocate(R_cart, box=cell)
-    energy = energy_fn(R_cart, neighbors=neighbors)
+    e = energy_fn(R_cart, neighbors=neighbors)
 
-    self.assertEqual(energy.shape, ())
-    self.assertTrue(jnp.isfinite(energy))
+    self.assertEqual(e.shape, ())
+    self.assertTrue(jnp.isfinite(e))
 
 
 if __name__ == '__main__':

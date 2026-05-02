@@ -2681,3 +2681,276 @@ def uma_neighbor_list(
     return model.apply(params, features).sum()
 
   return neighbor_fn, init_fn, energy_fn
+
+
+def mace_neighbor_list(
+  *,
+  model,
+  config: Dict[str, Any],
+  box,
+  z_atomic,
+  r_cutoff: float,
+  dr_threshold: float = 0.5,
+  capacity_multiplier: float = 1.25,
+  fractional_coordinates: bool = False,
+  format: partition.NeighborListFormat = partition.Dense,
+  neighbor_list_fn: Callable = partition.neighbor_list,
+  head=None,
+  **neighbor_kwargs,
+):
+  """Wraps a MACE-JAX potential as a JAX MD neighbor-list energy.
+
+  The MACE batch is built at runtime from the neighbor list and positions,
+  so no pre-built template or capacity specification is needed.
+
+  Args:
+    model: Callable MACE-JAX model accepting a MACE batch dictionary.
+    config: Model configuration containing at least ``atomic_numbers``.
+    box: Periodic box with shape ``(3,)`` or ``(3, 3)``.
+    z_atomic: Atomic numbers for real atoms, shape ``(N,)``.
+    r_cutoff: Neighbor cutoff radius.
+    dr_threshold: Neighbor-list rebuild threshold (skin).
+    capacity_multiplier: Neighbor-list capacity multiplier.
+    fractional_coordinates: Whether positions are fractional coordinates.
+    format: JAX MD neighbor-list format.
+    neighbor_list_fn: Neighbor-list factory.
+    head: Optional head array to include in the MACE batch.
+    **neighbor_kwargs: Additional keyword arguments for ``neighbor_list_fn``.
+
+  Returns:
+    A pair ``(neighbor_fn, energy_fn)`` following the standard JAX MD
+    convention. ``energy_fn`` has signature:
+    ``energy_fn(R, *, box=None, neighbor=None, perturbation=None)``.
+  """
+  import numpy as np
+
+  box_default = jnp.asarray(box)
+
+  if fractional_coordinates:
+    displacement_fn_fixed, _ = space.periodic_general(
+      box_default, fractional_coordinates=True
+    )
+  else:
+    if box_default.shape == (3,):
+      displacement_fn_fixed, _ = space.periodic(box_default)
+    elif box_default.shape == (3, 3):
+      displacement_fn_fixed, _ = space.periodic_general(
+        box_default, fractional_coordinates=False
+      )
+      if neighbor_list_fn is partition.neighbor_list:
+        neighbor_kwargs.setdefault('disable_cell_list', True)
+    else:
+      raise ValueError(
+        f'Unexpected box shape {box_default.shape} (expected (3,) or (3,3))'
+      )
+
+  neighbor_kwargs.setdefault('capacity_multiplier', capacity_multiplier)
+  neighbor_kwargs.setdefault('fractional_coordinates', fractional_coordinates)
+  neighbor_kwargs.setdefault('format', format)
+  neighbor_fn = neighbor_list_fn(
+    displacement_fn_fixed,
+    box_default,
+    r_cutoff,
+    dr_threshold=dr_threshold,
+    **neighbor_kwargs,
+  )
+
+  atomic_numbers = tuple(int(x) for x in config['atomic_numbers'])
+  C_node = len(atomic_numbers)
+  max_Z = int(max(atomic_numbers))
+  Z_to_index = -jnp.ones((max_Z + 1,), dtype=jnp.int32)
+  Z_to_index = Z_to_index.at[jnp.array(atomic_numbers, dtype=jnp.int32)].set(
+    jnp.arange(C_node, dtype=jnp.int32)
+  )
+
+  z_values = np.asarray(z_atomic, dtype=np.int32)
+  if z_values.ndim != 1:
+    raise ValueError('z_atomic must be a one-dimensional array.')
+  unsupported = sorted(set(int(z) for z in z_values) - set(atomic_numbers))
+  if unsupported:
+    raise ValueError(
+      f'z_atomic contains atomic numbers not present in config: {unsupported}.'
+    )
+  z_atomic_jax = jnp.asarray(z_values, dtype=jnp.int32)
+
+  far = jnp.asarray(r_cutoff + 2.0 * dr_threshold + 1.0, dtype=jnp.float32)
+  FAR_SHIFT = jnp.array([far, 0.0, 0.0], dtype=jnp.float32)
+
+  head_value = None
+  if head is not None:
+    head_value = jnp.asarray(head, dtype=jnp.int32).reshape(-1)
+
+  def _displacement_for(box_now):
+    box_arr = jnp.asarray(box_now)
+    if fractional_coordinates:
+      return space.periodic_general(box_arr, fractional_coordinates=True)[0]
+    if box_arr.shape == (3,):
+      return space.periodic(box_arr)[0]
+    if box_arr.shape == (3, 3):
+      return space.periodic_general(box_arr, fractional_coordinates=False)[0]
+    raise ValueError(f'Unexpected runtime box shape: {box_arr.shape}')
+
+  def _to_cartesian(R_in, cell):
+    if fractional_coordinates:
+      return space.transform(cell, R_in)
+    return R_in
+
+  def _cell_from_box(box_now):
+    b = jnp.asarray(box_now)
+    if b.shape == (3,):
+      return jnp.diag(b)
+    return b
+
+  def _dense_topology(idx, N):
+    idx = jnp.asarray(idx, dtype=jnp.int32)
+    M = idx.shape[1]
+    valid = (idx >= 0) & (idx < N)
+    recv = jnp.where(valid, idx, jnp.zeros_like(idx))
+    self_mask = recv == jnp.arange(N, dtype=jnp.int32)[:, None]
+    valid = valid & (~self_mask)
+    recv = jnp.where(valid, idx, jnp.zeros_like(idx))
+    send = jnp.repeat(jnp.arange(N, dtype=jnp.int32), M)
+    recv = recv.reshape(-1).astype(jnp.int32)
+    valid = valid.reshape(-1)
+    recv = jnp.where(valid, recv, send)
+    return send, recv, valid
+
+  def _dense_topology_keep_self(idx, N):
+    idx = jnp.asarray(idx, dtype=jnp.int32)
+    M = idx.shape[1]
+    valid = (idx >= 0) & (idx < N)
+    recv = jnp.where(valid, idx, jnp.zeros_like(idx))
+    send = jnp.repeat(jnp.arange(N, dtype=jnp.int32), M)
+    recv = recv.reshape(-1).astype(jnp.int32)
+    valid = valid.reshape(-1)
+    recv = jnp.where(valid, recv, send)
+    return send, recv, valid
+
+  def _sparse_topology(idx, N):
+    idx = jnp.asarray(idx, dtype=jnp.int32)
+    recv, send = idx[0], idx[1]
+    valid = (send >= 0) & (send < N) & (recv >= 0) & (recv < N) & (send != recv)
+    send = jnp.where(valid, send, jnp.zeros_like(send))
+    recv = jnp.where(valid, recv, send)
+    return send, recv, valid
+
+  def _sparse_multi_image_topology(idx, N):
+    r0, s0 = idx
+    send = jnp.asarray(r0, dtype=jnp.int32)
+    recv = jnp.asarray(s0, dtype=jnp.int32)
+    valid = (send >= 0) & (send < N) & (recv >= 0) & (recv < N)
+    send = jnp.where(valid, send, jnp.zeros_like(send))
+    recv = jnp.where(valid, recv, send)
+    return send, recv, valid
+
+  def _build_batch(R_in, send, recv, valid, shifts, ushifts, cell, pert):
+    R_cart = _to_cartesian(R_in, cell).astype(jnp.float32)
+    if pert is not None:
+      pert = jnp.asarray(pert)
+      if pert.ndim == 0:
+        cell = cell * pert
+      else:
+        cell = space.raw_transform(pert, cell)
+      R_cart = space.raw_transform(pert, R_cart).astype(jnp.float32)
+      shifts = space.raw_transform(pert, shifts).astype(jnp.float32)
+
+    N = R_cart.shape[0]
+    species = Z_to_index[z_atomic_jax[:N]]
+    shifts = jnp.where(valid[:, None], shifts, FAR_SHIFT[None, :])
+    ushifts = jnp.where(valid[:, None], ushifts, jnp.zeros_like(ushifts))
+
+    out = {
+      'positions': R_cart,
+      'node_attrs': jax.nn.one_hot(species, num_classes=C_node),
+      'node_attrs_index': species,
+      'edge_index': jnp.stack([send, recv], axis=0),
+      'shifts': shifts,
+      'unit_shifts': ushifts,
+      'batch': jnp.zeros((N,), dtype=jnp.int32),
+      'ptr': jnp.array([0, N], dtype=jnp.int32),
+      'cell': cell[None, :, :],
+    }
+    if head_value is not None:
+      out['head'] = head_value
+    return out
+
+  def _batch_with_computed_shifts(R_in, send, recv, valid, cell, box_now, pert):
+    disp = _displacement_for(box_now)
+    R_cart = _to_cartesian(R_in, cell).astype(jnp.float32)
+    dR = -jax.vmap(disp)(R_in[send], R_in[recv])
+    delta = R_cart[recv] - R_cart[send]
+    exact_shifts = (dR - delta).astype(jnp.float32)
+    inv_cell = space.inverse(cell)
+    ushifts_int = jnp.rint(space.transform(inv_cell, exact_shifts)).astype(
+      jnp.int32
+    )
+    ushifts_int = jax.lax.stop_gradient(ushifts_int)
+    ushifts = jax.lax.stop_gradient(ushifts_int.astype(jnp.float32))
+    shifts = jax.lax.stop_gradient(exact_shifts)
+    return _build_batch(R_in, send, recv, valid, shifts, ushifts, cell, pert)
+
+  @jax.jit
+  def energy_fn(
+    R,
+    *,
+    box=None,
+    neighbor=None,
+    neighbors=None,
+    neighbor_idx=None,
+    perturbation=None,
+    **unused_kwargs,
+  ):
+    nbr = neighbor if neighbor is not None else neighbors
+    if box is not None:
+      box_now = box
+    elif nbr is not None and hasattr(nbr, 'box'):
+      box_now = nbr.box
+    else:
+      box_now = box_default
+
+    cell = _cell_from_box(box_now)
+    R_in = jnp.asarray(R, dtype=jnp.float32)
+    N = R_in.shape[0]
+
+    if neighbor_idx is not None:
+      send, recv, valid = _dense_topology(neighbor_idx, N)
+      batch = _batch_with_computed_shifts(
+        R_in, send, recv, valid, cell, box_now, perturbation
+      )
+    elif nbr is not None:
+      if hasattr(nbr, 'shifts'):
+        if partition.is_sparse(nbr.format):
+          send, recv, valid = _sparse_multi_image_topology(nbr.idx, N)
+          ushifts = jax.lax.stop_gradient(
+            jnp.asarray(nbr.shifts, dtype=jnp.float32)
+          )
+        else:
+          send, recv, valid = _dense_topology_keep_self(nbr.idx, N)
+          ushifts = jax.lax.stop_gradient(
+            jnp.asarray(nbr.shifts, dtype=jnp.float32).reshape((-1, 3))
+          )
+        zero_shift_self = jnp.all(ushifts == 0, axis=-1) & (send == recv)
+        valid = valid & ~zero_shift_self
+        shifts = space.transform(cell, ushifts).astype(jnp.float32)
+        batch = _build_batch(
+          R_in, send, recv, valid, shifts, ushifts, cell, perturbation
+        )
+      else:
+        if partition.is_sparse(nbr.format):
+          send, recv, valid = _sparse_topology(nbr.idx, N)
+        else:
+          send, recv, valid = _dense_topology(nbr.idx, N)
+        batch = _batch_with_computed_shifts(
+          R_in, send, recv, valid, cell, box_now, perturbation
+        )
+    else:
+      raise ValueError(
+        'Provide either neighbor=..., neighbors=..., or neighbor_idx=...'
+      )
+
+    out = model(batch)
+    e = out['energy'] if isinstance(out, dict) and 'energy' in out else out
+    e = jnp.asarray(e)
+    return jnp.reshape(e, ()) if e.shape == (1,) else e
+
+  return neighbor_fn, energy_fn
