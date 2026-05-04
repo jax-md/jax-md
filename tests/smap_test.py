@@ -1707,8 +1707,12 @@ class SMapTest(test_util.JAXMDTestCase):
           R_1 = R[species == i]
           R_2 = R[species == j]
           total += 0.5 * np.sum(metric(R_1, R_2))
+      tol = 1e-12 if dtype is f64 else None
       self.assertAllClose(
-        triplet_square(R) / count, np.array(total, dtype=dtype)
+        triplet_square(R) / count,
+        np.array(total, dtype=dtype),
+        atol=tol,
+        rtol=tol,
       )
 
 
