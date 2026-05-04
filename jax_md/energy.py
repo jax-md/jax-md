@@ -2755,7 +2755,10 @@ def mace_neighbor_list(
   def energy_fn(R, *, box=None, neighbor=None, perturbation=None, **kwargs):
     box_now = box if box is not None else box_default
     batch = featurize(R, neighbor, box=box_now, perturbation=perturbation)
-    out = model(batch)
+    model_kwargs = dict(kwargs)
+    model_kwargs.setdefault('compute_force', False)
+    model_kwargs.setdefault('compute_stress', False)
+    out = model(batch, **model_kwargs)
     e = out['energy'] if isinstance(out, dict) and 'energy' in out else out
     e = jnp.asarray(e)
     return jnp.reshape(e, ()) if e.shape == (1,) else e
