@@ -66,6 +66,12 @@ def mace_featurizer(
       )
       send = jnp.where(valid, send, jnp.zeros_like(send))
       recv = jnp.where(valid, recv, send)
+      if neighbor.format is partition.OrderedSparse:
+        send, recv = (
+          jnp.concatenate([send, recv], axis=0),
+          jnp.concatenate([recv, send], axis=0),
+        )
+        valid = jnp.concatenate([valid, valid], axis=0)
     else:
       idx = jnp.asarray(neighbor.idx, dtype=jnp.int32)
       M = idx.shape[1]
@@ -203,6 +209,14 @@ def mace_multi_image_featurizer(
     )
     if unit_shifts.ndim == 3:
       unit_shifts = unit_shifts.reshape((-1, 3))
+
+    if neighbor.format is partition.OrderedSparse:
+      send, recv = (
+        jnp.concatenate([send, recv], axis=0),
+        jnp.concatenate([recv, send], axis=0),
+      )
+      valid = jnp.concatenate([valid, valid], axis=0)
+      unit_shifts = jnp.concatenate([unit_shifts, -unit_shifts], axis=0)
 
     zero_shift_self = jnp.all(unit_shifts == 0, axis=-1) & (send == recv)
     valid = valid & ~zero_shift_self

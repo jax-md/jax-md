@@ -38,7 +38,7 @@ jobs:
     strategy:
       matrix:
         python-version: ['3.10', '3.11', '3.12', '3.13']
-        test-suite: ['elasticity', 'rigid_body', 'energy', 'simulate', 'nequip', 'reaxff', 'tpu', 'uma', 'core']
+        test-suite: ['elasticity', 'rigid_body', 'energy', 'simulate', 'nequip', 'reaxff', 'tpu', 'uma', 'custom_partition', 'custom_smap', 'minimize', 'nn', 'oplsaa', 'partition', 'quantity', 'smap', 'space']
         include:
           - python-version: '3.11'
             test-suite: 'mace'
@@ -91,20 +91,7 @@ jobs:
         # Used by huggingface_hub to download gated UMA checkpoints.
         HF_TOKEN: ${{ secrets.HF_TOKEN }}
       run: |
-        if [ "${{ matrix.test-suite }}" == "core" ]; then
-          JAX_ENABLE_X64=1 uv run pytest tests --cov=jax_md --cov-report=xml --cov-report=term \
-            --ignore=tests/elasticity_test.py \
-            --ignore=tests/rigid_body_test.py \
-            --ignore=tests/energy_test.py \
-            --ignore=tests/simulate_test.py \
-            --ignore=tests/nequip_test.py \
-            --ignore=tests/reaxff_test.py \
-            --ignore=tests/tpu_test.py \
-            --ignore=tests/uma_test.py \
-            --ignore=tests/uma_pretrained_test.py \
-            --ignore=tests/uma_e2e_test.py \
-            --ignore=tests/mace_test.py
-        elif [ "${{ matrix.test-suite }}" == "uma" ]; then
+        if [ "${{ matrix.test-suite }}" == "uma" ]; then
           JAX_ENABLE_X64=1 uv run pytest \
             tests/uma_test.py \
             tests/uma_pretrained_test.py \
