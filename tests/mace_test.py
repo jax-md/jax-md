@@ -69,7 +69,7 @@ class MaceTest(absltest.TestCase):
     super().setUpClass()
     try:
       from flax import nnx
-      from jax_md._nn.mace_jax_interface import model_builder
+      from jax_md._nn.mace import model_builder
     except ImportError as err:
       cls.import_error = err
       return
@@ -203,7 +203,7 @@ class MaceTest(absltest.TestCase):
       partition.Sparse,
       partition.OrderedSparse,
     ):
-      from jax_md._nn.mace_jax_interface.featurizer import (
+      from jax_md._nn.mace.featurizer import (
         mace_multi_image_featurizer,
       )
 

@@ -2720,7 +2720,7 @@ def mace_neighbor_list(
     convention. ``energy_fn`` has signature:
     ``energy_fn(R, *, box=None, neighbor=None, perturbation=None)``.
   """
-  from jax_md._nn.mace_jax_interface.featurizer import (
+  from jax_md._nn.mace.featurizer import (
     mace_featurizer,
     mace_multi_image_featurizer,
   )

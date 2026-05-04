@@ -57,7 +57,7 @@ def load_torch_model_from_foundations(source: str, model: str | None):
 def maybe_update_hidden_irreps_from_torch(
   torch_model, config: dict[str, Any]
 ) -> None:
-  from jax_md._nn.mace_jax_interface.model_builder import as_irreps
+  from jax_md._nn.mace.model_builder import as_irreps
 
   try:
     num_interactions = int(config.get('num_interactions', 0))
@@ -159,7 +159,7 @@ def convert_model(
   from flax import nnx
   from mace_jax.nnx_utils import state_to_serializable_dict
   from mace_jax.tools.import_from_torch import import_from_torch
-  from jax_md._nn.mace_jax_interface.model_builder import build_jax_model
+  from jax_md._nn.mace.model_builder import build_jax_model
 
   config = dict(config)
 
