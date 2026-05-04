@@ -79,7 +79,10 @@ def mace_featurizer(
       valid = slot_valid.reshape(-1)
       recv = jnp.where(valid, recv, send)
 
-    disp = jax.vmap(displacement_fn)
+    if fractional_coordinates:
+      disp = jax.vmap(lambda Ra, Rb: displacement_fn(Ra, Rb, box=cell))
+    else:
+      disp = jax.vmap(lambda Ra, Rb: displacement_fn(Ra, Rb, new_box=cell))
     dR = -disp(R_in[send], R_in[recv])
 
     R_cart = space.transform(cell, R_in) if fractional_coordinates else R_in
