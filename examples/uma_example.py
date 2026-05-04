@@ -31,7 +31,12 @@ from jax_md._nn.uma import load_pretrained, UMAMoEBackbone
 from jax_md._nn.uma.nn.embedding import dataset_names_to_indices
 from jax_md._nn.uma.heads import MLPEnergyHead
 
-RUN_PRETRAINED_UMA = os.environ.get('READTHEDOCS') != '1'
+ON_READTHEDOCS = os.environ.get('READTHEDOCS', '').lower() in {
+  '1',
+  'true',
+  'yes',
+}
+RUN_PRETRAINED_UMA = not ON_READTHEDOCS
 if not RUN_PRETRAINED_UMA:
   print(
     'Skipping pretrained UMA execution on Read the Docs; '
