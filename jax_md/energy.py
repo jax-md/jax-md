@@ -2681,3 +2681,86 @@ def uma_neighbor_list(
     return model.apply(params, features).sum()
 
   return neighbor_fn, init_fn, energy_fn
+
+
+def mace_neighbor_list(
+  displacement_fn,
+  box,
+  *,
+  model,
+  config: Dict[str, Any],
+  z_atomic,
+  r_cutoff: float,
+  dr_threshold: float = 0.5,
+  fractional_coordinates: bool = False,
+  neighbor_list_fn: Callable = partition.neighbor_list,
+  featurizer_fn=None,
+  head=None,
+  **neighbor_kwargs,
+):
+  """Wraps a MACE-JAX potential as a JAX MD neighbor-list energy.
+
+  Args:
+    displacement_fn: Displacement function from ``jax_md.space``.
+    box: Periodic box with shape ``(3,)`` or ``(3, 3)``.
+    model: Callable MACE-JAX model accepting a MACE batch dictionary.
+    config: Model configuration containing at least ``atomic_numbers``.
+    z_atomic: Atomic numbers for real atoms, shape ``(N,)``.
+    r_cutoff: Neighbor cutoff radius.
+    dr_threshold: Neighbor-list rebuild threshold (skin).
+    fractional_coordinates: Whether positions are fractional coordinates.
+    neighbor_list_fn: Neighbor-list factory.
+    featurizer_fn: Featurizer factory. Defaults to ``mace_featurizer``.
+        For multi-image neighbor lists, pass ``mace_multi_image_featurizer``.
+    head: Optional head array to include in the MACE batch.
+    **neighbor_kwargs: Additional keyword arguments for ``neighbor_list_fn``.
+
+  Returns:
+    A pair ``(neighbor_fn, energy_fn)`` following the standard JAX MD
+    convention. ``energy_fn`` has signature:
+    ``energy_fn(R, *, box=None, neighbor=None, perturbation=None)``.
+  """
+  from jax_md._nn.mace.featurizer import (
+    mace_featurizer,
+    mace_multi_image_featurizer,
+  )
+
+  box_default = jnp.asarray(box)
+
+  neighbor_fn = neighbor_list_fn(
+    displacement_fn,
+    box_default,
+    r_cutoff,
+    dr_threshold=dr_threshold,
+    fractional_coordinates=fractional_coordinates,
+    **neighbor_kwargs,
+  )
+
+  if featurizer_fn is None:
+    featurizer_fn = mace_featurizer
+  if featurizer_fn is mace_multi_image_featurizer:
+    featurize = featurizer_fn(
+      config, z_atomic, fractional_coordinates=fractional_coordinates, head=head
+    )
+  else:
+    featurize = featurizer_fn(
+      displacement_fn,
+      config,
+      z_atomic,
+      fractional_coordinates=fractional_coordinates,
+      head=head,
+    )
+
+  @jax.jit
+  def energy_fn(R, *, box=None, neighbor=None, perturbation=None, **kwargs):
+    box_now = box if box is not None else box_default
+    batch = featurize(R, neighbor, box=box_now, perturbation=perturbation)
+    model_kwargs = dict(kwargs)
+    model_kwargs.setdefault('compute_force', False)
+    model_kwargs.setdefault('compute_stress', False)
+    out = model(batch, **model_kwargs)
+    e = out['energy'] if isinstance(out, dict) and 'energy' in out else out
+    e = jnp.asarray(e)
+    return jnp.reshape(e, ()) if e.shape == (1,) else e
+
+  return neighbor_fn, energy_fn
