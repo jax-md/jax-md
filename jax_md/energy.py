@@ -2519,6 +2519,12 @@ def uma_neighbor_list(
   charge=None,
   spin=None,
   dataset_idx=None,
+  head_dataset='omat',
+  apply_atom_refs=True,
+  atom_refs=None,
+  use_kernels=True,
+  merge_mole=True,
+  so2_block_gemm=True,
   **nl_kwargs,
 ):
   """Convenience wrapper to compute UMA energy using a neighbor list.
@@ -2544,6 +2550,19 @@ def uma_neighbor_list(
     charge: System charge(s), shape ``[num_systems]`` (default: ``[0]``).
     spin: System spin(s), shape ``[num_systems]`` (default: ``[0]``).
     dataset_idx: Integer dataset index, shape ``[num_systems]`` (default: ``[0]``).
+    head_dataset: Dataset name for pretrained MoE energy head selection.
+    apply_atom_refs: Whether to apply checkpoint task normalizer and element
+        references for pretrained checkpoints. Defaults to True when refs are
+        available.
+    atom_refs: Optional per-element task reference array, or a dictionary with
+        ``element_refs``, ``mean``, and ``rmsd`` values. If only an array is
+        provided, ``mean=0`` and ``rmsd=1`` are used.
+    use_kernels: UMA kernel toggle. True enables eligible JAX-MD UMA Pallas
+        kernels.
+    merge_mole: If True, pre-mix MoE expert weights for single-system
+        inference and skip runtime routing.
+    so2_block_gemm: If True, use a block GEMM formulation for SO2 m>0
+        convolutions.
     **nl_kwargs: Additional kwargs for neighbor list (e.g., ``fractional_coordinates``).
 
   Returns:
@@ -2564,7 +2583,9 @@ def uma_neighbor_list(
   if checkpoint_path is not None:
     from jax_md._nn.uma.model_moe import load_pretrained
 
-    moe_config, backbone_params, head_params = load_pretrained(checkpoint_path)
+    moe_config, backbone_params, head_params = load_pretrained(
+      checkpoint_path, head_dataset=head_dataset
+    )
     cfg = moe_config
     is_moe = True
     pretrained_params = {
@@ -2576,9 +2597,52 @@ def uma_neighbor_list(
   elif cfg is None:
     cfg = default_config()
 
+  if use_kernels is not None:
+    from dataclasses import replace
+
+    cfg = replace(cfg, use_kernels=bool(use_kernels))
+  if so2_block_gemm:
+    from dataclasses import replace
+
+    cfg = replace(cfg, so2_block_gemm=True)
+
   # If callers provide a preloaded MoE config/params pair, use the MoE
   # backbone even when checkpoint_path is not passed here.
   is_moe = is_moe or hasattr(cfg, 'num_experts')
+  if merge_mole and not is_moe:
+    raise ValueError('merge_mole=True requires a UMA MoE checkpoint/config.')
+  runtime_cfg = cfg
+  if merge_mole:
+    from dataclasses import replace
+
+    runtime_cfg = replace(cfg, merged_mole=True)
+
+  resolved_atom_refs = None
+  energy_mean = None
+  energy_rmsd = None
+  should_apply_atom_refs = apply_atom_refs and (
+    checkpoint_path is not None or atom_refs is not None
+  )
+  if should_apply_atom_refs:
+    if atom_refs is None:
+      from jax_md._nn.uma.pretrained import load_energy_correction
+
+      correction = load_energy_correction(checkpoint_path, dataset=head_dataset)
+      atom_refs = correction.get('element_refs')
+      energy_mean = correction.get('mean')
+      energy_rmsd = correction.get('rmsd')
+    elif isinstance(atom_refs, dict):
+      correction = atom_refs
+      atom_refs = correction.get('element_refs', correction.get('atom_refs'))
+      energy_mean = correction.get('mean', 0.0)
+      energy_rmsd = correction.get('rmsd', 1.0)
+    else:
+      energy_mean = 0.0
+      energy_rmsd = 1.0
+    if atom_refs is not None:
+      resolved_atom_refs = jnp.asarray(atom_refs, dtype=jnp.float32)
+    energy_mean = jnp.asarray(energy_mean, dtype=jnp.float32)
+    energy_rmsd = jnp.asarray(energy_rmsd, dtype=jnp.float32)
 
   # Build neighbor list
   neighbor_fn = neighbor_list_fn(
@@ -2598,6 +2662,9 @@ def uma_neighbor_list(
   class UMAEnergyModel(flax_nn.Module):
     config: object
     use_moe: bool = False
+    atom_refs: object = None
+    energy_mean: object = None
+    energy_rmsd: object = None
 
     @flax_nn.compact
     def __call__(self, features):
@@ -2632,9 +2699,35 @@ def uma_neighbor_list(
 
       num_systems = features['charge'].shape[0]
       result = head(emb['node_embedding'], features['batch'], num_systems)
-      return result['energy']
+      energy = result['energy']
+      if self.energy_rmsd is not None:
+        energy = energy * self.energy_rmsd.astype(energy.dtype)
+        energy = energy + self.energy_mean.astype(energy.dtype)
+      if self.atom_refs is not None:
+        ref_shift = (
+          jnp.zeros((num_systems,), dtype=energy.dtype)
+          .at[features['batch']]
+          .add(self.atom_refs[features['atomic_numbers']].astype(energy.dtype))
+        )
+        energy = energy + ref_shift
+      return energy
 
-  model = UMAEnergyModel(config=cfg, use_moe=is_moe)
+  model = UMAEnergyModel(
+    config=runtime_cfg,
+    use_moe=is_moe,
+    atom_refs=resolved_atom_refs,
+    energy_mean=energy_mean,
+    energy_rmsd=energy_rmsd,
+  )
+  init_model = model
+  if merge_mole:
+    init_model = UMAEnergyModel(
+      config=cfg,
+      use_moe=is_moe,
+      atom_refs=resolved_atom_refs,
+      energy_mean=energy_mean,
+      energy_rmsd=energy_rmsd,
+    )
 
   def init_fn(key, position, neighbor, **kwargs):
     _atoms = kwargs.pop('atoms', atoms)
@@ -2656,8 +2749,32 @@ def uma_neighbor_list(
     )
 
     if pretrained_params is not None:
-      return pretrained_params
-    return model.init(key, features)
+      result_params = pretrained_params
+    else:
+      result_params = init_model.init(key, features)
+
+    if merge_mole:
+      if features['charge'].shape[0] != 1:
+        raise ValueError('merge_mole=True supports only one system.')
+      from jax_md._nn.uma.model_moe import UMAMoEBackbone, merge_mole_params
+
+      routing_backbone = UMAMoEBackbone(config=cfg)
+      routing_out = routing_backbone.apply(
+        {'params': result_params['params']['backbone']},
+        features['positions'],
+        features['atomic_numbers'],
+        features['batch'],
+        features['edge_index'],
+        features['edge_distance_vec'],
+        features['charge'],
+        features['spin'],
+        features.get('dataset_idx'),
+      )
+      result_params = merge_mole_params(
+        result_params, routing_out['expert_coefficients']
+      )
+
+    return result_params
 
   def energy_fn(params, position, neighbor, **kwargs):
     _atoms = kwargs.pop('atoms', atoms)
@@ -2677,7 +2794,6 @@ def uma_neighbor_list(
       dataset_idx=_dataset_idx,
       **kwargs,
     )
-    # Sum over systems (typically 1 for MD)
     return model.apply(params, features).sum()
 
   return neighbor_fn, init_fn, energy_fn

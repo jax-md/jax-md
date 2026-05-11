@@ -4,6 +4,7 @@ These tests verify the UMA model components and full forward pass work correctly
 """
 
 import os
+from dataclasses import replace
 
 from absl.testing import absltest
 
@@ -11,13 +12,23 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from jax_md import energy
+from jax_md import space
 from jax_md import test_util
+from jax_md._nn.uma.featurizer import uma_featurizer
 from jax_md._nn.uma.model import UMABackbone, UMAConfig
+from jax_md._nn.uma.model_moe import (
+  SO2MConvMoE,
+  UMAMoEConfig,
+  merge_mole_params,
+)
 from jax_md._nn.uma.heads import MLPEnergyHead, LinearForceHead
+from jax_md._nn.uma.nn.mole import MOLELinear
 from jax_md._nn.uma.nn.so2_layers import SO2MConv
 from jax_md._nn.uma.nn.so3_layers import SO3Linear
 from jax_md._nn.uma.nn.radial import PolynomialEnvelope, RadialMLP
 from jax_md._nn.uma.nn.layer_norm import EquivariantRMSNorm
+from jax_md._nn.uma.pretrained import extract_energy_correction
 from jax_md._nn.uma.nn.embedding import (
   DatasetEmbedding,
   dataset_names_to_indices,
@@ -172,6 +183,183 @@ class SO2MConvTest(test_util.JAXMDTestCase):
     jit_apply = jax.jit(conv.apply)
     x_r, x_i = jit_apply(params, x)
     self.assertTrue(jnp.all(jnp.isfinite(x_r)))
+
+
+def manual_mole_linear(params, x, expert_coefficients, batch_indices, use_bias):
+  weights = params['params']['weights']
+  mixed_weights = jnp.einsum('eoi,be->boi', weights, expert_coefficients)
+  per_item_weights = mixed_weights[batch_indices]
+  if x.ndim == 2:
+    out = jnp.einsum('ni,noi->no', x, per_item_weights)
+  else:
+    out = jnp.einsum('nci,noi->nco', x, per_item_weights)
+  if use_bias:
+    out = out + params['params']['bias']
+  return out
+
+
+class MOLEInferencePathTest(test_util.JAXMDTestCase):
+  """Tests for UMA MoE inference helpers."""
+
+  def test_mole_linear_inference_paths_match_reference(self):
+    key = jax.random.PRNGKey(12)
+    keys = jax.random.split(key, 6)
+    cases = [
+      (
+        jax.random.normal(keys[0], (7, 5)),
+        jax.nn.softmax(jax.random.normal(keys[1], (1, 4)), axis=-1),
+        jnp.zeros((7,), dtype=jnp.int32),
+        True,
+      ),
+      (
+        jax.random.normal(keys[2], (8, 2, 5)),
+        jax.nn.softmax(jax.random.normal(keys[3], (2, 4)), axis=-1),
+        jnp.array([0, 0, 0, 0, 1, 1, 1, 1], dtype=jnp.int32),
+        False,
+      ),
+    ]
+    for x, coefficients, batch_indices, use_bias in cases:
+      layer = MOLELinear(4, 5, 6, use_bias=use_bias)
+      params = layer.init(keys[4], x, coefficients, batch_indices)
+      actual = layer.apply(params, x, coefficients, batch_indices)
+      expected = manual_mole_linear(
+        params, x, coefficients, batch_indices, use_bias
+      )
+      self.assertAllClose(actual, expected, atol=5e-4, rtol=5e-4)
+
+  def test_mole_linear_accepts_merged_weights(self):
+    key = jax.random.PRNGKey(14)
+    keys = jax.random.split(key, 4)
+    x = jax.random.normal(keys[0], (6, 5))
+    coefficients = jax.nn.softmax(jax.random.normal(keys[1], (1, 4)), axis=-1)
+    batch_indices = jnp.zeros((6,), dtype=jnp.int32)
+    layer = MOLELinear(4, 5, 6, use_bias=True)
+    params = layer.init(keys[2], x, coefficients, batch_indices)
+    expected = layer.apply(params, x, coefficients, batch_indices)
+    merged_params = {
+      'params': {
+        'weights': jnp.einsum(
+          'e,eoi->oi', coefficients[0], params['params']['weights']
+        ),
+        'bias': params['params']['bias'],
+      }
+    }
+    merged_layer = MOLELinear(4, 5, 6, use_bias=True, merged=True)
+    actual = merged_layer.apply(merged_params, x, coefficients, batch_indices)
+    self.assertAllClose(actual, expected, atol=5e-4, rtol=5e-4)
+
+  def test_so2_m_conv_block_gemm_matches_reference(self):
+    key = jax.random.PRNGKey(16)
+    keys = jax.random.split(key, 4)
+    x_m = jax.random.normal(keys[0], (5, 2, 6))
+    coefficients = jax.nn.softmax(jax.random.normal(keys[1], (1, 2)), axis=-1)
+    edge_batch = jnp.zeros((5,), dtype=jnp.int32)
+    ref = SO2MConvMoE(
+      m=1,
+      sphere_channels=3,
+      m_output_channels=4,
+      lmax=2,
+      num_experts=2,
+      so2_block_gemm=False,
+    )
+    block = SO2MConvMoE(
+      m=1,
+      sphere_channels=3,
+      m_output_channels=4,
+      lmax=2,
+      num_experts=2,
+      so2_block_gemm=True,
+    )
+    params = ref.init(keys[2], x_m, coefficients, edge_batch)
+    ref_out = ref.apply(params, x_m, coefficients, edge_batch)
+    block_out = block.apply(params, x_m, coefficients, edge_batch)
+    self.assertAllClose(block_out[0], ref_out[0], atol=5e-5, rtol=5e-5)
+    self.assertAllClose(block_out[1], ref_out[1], atol=5e-5, rtol=5e-5)
+
+    merged_params = merge_mole_params(params, coefficients)
+    merged_block = SO2MConvMoE(
+      m=1,
+      sphere_channels=3,
+      m_output_channels=4,
+      lmax=2,
+      num_experts=2,
+      merged_mole=True,
+      so2_block_gemm=True,
+    )
+    merged_out = merged_block.apply(
+      merged_params, x_m, coefficients, edge_batch
+    )
+    self.assertAllClose(merged_out[0], ref_out[0], atol=5e-5, rtol=5e-5)
+    self.assertAllClose(merged_out[1], ref_out[1], atol=5e-5, rtol=5e-5)
+
+  def test_extract_energy_correction_from_task_config(self):
+    tasks = [
+      {
+        'name': 'omat_energy',
+        'property': 'energy',
+        'datasets': ['omat'],
+        'normalizer': {'mean': 1.25, 'rmsd': 3.5},
+        'element_references': {
+          'element_references': {'_args_': [[0.0, -1.0, 2.0]]}
+        },
+      }
+    ]
+    correction = extract_energy_correction(tasks, 'omat')
+    self.assertAllClose(correction['mean'], 1.25)
+    self.assertAllClose(correction['rmsd'], 3.5)
+    self.assertAllClose(correction['element_refs'], jnp.array([0.0, -1.0, 2.0]))
+
+  def test_uma_neighbor_list_merge_mole_matches_unmerged(self):
+    cfg = UMAMoEConfig(
+      sphere_channels=4,
+      lmax=1,
+      mmax=1,
+      num_layers=1,
+      hidden_channels=4,
+      cutoff=2.0,
+      edge_channels=4,
+      num_distance_basis=4,
+      ff_type='spectral',
+      use_dataset_embedding=False,
+      use_composition_embedding=False,
+      num_experts=2,
+      routing_hidden_channels=4,
+      use_kernels=False,
+    )
+    box = jnp.array([5.0, 5.0, 5.0], dtype=jnp.float32)
+    displacement_fn, _ = space.periodic(box)
+    atoms = jnp.array([1, 6, 8], dtype=jnp.int32)
+    position = jnp.array(
+      [[0.1, 0.1, 0.1], [0.8, 0.1, 0.1], [0.1, 0.9, 0.1]],
+      dtype=jnp.float32,
+    )
+    neighbor_fn, init_fn, energy_fn = energy.uma_neighbor_list(
+      displacement_fn,
+      box,
+      cfg=cfg,
+      atoms=atoms,
+      featurizer_fn=uma_featurizer,
+      disable_cell_list=True,
+    )
+    _, merge_init_fn, merge_energy_fn = energy.uma_neighbor_list(
+      displacement_fn,
+      box,
+      cfg=cfg,
+      atoms=atoms,
+      featurizer_fn=uma_featurizer,
+      merge_mole=True,
+      disable_cell_list=True,
+    )
+    neighbors = neighbor_fn.allocate(position)
+    key = jax.random.PRNGKey(15)
+    params = init_fn(key, position, neighbors)
+    merged_params = merge_init_fn(key, position, neighbors)
+    self.assertAllClose(
+      merge_energy_fn(merged_params, position, neighbors),
+      energy_fn(params, position, neighbors),
+      atol=5e-4,
+      rtol=5e-4,
+    )
 
 
 class SO3LinearTest(test_util.JAXMDTestCase):
@@ -1083,6 +1271,96 @@ class EndToEndComparisonTest(test_util.JAXMDTestCase):
     emb = output['node_embedding']
     self.assertEqual(tuple(emb.shape), (10, 9, 64))
     self.assertTrue(torch.all(torch.isfinite(emb)))
+
+
+class UMAKernelBackendTest(test_util.JAXMDTestCase):
+  """GPU-only UMA kernel backend parity checks."""
+
+  def test_pallas_wigner_kernels_match_jax(self):
+    if jax.default_backend() != 'gpu':
+      self.skipTest('Pallas GPU backend is not available.')
+    from jax_md._nn.uma import kernels
+
+    key = jax.random.PRNGKey(0)
+    kx, kw, km = jax.random.split(key, 3)
+    x = jax.random.normal(kx, (4, 9, 5))
+    wigner0 = jax.random.normal(kw, (6, 9, 9))
+    raw_wigner = (
+      jnp.zeros_like(wigner0)
+      .at[:, 0:1, 0:1]
+      .set(wigner0[:, 0:1, 0:1])
+      .at[:, 1:4, 1:4]
+      .set(wigner0[:, 1:4, 1:4])
+      .at[:, 4:9, 4:9]
+      .set(wigner0[:, 4:9, 4:9])
+    )
+    messages = jax.random.normal(km, (6, 9, 5))
+    edge_index = jnp.array(
+      [[0, 1, 2, 3, 0, 2], [1, 2, 3, 0, 2, 1]], dtype=jnp.int32
+    )
+    to_m = create_coefficient_mapping(2, 2).to_m
+    node_wigner = jnp.einsum('mk,ekj->emj', to_m, raw_wigner)
+    edge_wigner = jnp.einsum('ejk,mk->ejm', raw_wigner, to_m)
+    x_edge = jnp.concatenate([x[edge_index[0]], x[edge_index[1]]], axis=2)
+
+    expected_n2e = jnp.einsum('emj,ejc->emc', node_wigner, x_edge)
+    actual_n2e = kernels.node_to_edge_wigner_permute(x, edge_index, raw_wigner)
+    self.assertAllClose(actual_n2e, expected_n2e, atol=5e-3, rtol=5e-3)
+
+    edge_messages = jnp.einsum('ejm,emc->ejc', edge_wigner, messages)
+    expected_e2n = (
+      jnp.zeros((x.shape[0], 9, messages.shape[-1]))
+      .at[edge_index[1]]
+      .add(edge_messages)
+    )
+    actual_e2n = kernels.edge_to_node_wigner_inverse(
+      messages, edge_index, raw_wigner, x.shape[0]
+    )
+    self.assertAllClose(actual_e2n, expected_e2n, atol=5e-3, rtol=5e-3)
+
+  def test_pallas_backbone_matches_jax(self):
+    if jax.default_backend() != 'gpu':
+      self.skipTest('Pallas GPU backend is not available.')
+    inputs = (
+      jnp.array(
+        [[0.0, 0.0, 0.0], [0.7, 0.1, 0.0], [0.1, 0.8, 0.1]],
+        dtype=jnp.float32,
+      ),
+      jnp.array([1, 6, 8], dtype=jnp.int32),
+      jnp.zeros(3, dtype=jnp.int32),
+      jnp.array([[0, 1, 2, 0], [1, 2, 0, 2]], dtype=jnp.int32),
+      jnp.array(
+        [
+          [-0.7, -0.1, 0.0],
+          [0.6, -0.7, 0.0],
+          [0.1, 0.8, 0.1],
+          [-0.1, -0.8, -0.1],
+        ],
+        dtype=jnp.float32,
+      ),
+      jnp.zeros(1, dtype=jnp.float32),
+      jnp.zeros(1, dtype=jnp.float32),
+      jnp.zeros(1, dtype=jnp.int32),
+    )
+    cfg = UMAConfig(
+      sphere_channels=4,
+      lmax=2,
+      mmax=2,
+      num_layers=1,
+      hidden_channels=4,
+      cutoff=3.0,
+      edge_channels=4,
+      num_distance_basis=4,
+      ff_type='spectral',
+      use_dataset_embedding=False,
+      use_kernels=False,
+    )
+    jax_model = UMABackbone(config=cfg)
+    pallas_model = UMABackbone(config=replace(cfg, use_kernels=True))
+    params = jax_model.init(jax.random.PRNGKey(17), *inputs)
+    jax_out = jax_model.apply(params, *inputs)['node_embedding']
+    pallas_out = pallas_model.apply(params, *inputs)['node_embedding']
+    self.assertAllClose(pallas_out, jax_out, atol=1e-1, rtol=1e-1)
 
 
 if __name__ == '__main__':

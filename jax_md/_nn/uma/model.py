@@ -58,6 +58,8 @@ class UMAConfig:
       dataset_list: List of dataset names for dataset embedding.
       use_dataset_embedding: Whether to use dataset embedding.
       activation_checkpointing: Whether to use activation checkpointing (nn.remat).
+      use_kernels: Whether to use optimized GPU kernels for eligible UMA
+        operations.
   """
 
   max_num_elements: int = 100
@@ -77,6 +79,7 @@ class UMAConfig:
   dataset_list: List[str] | None = field(default=None)
   use_dataset_embedding: bool = True
   activation_checkpointing: bool = False
+  use_kernels: bool = False
 
 
 def default_config() -> UMAConfig:
@@ -98,6 +101,7 @@ def default_config() -> UMAConfig:
     chg_spin_emb_type='pos_emb',
     dataset_list=['oc20', 'omol', 'omat', 'odac', 'omc'],
     use_dataset_embedding=True,
+    use_kernels=False,
   )
 
 
@@ -329,6 +333,7 @@ class UMABackbone(nn.Module):
         to_grid_mat=self.so3_grid_lmax_lmax.to_grid_mat,
         from_grid_mat=self.so3_grid_lmax_lmax.from_grid_mat,
         mapping_to_m=self.mapping.to_m,
+        use_kernels=cfg.use_kernels,
         name=f'blocks_{i}',
       )
 
@@ -348,6 +353,8 @@ class UMABackbone(nn.Module):
         edge_index,
         wigner_and_M_mapping,
         wigner_and_M_mapping_inv,
+        wigner,
+        wigner_inv,
         edge_envelope,
         sys_node_embedding=sys_node_embedding,
         node_offset=0,
