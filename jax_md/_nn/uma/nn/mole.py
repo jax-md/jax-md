@@ -4,8 +4,6 @@ The MOLE approach mixes expert weight matrices per-system:
   1. Routing MLP: system features -> mixing coefficients [num_systems, num_experts]
   2. Weight mixing: einsum('eoi,be->boi', expert_weights, coefficients)
   3. Application: each atom uses its system's mixed weight matrix
-
-This is the JAX equivalent of fairchem's MOLE/MOLEDGL modules.
 """
 
 from __future__ import annotations
@@ -15,6 +13,31 @@ import math
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+
+
+class MOLEWeights(nn.Module):
+  """MOLE weight parameter container with the same path as MOLELinear."""
+
+  num_experts: int
+  in_features: int
+  out_features: int
+  merged: bool = False
+
+  @nn.compact
+  def __call__(self) -> jnp.ndarray:
+    bound = math.sqrt(1.0 / self.in_features)
+    weight_shape = (
+      (self.out_features, self.in_features)
+      if self.merged
+      else (self.num_experts, self.out_features, self.in_features)
+    )
+    return self.param(
+      'weights',
+      lambda key, shape: jax.random.uniform(
+        key, shape, minval=-bound, maxval=bound
+      ),
+      weight_shape,
+    )
 
 
 class MOLELinear(nn.Module):
@@ -35,6 +58,7 @@ class MOLELinear(nn.Module):
   in_features: int
   out_features: int
   use_bias: bool = True
+  merged: bool = False
 
   @nn.compact
   def __call__(
@@ -54,53 +78,81 @@ class MOLELinear(nn.Module):
         Output tensor, shape [N, ..., out_features].
     """
     bound = math.sqrt(1.0 / self.in_features)
-
+    weight_shape = (
+      (self.out_features, self.in_features)
+      if self.merged
+      else (self.num_experts, self.out_features, self.in_features)
+    )
     weights = self.param(
       'weights',
       lambda key, shape: jax.random.uniform(
         key, shape, minval=-bound, maxval=bound
       ),
-      (self.num_experts, self.out_features, self.in_features),
+      weight_shape,
     )
 
-    # Mix experts per system: [E, O, I] x [B, E] -> [B, O, I]
-    mixed_weights = jnp.einsum('eoi,be->boi', weights, expert_coefficients)
-
-    # Avoid materializing [N, O, I] per-item weights
-    if x.ndim == 2:
-      if mixed_weights.shape[0] == 1:
-        out = jnp.einsum('ni,oi->no', x, mixed_weights[0])
+    if self.merged:
+      if x.ndim == 2:
+        out = jnp.einsum('ni,oi->no', x, weights)
+      elif x.ndim == 3:
+        out = jnp.einsum('nci,oi->nco', x, weights)
       else:
-
-        def apply_system(acc, inputs):
-          system_weights, system_idx = inputs
-          system_out = jnp.einsum('ni,oi->no', x, system_weights)
-          mask = batch_indices == system_idx
-          return acc + jnp.where(mask[:, None], system_out, 0.0), None
-
-        init = jnp.zeros(x.shape[:-1] + (self.out_features,), dtype=x.dtype)
-        system_ids = jnp.arange(
-          mixed_weights.shape[0], dtype=batch_indices.dtype
-        )
-        out, _ = jax.lax.scan(apply_system, init, (mixed_weights, system_ids))
-    elif x.ndim == 3:
-      if mixed_weights.shape[0] == 1:
-        out = jnp.einsum('nci,oi->nco', x, mixed_weights[0])
+        raise ValueError(f'MOLELinear: unsupported input ndim={x.ndim}')
+    elif expert_coefficients.shape[0] == 1:
+      mixed_weight = jnp.einsum('e,eoi->oi', expert_coefficients[0], weights)
+      if x.ndim == 2:
+        out = jnp.einsum('ni,oi->no', x, mixed_weight)
+      elif x.ndim == 3:
+        out = jnp.einsum('nci,oi->nco', x, mixed_weight)
       else:
-
-        def apply_system(acc, inputs):
-          system_weights, system_idx = inputs
-          system_out = jnp.einsum('nci,oi->nco', x, system_weights)
-          mask = batch_indices == system_idx
-          return acc + jnp.where(mask[:, None, None], system_out, 0.0), None
-
-        init = jnp.zeros(x.shape[:-1] + (self.out_features,), dtype=x.dtype)
-        system_ids = jnp.arange(
-          mixed_weights.shape[0], dtype=batch_indices.dtype
-        )
-        out, _ = jax.lax.scan(apply_system, init, (mixed_weights, system_ids))
+        raise ValueError(f'MOLELinear: unsupported input ndim={x.ndim}')
     else:
-      raise ValueError(f'MOLELinear: unsupported input ndim={x.ndim}')
+      # Mix experts per system: [E, O, I] x [B, E] -> [B, O, I].
+      mixed_weights = jnp.einsum('eoi,be->boi', weights, expert_coefficients)
+      B = mixed_weights.shape[0]
+      N = x.shape[0]
+
+      # When rows are contiguous and equal-sized per system, reshape into
+      # [B, R, ...] for a single batched GEMM. This requires batch_indices
+      # to be [0,0,...,1,1,...] with exactly N/B rows each.
+      if N % B == 0:
+        # Batched GEMM path for equal-sized contiguous systems.
+        R = N // B
+        if x.ndim == 2:
+          out = jnp.einsum(
+            'bni,boi->bno', x.reshape(B, R, -1), mixed_weights
+          ).reshape(N, -1)
+        elif x.ndim == 3:
+          C = x.shape[1]
+          out = jnp.einsum(
+            'bnci,boi->bnco', x.reshape(B, R, C, -1), mixed_weights
+          ).reshape(N, C, -1)
+        else:
+          raise ValueError(f'MOLELinear: unsupported input ndim={x.ndim}')
+      else:
+        # General case: per-system matmul via scan. Each step multiplies
+        # ALL rows by one system's weight and masks to keep the right ones.
+        # Memory: O(B * out_features) for scan accumulators, no [N,O,I].
+        if x.ndim == 2:
+
+          def apply_system(acc, inputs):
+            system_weights, system_idx = inputs
+            system_out = jnp.einsum('ni,oi->no', x, system_weights)
+            mask = batch_indices == system_idx
+            return acc + jnp.where(mask[:, None], system_out, 0.0), None
+        elif x.ndim == 3:
+
+          def apply_system(acc, inputs):
+            system_weights, system_idx = inputs
+            system_out = jnp.einsum('nci,oi->nco', x, system_weights)
+            mask = batch_indices == system_idx
+            return acc + jnp.where(mask[:, None, None], system_out, 0.0), None
+        else:
+          raise ValueError(f'MOLELinear: unsupported input ndim={x.ndim}')
+
+        init = jnp.zeros(x.shape[:-1] + (self.out_features,), dtype=x.dtype)
+        system_ids = jnp.arange(B, dtype=batch_indices.dtype)
+        out, _ = jax.lax.scan(apply_system, init, (mixed_weights, system_ids))
 
     if self.use_bias:
       bias = self.param(
