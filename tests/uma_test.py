@@ -305,9 +305,14 @@ class MOLEInferencePathTest(test_util.JAXMDTestCase):
       }
     ]
     correction = extract_energy_correction(tasks, 'omat')
-    self.assertAllClose(correction['mean'], 1.25)
-    self.assertAllClose(correction['rmsd'], 3.5)
-    self.assertAllClose(correction['element_refs'], jnp.array([0.0, -1.0, 2.0]))
+    self.assertAllClose(
+      correction['mean'], jnp.asarray(1.25, dtype=jnp.float32)
+    )
+    self.assertAllClose(correction['rmsd'], jnp.asarray(3.5, dtype=jnp.float32))
+    self.assertAllClose(
+      correction['element_refs'],
+      jnp.array([0.0, -1.0, 2.0], dtype=jnp.float32),
+    )
 
   def test_uma_neighbor_list_merge_mole_matches_unmerged(self):
     cfg = UMAMoEConfig(

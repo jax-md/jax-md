@@ -59,6 +59,7 @@ class MOLELinear(nn.Module):
   out_features: int
   use_bias: bool = True
   merged: bool = False
+  assume_equal_contiguous_batches: bool = False
 
   @nn.compact
   def __call__(
@@ -112,11 +113,8 @@ class MOLELinear(nn.Module):
       B = mixed_weights.shape[0]
       N = x.shape[0]
 
-      # When rows are contiguous and equal-sized per system, reshape into
-      # [B, R, ...] for a single batched GEMM. This requires batch_indices
-      # to be [0,0,...,1,1,...] with exactly N/B rows each.
-      if N % B == 0:
-        # Batched GEMM path for equal-sized contiguous systems.
+      if self.assume_equal_contiguous_batches and N % B == 0:
+        # The caller guarantees batch_indices are [0,0,...,1,1,...] with exactly N/B rows per system.
         R = N // B
         if x.ndim == 2:
           out = jnp.einsum(
@@ -130,9 +128,9 @@ class MOLELinear(nn.Module):
         else:
           raise ValueError(f'MOLELinear: unsupported input ndim={x.ndim}')
       else:
-        # General case: per-system matmul via scan. Each step multiplies
-        # ALL rows by one system's weight and masks to keep the right ones.
-        # Memory: O(B * out_features) for scan accumulators, no [N,O,I].
+        # General multi-system case: per-system matmul via scan. Each step
+        # multiplies all rows by one system's weight and masks the rows that
+        # belong to that system. This handles uneven and interleaved batches.
         if x.ndim == 2:
 
           def apply_system(acc, inputs):

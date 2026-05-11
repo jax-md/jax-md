@@ -2523,8 +2523,8 @@ def uma_neighbor_list(
   apply_atom_refs=True,
   atom_refs=None,
   use_kernels=True,
-  merge_mole=True,
-  so2_block_gemm=True,
+  merge_mole=None,
+  so2_block_gemm=None,
   **nl_kwargs,
 ):
   """Convenience wrapper to compute UMA energy using a neighbor list.
@@ -2560,9 +2560,11 @@ def uma_neighbor_list(
     use_kernels: UMA kernel toggle. True enables eligible JAX-MD UMA Pallas
         kernels.
     merge_mole: If True, pre-mix MoE expert weights for single-system
-        inference and skip runtime routing.
+        inference and skip runtime routing. If None, enabled for pretrained
+        MoE checkpoints and disabled otherwise.
     so2_block_gemm: If True, use a block GEMM formulation for SO2 m>0
-        convolutions.
+        convolutions. If None, enabled for pretrained MoE checkpoints and
+        disabled otherwise.
     **nl_kwargs: Additional kwargs for neighbor list (e.g., ``fractional_coordinates``).
 
   Returns:
@@ -2597,18 +2599,28 @@ def uma_neighbor_list(
   elif cfg is None:
     cfg = default_config()
 
+  # If callers provide a preloaded MoE config/params pair, use the MoE
+  # backbone even when checkpoint_path is not passed here.
+  is_moe = is_moe or hasattr(cfg, 'num_experts')
+  auto_moe_optimizations = checkpoint_path is not None and is_moe
+  merge_mole = (
+    auto_moe_optimizations if merge_mole is None else bool(merge_mole)
+  )
+  so2_block_gemm = (
+    auto_moe_optimizations if so2_block_gemm is None else bool(so2_block_gemm)
+  )
+
   if use_kernels is not None:
     from dataclasses import replace
 
     cfg = replace(cfg, use_kernels=bool(use_kernels))
   if so2_block_gemm:
+    if not is_moe:
+      raise ValueError('so2_block_gemm=True requires a UMA MoE config.')
     from dataclasses import replace
 
     cfg = replace(cfg, so2_block_gemm=True)
 
-  # If callers provide a preloaded MoE config/params pair, use the MoE
-  # backbone even when checkpoint_path is not passed here.
-  is_moe = is_moe or hasattr(cfg, 'num_experts')
   if merge_mole and not is_moe:
     raise ValueError('merge_mole=True requires a UMA MoE checkpoint/config.')
   runtime_cfg = cfg
