@@ -338,10 +338,13 @@ def node_to_edge_bwd_dx_scatter_kernel(
   channels = gout_ref.shape[2] // 2
   c_mask = c_offsets < channels
 
+  num_nodes = out_ref.shape[0]
   sender = plt.load(edge_index_ref.at[0, edge])
   receiver = plt.load(edge_index_ref.at[1, edge])
-  sender = jnp.clip(sender, 0, out_ref.shape[0] - 1)
-  receiver = jnp.clip(receiver, 0, out_ref.shape[0] - 1)
+  sender_valid = (sender >= 0) & (sender < num_nodes)
+  receiver_valid = (receiver >= 0) & (receiver < num_nodes)
+  sender = jnp.clip(sender, 0, num_nodes - 1)
+  receiver = jnp.clip(receiver, 0, num_nodes - 1)
 
   dy0s = plt.load(gout_ref.at[edge, 0, c_offsets], mask=c_mask, other=0.0)
   dy1s = plt.load(gout_ref.at[edge, 5, c_offsets], mask=c_mask, other=0.0)
@@ -453,8 +456,12 @@ def node_to_edge_bwd_dx_scatter_kernel(
   ]
 
   for j, (dxs, dxt) in enumerate(dx_vals):
-    plt.atomic_add(out_ref, (sender, j, c_offsets), dxs, mask=c_mask)
-    plt.atomic_add(out_ref, (receiver, j, c_offsets), dxt, mask=c_mask)
+    plt.atomic_add(
+      out_ref, (sender, j, c_offsets), dxs, mask=c_mask & sender_valid
+    )
+    plt.atomic_add(
+      out_ref, (receiver, j, c_offsets), dxt, mask=c_mask & receiver_valid
+    )
 
 
 def node_to_edge_bwd_dx_scatter_pallas(
@@ -497,6 +504,8 @@ def node_to_edge_bwd_dwigner_gather_kernel(
 
   sender = plt.load(edge_index_ref.at[0, safe_edge])
   receiver = plt.load(edge_index_ref.at[1, safe_edge])
+  sender_valid = (sender >= 0) & (sender < x_ref.shape[0])
+  receiver_valid = (receiver >= 0) & (receiver < x_ref.shape[0])
   sender = jnp.clip(sender, 0, x_ref.shape[0] - 1)
   receiver = jnp.clip(receiver, 0, x_ref.shape[0] - 1)
 
@@ -554,24 +563,96 @@ def node_to_edge_bwd_dwigner_gather_kernel(
     mask=c_mask,
     other=0.0,
   )
-  x0s = plt.load(x_ref.at[sender, 0, c_offsets], mask=c_mask, other=0.0)
-  x0t = plt.load(x_ref.at[receiver, 0, c_offsets], mask=c_mask, other=0.0)
-  x1s = plt.load(x_ref.at[sender, 1, c_offsets], mask=c_mask, other=0.0)
-  x1t = plt.load(x_ref.at[receiver, 1, c_offsets], mask=c_mask, other=0.0)
-  x2s = plt.load(x_ref.at[sender, 2, c_offsets], mask=c_mask, other=0.0)
-  x2t = plt.load(x_ref.at[receiver, 2, c_offsets], mask=c_mask, other=0.0)
-  x3s = plt.load(x_ref.at[sender, 3, c_offsets], mask=c_mask, other=0.0)
-  x3t = plt.load(x_ref.at[receiver, 3, c_offsets], mask=c_mask, other=0.0)
-  x4s = plt.load(x_ref.at[sender, 4, c_offsets], mask=c_mask, other=0.0)
-  x4t = plt.load(x_ref.at[receiver, 4, c_offsets], mask=c_mask, other=0.0)
-  x5s = plt.load(x_ref.at[sender, 5, c_offsets], mask=c_mask, other=0.0)
-  x5t = plt.load(x_ref.at[receiver, 5, c_offsets], mask=c_mask, other=0.0)
-  x6s = plt.load(x_ref.at[sender, 6, c_offsets], mask=c_mask, other=0.0)
-  x6t = plt.load(x_ref.at[receiver, 6, c_offsets], mask=c_mask, other=0.0)
-  x7s = plt.load(x_ref.at[sender, 7, c_offsets], mask=c_mask, other=0.0)
-  x7t = plt.load(x_ref.at[receiver, 7, c_offsets], mask=c_mask, other=0.0)
-  x8s = plt.load(x_ref.at[sender, 8, c_offsets], mask=c_mask, other=0.0)
-  x8t = plt.load(x_ref.at[receiver, 8, c_offsets], mask=c_mask, other=0.0)
+  x0s = plt.load(
+    x_ref.at[sender, 0, c_offsets],
+    mask=c_mask & sender_valid,
+    other=0.0,
+  )
+  x0t = plt.load(
+    x_ref.at[receiver, 0, c_offsets],
+    mask=c_mask & receiver_valid,
+    other=0.0,
+  )
+  x1s = plt.load(
+    x_ref.at[sender, 1, c_offsets],
+    mask=c_mask & sender_valid,
+    other=0.0,
+  )
+  x1t = plt.load(
+    x_ref.at[receiver, 1, c_offsets],
+    mask=c_mask & receiver_valid,
+    other=0.0,
+  )
+  x2s = plt.load(
+    x_ref.at[sender, 2, c_offsets],
+    mask=c_mask & sender_valid,
+    other=0.0,
+  )
+  x2t = plt.load(
+    x_ref.at[receiver, 2, c_offsets],
+    mask=c_mask & receiver_valid,
+    other=0.0,
+  )
+  x3s = plt.load(
+    x_ref.at[sender, 3, c_offsets],
+    mask=c_mask & sender_valid,
+    other=0.0,
+  )
+  x3t = plt.load(
+    x_ref.at[receiver, 3, c_offsets],
+    mask=c_mask & receiver_valid,
+    other=0.0,
+  )
+  x4s = plt.load(
+    x_ref.at[sender, 4, c_offsets],
+    mask=c_mask & sender_valid,
+    other=0.0,
+  )
+  x4t = plt.load(
+    x_ref.at[receiver, 4, c_offsets],
+    mask=c_mask & receiver_valid,
+    other=0.0,
+  )
+  x5s = plt.load(
+    x_ref.at[sender, 5, c_offsets],
+    mask=c_mask & sender_valid,
+    other=0.0,
+  )
+  x5t = plt.load(
+    x_ref.at[receiver, 5, c_offsets],
+    mask=c_mask & receiver_valid,
+    other=0.0,
+  )
+  x6s = plt.load(
+    x_ref.at[sender, 6, c_offsets],
+    mask=c_mask & sender_valid,
+    other=0.0,
+  )
+  x6t = plt.load(
+    x_ref.at[receiver, 6, c_offsets],
+    mask=c_mask & receiver_valid,
+    other=0.0,
+  )
+  x7s = plt.load(
+    x_ref.at[sender, 7, c_offsets],
+    mask=c_mask & sender_valid,
+    other=0.0,
+  )
+  x7t = plt.load(
+    x_ref.at[receiver, 7, c_offsets],
+    mask=c_mask & receiver_valid,
+    other=0.0,
+  )
+  x8s = plt.load(
+    x_ref.at[sender, 8, c_offsets],
+    mask=c_mask & sender_valid,
+    other=0.0,
+  )
+  x8t = plt.load(
+    x_ref.at[receiver, 8, c_offsets],
+    mask=c_mask & receiver_valid,
+    other=0.0,
+  )
 
   plt.store(out_ref.at[edge, 0, 0], jnp.sum(dy0s * x0s + dy0t * x0t))
   plt.store(out_ref.at[edge, 1, 1], jnp.sum(dy1s * x1s + dy1t * x1t))
