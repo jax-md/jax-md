@@ -211,7 +211,10 @@ class SO2MConvMoE(nn.Module):
     num_coefficients = self.lmax - self.m + 1
     out_channels_half = self.m_output_channels * num_coefficients
 
-    if self.so2_block_gemm:
+    can_block_gemm = self.so2_block_gemm and (
+      self.merged_mole or expert_coefficients.shape[0] == 1
+    )
+    if can_block_gemm:
       weights = MOLEWeights(
         num_experts=self.num_experts,
         in_features=num_coefficients * self.sphere_channels,

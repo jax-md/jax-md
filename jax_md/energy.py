@@ -2639,10 +2639,21 @@ def uma_neighbor_list(
     if atom_refs is None:
       from jax_md._nn.uma.pretrained import load_energy_correction
 
-      correction = load_energy_correction(checkpoint_path, dataset=head_dataset)
-      atom_refs = correction.get('element_refs')
-      energy_mean = correction.get('mean')
-      energy_rmsd = correction.get('rmsd')
+      correction = None
+      if checkpoint_path is not None:
+        try:
+          correction = load_energy_correction(
+            checkpoint_path, dataset=head_dataset
+          )
+        except Exception:
+          correction = None
+      if correction is not None:
+        atom_refs = correction.get('element_refs')
+        energy_mean = correction.get('mean')
+        energy_rmsd = correction.get('rmsd')
+      else:
+        energy_mean = 0.0
+        energy_rmsd = 1.0
     elif isinstance(atom_refs, dict):
       correction = atom_refs
       atom_refs = correction.get('element_refs', correction.get('atom_refs'))
