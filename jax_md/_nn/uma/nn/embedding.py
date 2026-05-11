@@ -271,7 +271,6 @@ class EdgeDegreeEmbedding(nn.Module):
         Updated node features, same shape as x.
     """
     m_0_num_coefficients = self.m_size[0]
-    m_all_num_coefficients = sum(self.m_size)
 
     # Radial MLP
     edge_channels = list(self.edge_channels_list)
@@ -284,17 +283,13 @@ class EdgeDegreeEmbedding(nn.Module):
       -1, m_0_num_coefficients, self.sphere_channels
     )
 
-    # Pad to full size
-    num_edges = x_edge_m_0.shape[0]
-    x_edge_embedding = jnp.zeros(
-      (num_edges, m_all_num_coefficients, self.sphere_channels)
+    # Only m=0 radial features are nonzero here, so multiply by the matching
+    # inverse-Wigner columns directly instead of padding to all coefficients.
+    x_edge_embedding = jnp.einsum(
+      'njk,nkc->njc',
+      wigner_inv[:, :, :m_0_num_coefficients],
+      x_edge_m_0,
     )
-    x_edge_embedding = x_edge_embedding.at[:, :m_0_num_coefficients, :].set(
-      x_edge_m_0
-    )
-
-    # Apply inverse Wigner rotation
-    x_edge_embedding = jnp.einsum('njk,nkc->njc', wigner_inv, x_edge_embedding)
 
     # Apply envelope
     x_edge_embedding = x_edge_embedding * edge_envelope
