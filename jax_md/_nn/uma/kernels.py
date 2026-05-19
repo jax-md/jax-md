@@ -5,6 +5,11 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 
+from jax._src import core
+from jax.interpreters import ad
+from jax.interpreters import batching
+from jax.interpreters import mlir
+
 from jax.experimental import pallas as pl
 from jax.experimental.pallas import triton as plt
 
@@ -289,7 +294,7 @@ def node_to_edge_kernel(
   )
 
 
-def node_to_edge_pallas(
+def _node_to_edge_impl(
   x: jnp.ndarray,
   edge_index: jnp.ndarray,
   wigner_and_m_mapping: jnp.ndarray,
@@ -298,6 +303,8 @@ def node_to_edge_pallas(
   check_wigner_matrix(wigner_and_m_mapping)
   num_edges = edge_index.shape[1]
   channels = x.shape[2]
+  if num_edges == 0:
+    return jnp.zeros((0, COEFFICIENT_DIM, 2 * channels), dtype=x.dtype)
   out_shape = jax.ShapeDtypeStruct(
     (num_edges, COEFFICIENT_DIM, 2 * channels), dtype=x.dtype
   )
@@ -464,7 +471,7 @@ def node_to_edge_bwd_dx_scatter_kernel(
     )
 
 
-def node_to_edge_bwd_dx_scatter_pallas(
+def _node_to_edge_bwd_dx_scatter(
   gout: jnp.ndarray,
   edge_index: jnp.ndarray,
   wigner_and_m_mapping: jnp.ndarray,
@@ -473,6 +480,8 @@ def node_to_edge_bwd_dx_scatter_pallas(
   channels = x_shape[2]
   block_c = CHANNEL_BLOCK_SIZE
   init = jnp.zeros(x_shape, dtype=gout.dtype)
+  if gout.shape[0] == 0:
+    return init
   kernel = partial(node_to_edge_bwd_dx_scatter_kernel, block_c=block_c)
   return pl.pallas_call(
     kernel,
@@ -691,12 +700,14 @@ def node_to_edge_bwd_dwigner_gather_kernel(
   plt.store(out_ref.at[edge, 8, 8], jnp.sum(dy8s * x8s + dy8t * x8t))
 
 
-def node_to_edge_bwd_dwigner_gather_pallas(
+def _node_to_edge_bwd_dwigner_gather(
   x: jnp.ndarray,
   edge_index: jnp.ndarray,
   gout: jnp.ndarray,
 ) -> jnp.ndarray:
   num_edges = gout.shape[0]
+  if num_edges == 0:
+    return jnp.zeros((0, COEFFICIENT_DIM, COEFFICIENT_DIM), dtype=gout.dtype)
   block_c = next_power_of_two(x.shape[2])
   grid_x = min(num_edges, MAX_GRID_EDGE_BLOCKS)
   grid_y = ceil_div(num_edges, grid_x)
@@ -717,32 +728,6 @@ def node_to_edge_bwd_dwigner_gather_pallas(
     compiler_params=params,
   )(x, edge_index, gout, init)
   return result[:num_edges]
-
-
-@jax.custom_vjp
-def node_to_edge_wigner_permute(
-  x: jnp.ndarray,
-  edge_index: jnp.ndarray,
-  wigner_and_m_mapping: jnp.ndarray,
-) -> jnp.ndarray:
-  return node_to_edge_pallas(x, edge_index, wigner_and_m_mapping)
-
-
-def node_to_edge_fwd(x, edge_index, wigner_and_m_mapping):
-  out = node_to_edge_pallas(x, edge_index, wigner_and_m_mapping)
-  return out, (x, edge_index, wigner_and_m_mapping)
-
-
-def node_to_edge_bwd(res, gout):
-  x, edge_index, wigner_and_m_mapping = res
-  dx = node_to_edge_bwd_dx_scatter_pallas(
-    gout, edge_index, wigner_and_m_mapping, x.shape
-  )
-  dwigner = node_to_edge_bwd_dwigner_gather_pallas(x, edge_index, gout)
-  return dx, None, dwigner
-
-
-node_to_edge_wigner_permute.defvjp(node_to_edge_fwd, node_to_edge_bwd)
 
 
 def inverse_wigner_kernel(
@@ -824,7 +809,7 @@ def inverse_wigner_kernel(
   plt.store(out_ref.at[edge, 8, c_offsets], y8, mask=c_mask)
 
 
-def inverse_wigner_pallas(
+def _inverse_wigner(
   messages: jnp.ndarray,
   wigner_and_m_mapping_inv: jnp.ndarray,
 ) -> jnp.ndarray:
@@ -832,6 +817,8 @@ def inverse_wigner_pallas(
   check_wigner_matrix(wigner_and_m_mapping_inv)
   num_edges = messages.shape[0]
   channels = messages.shape[2]
+  if num_edges == 0:
+    return jnp.zeros((0, COEFFICIENT_DIM, channels), dtype=messages.dtype)
   out_shape = jax.ShapeDtypeStruct(
     (num_edges, COEFFICIENT_DIM, channels), messages.dtype
   )
@@ -963,13 +950,15 @@ def edge_to_node_bwd_dmessages_kernel(
   plt.store(out_ref.at[edge, 7, c_offsets], dx8, mask=c_mask)
 
 
-def edge_to_node_bwd_dmessages_pallas(
+def _edge_to_node_bwd_dmessages(
   gout: jnp.ndarray,
   edge_index: jnp.ndarray,
   wigner_and_m_mapping_inv: jnp.ndarray,
   messages_shape: tuple[int, int, int],
 ) -> jnp.ndarray:
   init_shape = messages_shape
+  if messages_shape[0] == 0:
+    return jnp.zeros(init_shape, dtype=gout.dtype)
   kernel = partial(
     edge_to_node_bwd_dmessages_kernel, block_c=CHANNEL_BLOCK_SIZE
   )
@@ -1113,12 +1102,16 @@ def edge_to_node_bwd_dwigner_kernel(
   plt.store(out_ref.at[edge, 8, 8], jnp.sum(g8 * x8))
 
 
-def edge_to_node_bwd_dwigner_pallas(
+def _edge_to_node_bwd_dwigner(
   messages: jnp.ndarray,
   gout: jnp.ndarray,
   edge_index: jnp.ndarray,
 ) -> jnp.ndarray:
   num_edges = messages.shape[0]
+  if num_edges == 0:
+    return jnp.zeros(
+      (0, COEFFICIENT_DIM, COEFFICIENT_DIM), dtype=messages.dtype
+    )
   block_c = next_power_of_two(messages.shape[2])
   grid_x = min(num_edges, MAX_GRID_EDGE_BLOCKS)
   grid_y = ceil_div(num_edges, grid_x)
@@ -1143,49 +1136,1067 @@ def edge_to_node_bwd_dwigner_pallas(
   return result[:num_edges]
 
 
-@partial(jax.custom_vjp, nondiff_argnums=(3,))
+def _edge_to_node_scatter(
+  messages: jnp.ndarray,
+  edge_index: jnp.ndarray,
+  wigner_and_m_mapping_inv: jnp.ndarray,
+  *,
+  num_nodes: int,
+) -> jnp.ndarray:
+  edge_messages = _inverse_wigner(messages, wigner_and_m_mapping_inv)
+  receiver = edge_index[1]
+  return (
+    jnp.zeros(
+      (num_nodes, COEFFICIENT_DIM, messages.shape[2]), dtype=messages.dtype
+    )
+    .at[receiver]
+    .add(edge_messages, mode='drop', wrap_negative_indices=False)
+  )
+
+
+def _zero_tangent(tangent, primal):
+  return jnp.zeros_like(primal) if type(tangent) is ad.Zero else tangent
+
+
+def _zero_if_undefined(value):
+  if ad.is_undefined_primal(value):
+    return jnp.zeros(value.aval.shape, value.aval.dtype)
+  return value
+
+
+def _batch_size(vals, dims):
+  for val, dim in zip(vals, dims):
+    if dim is not batching.not_mapped:
+      return val.shape[dim]
+  raise ValueError('Expected at least one batched input.')
+
+
+def _move_or_broadcast_batch(value, dim, batch_size):
+  if dim is batching.not_mapped:
+    return jnp.broadcast_to(value, (batch_size,) + value.shape)
+  if dim != 0:
+    return jnp.moveaxis(value, dim, 0)
+  return value
+
+
+def _batched_edge_index(edge_index, batch_size, num_nodes):
+  edge = edge_index[None, :, :]
+  offsets = (jnp.arange(batch_size, dtype=edge_index.dtype) * num_nodes)[
+    :, None, None
+  ]
+  valid = (edge >= 0) & (edge < num_nodes)
+  batched = jnp.where(valid, edge + offsets, -1)
+  return jnp.transpose(batched, (1, 0, 2)).reshape(
+    2, batch_size * edge_index.shape[1]
+  )
+
+
+def _node_to_edge_backward_impl(x, edge_index, wigner, gout):
+  dx = _node_to_edge_bwd_dx_scatter(gout, edge_index, wigner, x.shape)
+  dwigner = _node_to_edge_bwd_dwigner_gather(x, edge_index, gout)
+  return dx, dwigner
+
+
+node_to_edge_backward_p = core.Primitive('uma_node_to_edge_backward')
+node_to_edge_backward_p.multiple_results = True
+
+
+def _node_to_edge_backward_abstract_eval(
+  x_aval, edge_index_aval, w_aval, gout_aval
+):
+  del edge_index_aval
+  return (
+    core.ShapedArray(x_aval.shape, gout_aval.dtype),
+    core.ShapedArray(w_aval.shape, gout_aval.dtype),
+  )
+
+
+def _node_to_edge_backward_jvp_rule(primals, tangents):
+  x, edge_index, wigner, gout = primals
+  tx, _, twigner, tgout = tangents
+  dx, dwigner = node_to_edge_backward_p.bind(x, edge_index, wigner, gout)
+  tangent_dx, tangent_dw = node_to_edge_backward_jvp_p.bind(
+    x,
+    edge_index,
+    wigner,
+    gout,
+    _zero_tangent(tx, x),
+    _zero_tangent(twigner, wigner),
+    _zero_tangent(tgout, gout),
+  )
+  return (dx, dwigner), (tangent_dx, tangent_dw)
+
+
+def _node_to_edge_backward_transpose_rule(
+  cotangents, x, edge_index, wigner, gout
+):
+  ddx, ddwigner = cotangents
+  grad_x = None
+  grad_wigner = None
+  grad_gout = None
+
+  gout = _zero_if_undefined(gout)
+  x_value = _zero_if_undefined(x)
+  wigner_value = _zero_if_undefined(wigner)
+
+  if ad.is_undefined_primal(x) and type(ddwigner) is not ad.Zero:
+    grad_x, _ = node_to_edge_backward_p.bind(
+      jnp.zeros(x.aval.shape, dtype=ddwigner.dtype),
+      edge_index,
+      ddwigner,
+      gout,
+    )
+  if ad.is_undefined_primal(wigner) and type(ddx) is not ad.Zero:
+    _, grad_wigner = node_to_edge_backward_p.bind(
+      ddx,
+      edge_index,
+      jnp.zeros(wigner.aval.shape, dtype=ddx.dtype),
+      gout,
+    )
+  if ad.is_undefined_primal(gout):
+    terms = []
+    if type(ddx) is not ad.Zero:
+      terms.append(node_to_edge_p.bind(ddx, edge_index, wigner_value))
+    if type(ddwigner) is not ad.Zero:
+      terms.append(node_to_edge_p.bind(x_value, edge_index, ddwigner))
+    if terms:
+      grad_gout = terms[0]
+      for term in terms[1:]:
+        grad_gout = grad_gout + term
+  return grad_x, None, grad_wigner, grad_gout
+
+
+def _node_to_edge_backward_batching_rule(vals, dims):
+  x, edge_index, wigner, gout = vals
+  x_bdim, edge_bdim, w_bdim, gout_bdim = dims
+  if edge_bdim is not batching.not_mapped:
+    raise NotImplementedError(
+      'Batched edge_index is not supported by UMA kernels.'
+    )
+  if all(dim is batching.not_mapped for dim in (x_bdim, w_bdim, gout_bdim)):
+    return node_to_edge_backward_p.bind(x, edge_index, wigner, gout), (
+      batching.not_mapped,
+      batching.not_mapped,
+    )
+  batch_size = _batch_size((x, wigner, gout), (x_bdim, w_bdim, gout_bdim))
+  x = _move_or_broadcast_batch(x, x_bdim, batch_size)
+  wigner = _move_or_broadcast_batch(wigner, w_bdim, batch_size)
+  gout = _move_or_broadcast_batch(gout, gout_bdim, batch_size)
+  num_nodes, num_edges = x.shape[1], wigner.shape[1]
+  flat_edge_index = _batched_edge_index(edge_index, batch_size, num_nodes)
+  dx, dwigner = node_to_edge_backward_p.bind(
+    x.reshape(batch_size * num_nodes, *x.shape[2:]),
+    flat_edge_index,
+    wigner.reshape(batch_size * num_edges, *wigner.shape[2:]),
+    gout.reshape(batch_size * num_edges, *gout.shape[2:]),
+  )
+  return (
+    dx.reshape(batch_size, num_nodes, *dx.shape[1:]),
+    dwigner.reshape(batch_size, num_edges, *dwigner.shape[1:]),
+  ), (0, 0)
+
+
+node_to_edge_backward_jvp_p = core.Primitive('uma_node_to_edge_backward_jvp')
+node_to_edge_backward_jvp_p.multiple_results = True
+
+
+def _node_to_edge_backward_jvp_impl(
+  x, edge_index, wigner, gout, tx, twigner, tgout
+):
+  dx_from_gout, dw_from_gout = node_to_edge_backward_p.bind(
+    x, edge_index, wigner, tgout
+  )
+  dx_from_wigner, _ = node_to_edge_backward_p.bind(x, edge_index, twigner, gout)
+  _, dw_from_x = node_to_edge_backward_p.bind(
+    tx, edge_index, jnp.zeros_like(wigner), gout
+  )
+  return dx_from_gout + dx_from_wigner, dw_from_gout + dw_from_x
+
+
+def _node_to_edge_backward_jvp_abstract_eval(
+  x_aval, edge_index_aval, w_aval, gout_aval, tx_aval, tw_aval, tgout_aval
+):
+  del edge_index_aval, tx_aval, tw_aval, tgout_aval
+  return (
+    core.ShapedArray(x_aval.shape, gout_aval.dtype),
+    core.ShapedArray(w_aval.shape, gout_aval.dtype),
+  )
+
+
+def _node_to_edge_backward_jvp_transpose_rule(
+  cotangents, x, edge_index, wigner, gout, tx, twigner, tgout
+):
+  ddx, ddwigner = cotangents
+  x = _zero_if_undefined(x)
+  wigner = _zero_if_undefined(wigner)
+  gout = _zero_if_undefined(gout)
+
+  grad_tx = None
+  grad_twigner = None
+  grad_tgout = None
+  if ad.is_undefined_primal(tx) and type(ddwigner) is not ad.Zero:
+    grad_tx, _ = node_to_edge_backward_p.bind(
+      jnp.zeros(tx.aval.shape, dtype=ddwigner.dtype),
+      edge_index,
+      ddwigner,
+      gout,
+    )
+  if ad.is_undefined_primal(twigner) and type(ddx) is not ad.Zero:
+    _, grad_twigner = node_to_edge_backward_p.bind(
+      ddx,
+      edge_index,
+      jnp.zeros(twigner.aval.shape, dtype=ddx.dtype),
+      gout,
+    )
+  if ad.is_undefined_primal(tgout):
+    terms = []
+    if type(ddx) is not ad.Zero:
+      terms.append(node_to_edge_p.bind(ddx, edge_index, wigner))
+    if type(ddwigner) is not ad.Zero:
+      terms.append(node_to_edge_p.bind(x, edge_index, ddwigner))
+    if terms:
+      grad_tgout = terms[0]
+      for term in terms[1:]:
+        grad_tgout = grad_tgout + term
+  return None, None, None, None, grad_tx, grad_twigner, grad_tgout
+
+
+def _node_to_edge_backward_jvp_jvp_rule(primals, tangents):
+  x, edge_index, wigner, gout, tx, twigner, tgout = primals
+  tx0, _, tw0, tgout0, ttx, ttw, ttgout = tangents
+  diff_primals = (x, wigner, gout, tx, twigner, tgout)
+  diff_tangents = tuple(
+    jnp.zeros_like(primal) if type(tangent) is ad.Zero else tangent
+    for primal, tangent in zip(
+      diff_primals, (tx0, tw0, tgout0, ttx, ttw, ttgout)
+    )
+  )
+
+  def func(x_, wigner_, gout_, tx_, twigner_, tgout_):
+    return _node_to_edge_backward_jvp_impl(
+      x_, edge_index, wigner_, gout_, tx_, twigner_, tgout_
+    )
+
+  return jax.jvp(func, diff_primals, diff_tangents)
+
+
+def _node_to_edge_backward_jvp_batching_rule(vals, dims):
+  x, edge_index, wigner, gout, tx, twigner, tgout = vals
+  x_bdim, edge_bdim, w_bdim, gout_bdim, tx_bdim, tw_bdim, tgout_bdim = dims
+  if edge_bdim is not batching.not_mapped:
+    raise NotImplementedError(
+      'Batched edge_index is not supported by UMA kernels.'
+    )
+  if all(
+    dim is batching.not_mapped
+    for dim in (x_bdim, w_bdim, gout_bdim, tx_bdim, tw_bdim, tgout_bdim)
+  ):
+    return node_to_edge_backward_jvp_p.bind(
+      x, edge_index, wigner, gout, tx, twigner, tgout
+    ), (batching.not_mapped, batching.not_mapped)
+
+  batch_size = _batch_size(
+    (x, wigner, gout, tx, twigner, tgout),
+    (x_bdim, w_bdim, gout_bdim, tx_bdim, tw_bdim, tgout_bdim),
+  )
+  x = _move_or_broadcast_batch(x, x_bdim, batch_size)
+  wigner = _move_or_broadcast_batch(wigner, w_bdim, batch_size)
+  gout = _move_or_broadcast_batch(gout, gout_bdim, batch_size)
+  tx = _move_or_broadcast_batch(tx, tx_bdim, batch_size)
+  twigner = _move_or_broadcast_batch(twigner, tw_bdim, batch_size)
+  tgout = _move_or_broadcast_batch(tgout, tgout_bdim, batch_size)
+  num_nodes, num_edges = x.shape[1], wigner.shape[1]
+  flat_edge_index = _batched_edge_index(edge_index, batch_size, num_nodes)
+  dx, dwigner = node_to_edge_backward_jvp_p.bind(
+    x.reshape(batch_size * num_nodes, *x.shape[2:]),
+    flat_edge_index,
+    wigner.reshape(batch_size * num_edges, *wigner.shape[2:]),
+    gout.reshape(batch_size * num_edges, *gout.shape[2:]),
+    tx.reshape(batch_size * num_nodes, *tx.shape[2:]),
+    twigner.reshape(batch_size * num_edges, *twigner.shape[2:]),
+    tgout.reshape(batch_size * num_edges, *tgout.shape[2:]),
+  )
+  return (
+    dx.reshape(batch_size, num_nodes, *dx.shape[1:]),
+    dwigner.reshape(batch_size, num_edges, *dwigner.shape[1:]),
+  ), (0, 0)
+
+
+node_to_edge_backward_jvp_p.def_impl(_node_to_edge_backward_jvp_impl)
+node_to_edge_backward_jvp_p.def_abstract_eval(
+  _node_to_edge_backward_jvp_abstract_eval
+)
+mlir.register_lowering(
+  node_to_edge_backward_jvp_p,
+  mlir.lower_fun(_node_to_edge_backward_jvp_impl, multiple_results=True),
+)
+ad.primitive_jvps[node_to_edge_backward_jvp_p] = (
+  _node_to_edge_backward_jvp_jvp_rule
+)
+ad.primitive_transposes[node_to_edge_backward_jvp_p] = (
+  _node_to_edge_backward_jvp_transpose_rule
+)
+batching.primitive_batchers[node_to_edge_backward_jvp_p] = (
+  _node_to_edge_backward_jvp_batching_rule
+)
+
+
+node_to_edge_backward_p.def_impl(_node_to_edge_backward_impl)
+node_to_edge_backward_p.def_abstract_eval(_node_to_edge_backward_abstract_eval)
+mlir.register_lowering(
+  node_to_edge_backward_p,
+  mlir.lower_fun(_node_to_edge_backward_impl, multiple_results=True),
+)
+ad.primitive_jvps[node_to_edge_backward_p] = _node_to_edge_backward_jvp_rule
+ad.primitive_transposes[node_to_edge_backward_p] = (
+  _node_to_edge_backward_transpose_rule
+)
+batching.primitive_batchers[node_to_edge_backward_p] = (
+  _node_to_edge_backward_batching_rule
+)
+
+
+node_to_edge_p = core.Primitive('uma_node_to_edge')
+node_to_edge_p.multiple_results = False
+
+
+def _node_to_edge_abstract_eval(x_aval, edge_index_aval, w_aval):
+  del w_aval
+  return core.ShapedArray(
+    (edge_index_aval.shape[1], COEFFICIENT_DIM, 2 * x_aval.shape[-1]),
+    x_aval.dtype,
+  )
+
+
+def _node_to_edge_jvp_rule(primals, tangents):
+  x, edge_index, wigner = primals
+  tx, _, twigner = tangents
+  out = node_to_edge_p.bind(x, edge_index, wigner)
+  tangent_out = node_to_edge_jvp_p.bind(
+    x,
+    edge_index,
+    wigner,
+    _zero_tangent(tx, x),
+    _zero_tangent(twigner, wigner),
+  )
+  return out, tangent_out
+
+
+def _node_to_edge_transpose_rule(cotangent, x, edge_index, wigner):
+  if type(cotangent) is ad.Zero:
+    return None, None, None
+  grad_x = None
+  grad_wigner = None
+  if ad.is_undefined_primal(x):
+    dummy_x = jnp.zeros(x.aval.shape, dtype=cotangent.dtype)
+    grad_x, _ = node_to_edge_backward_p.bind(
+      dummy_x, edge_index, wigner, cotangent
+    )
+  if ad.is_undefined_primal(wigner):
+    dummy_w = jnp.zeros(wigner.aval.shape, dtype=cotangent.dtype)
+    _, grad_wigner = node_to_edge_backward_p.bind(
+      x, edge_index, dummy_w, cotangent
+    )
+  return grad_x, None, grad_wigner
+
+
+def _node_to_edge_batching_rule(vals, dims):
+  x, edge_index, wigner = vals
+  x_bdim, edge_bdim, w_bdim = dims
+  if edge_bdim is not batching.not_mapped:
+    raise NotImplementedError(
+      'Batched edge_index is not supported by UMA kernels.'
+    )
+  if all(dim is batching.not_mapped for dim in (x_bdim, w_bdim)):
+    return node_to_edge_p.bind(x, edge_index, wigner), batching.not_mapped
+  batch_size = _batch_size((x, wigner), (x_bdim, w_bdim))
+  x = _move_or_broadcast_batch(x, x_bdim, batch_size)
+  wigner = _move_or_broadcast_batch(wigner, w_bdim, batch_size)
+  num_nodes, num_edges = x.shape[1], wigner.shape[1]
+  flat_edge_index = _batched_edge_index(edge_index, batch_size, num_nodes)
+  out = node_to_edge_p.bind(
+    x.reshape(batch_size * num_nodes, *x.shape[2:]),
+    flat_edge_index,
+    wigner.reshape(batch_size * num_edges, *wigner.shape[2:]),
+  )
+  return out.reshape(batch_size, num_edges, *out.shape[1:]), 0
+
+
+node_to_edge_jvp_p = core.Primitive('uma_node_to_edge_jvp')
+node_to_edge_jvp_p.multiple_results = False
+
+
+def _node_to_edge_jvp_impl(x, edge_index, wigner, tx, twigner):
+  return node_to_edge_p.bind(tx, edge_index, wigner) + node_to_edge_p.bind(
+    x, edge_index, twigner
+  )
+
+
+def _node_to_edge_jvp_abstract_eval(
+  x_aval, edge_index_aval, w_aval, tx_aval, tw_aval
+):
+  del w_aval, tx_aval, tw_aval
+  return core.ShapedArray(
+    (edge_index_aval.shape[1], COEFFICIENT_DIM, 2 * x_aval.shape[-1]),
+    x_aval.dtype,
+  )
+
+
+def _node_to_edge_jvp_transpose_rule(
+  cotangent, x, edge_index, wigner, tx, twigner
+):
+  if type(cotangent) is ad.Zero:
+    return None, None, None, None, None
+  x = _zero_if_undefined(x)
+  wigner = _zero_if_undefined(wigner)
+  grad_tx = None
+  grad_twigner = None
+  if ad.is_undefined_primal(tx):
+    grad_tx, _ = node_to_edge_backward_p.bind(
+      jnp.zeros(tx.aval.shape, dtype=cotangent.dtype),
+      edge_index,
+      wigner,
+      cotangent,
+    )
+  if ad.is_undefined_primal(twigner):
+    _, grad_twigner = node_to_edge_backward_p.bind(
+      x,
+      edge_index,
+      jnp.zeros(twigner.aval.shape, dtype=cotangent.dtype),
+      cotangent,
+    )
+  return None, None, None, grad_tx, grad_twigner
+
+
+def _node_to_edge_jvp_jvp_rule(primals, tangents):
+  x, edge_index, wigner, tx, twigner = primals
+  tx0, _, tw0, ttx, ttw = tangents
+  diff_primals = (x, wigner, tx, twigner)
+  diff_tangents = tuple(
+    jnp.zeros_like(primal) if type(tangent) is ad.Zero else tangent
+    for primal, tangent in zip(diff_primals, (tx0, tw0, ttx, ttw))
+  )
+
+  def func(x_, wigner_, tx_, twigner_):
+    return _node_to_edge_jvp_impl(x_, edge_index, wigner_, tx_, twigner_)
+
+  return jax.jvp(func, diff_primals, diff_tangents)
+
+
+def _node_to_edge_jvp_batching_rule(vals, dims):
+  x, edge_index, wigner, tx, twigner = vals
+  x_bdim, edge_bdim, w_bdim, tx_bdim, tw_bdim = dims
+  if edge_bdim is not batching.not_mapped:
+    raise NotImplementedError(
+      'Batched edge_index is not supported by UMA kernels.'
+    )
+  if all(
+    dim is batching.not_mapped for dim in (x_bdim, w_bdim, tx_bdim, tw_bdim)
+  ):
+    return node_to_edge_jvp_p.bind(
+      x, edge_index, wigner, tx, twigner
+    ), batching.not_mapped
+
+  batch_size = _batch_size(
+    (x, wigner, tx, twigner), (x_bdim, w_bdim, tx_bdim, tw_bdim)
+  )
+  x = _move_or_broadcast_batch(x, x_bdim, batch_size)
+  wigner = _move_or_broadcast_batch(wigner, w_bdim, batch_size)
+  tx = _move_or_broadcast_batch(tx, tx_bdim, batch_size)
+  twigner = _move_or_broadcast_batch(twigner, tw_bdim, batch_size)
+  num_nodes, num_edges = x.shape[1], wigner.shape[1]
+  flat_edge_index = _batched_edge_index(edge_index, batch_size, num_nodes)
+  out = node_to_edge_jvp_p.bind(
+    x.reshape(batch_size * num_nodes, *x.shape[2:]),
+    flat_edge_index,
+    wigner.reshape(batch_size * num_edges, *wigner.shape[2:]),
+    tx.reshape(batch_size * num_nodes, *tx.shape[2:]),
+    twigner.reshape(batch_size * num_edges, *twigner.shape[2:]),
+  )
+  return out.reshape(batch_size, num_edges, *out.shape[1:]), 0
+
+
+node_to_edge_jvp_p.def_impl(_node_to_edge_jvp_impl)
+node_to_edge_jvp_p.def_abstract_eval(_node_to_edge_jvp_abstract_eval)
+mlir.register_lowering(
+  node_to_edge_jvp_p,
+  mlir.lower_fun(_node_to_edge_jvp_impl, multiple_results=False),
+)
+ad.primitive_jvps[node_to_edge_jvp_p] = _node_to_edge_jvp_jvp_rule
+ad.primitive_transposes[node_to_edge_jvp_p] = _node_to_edge_jvp_transpose_rule
+batching.primitive_batchers[node_to_edge_jvp_p] = (
+  _node_to_edge_jvp_batching_rule
+)
+
+
+node_to_edge_p.def_impl(_node_to_edge_impl)
+node_to_edge_p.def_abstract_eval(_node_to_edge_abstract_eval)
+mlir.register_lowering(
+  node_to_edge_p,
+  mlir.lower_fun(_node_to_edge_impl, multiple_results=False),
+)
+ad.primitive_jvps[node_to_edge_p] = _node_to_edge_jvp_rule
+ad.primitive_transposes[node_to_edge_p] = _node_to_edge_transpose_rule
+batching.primitive_batchers[node_to_edge_p] = _node_to_edge_batching_rule
+
+
+def node_to_edge_wigner_permute(
+  x: jnp.ndarray,
+  edge_index: jnp.ndarray,
+  wigner_and_m_mapping: jnp.ndarray,
+) -> jnp.ndarray:
+  return node_to_edge_p.bind(x, edge_index, wigner_and_m_mapping)
+
+
+def _edge_to_node_backward_impl(
+  messages, edge_index, wigner, gout, *, num_nodes
+):
+  del num_nodes
+  dmessages = _edge_to_node_bwd_dmessages(
+    gout, edge_index, wigner, messages.shape
+  )
+  dwigner = _edge_to_node_bwd_dwigner(messages, gout, edge_index)
+  return dmessages, dwigner
+
+
+edge_to_node_backward_p = core.Primitive('uma_edge_to_node_backward')
+edge_to_node_backward_p.multiple_results = True
+
+
+def _edge_to_node_backward_abstract_eval(
+  messages_aval, edge_index_aval, w_aval, gout_aval, *, num_nodes
+):
+  del edge_index_aval, num_nodes
+  return (
+    core.ShapedArray(messages_aval.shape, gout_aval.dtype),
+    core.ShapedArray(w_aval.shape, gout_aval.dtype),
+  )
+
+
+def _edge_to_node_backward_jvp_rule(primals, tangents, *, num_nodes):
+  messages, edge_index, wigner, gout = primals
+  tmessages, _, twigner, tgout = tangents
+  dmessages, dwigner = edge_to_node_backward_p.bind(
+    messages, edge_index, wigner, gout, num_nodes=num_nodes
+  )
+  tangent_dmessages, tangent_dw = edge_to_node_backward_jvp_p.bind(
+    messages,
+    edge_index,
+    wigner,
+    gout,
+    _zero_tangent(tmessages, messages),
+    _zero_tangent(twigner, wigner),
+    _zero_tangent(tgout, gout),
+    num_nodes=num_nodes,
+  )
+  return (dmessages, dwigner), (tangent_dmessages, tangent_dw)
+
+
+def _edge_to_node_backward_transpose_rule(
+  cotangents, messages, edge_index, wigner, gout, *, num_nodes
+):
+  ddmessages, ddwigner = cotangents
+  grad_messages = None
+  grad_wigner = None
+  grad_gout = None
+  gout = _zero_if_undefined(gout)
+  messages_value = _zero_if_undefined(messages)
+  wigner_value = _zero_if_undefined(wigner)
+
+  if ad.is_undefined_primal(messages) and type(ddwigner) is not ad.Zero:
+    grad_messages, _ = edge_to_node_backward_p.bind(
+      jnp.zeros(messages.aval.shape, dtype=ddwigner.dtype),
+      edge_index,
+      ddwigner,
+      gout,
+      num_nodes=num_nodes,
+    )
+  if ad.is_undefined_primal(wigner) and type(ddmessages) is not ad.Zero:
+    _, grad_wigner = edge_to_node_backward_p.bind(
+      ddmessages,
+      edge_index,
+      jnp.zeros(wigner.aval.shape, dtype=ddmessages.dtype),
+      gout,
+      num_nodes=num_nodes,
+    )
+  if ad.is_undefined_primal(gout):
+    terms = []
+    if type(ddmessages) is not ad.Zero:
+      terms.append(
+        edge_to_node_p.bind(
+          ddmessages,
+          edge_index,
+          wigner_value,
+          num_nodes=num_nodes,
+        )
+      )
+    if type(ddwigner) is not ad.Zero:
+      terms.append(
+        edge_to_node_p.bind(
+          messages_value,
+          edge_index,
+          ddwigner,
+          num_nodes=num_nodes,
+        )
+      )
+    if terms:
+      grad_gout = terms[0]
+      for term in terms[1:]:
+        grad_gout = grad_gout + term
+  return grad_messages, None, grad_wigner, grad_gout
+
+
+def _edge_to_node_backward_batching_rule(vals, dims, *, num_nodes):
+  messages, edge_index, wigner, gout = vals
+  m_bdim, edge_bdim, w_bdim, gout_bdim = dims
+  if edge_bdim is not batching.not_mapped:
+    raise NotImplementedError(
+      'Batched edge_index is not supported by UMA kernels.'
+    )
+  if all(dim is batching.not_mapped for dim in (m_bdim, w_bdim, gout_bdim)):
+    return edge_to_node_backward_p.bind(
+      messages, edge_index, wigner, gout, num_nodes=num_nodes
+    ), (batching.not_mapped, batching.not_mapped)
+  batch_size = _batch_size(
+    (messages, wigner, gout), (m_bdim, w_bdim, gout_bdim)
+  )
+  messages = _move_or_broadcast_batch(messages, m_bdim, batch_size)
+  wigner = _move_or_broadcast_batch(wigner, w_bdim, batch_size)
+  gout = _move_or_broadcast_batch(gout, gout_bdim, batch_size)
+  num_edges = messages.shape[1]
+  flat_edge_index = _batched_edge_index(edge_index, batch_size, num_nodes)
+  dmessages, dwigner = edge_to_node_backward_p.bind(
+    messages.reshape(batch_size * num_edges, *messages.shape[2:]),
+    flat_edge_index,
+    wigner.reshape(batch_size * num_edges, *wigner.shape[2:]),
+    gout.reshape(batch_size * num_nodes, *gout.shape[2:]),
+    num_nodes=batch_size * num_nodes,
+  )
+  return (
+    dmessages.reshape(batch_size, num_edges, *dmessages.shape[1:]),
+    dwigner.reshape(batch_size, num_edges, *dwigner.shape[1:]),
+  ), (0, 0)
+
+
+edge_to_node_backward_jvp_p = core.Primitive('uma_edge_to_node_backward_jvp')
+edge_to_node_backward_jvp_p.multiple_results = True
+
+
+def _edge_to_node_backward_jvp_impl(
+  messages, edge_index, wigner, gout, tmessages, twigner, tgout, *, num_nodes
+):
+  dmessages_from_gout, dw_from_gout = edge_to_node_backward_p.bind(
+    messages, edge_index, wigner, tgout, num_nodes=num_nodes
+  )
+  dmessages_from_wigner, _ = edge_to_node_backward_p.bind(
+    messages, edge_index, twigner, gout, num_nodes=num_nodes
+  )
+  _, dw_from_messages = edge_to_node_backward_p.bind(
+    tmessages,
+    edge_index,
+    jnp.zeros_like(wigner),
+    gout,
+    num_nodes=num_nodes,
+  )
+  return (
+    dmessages_from_gout + dmessages_from_wigner,
+    dw_from_gout + dw_from_messages,
+  )
+
+
+def _edge_to_node_backward_jvp_abstract_eval(
+  messages_aval,
+  edge_index_aval,
+  w_aval,
+  gout_aval,
+  tmessages_aval,
+  tw_aval,
+  tgout_aval,
+  *,
+  num_nodes,
+):
+  del edge_index_aval, tmessages_aval, tw_aval, tgout_aval, num_nodes
+  return (
+    core.ShapedArray(messages_aval.shape, gout_aval.dtype),
+    core.ShapedArray(w_aval.shape, gout_aval.dtype),
+  )
+
+
+def _edge_to_node_backward_jvp_transpose_rule(
+  cotangents,
+  messages,
+  edge_index,
+  wigner,
+  gout,
+  tmessages,
+  twigner,
+  tgout,
+  *,
+  num_nodes,
+):
+  ddmessages, ddwigner = cotangents
+  messages = _zero_if_undefined(messages)
+  wigner = _zero_if_undefined(wigner)
+  gout = _zero_if_undefined(gout)
+
+  grad_tmessages = None
+  grad_twigner = None
+  grad_tgout = None
+  if ad.is_undefined_primal(tmessages) and type(ddwigner) is not ad.Zero:
+    grad_tmessages, _ = edge_to_node_backward_p.bind(
+      jnp.zeros(tmessages.aval.shape, dtype=ddwigner.dtype),
+      edge_index,
+      ddwigner,
+      gout,
+      num_nodes=num_nodes,
+    )
+  if ad.is_undefined_primal(twigner) and type(ddmessages) is not ad.Zero:
+    _, grad_twigner = edge_to_node_backward_p.bind(
+      ddmessages,
+      edge_index,
+      jnp.zeros(twigner.aval.shape, dtype=ddmessages.dtype),
+      gout,
+      num_nodes=num_nodes,
+    )
+  if ad.is_undefined_primal(tgout):
+    terms = []
+    if type(ddmessages) is not ad.Zero:
+      terms.append(
+        edge_to_node_p.bind(ddmessages, edge_index, wigner, num_nodes=num_nodes)
+      )
+    if type(ddwigner) is not ad.Zero:
+      terms.append(
+        edge_to_node_p.bind(messages, edge_index, ddwigner, num_nodes=num_nodes)
+      )
+    if terms:
+      grad_tgout = terms[0]
+      for term in terms[1:]:
+        grad_tgout = grad_tgout + term
+  return None, None, None, None, grad_tmessages, grad_twigner, grad_tgout
+
+
+def _edge_to_node_backward_jvp_jvp_rule(primals, tangents, *, num_nodes):
+  messages, edge_index, wigner, gout, tmessages, twigner, tgout = primals
+  tm0, _, tw0, tgout0, ttm, ttw, ttgout = tangents
+  diff_primals = (messages, wigner, gout, tmessages, twigner, tgout)
+  diff_tangents = tuple(
+    jnp.zeros_like(primal) if type(tangent) is ad.Zero else tangent
+    for primal, tangent in zip(
+      diff_primals, (tm0, tw0, tgout0, ttm, ttw, ttgout)
+    )
+  )
+
+  def func(messages_, wigner_, gout_, tmessages_, twigner_, tgout_):
+    return _edge_to_node_backward_jvp_impl(
+      messages_,
+      edge_index,
+      wigner_,
+      gout_,
+      tmessages_,
+      twigner_,
+      tgout_,
+      num_nodes=num_nodes,
+    )
+
+  return jax.jvp(func, diff_primals, diff_tangents)
+
+
+def _edge_to_node_backward_jvp_batching_rule(vals, dims, *, num_nodes):
+  messages, edge_index, wigner, gout, tmessages, twigner, tgout = vals
+  m_bdim, edge_bdim, w_bdim, gout_bdim, tm_bdim, tw_bdim, tgout_bdim = dims
+  if edge_bdim is not batching.not_mapped:
+    raise NotImplementedError(
+      'Batched edge_index is not supported by UMA kernels.'
+    )
+  if all(
+    dim is batching.not_mapped
+    for dim in (m_bdim, w_bdim, gout_bdim, tm_bdim, tw_bdim, tgout_bdim)
+  ):
+    return edge_to_node_backward_jvp_p.bind(
+      messages,
+      edge_index,
+      wigner,
+      gout,
+      tmessages,
+      twigner,
+      tgout,
+      num_nodes=num_nodes,
+    ), (batching.not_mapped, batching.not_mapped)
+
+  batch_size = _batch_size(
+    (messages, wigner, gout, tmessages, twigner, tgout),
+    (m_bdim, w_bdim, gout_bdim, tm_bdim, tw_bdim, tgout_bdim),
+  )
+  messages = _move_or_broadcast_batch(messages, m_bdim, batch_size)
+  wigner = _move_or_broadcast_batch(wigner, w_bdim, batch_size)
+  gout = _move_or_broadcast_batch(gout, gout_bdim, batch_size)
+  tmessages = _move_or_broadcast_batch(tmessages, tm_bdim, batch_size)
+  twigner = _move_or_broadcast_batch(twigner, tw_bdim, batch_size)
+  tgout = _move_or_broadcast_batch(tgout, tgout_bdim, batch_size)
+  num_edges = messages.shape[1]
+  flat_edge_index = _batched_edge_index(edge_index, batch_size, num_nodes)
+  dmessages, dwigner = edge_to_node_backward_jvp_p.bind(
+    messages.reshape(batch_size * num_edges, *messages.shape[2:]),
+    flat_edge_index,
+    wigner.reshape(batch_size * num_edges, *wigner.shape[2:]),
+    gout.reshape(batch_size * num_nodes, *gout.shape[2:]),
+    tmessages.reshape(batch_size * num_edges, *tmessages.shape[2:]),
+    twigner.reshape(batch_size * num_edges, *twigner.shape[2:]),
+    tgout.reshape(batch_size * num_nodes, *tgout.shape[2:]),
+    num_nodes=batch_size * num_nodes,
+  )
+  return (
+    dmessages.reshape(batch_size, num_edges, *dmessages.shape[1:]),
+    dwigner.reshape(batch_size, num_edges, *dwigner.shape[1:]),
+  ), (0, 0)
+
+
+edge_to_node_backward_jvp_p.def_impl(_edge_to_node_backward_jvp_impl)
+edge_to_node_backward_jvp_p.def_abstract_eval(
+  _edge_to_node_backward_jvp_abstract_eval
+)
+mlir.register_lowering(
+  edge_to_node_backward_jvp_p,
+  mlir.lower_fun(_edge_to_node_backward_jvp_impl, multiple_results=True),
+)
+ad.primitive_jvps[edge_to_node_backward_jvp_p] = (
+  _edge_to_node_backward_jvp_jvp_rule
+)
+ad.primitive_transposes[edge_to_node_backward_jvp_p] = (
+  _edge_to_node_backward_jvp_transpose_rule
+)
+batching.primitive_batchers[edge_to_node_backward_jvp_p] = (
+  _edge_to_node_backward_jvp_batching_rule
+)
+
+
+edge_to_node_backward_p.def_impl(_edge_to_node_backward_impl)
+edge_to_node_backward_p.def_abstract_eval(_edge_to_node_backward_abstract_eval)
+mlir.register_lowering(
+  edge_to_node_backward_p,
+  mlir.lower_fun(_edge_to_node_backward_impl, multiple_results=True),
+)
+ad.primitive_jvps[edge_to_node_backward_p] = _edge_to_node_backward_jvp_rule
+ad.primitive_transposes[edge_to_node_backward_p] = (
+  _edge_to_node_backward_transpose_rule
+)
+batching.primitive_batchers[edge_to_node_backward_p] = (
+  _edge_to_node_backward_batching_rule
+)
+
+
+edge_to_node_p = core.Primitive('uma_edge_to_node')
+edge_to_node_p.multiple_results = False
+
+
+def _edge_to_node_abstract_eval(
+  messages_aval, edge_index_aval, w_aval, *, num_nodes
+):
+  del edge_index_aval, w_aval
+  return core.ShapedArray(
+    (num_nodes, COEFFICIENT_DIM, messages_aval.shape[-1]),
+    messages_aval.dtype,
+  )
+
+
+def _edge_to_node_jvp_rule(primals, tangents, *, num_nodes):
+  messages, edge_index, wigner = primals
+  tmessages, _, twigner = tangents
+  out = edge_to_node_p.bind(messages, edge_index, wigner, num_nodes=num_nodes)
+  tangent_out = edge_to_node_jvp_p.bind(
+    messages,
+    edge_index,
+    wigner,
+    _zero_tangent(tmessages, messages),
+    _zero_tangent(twigner, wigner),
+    num_nodes=num_nodes,
+  )
+  return out, tangent_out
+
+
+def _edge_to_node_transpose_rule(
+  cotangent, messages, edge_index, wigner, *, num_nodes
+):
+  if type(cotangent) is ad.Zero:
+    return None, None, None
+  grad_messages = None
+  grad_wigner = None
+  if ad.is_undefined_primal(messages):
+    dummy_messages = jnp.zeros(messages.aval.shape, dtype=cotangent.dtype)
+    grad_messages, _ = edge_to_node_backward_p.bind(
+      dummy_messages, edge_index, wigner, cotangent, num_nodes=num_nodes
+    )
+  if ad.is_undefined_primal(wigner):
+    dummy_w = jnp.zeros(wigner.aval.shape, dtype=cotangent.dtype)
+    _, grad_wigner = edge_to_node_backward_p.bind(
+      messages, edge_index, dummy_w, cotangent, num_nodes=num_nodes
+    )
+  return grad_messages, None, grad_wigner
+
+
+def _edge_to_node_batching_rule(vals, dims, *, num_nodes):
+  messages, edge_index, wigner = vals
+  m_bdim, edge_bdim, w_bdim = dims
+  if edge_bdim is not batching.not_mapped:
+    raise NotImplementedError(
+      'Batched edge_index is not supported by UMA kernels.'
+    )
+  if all(dim is batching.not_mapped for dim in (m_bdim, w_bdim)):
+    return (
+      edge_to_node_p.bind(messages, edge_index, wigner, num_nodes=num_nodes),
+      batching.not_mapped,
+    )
+  batch_size = _batch_size((messages, wigner), (m_bdim, w_bdim))
+  messages = _move_or_broadcast_batch(messages, m_bdim, batch_size)
+  wigner = _move_or_broadcast_batch(wigner, w_bdim, batch_size)
+  num_edges = messages.shape[1]
+  flat_edge_index = _batched_edge_index(edge_index, batch_size, num_nodes)
+  out = edge_to_node_p.bind(
+    messages.reshape(batch_size * num_edges, *messages.shape[2:]),
+    flat_edge_index,
+    wigner.reshape(batch_size * num_edges, *wigner.shape[2:]),
+    num_nodes=batch_size * num_nodes,
+  )
+  return out.reshape(batch_size, num_nodes, *out.shape[1:]), 0
+
+
+edge_to_node_jvp_p = core.Primitive('uma_edge_to_node_jvp')
+edge_to_node_jvp_p.multiple_results = False
+
+
+def _edge_to_node_jvp_impl(
+  messages, edge_index, wigner, tmessages, twigner, *, num_nodes
+):
+  return edge_to_node_p.bind(
+    tmessages, edge_index, wigner, num_nodes=num_nodes
+  ) + edge_to_node_p.bind(messages, edge_index, twigner, num_nodes=num_nodes)
+
+
+def _edge_to_node_jvp_abstract_eval(
+  messages_aval, edge_index_aval, w_aval, tmessages_aval, tw_aval, *, num_nodes
+):
+  del edge_index_aval, w_aval, tmessages_aval, tw_aval
+  return core.ShapedArray(
+    (num_nodes, COEFFICIENT_DIM, messages_aval.shape[-1]),
+    messages_aval.dtype,
+  )
+
+
+def _edge_to_node_jvp_transpose_rule(
+  cotangent, messages, edge_index, wigner, tmessages, twigner, *, num_nodes
+):
+  if type(cotangent) is ad.Zero:
+    return None, None, None, None, None
+  messages = _zero_if_undefined(messages)
+  wigner = _zero_if_undefined(wigner)
+  grad_tmessages = None
+  grad_twigner = None
+  if ad.is_undefined_primal(tmessages):
+    grad_tmessages, _ = edge_to_node_backward_p.bind(
+      jnp.zeros(tmessages.aval.shape, dtype=cotangent.dtype),
+      edge_index,
+      wigner,
+      cotangent,
+      num_nodes=num_nodes,
+    )
+  if ad.is_undefined_primal(twigner):
+    _, grad_twigner = edge_to_node_backward_p.bind(
+      messages,
+      edge_index,
+      jnp.zeros(twigner.aval.shape, dtype=cotangent.dtype),
+      cotangent,
+      num_nodes=num_nodes,
+    )
+  return None, None, None, grad_tmessages, grad_twigner
+
+
+def _edge_to_node_jvp_jvp_rule(primals, tangents, *, num_nodes):
+  messages, edge_index, wigner, tmessages, twigner = primals
+  tm0, _, tw0, ttm, ttw = tangents
+  diff_primals = (messages, wigner, tmessages, twigner)
+  diff_tangents = tuple(
+    jnp.zeros_like(primal) if type(tangent) is ad.Zero else tangent
+    for primal, tangent in zip(diff_primals, (tm0, tw0, ttm, ttw))
+  )
+
+  def func(messages_, wigner_, tmessages_, twigner_):
+    return _edge_to_node_jvp_impl(
+      messages_, edge_index, wigner_, tmessages_, twigner_, num_nodes=num_nodes
+    )
+
+  return jax.jvp(func, diff_primals, diff_tangents)
+
+
+def _edge_to_node_jvp_batching_rule(vals, dims, *, num_nodes):
+  messages, edge_index, wigner, tmessages, twigner = vals
+  m_bdim, edge_bdim, w_bdim, tm_bdim, tw_bdim = dims
+  if edge_bdim is not batching.not_mapped:
+    raise NotImplementedError(
+      'Batched edge_index is not supported by UMA kernels.'
+    )
+  if all(
+    dim is batching.not_mapped for dim in (m_bdim, w_bdim, tm_bdim, tw_bdim)
+  ):
+    return edge_to_node_jvp_p.bind(
+      messages,
+      edge_index,
+      wigner,
+      tmessages,
+      twigner,
+      num_nodes=num_nodes,
+    ), batching.not_mapped
+
+  batch_size = _batch_size(
+    (messages, wigner, tmessages, twigner),
+    (m_bdim, w_bdim, tm_bdim, tw_bdim),
+  )
+  messages = _move_or_broadcast_batch(messages, m_bdim, batch_size)
+  wigner = _move_or_broadcast_batch(wigner, w_bdim, batch_size)
+  tmessages = _move_or_broadcast_batch(tmessages, tm_bdim, batch_size)
+  twigner = _move_or_broadcast_batch(twigner, tw_bdim, batch_size)
+  num_edges = messages.shape[1]
+  flat_edge_index = _batched_edge_index(edge_index, batch_size, num_nodes)
+  out = edge_to_node_jvp_p.bind(
+    messages.reshape(batch_size * num_edges, *messages.shape[2:]),
+    flat_edge_index,
+    wigner.reshape(batch_size * num_edges, *wigner.shape[2:]),
+    tmessages.reshape(batch_size * num_edges, *tmessages.shape[2:]),
+    twigner.reshape(batch_size * num_edges, *twigner.shape[2:]),
+    num_nodes=batch_size * num_nodes,
+  )
+  return out.reshape(batch_size, num_nodes, *out.shape[1:]), 0
+
+
+edge_to_node_jvp_p.def_impl(_edge_to_node_jvp_impl)
+edge_to_node_jvp_p.def_abstract_eval(_edge_to_node_jvp_abstract_eval)
+mlir.register_lowering(
+  edge_to_node_jvp_p,
+  mlir.lower_fun(_edge_to_node_jvp_impl, multiple_results=False),
+)
+ad.primitive_jvps[edge_to_node_jvp_p] = _edge_to_node_jvp_jvp_rule
+ad.primitive_transposes[edge_to_node_jvp_p] = _edge_to_node_jvp_transpose_rule
+batching.primitive_batchers[edge_to_node_jvp_p] = (
+  _edge_to_node_jvp_batching_rule
+)
+
+
+edge_to_node_p.def_impl(_edge_to_node_scatter)
+edge_to_node_p.def_abstract_eval(_edge_to_node_abstract_eval)
+mlir.register_lowering(
+  edge_to_node_p,
+  mlir.lower_fun(_edge_to_node_scatter, multiple_results=False),
+)
+ad.primitive_jvps[edge_to_node_p] = _edge_to_node_jvp_rule
+ad.primitive_transposes[edge_to_node_p] = _edge_to_node_transpose_rule
+batching.primitive_batchers[edge_to_node_p] = _edge_to_node_batching_rule
+
+
 def edge_to_node_wigner_inverse(
   messages: jnp.ndarray,
   edge_index: jnp.ndarray,
   wigner_and_m_mapping_inv: jnp.ndarray,
   num_nodes: int,
 ) -> jnp.ndarray:
-  return edge_to_node_scatter_xla(
-    messages, edge_index, wigner_and_m_mapping_inv, num_nodes
+  return edge_to_node_p.bind(
+    messages, edge_index, wigner_and_m_mapping_inv, num_nodes=num_nodes
   )
-
-
-def edge_to_node_scatter_xla(
-  messages: jnp.ndarray,
-  edge_index: jnp.ndarray,
-  wigner_and_m_mapping_inv: jnp.ndarray,
-  num_nodes: int,
-) -> jnp.ndarray:
-  edge_messages = inverse_wigner_pallas(messages, wigner_and_m_mapping_inv)
-  return (
-    jnp.zeros(
-      (num_nodes, COEFFICIENT_DIM, messages.shape[2]), dtype=messages.dtype
-    )
-    .at[edge_index[1]]
-    .add(edge_messages)
-  )
-
-
-def edge_to_node_fwd(messages, edge_index, wigner_and_m_mapping_inv, num_nodes):
-  out = edge_to_node_scatter_xla(
-    messages, edge_index, wigner_and_m_mapping_inv, num_nodes
-  )
-  return out, (messages, edge_index, wigner_and_m_mapping_inv)
-
-
-def edge_to_node_bwd(num_nodes, res, gout):
-  del num_nodes
-  messages, edge_index, wigner_and_m_mapping_inv = res
-  dmessages = edge_to_node_bwd_dmessages_pallas(
-    gout, edge_index, wigner_and_m_mapping_inv, messages.shape
-  )
-  dwigner = edge_to_node_bwd_dwigner_pallas(messages, gout, edge_index)
-  return dmessages, None, dwigner
-
-
-edge_to_node_wigner_inverse.defvjp(edge_to_node_fwd, edge_to_node_bwd)

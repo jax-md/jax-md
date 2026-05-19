@@ -512,8 +512,12 @@ class EdgewiseMoE(nn.Module):
 
       x_message = kernels.node_to_edge_wigner_permute(x, edge_index, wigner)
     else:
-      x_source = x[edge_index[0]]
-      x_target = x[edge_index[1]]
+      if x.shape[0] == 0:
+        return jnp.zeros_like(x)
+      sender = jnp.where(edge_index[0] >= 0, edge_index[0], x.shape[0])
+      receiver = jnp.where(edge_index[1] >= 0, edge_index[1], x.shape[0])
+      x_source = jnp.take(x, sender, axis=0, mode='fill', fill_value=0.0)
+      x_target = jnp.take(x, receiver, axis=0, mode='fill', fill_value=0.0)
       x_message = jnp.concatenate([x_source, x_target], axis=2)
       x_message = jnp.einsum('nmj,njc->nmc', wigner_and_M_mapping, x_message)
 
@@ -547,7 +551,11 @@ class EdgewiseMoE(nn.Module):
         'njm,nmc->njc', wigner_and_M_mapping_inv, x_message
       )
       target_indices = edge_index[1] - node_offset
-      return jnp.zeros_like(x).at[target_indices].add(edge_messages)
+      return (
+        jnp.zeros_like(x)
+        .at[target_indices]
+        .add(edge_messages, mode='drop', wrap_negative_indices=False)
+      )
 
 
 class UMABlockMoE(nn.Module):
