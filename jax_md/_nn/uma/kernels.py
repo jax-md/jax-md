@@ -1145,12 +1145,13 @@ def _edge_to_node_scatter(
 ) -> jnp.ndarray:
   edge_messages = _inverse_wigner(messages, wigner_and_m_mapping_inv)
   receiver = edge_index[1]
+  receiver = jnp.where(receiver >= 0, receiver, num_nodes)
   return (
     jnp.zeros(
       (num_nodes, COEFFICIENT_DIM, messages.shape[2]), dtype=messages.dtype
     )
     .at[receiver]
-    .add(edge_messages, mode='drop', wrap_negative_indices=False)
+    .add(edge_messages, mode='drop')
   )
 
 

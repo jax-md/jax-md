@@ -189,11 +189,10 @@ class Edgewise(nn.Module):
 
       # Aggregate messages onto target nodes using scatter-add
       target_indices = edge_index[1] - node_offset
-      return (
-        jnp.zeros_like(x)
-        .at[target_indices]
-        .add(x_message, mode='drop', wrap_negative_indices=False)
+      target_indices = jnp.where(
+        target_indices >= 0, target_indices, x.shape[0]
       )
+      return jnp.zeros_like(x).at[target_indices].add(x_message, mode='drop')
 
 
 class SpectralAtomwise(nn.Module):

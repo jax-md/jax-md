@@ -551,10 +551,11 @@ class EdgewiseMoE(nn.Module):
         'njm,nmc->njc', wigner_and_M_mapping_inv, x_message
       )
       target_indices = edge_index[1] - node_offset
+      target_indices = jnp.where(
+        target_indices >= 0, target_indices, x.shape[0]
+      )
       return (
-        jnp.zeros_like(x)
-        .at[target_indices]
-        .add(edge_messages, mode='drop', wrap_negative_indices=False)
+        jnp.zeros_like(x).at[target_indices].add(edge_messages, mode='drop')
       )
 
 
