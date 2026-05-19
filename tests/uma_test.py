@@ -15,7 +15,6 @@ import numpy as np
 from jax_md import energy
 from jax_md import space
 from jax_md import test_util
-from jax_md._nn.uma.featurizer import uma_featurizer
 from jax_md._nn.uma.model import UMABackbone, UMAConfig
 from jax_md._nn.uma.model_moe import (
   SO2MConvMoE,
@@ -346,7 +345,6 @@ class MOLEInferencePathTest(test_util.JAXMDTestCase):
       box,
       cfg=cfg,
       atoms=atoms,
-      featurizer_fn=uma_featurizer,
       disable_cell_list=True,
     )
     _, merge_init_fn, merge_energy_fn = energy.uma_neighbor_list(
@@ -354,7 +352,6 @@ class MOLEInferencePathTest(test_util.JAXMDTestCase):
       box,
       cfg=cfg,
       atoms=atoms,
-      featurizer_fn=uma_featurizer,
       merge_mole=True,
       disable_cell_list=True,
     )

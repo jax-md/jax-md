@@ -27,7 +27,16 @@ from jax import ops
 from jax.tree_util import tree_map
 from jax import vmap
 from jax.scipy.special import erfc  # error function
-from jax_md import space, smap, partition, nn, quantity, interpolate, util
+from jax_md import (
+  custom_partition,
+  space,
+  smap,
+  partition,
+  nn,
+  quantity,
+  interpolate,
+  util,
+)
 
 from ml_collections import ConfigDict
 
@@ -2514,7 +2523,7 @@ def uma_neighbor_list(
   atoms=None,
   checkpoint_path=None,
   head_type='mlp',
-  neighbor_list_fn: Callable = partition.neighbor_list,
+  neighbor_list_fn: Callable = custom_partition.neighbor_list_multi_image,
   featurizer_fn: Callable | None = None,
   charge=None,
   spin=None,
@@ -2542,11 +2551,11 @@ def uma_neighbor_list(
         If provided, ``init_fn`` returns the converted weights instead of
         random initialization.
     head_type: Energy head type: ``'mlp'`` or ``'linear'``.
-    neighbor_list_fn: Neighbor list constructor (default: ``partition.neighbor_list``).
+    neighbor_list_fn: Neighbor list constructor (default:
+        ``custom_partition.neighbor_list_multi_image``).
     featurizer_fn: Function to create a UMA featurizer. Defaults to
-        ``uma_featurizer`` for standard MIC neighbor lists. When using
-        ``custom_partition.neighbor_list_multi_image``, pass
-        ``uma_multi_image_featurizer`` explicitly.
+        ``uma_multi_image_featurizer`` for multi-image neighbor lists. When
+        using ``partition.neighbor_list``, pass ``uma_featurizer`` explicitly.
     charge: System charge(s), shape ``[num_systems]`` (default: ``[0]``).
     spin: System spin(s), shape ``[num_systems]`` (default: ``[0]``).
     dataset_idx: Integer dataset index, shape ``[num_systems]`` (default: ``[0]``).
@@ -2560,8 +2569,7 @@ def uma_neighbor_list(
     use_kernels: UMA kernel toggle. True enables eligible JAX-MD UMA Pallas
         kernels.
     merge_mole: If True, pre-mix MoE expert weights for single-system
-        inference and skip runtime routing. If None, enabled for pretrained
-        MoE checkpoints and disabled otherwise.
+        inference and skip runtime routing. If None, disabled by default.
     so2_block_gemm: If True, use a block GEMM formulation for SO2 m>0
         convolutions. If None, enabled for pretrained MoE checkpoints and
         disabled otherwise.
@@ -2603,9 +2611,7 @@ def uma_neighbor_list(
   # backbone even when checkpoint_path is not passed here.
   is_moe = is_moe or hasattr(cfg, 'num_experts')
   auto_moe_optimizations = checkpoint_path is not None and is_moe
-  merge_mole = (
-    auto_moe_optimizations if merge_mole is None else bool(merge_mole)
-  )
+  merge_mole = False if merge_mole is None else bool(merge_mole)
   so2_block_gemm = (
     auto_moe_optimizations if so2_block_gemm is None else bool(so2_block_gemm)
   )
@@ -2645,8 +2651,12 @@ def uma_neighbor_list(
           correction = load_energy_correction(
             checkpoint_path, dataset=head_dataset
           )
-        except Exception:
-          correction = None
+        except Exception as exc:
+          raise ValueError(
+            'Failed to load UMA atom references or energy normalizer for '
+            f'{checkpoint_path!r}. Pass apply_atom_refs=False to use raw '
+            'checkpoint energies, or pass atom_refs explicitly.'
+          ) from exc
       if correction is not None:
         atom_refs = correction.get('element_refs')
         energy_mean = correction.get('mean')
@@ -2667,10 +2677,18 @@ def uma_neighbor_list(
     energy_mean = jnp.asarray(energy_mean, dtype=jnp.float32)
     energy_rmsd = jnp.asarray(energy_rmsd, dtype=jnp.float32)
 
-  # Build neighbor list
+  # Build neighbor list. The UMA default uses explicit periodic images and
+  # expects a box matrix; keep vector boxes working for common orthorhombic use.
+  neighbor_box = box
+  if neighbor_list_fn is custom_partition.neighbor_list_multi_image:
+    neighbor_box = jnp.asarray(box)
+    if neighbor_box.ndim == 1:
+      neighbor_box = jnp.diag(neighbor_box)
+    nl_kwargs.setdefault('fractional_coordinates', False)
+
   neighbor_fn = neighbor_list_fn(
     displacement_fn,
-    box,
+    neighbor_box,
     cfg.cutoff,
     format=partition.Sparse,
     **nl_kwargs,
