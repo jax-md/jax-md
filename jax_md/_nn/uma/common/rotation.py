@@ -129,13 +129,19 @@ def load_jacobi_matrices_from_file(lmax: int) -> List[jnp.ndarray]:
   if os.path.isdir(_JD_NPY_DIR):
     try:
       Jd_list = []
+      cache_ok = True
       for l in range(lmax + 1):
         path = os.path.join(_JD_NPY_DIR, f'Jd_{l}.npy')
         if os.path.exists(path):
-          Jd_list.append(jnp.array(np.load(path)))
+          Jd = np.load(path)
+          if jax.config.jax_enable_x64 and Jd.dtype != np.float64:
+            cache_ok = False
+            break
+          Jd_list.append(jnp.array(Jd))
         else:
+          cache_ok = False
           break
-      if len(Jd_list) == lmax + 1:
+      if cache_ok and len(Jd_list) == lmax + 1:
         return Jd_list
     except Exception:
       pass
@@ -145,10 +151,15 @@ def load_jacobi_matrices_from_file(lmax: int) -> List[jnp.ndarray]:
     import torch
 
     Jd_torch = torch.load(_JD_FILE, map_location='cpu', weights_only=False)
-    Jd_list = [jnp.array(Jd_torch[l].numpy()) for l in range(lmax + 1)]
+    dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
+    Jd_list = [
+      jnp.array(Jd_torch[l].numpy(), dtype=dtype) for l in range(lmax + 1)
+    ]
 
-    # Cache as numpy for future torch-free loading
-    _save_jacobi_as_numpy(Jd_list)
+    # Keep the checked-in float32 cache stable. In x64 mode, use Jd.pt directly
+    # so tests can compare at tight tolerances without rewriting cache files.
+    if not jax.config.jax_enable_x64:
+      _save_jacobi_as_numpy(Jd_list)
 
     return Jd_list
   except (ImportError, FileNotFoundError):

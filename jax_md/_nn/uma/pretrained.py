@@ -113,6 +113,166 @@ def download_pretrained(
   )
 
 
+def load_atom_references(
+  model_name: str,
+  dataset: str = 'omat',
+  cache_dir: str | None = None,
+) -> jnp.ndarray:
+  """Load UMA isolated atom references from FairChem's external ref file."""
+  try:
+    from huggingface_hub import hf_hub_download
+  except ImportError:
+    raise ImportError(
+      'huggingface_hub is required to download UMA atom references. '
+      'Install with: pip install huggingface_hub'
+    )
+  try:
+    import yaml
+  except ImportError:
+    raise ImportError(
+      'pyyaml is required to parse UMA atom references. '
+      'Install with: pip install pyyaml'
+    )
+
+  if model_name not in PRETRAINED_MODELS:
+    raise ValueError(
+      'UMA atom references can be loaded automatically only for known '
+      f'pretrained model names, got {model_name!r}. Pass atom_refs explicitly '
+      'when using a local checkpoint path.'
+    )
+
+  if cache_dir is None:
+    cache_dir = os.path.expanduser('~/.cache/fairchem')
+
+  path = hf_hub_download(
+    filename='iso_atom_elem_refs.yaml',
+    repo_id=PRETRAINED_MODELS[model_name]['repo_id'],
+    subfolder='references',
+    cache_dir=cache_dir,
+  )
+
+  with open(path) as f:
+    refs = yaml.safe_load(f)
+
+  key = f'{dataset}_elem_refs'
+  if key not in refs:
+    raise ValueError(
+      f'Missing {key!r} in UMA atom references. Available keys: '
+      f'{sorted(k for k in refs if k.endswith("_elem_refs"))}'
+    )
+  values = refs[key]
+  if not isinstance(values, (list, tuple)):
+    raise ValueError(
+      f'UMA atom references for {dataset!r} are not a flat element array. '
+      'Pass atom_refs explicitly for this dataset.'
+    )
+  return jnp.asarray(values, dtype=jnp.float32)
+
+
+def _config_get(config: Any, key: str, default: Any = None) -> Any:
+  if config is None:
+    return default
+  if isinstance(config, dict):
+    return config.get(key, default)
+  get = getattr(config, 'get', None)
+  if callable(get):
+    try:
+      return get(key, default)
+    except TypeError:
+      pass
+  if hasattr(config, key):
+    return getattr(config, key)
+  try:
+    return config[key]
+  except (KeyError, IndexError, TypeError):
+    return default
+
+
+def _config_list(value: Any) -> list[Any]:
+  if value is None:
+    return []
+  if isinstance(value, str):
+    return [value]
+  try:
+    return list(value)
+  except TypeError:
+    return [value]
+
+
+def _config_float(value: Any, default: float) -> float:
+  if value is None:
+    return default
+  if hasattr(value, 'detach'):
+    value = value.detach().cpu().numpy()
+  array = np.asarray(value)
+  if array.size == 0:
+    return default
+  return float(array.reshape(-1)[0])
+
+
+def _extract_element_references(element_references: Any) -> jnp.ndarray | None:
+  if element_references is None:
+    return None
+
+  values = _config_get(element_references, 'element_references')
+  args = _config_get(values, '_args_')
+  if args is not None and len(_config_list(args)) > 0:
+    values = _config_list(args)[0]
+
+  if hasattr(values, 'detach'):
+    values = values.detach().cpu().numpy()
+  if values is None:
+    return None
+
+  return jnp.asarray(values, dtype=jnp.float32)
+
+
+def extract_energy_correction(
+  tasks_config: Any,
+  dataset: str = 'omat',
+) -> Dict[str, Any]:
+  """Extract FairChem energy normalizer and element references from tasks."""
+  energy_task = None
+  expected_name = f'{dataset}_energy'
+  for task in tasks_config:
+    name = _config_get(task, 'name')
+    prop = _config_get(task, 'property')
+    datasets = _config_list(_config_get(task, 'datasets'))
+    if name == expected_name or (prop == 'energy' and dataset in datasets):
+      energy_task = task
+      break
+
+  if energy_task is None:
+    raise ValueError(f'No energy task found for dataset {dataset!r}.')
+
+  normalizer = _config_get(energy_task, 'normalizer')
+  mean = _config_float(_config_get(normalizer, 'mean'), 0.0)
+  rmsd = _config_float(_config_get(normalizer, 'rmsd'), 1.0)
+  element_refs = _extract_element_references(
+    _config_get(energy_task, 'element_references')
+  )
+
+  return {
+    'mean': jnp.asarray(mean, dtype=jnp.float32),
+    'rmsd': jnp.asarray(rmsd, dtype=jnp.float32),
+    'element_refs': element_refs,
+  }
+
+
+def load_energy_correction(
+  model_name_or_path: str,
+  dataset: str = 'omat',
+  cache_dir: str | None = None,
+) -> Dict[str, Any]:
+  """Load FairChem task-level energy correction from a UMA checkpoint."""
+  checkpoint_path = model_name_or_path
+  if model_name_or_path in PRETRAINED_MODELS:
+    checkpoint_path = download_pretrained(model_name_or_path, cache_dir)
+
+  ckpt = load_checkpoint_raw(checkpoint_path)
+  return extract_energy_correction(ckpt.tasks_config, dataset)
+
+
 def load_checkpoint_raw(checkpoint_path: str) -> Any:
   """Load a FairChem UMA checkpoint without requiring fairchem installed.
 

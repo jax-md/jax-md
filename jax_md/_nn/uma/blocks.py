@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import List, Literal
 
 import flax.linen as nn
+import jax
 import jax.numpy as jnp
 
 from jax_md._nn.uma.nn.so2_layers import SO2Convolution
@@ -48,6 +49,7 @@ class Edgewise(nn.Module):
   to_grid_mat: jnp.ndarray | None = None
   from_grid_mat: jnp.ndarray | None = None
   mapping_to_m: jnp.ndarray | None = None
+  use_kernels: bool = False
 
   @nn.compact
   def __call__(
@@ -57,6 +59,8 @@ class Edgewise(nn.Module):
     edge_index: jnp.ndarray,
     wigner_and_M_mapping: jnp.ndarray,
     wigner_and_M_mapping_inv: jnp.ndarray,
+    wigner: jnp.ndarray | None,
+    wigner_inv: jnp.ndarray | None,
     edge_envelope: jnp.ndarray,
     node_offset: int = 0,
   ) -> jnp.ndarray:
@@ -125,15 +129,31 @@ class Edgewise(nn.Module):
         name='act',
       )
 
-    # Get source and target node features
-    x_source = x[edge_index[0]]
-    x_target = x[edge_index[1]]
+    # Gather source/target node features and rotate to edge-aligned frames.
+    if (
+      self.use_kernels
+      and wigner is not None
+      and wigner.shape[-2:] == (9, 9)
+      and x.shape[-2] == 9
+      and jax.default_backend() == 'gpu'
+    ):
+      from jax_md._nn.uma import kernels
 
-    # Concatenate source and target features
-    x_message = jnp.concatenate([x_source, x_target], axis=2)
+      x_message = kernels.node_to_edge_wigner_permute(x, edge_index, wigner)
+    else:
+      # Get source and target node features
+      if x.shape[0] == 0:
+        return jnp.zeros_like(x)
+      sender = jnp.where(edge_index[0] >= 0, edge_index[0], x.shape[0])
+      receiver = jnp.where(edge_index[1] >= 0, edge_index[1], x.shape[0])
+      x_source = jnp.take(x, sender, axis=0, mode='fill', fill_value=0.0)
+      x_target = jnp.take(x, receiver, axis=0, mode='fill', fill_value=0.0)
 
-    # Rotate to edge-aligned frame
-    x_message = jnp.einsum('nmj,njc->nmc', wigner_and_M_mapping, x_message)
+      # Concatenate source and target features
+      x_message = jnp.concatenate([x_source, x_target], axis=2)
+
+      # Rotate to edge-aligned frame
+      x_message = jnp.einsum('nmj,njc->nmc', wigner_and_M_mapping, x_message)
 
     # First SO2 convolution
     x_message, x_0_gating = so2_conv_1(x_message, x_edge)
@@ -147,14 +167,32 @@ class Edgewise(nn.Module):
     # Apply envelope
     x_message = x_message * edge_envelope
 
-    # Rotate back to global frame
-    x_message = jnp.einsum('njm,nmc->njc', wigner_and_M_mapping_inv, x_message)
+    # Rotate back to global frame and aggregate to target nodes
+    if (
+      self.use_kernels
+      and wigner_inv is not None
+      and wigner_inv.shape[-2:] == (9, 9)
+      and x_message.shape[-2] == 9
+      and jax.default_backend() == 'gpu'
+      and node_offset == 0
+    ):
+      from jax_md._nn.uma import kernels
 
-    # Aggregate messages onto target nodes using scatter-add
-    target_indices = edge_index[1] - node_offset
-    new_embedding = jnp.zeros_like(x).at[target_indices].add(x_message)
+      return kernels.edge_to_node_wigner_inverse(
+        x_message, edge_index, wigner_inv, x.shape[0]
+      )
+    else:
+      # Rotate back to global frame
+      x_message = jnp.einsum(
+        'njm,nmc->njc', wigner_and_M_mapping_inv, x_message
+      )
 
-    return new_embedding
+      # Aggregate messages onto target nodes using scatter-add
+      target_indices = edge_index[1] - node_offset
+      target_indices = jnp.where(
+        target_indices >= 0, target_indices, x.shape[0]
+      )
+      return jnp.zeros_like(x).at[target_indices].add(x_message, mode='drop')
 
 
 class SpectralAtomwise(nn.Module):
@@ -250,7 +288,6 @@ class GridAtomwise(nn.Module):
     Returns:
         Updated features, same shape.
     """
-    # Grid MLP
     grid_mlp = nn.Sequential(
       [
         nn.Dense(self.hidden_channels, use_bias=False),
@@ -261,14 +298,22 @@ class GridAtomwise(nn.Module):
       ]
     )
 
-    # Project to grid
-    x_grid = jnp.einsum('bai,zic->zbac', self.to_grid_mat, x)
+    num_nodes = x.shape[0]
+    lat, lon, num_coeffs = self.to_grid_mat.shape
+    grid_points = lat * lon
 
-    # Apply MLP in grid space
+    # Flatten grid dims for efficient matmul dispatch via cuBLAS.
+    to_grid_flat = self.to_grid_mat.reshape(grid_points, num_coeffs)
+    from_grid_flat = self.from_grid_mat.reshape(grid_points, num_coeffs)
+
+    # Project to grid: [N, coeffs, C] -> [N, grid_points, C]
+    x_grid = jnp.einsum('gi,nic->ngc', to_grid_flat, x)
+
+    # Apply MLP per grid point (Dense applies to last dim).
     x_grid = grid_mlp(x_grid)
 
-    # Project back to coefficients
-    x = jnp.einsum('bai,zbac->zic', self.from_grid_mat, x_grid)
+    # Project back: [N, grid_points, C] -> [N, coeffs, C]
+    x = jnp.einsum('gi,ngc->nic', from_grid_flat, x_grid)
 
     return x
 
@@ -306,6 +351,7 @@ class UMABlock(nn.Module):
   to_grid_mat: jnp.ndarray | None = None
   from_grid_mat: jnp.ndarray | None = None
   mapping_to_m: jnp.ndarray | None = None
+  use_kernels: bool = False
 
   @nn.compact
   def __call__(
@@ -315,6 +361,8 @@ class UMABlock(nn.Module):
     edge_index: jnp.ndarray,
     wigner_and_M_mapping: jnp.ndarray,
     wigner_and_M_mapping_inv: jnp.ndarray,
+    wigner: jnp.ndarray | None,
+    wigner_inv: jnp.ndarray | None,
     edge_envelope: jnp.ndarray,
     sys_node_embedding: jnp.ndarray | None = None,
     node_offset: int = 0,
@@ -362,6 +410,7 @@ class UMABlock(nn.Module):
       to_grid_mat=self.to_grid_mat,
       from_grid_mat=self.from_grid_mat,
       mapping_to_m=self.mapping_to_m,
+      use_kernels=self.use_kernels,
       name='edge_wise',
     )
     x = edgewise(
@@ -370,6 +419,8 @@ class UMABlock(nn.Module):
       edge_index,
       wigner_and_M_mapping,
       wigner_and_M_mapping_inv,
+      wigner,
+      wigner_inv,
       edge_envelope,
       node_offset,
     )

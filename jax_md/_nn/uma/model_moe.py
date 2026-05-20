@@ -48,7 +48,7 @@ from jax_md._nn.uma.nn.embedding import (
 )
 from jax_md._nn.uma.nn.layer_norm import get_normalization_layer
 from jax_md._nn.uma.nn.activation import GateActivation, SeparableS2Activation
-from jax_md._nn.uma.nn.mole import MOLELinear, RoutingMLP
+from jax_md._nn.uma.nn.mole import MOLELinear, MOLEWeights, RoutingMLP
 
 
 @dataclass
@@ -65,6 +65,8 @@ class UMAMoEConfig(UMAConfig):
   routing_hidden_channels: int = 64
   charge_balanced_channels: Tuple[int, ...] = ()
   spin_balanced_channels: Tuple[int, ...] = ()
+  merged_mole: bool = False
+  so2_block_gemm: bool = False
 
 
 def channel_range(channels: Tuple[int, ...]) -> Tuple[int, int]:
@@ -100,6 +102,39 @@ def balance_channels(
   return emb.at[:, 0, start_idx:end_idx].set(channels - corrections[batch])
 
 
+def merge_mole_params(params: Dict, expert_coefficients: jnp.ndarray) -> Dict:
+  """Return a params tree with MOLE expert weights pre-mixed.
+
+  This is intended for single-system inference. Any parameter named
+  ``weights`` with shape ``[num_experts, out, in]`` is replaced by the
+  corresponding mixed weight with shape ``[out, in]``.
+  """
+  coeff = expert_coefficients[0]
+  num_experts = coeff.shape[0]
+
+  def merge_leaf(key, value):
+    if (
+      key == 'weights'
+      and hasattr(value, 'ndim')
+      and value.ndim == 3
+      and value.shape[0] == num_experts
+    ):
+      return jnp.einsum('e,eoi->oi', coeff, value)
+    return value
+
+  def recurse(tree):
+    if isinstance(tree, dict):
+      return {k: recurse_value(k, v) for k, v in tree.items()}
+    return tree
+
+  def recurse_value(key, value):
+    if isinstance(value, dict):
+      return recurse(value)
+    return merge_leaf(key, value)
+
+  return recurse(params)
+
+
 class SO2MConvMoE(nn.Module):
   """SO(2) convolution for a single order m, with MoE expert weights.
 
@@ -119,6 +154,42 @@ class SO2MConvMoE(nn.Module):
   m_output_channels: int
   lmax: int
   num_experts: int
+  merged_mole: bool = False
+  so2_block_gemm: bool = False
+
+  def _block_gemm(
+    self,
+    x_m: jnp.ndarray,
+    weights: jnp.ndarray,
+    expert_coefficients: jnp.ndarray,
+  ) -> Tuple[jnp.ndarray, jnp.ndarray] | None:
+    """Apply SO2 complex multiply as one block GEMM."""
+    num_coefficients = self.lmax - self.m + 1
+    out_channels_half = self.m_output_channels * num_coefficients
+    if weights.ndim == 3:
+      if expert_coefficients.shape[0] != 1:
+        return None
+      weights = jnp.einsum('e,eoi->oi', expert_coefficients[0], weights)
+
+    w1, w2 = jnp.split(weights, 2, axis=0)
+    w_block = jnp.concatenate(
+      [
+        jnp.concatenate([w1, -w2], axis=1),
+        jnp.concatenate([w2, w1], axis=1),
+      ],
+      axis=0,
+    )
+    batch_size = x_m.shape[0]
+    x_cat = x_m.reshape(batch_size, -1)
+    out_cat = jnp.einsum('ni,oi->no', x_cat, w_block)
+    out = out_cat.reshape(batch_size, 2, out_channels_half)
+    x_m_r = out[:, 0, :].reshape(
+      batch_size, num_coefficients, self.m_output_channels
+    )
+    x_m_i = out[:, 1, :].reshape(
+      batch_size, num_coefficients, self.m_output_channels
+    )
+    return x_m_r, x_m_i
 
   @nn.compact
   def __call__(
@@ -140,11 +211,27 @@ class SO2MConvMoE(nn.Module):
     num_coefficients = self.lmax - self.m + 1
     out_channels_half = self.m_output_channels * num_coefficients
 
+    can_block_gemm = self.so2_block_gemm and (
+      self.merged_mole or expert_coefficients.shape[0] == 1
+    )
+    if can_block_gemm:
+      weights = MOLEWeights(
+        num_experts=self.num_experts,
+        in_features=num_coefficients * self.sphere_channels,
+        out_features=2 * out_channels_half,
+        merged=self.merged_mole,
+        name='fc',
+      )()
+      block_out = self._block_gemm(x_m, weights, expert_coefficients)
+      if block_out is not None:
+        return block_out
+
     fc = MOLELinear(
       num_experts=self.num_experts,
       in_features=num_coefficients * self.sphere_channels,
       out_features=2 * out_channels_half,
       use_bias=False,
+      merged=self.merged_mole,
       name='fc',
     )
 
@@ -195,6 +282,8 @@ class SO2ConvolutionMoE(nn.Module):
   internal_weights: bool = True
   edge_channels_list: List[int] | None = None
   extra_m0_output_channels: int | None = None
+  merged_mole: bool = False
+  so2_block_gemm: bool = False
 
   @nn.compact
   def __call__(
@@ -223,6 +312,7 @@ class SO2ConvolutionMoE(nn.Module):
       in_features=num_channels_m0,
       out_features=m0_output_channels,
       use_bias=True,
+      merged=self.merged_mole,
       name='fc_m0',
     )
 
@@ -243,21 +333,59 @@ class SO2ConvolutionMoE(nn.Module):
 
     num_edges = x.shape[0]
 
+    use_static_l2_layout = (
+      self.lmax == 2
+      and self.mmax == 2
+      and len(self.m_size) == 3
+      and self.m_size[0] == 3
+      and self.m_size[1] == 4
+      and self.m_size[2] == 2
+    )
+
+    so2_m_conv_modules = {}
+    for m in range(1, self.mmax + 1):
+      so2_m_conv_modules[m] = SO2MConvMoE(
+        m=m,
+        sphere_channels=self.sphere_channels,
+        m_output_channels=self.m_output_channels,
+        lmax=self.lmax,
+        num_experts=self.num_experts,
+        merged_mole=self.merged_mole,
+        so2_block_gemm=self.so2_block_gemm,
+        name=f'so2_m_conv_{m}',
+      )
+
     if rad_func is not None:
       x_edge_weights = rad_func(x_edge)
-      x_edge_by_m = jnp.split(
-        x_edge_weights,
-        np.cumsum(edge_split_sizes[:-1]),
-        axis=1,
-      )
+    else:
+      x_edge_weights = None
+
+    if x_edge_weights is not None:
+      if use_static_l2_layout:
+        edge_m0 = num_channels_m0
+        edge_m1 = edge_m0 + 2 * self.sphere_channels
+        x_edge_by_m = [
+          x_edge_weights[:, :edge_m0],
+          x_edge_weights[:, edge_m0:edge_m1],
+          x_edge_weights[:, edge_m1:],
+        ]
+      else:
+        x_edge_by_m = jnp.split(
+          x_edge_weights,
+          np.cumsum(edge_split_sizes[:-1]),
+          axis=1,
+        )
     else:
       x_edge_by_m = [None] * (self.mmax + 1)
 
-    x_by_m = jnp.split(
-      x,
-      np.cumsum(m_split_sizes[:-1]),
-      axis=1,
-    )
+    if use_static_l2_layout:
+      x_by_m = [x[:, :3], x[:, 3:7], x[:, 7:9]]
+    else:
+      x_by_m = jnp.split(
+        x,
+        np.cumsum(m_split_sizes[:-1]),
+        axis=1,
+      )
 
     # m=0 with MoE
     x_0 = x_by_m[0].reshape(num_edges, -1)
@@ -277,15 +405,7 @@ class SO2ConvolutionMoE(nn.Module):
       if x_edge_by_m[m] is not None:
         x_m = x_m * x_edge_by_m[m][:, None, :]
 
-      so2_m_conv = SO2MConvMoE(
-        m=m,
-        sphere_channels=self.sphere_channels,
-        m_output_channels=self.m_output_channels,
-        lmax=self.lmax,
-        num_experts=self.num_experts,
-        name=f'so2_m_conv_{m}',
-      )
-      x_m_r, x_m_i = so2_m_conv(x_m, expert_coefficients, edge_batch)
+      x_m_r, x_m_i = so2_m_conv_modules[m](x_m, expert_coefficients, edge_batch)
       out.append(x_m_r)
       out.append(x_m_i)
 
@@ -310,6 +430,9 @@ class EdgewiseMoE(nn.Module):
   to_grid_mat: jnp.ndarray | None = None
   from_grid_mat: jnp.ndarray | None = None
   mapping_to_m: jnp.ndarray | None = None
+  use_kernels: bool = False
+  merged_mole: bool = False
+  so2_block_gemm: bool = False
 
   @nn.compact
   def __call__(
@@ -319,6 +442,8 @@ class EdgewiseMoE(nn.Module):
     edge_index,
     wigner_and_M_mapping,
     wigner_and_M_mapping_inv,
+    wigner,
+    wigner_inv,
     edge_envelope,
     expert_coefficients,
     edge_batch,
@@ -339,6 +464,8 @@ class EdgewiseMoE(nn.Module):
       internal_weights=False,
       edge_channels_list=self.edge_channels_list,
       extra_m0_output_channels=extra_m0,
+      merged_mole=self.merged_mole,
+      so2_block_gemm=self.so2_block_gemm,
       name='so2_conv_1',
     )
 
@@ -350,6 +477,8 @@ class EdgewiseMoE(nn.Module):
       m_size=self.m_size,
       num_experts=self.num_experts,
       internal_weights=True,
+      merged_mole=self.merged_mole,
+      so2_block_gemm=self.so2_block_gemm,
       name='so2_conv_2',
     )
 
@@ -371,23 +500,63 @@ class EdgewiseMoE(nn.Module):
         name='act',
       )
 
-    x_source = x[edge_index[0]]
-    x_target = x[edge_index[1]]
-    x_message = jnp.concatenate([x_source, x_target], axis=2)
-    x_message = jnp.einsum('nmj,njc->nmc', wigner_and_M_mapping, x_message)
+    # Gather source/target node features and rotate to edge-aligned frames.
+    if (
+      self.use_kernels
+      and wigner is not None
+      and wigner.shape[-2:] == (9, 9)
+      and x.shape[-2] == 9
+      and jax.default_backend() == 'gpu'
+    ):
+      from jax_md._nn.uma import kernels
+
+      x_message = kernels.node_to_edge_wigner_permute(x, edge_index, wigner)
+    else:
+      if x.shape[0] == 0:
+        return jnp.zeros_like(x)
+      sender = jnp.where(edge_index[0] >= 0, edge_index[0], x.shape[0])
+      receiver = jnp.where(edge_index[1] >= 0, edge_index[1], x.shape[0])
+      x_source = jnp.take(x, sender, axis=0, mode='fill', fill_value=0.0)
+      x_target = jnp.take(x, receiver, axis=0, mode='fill', fill_value=0.0)
+      x_message = jnp.concatenate([x_source, x_target], axis=2)
+      x_message = jnp.einsum('nmj,njc->nmc', wigner_and_M_mapping, x_message)
 
     x_message, x_0_gating = so2_conv_1(
       x_message, x_edge, expert_coefficients, edge_batch
     )
+
     x_message = act(x_0_gating, x_message)
+
     x_message = so2_conv_2(x_message, x_edge, expert_coefficients, edge_batch)
 
+    # Apply envelope
     x_message = x_message * edge_envelope
-    x_message = jnp.einsum('njm,nmc->njc', wigner_and_M_mapping_inv, x_message)
 
-    target_indices = edge_index[1] - node_offset
-    new_embedding = jnp.zeros_like(x).at[target_indices].add(x_message)
-    return new_embedding
+    # Rotate back to global frame and aggregate to target nodes
+    if (
+      self.use_kernels
+      and wigner_inv is not None
+      and wigner_inv.shape[-2:] == (9, 9)
+      and x_message.shape[-2] == 9
+      and jax.default_backend() == 'gpu'
+      and node_offset == 0
+    ):
+      from jax_md._nn.uma import kernels
+
+      return kernels.edge_to_node_wigner_inverse(
+        x_message, edge_index, wigner_inv, x.shape[0]
+      )
+    else:
+      edge_messages = jnp.einsum(
+        'njm,nmc->njc', wigner_and_M_mapping_inv, x_message
+      )
+      target_indices = edge_index[1] - node_offset
+      target_indices = jnp.where(
+        target_indices >= 0, target_indices, x.shape[0]
+      )
+      return (
+        jnp.zeros_like(x).at[target_indices].add(edge_messages, mode='drop')
+      )
 
 
 class UMABlockMoE(nn.Module):
@@ -406,6 +575,9 @@ class UMABlockMoE(nn.Module):
   to_grid_mat: jnp.ndarray | None = None
   from_grid_mat: jnp.ndarray | None = None
   mapping_to_m: jnp.ndarray | None = None
+  use_kernels: bool = False
+  merged_mole: bool = False
+  so2_block_gemm: bool = False
 
   @nn.compact
   def __call__(
@@ -415,6 +587,8 @@ class UMABlockMoE(nn.Module):
     edge_index,
     wigner_and_M_mapping,
     wigner_and_M_mapping_inv,
+    wigner,
+    wigner_inv,
     edge_envelope,
     expert_coefficients,
     edge_batch,
@@ -448,6 +622,9 @@ class UMABlockMoE(nn.Module):
       to_grid_mat=self.to_grid_mat,
       from_grid_mat=self.from_grid_mat,
       mapping_to_m=self.mapping_to_m,
+      use_kernels=self.use_kernels,
+      merged_mole=self.merged_mole,
+      so2_block_gemm=self.so2_block_gemm,
       name='edge_wise',
     )
     x = edgewise(
@@ -456,6 +633,8 @@ class UMABlockMoE(nn.Module):
       edge_index,
       wigner_and_M_mapping,
       wigner_and_M_mapping_inv,
+      wigner,
+      wigner_inv,
       edge_envelope,
       expert_coefficients,
       edge_batch,
@@ -586,45 +765,49 @@ class UMAMoEBackbone(nn.Module):
     mix_csd = nn.Dense(cfg.sphere_channels, name='mix_csd')
     csd_mixed_emb = nn.silu(mix_csd(csd_cat))
 
-    # === Routing MLP for MoE ===
-    routing_input_parts = []
-
-    if cfg.use_composition_embedding:
-      composition_emb_layer = nn.Embed(
-        num_embeddings=cfg.max_num_elements,
-        features=cfg.sphere_channels,
-        name='composition_embedding',
+    if cfg.merged_mole:
+      expert_coefficients = jnp.zeros(
+        (charge.shape[0], cfg.num_experts), dtype=positions.dtype
       )
-      comp_per_atom = composition_emb_layer(atomic_numbers)
-      # Mean-pool composition per system via index_reduce mean
-      # include_self depends on model_version:
-      #   v1.0: include_self=True -> mean = sum / (N + 1)
-      #   v1.1+: include_self=False -> mean = sum / N
-      num_systems = charge.shape[0]
-      comp_sum = (
-        jnp.zeros((num_systems, cfg.sphere_channels))
-        .at[batch]
-        .add(comp_per_atom)
+    else:
+      # === Routing MLP for MoE ===
+      routing_input_parts = []
+
+      if cfg.use_composition_embedding:
+        composition_emb_layer = nn.Embed(
+          num_embeddings=cfg.max_num_elements,
+          features=cfg.sphere_channels,
+          name='composition_embedding',
+        )
+        comp_per_atom = composition_emb_layer(atomic_numbers)
+        # Mean-pool composition per system via index_reduce mean
+        # include_self depends on model_version:
+        #   v1.0: include_self=True -> mean = sum / (N + 1)
+        #   v1.1+: include_self=False -> mean = sum / N
+        num_systems = charge.shape[0]
+        comp_sum = (
+          jnp.zeros((num_systems, cfg.sphere_channels))
+          .at[batch]
+          .add(comp_per_atom)
+        )
+        atom_counts = jnp.zeros(num_systems).at[batch].add(1.0)
+        if cfg.model_version < 1.05:
+          composition = comp_sum / jnp.maximum(atom_counts[:, None] + 1.0, 1.0)
+        else:
+          composition = comp_sum / jnp.maximum(atom_counts[:, None], 1.0)
+
+        routing_input_parts.append(composition)
+
+      routing_input_parts.append(csd_mixed_emb)
+      routing_input = jnp.concatenate(routing_input_parts, axis=-1)
+
+      routing_mlp = RoutingMLP(
+        hidden_channels=cfg.routing_hidden_channels,
+        num_experts=cfg.num_experts,
+        dropout_rate=cfg.moe_dropout,
+        name='routing_mlp',
       )
-      atom_counts = jnp.zeros(num_systems).at[batch].add(1.0)
-      if cfg.model_version < 1.05:
-        composition = comp_sum / jnp.maximum(atom_counts[:, None] + 1.0, 1.0)
-      else:
-        composition = comp_sum / jnp.maximum(atom_counts[:, None], 1.0)
-
-      routing_input_parts.append(composition)
-
-    routing_input_parts.append(csd_mixed_emb)
-    routing_input = jnp.concatenate(routing_input_parts, axis=-1)
-
-    routing_mlp = RoutingMLP(
-      hidden_channels=cfg.routing_hidden_channels,
-      num_experts=cfg.num_experts,
-      dropout_rate=cfg.moe_dropout,
-      name='routing_mlp',
-    )
-    expert_coefficients = routing_mlp(routing_input, deterministic=True)
-
+      expert_coefficients = routing_mlp(routing_input, deterministic=True)
     # === Edge features ===
     edge_distance = jnp.linalg.norm(edge_distance_vec, axis=-1)
     dist_scaled = edge_distance / cfg.cutoff
@@ -723,6 +906,9 @@ class UMAMoEBackbone(nn.Module):
         to_grid_mat=self.so3_grid_lmax_lmax.to_grid_mat,
         from_grid_mat=self.so3_grid_lmax_lmax.from_grid_mat,
         mapping_to_m=self.mapping.to_m,
+        use_kernels=cfg.use_kernels,
+        merged_mole=cfg.merged_mole,
+        so2_block_gemm=cfg.so2_block_gemm,
         name=f'blocks_{i}',
       )
       x_message = block(
@@ -731,6 +917,8 @@ class UMAMoEBackbone(nn.Module):
         edge_index,
         wigner_and_M_mapping,
         wigner_and_M_mapping_inv,
+        wigner,
+        wigner_inv,
         edge_envelope,
         expert_coefficients,
         edge_batch,
@@ -764,6 +952,7 @@ class UMAMoEBackbone(nn.Module):
     return {
       'node_embedding': x_message,
       'batch': batch,
+      'expert_coefficients': expert_coefficients,
     }
 
 
@@ -887,6 +1076,9 @@ def _load_native(model_name: str, head_dataset: str):
       )
     ),
     spin_balanced_channels=tuple(cfg.get('spin_balanced_channels', ())),
+    merged_mole=cfg.get('merged_mole', False),
+    use_kernels=cfg.get('use_kernels', False),
+    so2_block_gemm=cfg.get('so2_block_gemm', False),
   )
 
   # Load params — unflatten from key/value pairs
@@ -1070,6 +1262,9 @@ def load_pretrained(
     model_version=float(get('model_version', 1.0)),
     charge_balanced_channels=tuple(get('charge_balanced_channels', ())),
     spin_balanced_channels=tuple(get('spin_balanced_channels', ())),
+    merged_mole=get('merged_mole', False),
+    use_kernels=bool(get('use_kernels', False)),
+    so2_block_gemm=get('so2_block_gemm', False),
   )
 
   _, params, metadata = convert_checkpoint(

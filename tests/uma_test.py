@@ -4,6 +4,7 @@ These tests verify the UMA model components and full forward pass work correctly
 """
 
 import os
+from dataclasses import replace
 
 from absl.testing import absltest
 
@@ -11,13 +12,22 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from jax_md import energy
+from jax_md import space
 from jax_md import test_util
 from jax_md._nn.uma.model import UMABackbone, UMAConfig
+from jax_md._nn.uma.model_moe import (
+  SO2MConvMoE,
+  UMAMoEConfig,
+  merge_mole_params,
+)
 from jax_md._nn.uma.heads import MLPEnergyHead, LinearForceHead
+from jax_md._nn.uma.nn.mole import MOLELinear
 from jax_md._nn.uma.nn.so2_layers import SO2MConv
 from jax_md._nn.uma.nn.so3_layers import SO3Linear
 from jax_md._nn.uma.nn.radial import PolynomialEnvelope, RadialMLP
 from jax_md._nn.uma.nn.layer_norm import EquivariantRMSNorm
+from jax_md._nn.uma.pretrained import extract_energy_correction
 from jax_md._nn.uma.nn.embedding import (
   DatasetEmbedding,
   dataset_names_to_indices,
@@ -32,6 +42,9 @@ from jax_md._nn.uma.common.so3 import (
   create_coefficient_mapping,
   create_so3_grid,
 )
+
+
+TEST_TOL = 1e-12
 
 
 def create_test_data(num_atoms=10, num_systems=2, cutoff=5.0, seed=42):
@@ -133,7 +146,7 @@ class WignerDTest(test_util.JAXMDTestCase):
     gamma = jnp.zeros(1)
     wigner = eulers_to_wigner((alpha, beta, gamma), 0, 2, Jd_list)
     expected = jnp.eye(9).reshape(1, 9, 9)
-    self.assertTrue(jnp.allclose(wigner, expected, atol=1e-5))
+    self.assertAllClose(wigner, expected, atol=TEST_TOL, rtol=TEST_TOL)
 
   def test_wigner_orthogonal(self):
     """Wigner D-matrices should be orthogonal (D @ D^T = I)."""
@@ -144,7 +157,7 @@ class WignerDTest(test_util.JAXMDTestCase):
     wigner = eulers_to_wigner((alpha, beta, gamma), 0, 2, Jd_list)
     product = jnp.einsum('bij,bkj->bik', wigner, wigner)
     expected = jnp.eye(9).reshape(1, 9, 9)
-    self.assertTrue(jnp.allclose(product, expected, atol=1e-5))
+    self.assertAllClose(product, expected, atol=TEST_TOL, rtol=TEST_TOL)
 
 
 class SO2MConvTest(test_util.JAXMDTestCase):
@@ -172,6 +185,186 @@ class SO2MConvTest(test_util.JAXMDTestCase):
     jit_apply = jax.jit(conv.apply)
     x_r, x_i = jit_apply(params, x)
     self.assertTrue(jnp.all(jnp.isfinite(x_r)))
+
+
+def manual_mole_linear(params, x, expert_coefficients, batch_indices, use_bias):
+  weights = params['params']['weights']
+  mixed_weights = jnp.einsum('eoi,be->boi', weights, expert_coefficients)
+  per_item_weights = mixed_weights[batch_indices]
+  if x.ndim == 2:
+    out = jnp.einsum('ni,noi->no', x, per_item_weights)
+  else:
+    out = jnp.einsum('nci,noi->nco', x, per_item_weights)
+  if use_bias:
+    out = out + params['params']['bias']
+  return out
+
+
+class MOLEInferencePathTest(test_util.JAXMDTestCase):
+  """Tests for UMA MoE inference helpers."""
+
+  def test_mole_linear_inference_paths_match_reference(self):
+    key = jax.random.PRNGKey(12)
+    keys = jax.random.split(key, 6)
+    cases = [
+      (
+        jax.random.normal(keys[0], (7, 5)),
+        jax.nn.softmax(jax.random.normal(keys[1], (1, 4)), axis=-1),
+        jnp.zeros((7,), dtype=jnp.int32),
+        True,
+      ),
+      (
+        jax.random.normal(keys[2], (8, 2, 5)),
+        jax.nn.softmax(jax.random.normal(keys[3], (2, 4)), axis=-1),
+        jnp.array([0, 0, 0, 0, 1, 1, 1, 1], dtype=jnp.int32),
+        False,
+      ),
+    ]
+    for x, coefficients, batch_indices, use_bias in cases:
+      layer = MOLELinear(4, 5, 6, use_bias=use_bias)
+      params = layer.init(keys[4], x, coefficients, batch_indices)
+      actual = layer.apply(params, x, coefficients, batch_indices)
+      expected = manual_mole_linear(
+        params, x, coefficients, batch_indices, use_bias
+      )
+      self.assertAllClose(actual, expected, atol=TEST_TOL, rtol=TEST_TOL)
+
+  def test_mole_linear_accepts_merged_weights(self):
+    key = jax.random.PRNGKey(14)
+    keys = jax.random.split(key, 4)
+    x = jax.random.normal(keys[0], (6, 5))
+    coefficients = jax.nn.softmax(jax.random.normal(keys[1], (1, 4)), axis=-1)
+    batch_indices = jnp.zeros((6,), dtype=jnp.int32)
+    layer = MOLELinear(4, 5, 6, use_bias=True)
+    params = layer.init(keys[2], x, coefficients, batch_indices)
+    expected = layer.apply(params, x, coefficients, batch_indices)
+    merged_params = {
+      'params': {
+        'weights': jnp.einsum(
+          'e,eoi->oi', coefficients[0], params['params']['weights']
+        ),
+        'bias': params['params']['bias'],
+      }
+    }
+    merged_layer = MOLELinear(4, 5, 6, use_bias=True, merged=True)
+    actual = merged_layer.apply(merged_params, x, coefficients, batch_indices)
+    self.assertAllClose(actual, expected, atol=TEST_TOL, rtol=TEST_TOL)
+
+  def test_so2_m_conv_block_gemm_matches_reference(self):
+    key = jax.random.PRNGKey(16)
+    keys = jax.random.split(key, 4)
+    x_m = jax.random.normal(keys[0], (5, 2, 6))
+    coefficients = jax.nn.softmax(jax.random.normal(keys[1], (1, 2)), axis=-1)
+    edge_batch = jnp.zeros((5,), dtype=jnp.int32)
+    ref = SO2MConvMoE(
+      m=1,
+      sphere_channels=3,
+      m_output_channels=4,
+      lmax=2,
+      num_experts=2,
+      so2_block_gemm=False,
+    )
+    block = SO2MConvMoE(
+      m=1,
+      sphere_channels=3,
+      m_output_channels=4,
+      lmax=2,
+      num_experts=2,
+      so2_block_gemm=True,
+    )
+    params = ref.init(keys[2], x_m, coefficients, edge_batch)
+    ref_out = ref.apply(params, x_m, coefficients, edge_batch)
+    block_out = block.apply(params, x_m, coefficients, edge_batch)
+    self.assertAllClose(block_out[0], ref_out[0], atol=TEST_TOL, rtol=TEST_TOL)
+    self.assertAllClose(block_out[1], ref_out[1], atol=TEST_TOL, rtol=TEST_TOL)
+
+    merged_params = merge_mole_params(params, coefficients)
+    merged_block = SO2MConvMoE(
+      m=1,
+      sphere_channels=3,
+      m_output_channels=4,
+      lmax=2,
+      num_experts=2,
+      merged_mole=True,
+      so2_block_gemm=True,
+    )
+    merged_out = merged_block.apply(
+      merged_params, x_m, coefficients, edge_batch
+    )
+    self.assertAllClose(merged_out[0], ref_out[0], atol=TEST_TOL, rtol=TEST_TOL)
+    self.assertAllClose(merged_out[1], ref_out[1], atol=TEST_TOL, rtol=TEST_TOL)
+
+  def test_extract_energy_correction_from_task_config(self):
+    tasks = [
+      {
+        'name': 'omat_energy',
+        'property': 'energy',
+        'datasets': ['omat'],
+        'normalizer': {'mean': 1.25, 'rmsd': 3.5},
+        'element_references': {
+          'element_references': {'_args_': [[0.0, -1.0, 2.0]]}
+        },
+      }
+    ]
+    correction = extract_energy_correction(tasks, 'omat')
+    self.assertAllClose(
+      correction['mean'], jnp.asarray(1.25, dtype=jnp.float32)
+    )
+    self.assertAllClose(correction['rmsd'], jnp.asarray(3.5, dtype=jnp.float32))
+    self.assertAllClose(
+      correction['element_refs'],
+      jnp.array([0.0, -1.0, 2.0], dtype=jnp.float32),
+    )
+
+  def test_uma_neighbor_list_merge_mole_matches_unmerged(self):
+    cfg = UMAMoEConfig(
+      sphere_channels=4,
+      lmax=1,
+      mmax=1,
+      num_layers=1,
+      hidden_channels=4,
+      cutoff=2.0,
+      edge_channels=4,
+      num_distance_basis=4,
+      ff_type='spectral',
+      use_dataset_embedding=False,
+      use_composition_embedding=False,
+      num_experts=2,
+      routing_hidden_channels=4,
+      use_kernels=False,
+    )
+    box = jnp.array([5.0, 5.0, 5.0], dtype=jnp.float32)
+    displacement_fn, _ = space.periodic(box)
+    atoms = jnp.array([1, 6, 8], dtype=jnp.int32)
+    position = jnp.array(
+      [[0.1, 0.1, 0.1], [0.8, 0.1, 0.1], [0.1, 0.9, 0.1]],
+      dtype=jnp.float32,
+    )
+    neighbor_fn, init_fn, energy_fn = energy.uma_neighbor_list(
+      displacement_fn,
+      box,
+      cfg=cfg,
+      atoms=atoms,
+      disable_cell_list=True,
+    )
+    _, merge_init_fn, merge_energy_fn = energy.uma_neighbor_list(
+      displacement_fn,
+      box,
+      cfg=cfg,
+      atoms=atoms,
+      merge_mole=True,
+      disable_cell_list=True,
+    )
+    neighbors = neighbor_fn.allocate(position)
+    key = jax.random.PRNGKey(15)
+    params = init_fn(key, position, neighbors)
+    merged_params = merge_init_fn(key, position, neighbors)
+    self.assertAllClose(
+      merge_energy_fn(merged_params, position, neighbors),
+      energy_fn(params, position, neighbors),
+      atol=TEST_TOL,
+      rtol=TEST_TOL,
+    )
 
 
 class SO3LinearTest(test_util.JAXMDTestCase):
@@ -704,12 +897,16 @@ class PyTorchComparisonTest(test_util.JAXMDTestCase):
     pt_rot = _load_pt_module('pt_rot', f'{_FAIRCHEM_SRC}/common/rotation.py')
     from jax_md._nn.uma.common.rotation import _z_rot_mat
 
-    angles = np.array([0.0, 0.7, -1.3, 3.14], dtype=np.float32)
+    angles = np.array([0.0, 0.7, -1.3, 3.14], dtype=np.float64)
     for l in range(4):
       M_pt = pt_rot._z_rot_mat(torch.tensor(angles), l).numpy()
       M_jax = np.array(_z_rot_mat(jnp.array(angles), l))
       np.testing.assert_allclose(
-        M_jax, M_pt, atol=1e-6, err_msg=f'_z_rot_mat mismatch at l={l}'
+        M_jax,
+        M_pt,
+        atol=TEST_TOL,
+        rtol=TEST_TOL,
+        err_msg=f'_z_rot_mat mismatch at l={l}',
       )
 
   def test_wigner_D_matches_pytorch(self):
@@ -722,13 +919,12 @@ class PyTorchComparisonTest(test_util.JAXMDTestCase):
     Jd_pt = torch.load(
       'jax_md/_nn/uma/Jd.pt', map_location='cpu', weights_only=False
     )
-    # Cast Jd to float32 to match angle dtype
-    Jd_pt = [J.float() for J in Jd_pt]
+    Jd_pt = [J.double() for J in Jd_pt]
     Jd_jax = load_jacobi_matrices_from_file(3)
 
-    alpha = np.array([0.5, -0.3], dtype=np.float32)
-    beta = np.array([0.8, 1.5], dtype=np.float32)
-    gamma = np.zeros(2, dtype=np.float32)
+    alpha = np.array([0.5, -0.3], dtype=np.float64)
+    beta = np.array([0.8, 1.5], dtype=np.float64)
+    gamma = np.zeros(2, dtype=np.float64)
 
     for l in range(4):
       D_pt = pt_rot.wigner_D(
@@ -740,7 +936,11 @@ class PyTorchComparisonTest(test_util.JAXMDTestCase):
         )
       )
       np.testing.assert_allclose(
-        D_jax, D_pt, atol=1e-5, err_msg=f'wigner_D mismatch at l={l}'
+        D_jax,
+        D_pt,
+        atol=TEST_TOL,
+        rtol=TEST_TOL,
+        err_msg=f'wigner_D mismatch at l={l}',
       )
 
   def test_coefficient_mapping_to_m_matches_pytorch(self):
@@ -783,7 +983,7 @@ class PyTorchComparisonTest(test_util.JAXMDTestCase):
     num_channels = num_coefficients * sc
     out_channels_half = moc * num_coefficients
 
-    pt_fc = tnn.Linear(num_channels, 2 * out_channels_half, bias=False)
+    pt_fc = tnn.Linear(num_channels, 2 * out_channels_half, bias=False).double()
 
     def pt_so2m_forward(x_m):
       x_m = pt_fc(x_m)
@@ -798,7 +998,7 @@ class PyTorchComparisonTest(test_util.JAXMDTestCase):
     )
 
     np.random.seed(123)
-    x_np = np.random.randn(7, 2, num_channels).astype(np.float32)
+    x_np = np.random.randn(7, 2, num_channels).astype(np.float64)
 
     key = jax.random.PRNGKey(0)
     jax_params = jax_conv.init(key, jnp.array(x_np))
@@ -815,12 +1015,14 @@ class PyTorchComparisonTest(test_util.JAXMDTestCase):
     np.testing.assert_allclose(
       np.array(jax_r),
       pt_r.numpy(),
-      atol=1e-5,
+      atol=TEST_TOL,
+      rtol=TEST_TOL,
     )
     np.testing.assert_allclose(
       np.array(jax_i),
       pt_i.numpy(),
-      atol=1e-5,
+      atol=TEST_TOL,
+      rtol=TEST_TOL,
     )
 
   def test_so3linear_matches_pytorch(self):
@@ -832,11 +1034,13 @@ class PyTorchComparisonTest(test_util.JAXMDTestCase):
     lmax, in_f, out_f = 2, 16, 8
     sph = (lmax + 1) ** 2
 
-    pt_lin = pt_so3l.SO3_Linear(in_features=in_f, out_features=out_f, lmax=lmax)
+    pt_lin = pt_so3l.SO3_Linear(
+      in_features=in_f, out_features=out_f, lmax=lmax
+    ).double()
     jax_lin = SO3Linear(out_features=out_f, lmax=lmax, use_bias=True)
 
     np.random.seed(77)
-    x_np = np.random.randn(4, sph, in_f).astype(np.float32)
+    x_np = np.random.randn(4, sph, in_f).astype(np.float64)
 
     key = jax.random.PRNGKey(0)
     jax_params = jax_lin.init(key, jnp.array(x_np))
@@ -852,7 +1056,7 @@ class PyTorchComparisonTest(test_util.JAXMDTestCase):
       pt_out = pt_lin(torch.tensor(x_np)).numpy()
     jax_out = np.array(jax_lin.apply(jax_params_loaded, jnp.array(x_np)))
 
-    np.testing.assert_allclose(jax_out, pt_out, atol=1e-6)
+    np.testing.assert_allclose(jax_out, pt_out, atol=TEST_TOL, rtol=TEST_TOL)
 
   def test_rms_norm_matches_pytorch(self):
     """EquivariantRMSNorm with copied weights should match PyTorch."""
@@ -863,11 +1067,16 @@ class PyTorchComparisonTest(test_util.JAXMDTestCase):
     lmax, ch = 2, 16
     sph = (lmax + 1) ** 2
 
-    pt_norm = pt_ln.EquivariantRMSNormArraySphericalHarmonicsV2(lmax, ch)
+    torch_default_dtype = torch.get_default_dtype()
+    torch.set_default_dtype(torch.float64)
+    try:
+      pt_norm = pt_ln.EquivariantRMSNormArraySphericalHarmonicsV2(lmax, ch)
+    finally:
+      torch.set_default_dtype(torch_default_dtype)
     jax_norm = EquivariantRMSNorm(lmax=lmax, num_channels=ch)
 
     np.random.seed(55)
-    x_np = np.random.randn(5, sph, ch).astype(np.float32)
+    x_np = np.random.randn(5, sph, ch).astype(np.float64)
 
     key = jax.random.PRNGKey(0)
     jax_params = jax_norm.init(key, jnp.array(x_np))
@@ -883,7 +1092,7 @@ class PyTorchComparisonTest(test_util.JAXMDTestCase):
       pt_out = pt_norm(torch.tensor(x_np)).numpy()
     jax_out = np.array(jax_norm.apply(jax_params_loaded, jnp.array(x_np)))
 
-    np.testing.assert_allclose(jax_out, pt_out, atol=1e-5)
+    np.testing.assert_allclose(jax_out, pt_out, atol=TEST_TOL, rtol=TEST_TOL)
 
   def test_euler_angles_match_pytorch(self):
     """Euler angle computation should match PyTorch (alpha, beta)."""
@@ -892,14 +1101,18 @@ class PyTorchComparisonTest(test_util.JAXMDTestCase):
     pt_rot = _load_pt_module('pt_rot', f'{_FAIRCHEM_SRC}/common/rotation.py')
 
     np.random.seed(99)
-    vecs = np.random.randn(20, 3).astype(np.float32)
+    vecs = np.random.randn(20, 3).astype(np.float64)
 
     g_pt, b_pt, a_pt = pt_rot.init_edge_rot_euler_angles(torch.tensor(vecs))
     g_jax, b_jax, a_jax = init_edge_rot_euler_angles(jnp.array(vecs))
 
     # alpha and beta should match; gamma differs (random vs zero)
-    np.testing.assert_allclose(np.array(b_jax), b_pt.numpy(), atol=1e-5)
-    np.testing.assert_allclose(np.array(a_jax), a_pt.numpy(), atol=1e-5)
+    np.testing.assert_allclose(
+      np.array(b_jax), b_pt.numpy(), atol=TEST_TOL, rtol=TEST_TOL
+    )
+    np.testing.assert_allclose(
+      np.array(a_jax), a_pt.numpy(), atol=TEST_TOL, rtol=TEST_TOL
+    )
 
 
 class EndToEndComparisonTest(test_util.JAXMDTestCase):
@@ -1083,6 +1296,498 @@ class EndToEndComparisonTest(test_util.JAXMDTestCase):
     emb = output['node_embedding']
     self.assertEqual(tuple(emb.shape), (10, 9, 64))
     self.assertTrue(torch.all(torch.isfinite(emb)))
+
+
+_UMA_FULL_TO_M = (0, 5, 1, 3, 8, 6, 2, 4, 7)
+_UMA_BLOCKS = ((0, 1), (1, 3), (4, 5))
+
+
+def _uma_node_to_edge_reference(x, edge_index, wigner):
+  sender = edge_index[0]
+  receiver = edge_index[1]
+  sender_valid = (sender >= 0) & (sender < x.shape[0])
+  receiver_valid = (receiver >= 0) & (receiver < x.shape[0])
+  sender = jnp.clip(sender, 0, x.shape[0] - 1)
+  receiver = jnp.clip(receiver, 0, x.shape[0] - 1)
+  xs = jnp.where(sender_valid[:, None, None], x[sender], 0.0)
+  xt = jnp.where(receiver_valid[:, None, None], x[receiver], 0.0)
+  ys = jnp.zeros((edge_index.shape[1], 9, x.shape[2]), dtype=x.dtype)
+  yt = jnp.zeros_like(ys)
+
+  for start, width in _UMA_BLOCKS:
+    for row in range(start, start + width):
+      y_s = jnp.zeros((edge_index.shape[1], x.shape[2]), dtype=x.dtype)
+      y_t = jnp.zeros_like(y_s)
+      for col in range(start, start + width):
+        w = wigner[:, row, col, None]
+        y_s = y_s + w * xs[:, col, :]
+        y_t = y_t + w * xt[:, col, :]
+      ys = ys.at[:, _UMA_FULL_TO_M[row], :].set(y_s)
+      yt = yt.at[:, _UMA_FULL_TO_M[row], :].set(y_t)
+  return jnp.concatenate([ys, yt], axis=2)
+
+
+def _uma_edge_to_node_reference(messages, edge_index, wigner_inv, num_nodes):
+  edge_messages = jnp.zeros(
+    (edge_index.shape[1], 9, messages.shape[2]), dtype=messages.dtype
+  )
+  for start, width in _UMA_BLOCKS:
+    for row in range(start, start + width):
+      y = jnp.zeros(
+        (edge_index.shape[1], messages.shape[2]), dtype=messages.dtype
+      )
+      for col in range(start, start + width):
+        y = (
+          y
+          + wigner_inv[:, row, col, None] * messages[:, _UMA_FULL_TO_M[col], :]
+        )
+      edge_messages = edge_messages.at[:, row, :].set(y)
+
+  receiver = edge_index[1]
+  receiver_valid = (receiver >= 0) & (receiver < num_nodes)
+  receiver = jnp.clip(receiver, 0, num_nodes - 1)
+  edge_messages = jnp.where(receiver_valid[:, None, None], edge_messages, 0.0)
+  return (
+    jnp.zeros((num_nodes, 9, messages.shape[2]), dtype=messages.dtype)
+    .at[receiver]
+    .add(edge_messages)
+  )
+
+
+class UMAKernelBackendTest(test_util.JAXMDTestCase):
+  """GPU-only UMA kernel backend parity checks."""
+
+  def test_pallas_wigner_kernels_match_jax(self):
+    if jax.default_backend() != 'gpu':
+      self.skipTest('Pallas GPU backend is not available.')
+    from jax_md._nn.uma import kernels
+
+    key = jax.random.PRNGKey(0)
+    kx, kw, km = jax.random.split(key, 3)
+    x = jax.random.normal(kx, (4, 9, 5))
+    wigner0 = jax.random.normal(kw, (6, 9, 9))
+    raw_wigner = (
+      jnp.zeros_like(wigner0)
+      .at[:, 0:1, 0:1]
+      .set(wigner0[:, 0:1, 0:1])
+      .at[:, 1:4, 1:4]
+      .set(wigner0[:, 1:4, 1:4])
+      .at[:, 4:9, 4:9]
+      .set(wigner0[:, 4:9, 4:9])
+    )
+    messages = jax.random.normal(km, (6, 9, 5))
+    edge_index = jnp.array(
+      [[0, 1, 2, 3, 0, 2], [1, 2, 3, 0, 2, 1]], dtype=jnp.int32
+    )
+    to_m = create_coefficient_mapping(2, 2).to_m
+    node_wigner = jnp.einsum('mk,ekj->emj', to_m, raw_wigner)
+    edge_wigner = jnp.einsum('ejk,mk->ejm', raw_wigner, to_m)
+    x_edge = jnp.concatenate([x[edge_index[0]], x[edge_index[1]]], axis=2)
+    expected_n2e = jnp.einsum('emj,ejc->emc', node_wigner, x_edge)
+    actual_n2e = kernels.node_to_edge_wigner_permute(x, edge_index, raw_wigner)
+    self.assertAllClose(actual_n2e, expected_n2e, atol=TEST_TOL, rtol=TEST_TOL)
+
+    edge_messages = jnp.einsum('ejm,emc->ejc', edge_wigner, messages)
+    expected_e2n = (
+      jnp.zeros((x.shape[0], 9, messages.shape[-1]))
+      .at[edge_index[1]]
+      .add(edge_messages)
+    )
+    actual_e2n = kernels.edge_to_node_wigner_inverse(
+      messages, edge_index, raw_wigner, x.shape[0]
+    )
+    self.assertAllClose(actual_e2n, expected_e2n, atol=TEST_TOL, rtol=TEST_TOL)
+
+  def test_pallas_wigner_kernel_transform_orders_match_jax(self):
+    if jax.default_backend() != 'gpu':
+      self.skipTest('Pallas GPU backend is not available.')
+    from jax_md._nn.uma import kernels
+
+    key = jax.random.PRNGKey(23)
+    kx, kw, km, ktx, ktw, ktm = jax.random.split(key, 6)
+    num_nodes, num_edges, channels = 3, 2, 1
+    x = 0.1 * jax.random.normal(kx, (num_nodes, 9, channels))
+    wigner0 = 0.1 * jax.random.normal(kw, (num_edges, 9, 9))
+    raw_wigner = (
+      jnp.zeros_like(wigner0)
+      .at[:, 0:1, 0:1]
+      .set(wigner0[:, 0:1, 0:1])
+      .at[:, 1:4, 1:4]
+      .set(wigner0[:, 1:4, 1:4])
+      .at[:, 4:9, 4:9]
+      .set(wigner0[:, 4:9, 4:9])
+    )
+    messages = 0.1 * jax.random.normal(km, (num_edges, 9, channels))
+    edge_index = jnp.array([[0, 1], [1, 2]], dtype=jnp.int32)
+
+    tx = 0.01 * jax.random.normal(ktx, x.shape)
+    tw = 0.01 * jax.random.normal(ktw, raw_wigner.shape)
+    tm = 0.01 * jax.random.normal(ktm, messages.shape)
+
+    def squared_loss(fn):
+      return lambda *args: jnp.sum(fn(*args) ** 2)
+
+    def forward_over_reverse_hvp(loss_fn, primals, tangents):
+      grad_fn = jax.grad(loss_fn, argnums=tuple(range(len(primals))))
+      return jax.jvp(lambda *args: grad_fn(*args), primals, tangents)[1]
+
+    def reverse_over_reverse_hvp(loss_fn, primals, tangents):
+      argnums = tuple(range(len(primals)))
+      grad_fn = jax.grad(loss_fn, argnums=argnums)
+
+      def grad_dot(*args):
+        return sum(
+          jnp.vdot(grad, tangent)
+          for grad, tangent in zip(grad_fn(*args), tangents)
+        )
+
+      return jax.grad(grad_dot, argnums=argnums)(*primals)
+
+    cases = (
+      (
+        squared_loss(
+          lambda x_, w_: _uma_node_to_edge_reference(x_, edge_index, w_)
+        ),
+        squared_loss(
+          lambda x_, w_: kernels.node_to_edge_wigner_permute(x_, edge_index, w_)
+        ),
+        (x, raw_wigner),
+        (tx, tw),
+        (jnp.stack([tx, 2.0 * tx]), jnp.stack([tw, -tw])),
+      ),
+      (
+        squared_loss(
+          lambda messages_, w_: _uma_edge_to_node_reference(
+            messages_, edge_index, w_, num_nodes
+          )
+        ),
+        squared_loss(
+          lambda messages_, w_: kernels.edge_to_node_wigner_inverse(
+            messages_, edge_index, w_, num_nodes
+          )
+        ),
+        (messages, raw_wigner),
+        (tm, tw),
+        (jnp.stack([tm, 2.0 * tm]), jnp.stack([tw, -tw])),
+      ),
+    )
+
+    for ref_loss, kernel_loss, primals, tangents, batched_tangents in cases:
+      argnums = tuple(range(len(primals)))
+      for transform in (
+        lambda fn: jax.grad(fn, argnums=argnums),
+        lambda fn: jax.hessian(fn, argnums=argnums),
+        lambda fn: jax.jacfwd(jax.jacrev(fn, argnums=argnums), argnums=argnums),
+        lambda fn: jax.jacrev(jax.jacfwd(fn, argnums=argnums), argnums=argnums),
+      ):
+        self.assertAllClose(
+          transform(kernel_loss)(*primals),
+          transform(ref_loss)(*primals),
+          atol=TEST_TOL,
+          rtol=TEST_TOL,
+        )
+
+      self.assertAllClose(
+        forward_over_reverse_hvp(kernel_loss, primals, tangents),
+        forward_over_reverse_hvp(ref_loss, primals, tangents),
+        atol=TEST_TOL,
+        rtol=TEST_TOL,
+      )
+
+      # Batched reverse-over-reverse HVPs exercise primitive batching rules.
+      actual_batched_hvp = jax.vmap(
+        lambda *batched_tangent: reverse_over_reverse_hvp(
+          kernel_loss, primals, batched_tangent
+        )
+      )(*batched_tangents)
+      expected_batched_hvp = jax.vmap(
+        lambda *batched_tangent: reverse_over_reverse_hvp(
+          ref_loss, primals, batched_tangent
+        )
+      )(*batched_tangents)
+      self.assertAllClose(
+        actual_batched_hvp,
+        expected_batched_hvp,
+        atol=TEST_TOL,
+        rtol=TEST_TOL,
+      )
+
+  def test_pallas_wigner_hessian_ignores_padded_edges(self):
+    if jax.default_backend() != 'gpu':
+      self.skipTest('Pallas GPU backend is not available.')
+    from jax_md._nn.uma import kernels
+
+    key = jax.random.PRNGKey(31)
+    kx, kw = jax.random.split(key)
+    x = 0.1 * jax.random.normal(kx, (3, 9, 1))
+    wigner0 = 0.1 * jax.random.normal(kw, (4, 9, 9))
+    raw_wigner = (
+      jnp.zeros_like(wigner0)
+      .at[:, 0:1, 0:1]
+      .set(wigner0[:, 0:1, 0:1])
+      .at[:, 1:4, 1:4]
+      .set(wigner0[:, 1:4, 1:4])
+      .at[:, 4:9, 4:9]
+      .set(wigner0[:, 4:9, 4:9])
+    )
+    edge_index = jnp.array([[0, -1, 2, 3], [1, 2, 3, -1]], dtype=jnp.int32)
+
+    def ref_loss(x_, w_):
+      out = _uma_node_to_edge_reference(x_, edge_index, w_)
+      return jnp.sum(out * out)
+
+    def kernel_loss(x_, w_):
+      out = kernels.node_to_edge_wigner_permute(x_, edge_index, w_)
+      return jnp.sum(out * out)
+
+    self.assertAllClose(
+      jax.hessian(kernel_loss, argnums=(0, 1))(x, raw_wigner),
+      jax.hessian(ref_loss, argnums=(0, 1))(x, raw_wigner),
+      atol=TEST_TOL,
+      rtol=TEST_TOL,
+    )
+
+  def test_pallas_edge_to_node_ignores_padded_edges(self):
+    if jax.default_backend() != 'gpu':
+      self.skipTest('Pallas GPU backend is not available.')
+    from jax_md._nn.uma import kernels
+
+    key = jax.random.PRNGKey(37)
+    km = jax.random.split(key, 1)[0]
+    num_nodes, num_edges, channels = 4, 4, 2
+    messages = jax.random.normal(km, (num_edges, 9, channels))
+    raw_wigner = jnp.broadcast_to(jnp.eye(9), (num_edges, 9, 9))
+    edge_index = jnp.array([[0, 1, 2, 3], [1, -1, 3, 10]], dtype=jnp.int32)
+
+    expected = _uma_edge_to_node_reference(
+      messages, edge_index, raw_wigner, num_nodes
+    )
+    actual = kernels.edge_to_node_wigner_inverse(
+      messages, edge_index, raw_wigner, num_nodes
+    )
+    self.assertAllClose(actual, expected, atol=TEST_TOL, rtol=TEST_TOL)
+
+    def kernel_loss(messages_, w_):
+      out = kernels.edge_to_node_wigner_inverse(
+        messages_, edge_index, w_, num_nodes
+      )
+      return jnp.sum(out * out)
+
+    def ref_loss(messages_, w_):
+      out = _uma_edge_to_node_reference(messages_, edge_index, w_, num_nodes)
+      return jnp.sum(out * out)
+
+    self.assertAllClose(
+      jax.grad(kernel_loss, argnums=(0, 1))(messages, raw_wigner),
+      jax.grad(ref_loss, argnums=(0, 1))(messages, raw_wigner),
+      atol=TEST_TOL,
+      rtol=TEST_TOL,
+    )
+
+  def test_pallas_wigner_zero_edge_gradients(self):
+    from jax_md._nn.uma import kernels
+
+    num_nodes, channels = 3, 2
+    x = jnp.ones((num_nodes, 9, channels), dtype=jnp.float32)
+    messages = jnp.ones((0, 9, channels), dtype=jnp.float32)
+    raw_wigner = jnp.zeros((0, 9, 9), dtype=jnp.float32)
+    edge_index = jnp.zeros((2, 0), dtype=jnp.int32)
+
+    def n2e_loss(x_, w_):
+      out = kernels.node_to_edge_wigner_permute(x_, edge_index, w_)
+      self.assertEqual(out.shape, (0, 9, 2 * channels))
+      return jnp.sum(out * out)
+
+    def e2n_loss(messages_, w_):
+      out = kernels.edge_to_node_wigner_inverse(
+        messages_, edge_index, w_, num_nodes
+      )
+      self.assertEqual(out.shape, (num_nodes, 9, channels))
+      return jnp.sum(out * out)
+
+    gx, gw_n2e = jax.grad(n2e_loss, argnums=(0, 1))(x, raw_wigner)
+    gm, gw_e2n = jax.grad(e2n_loss, argnums=(0, 1))(messages, raw_wigner)
+    self.assertAllClose(gx, jnp.zeros_like(x), atol=TEST_TOL, rtol=TEST_TOL)
+    self.assertEqual(gw_n2e.shape, raw_wigner.shape)
+    self.assertEqual(gm.shape, messages.shape)
+    self.assertEqual(gw_e2n.shape, raw_wigner.shape)
+
+  def test_edgewise_fallback_ignores_invalid_targets(self):
+    from jax_md._nn.uma.blocks import Edgewise
+
+    key = jax.random.PRNGKey(41)
+    num_nodes, channels = 4, 2
+    x = jax.random.normal(key, (num_nodes, 9, channels))
+    x_shifted = x.at[-1].add(10.0)
+    x_edge = jnp.ones((3, 4), dtype=x.dtype)
+    edge_index = jnp.array([[0, 1, -1], [1, -1, 2]], dtype=jnp.int32)
+    wigner = jnp.broadcast_to(jnp.eye(9, dtype=x.dtype), (3, 9, 9))
+    edge_envelope = jnp.ones((3, 1, 1), dtype=x.dtype)
+    mapping = create_coefficient_mapping(2, 2)
+    edgewise = Edgewise(
+      sphere_channels=channels,
+      hidden_channels=2,
+      lmax=2,
+      mmax=2,
+      edge_channels_list=[4],
+      m_size=list(mapping.m_size),
+      use_kernels=False,
+    )
+    params = edgewise.init(
+      key,
+      x,
+      x_edge,
+      edge_index,
+      wigner,
+      wigner,
+      None,
+      None,
+      edge_envelope,
+    )
+
+    actual = edgewise.apply(
+      params,
+      x,
+      x_edge,
+      edge_index,
+      wigner,
+      wigner,
+      None,
+      None,
+      edge_envelope,
+    )
+    actual_shifted = edgewise.apply(
+      params,
+      x_shifted,
+      x_edge,
+      edge_index,
+      wigner,
+      wigner,
+      None,
+      None,
+      edge_envelope,
+    )
+    self.assertAllClose(
+      actual[3], jnp.zeros_like(actual[3]), atol=TEST_TOL, rtol=TEST_TOL
+    )
+    self.assertAllClose(
+      actual[2], actual_shifted[2], atol=TEST_TOL, rtol=TEST_TOL
+    )
+
+  def test_edgewise_moe_fallback_ignores_invalid_targets(self):
+    from jax_md._nn.uma.model_moe import EdgewiseMoE
+
+    key = jax.random.PRNGKey(43)
+    num_nodes, channels = 4, 2
+    x = jax.random.normal(key, (num_nodes, 9, channels))
+    x_shifted = x.at[-1].add(10.0)
+    x_edge = jnp.ones((3, 4), dtype=x.dtype)
+    edge_index = jnp.array([[0, 1, -1], [1, -1, 2]], dtype=jnp.int32)
+    wigner = jnp.broadcast_to(jnp.eye(9, dtype=x.dtype), (3, 9, 9))
+    edge_envelope = jnp.ones((3, 1, 1), dtype=x.dtype)
+    expert_coefficients = jnp.array([[0.25, 0.75]], dtype=x.dtype)
+    edge_batch = jnp.zeros((3,), dtype=jnp.int32)
+    mapping = create_coefficient_mapping(2, 2)
+    edgewise = EdgewiseMoE(
+      sphere_channels=channels,
+      hidden_channels=2,
+      lmax=2,
+      mmax=2,
+      edge_channels_list=[4],
+      m_size=list(mapping.m_size),
+      num_experts=2,
+      use_kernels=False,
+    )
+    params = edgewise.init(
+      key,
+      x,
+      x_edge,
+      edge_index,
+      wigner,
+      wigner,
+      None,
+      None,
+      edge_envelope,
+      expert_coefficients,
+      edge_batch,
+    )
+
+    actual = edgewise.apply(
+      params,
+      x,
+      x_edge,
+      edge_index,
+      wigner,
+      wigner,
+      None,
+      None,
+      edge_envelope,
+      expert_coefficients,
+      edge_batch,
+    )
+    actual_shifted = edgewise.apply(
+      params,
+      x_shifted,
+      x_edge,
+      edge_index,
+      wigner,
+      wigner,
+      None,
+      None,
+      edge_envelope,
+      expert_coefficients,
+      edge_batch,
+    )
+    self.assertAllClose(
+      actual[3], jnp.zeros_like(actual[3]), atol=TEST_TOL, rtol=TEST_TOL
+    )
+    self.assertAllClose(
+      actual[2], actual_shifted[2], atol=TEST_TOL, rtol=TEST_TOL
+    )
+
+  def test_pallas_backbone_matches_jax(self):
+    if jax.default_backend() != 'gpu':
+      self.skipTest('Pallas GPU backend is not available.')
+    inputs = (
+      jnp.array(
+        [[0.0, 0.0, 0.0], [0.7, 0.1, 0.0], [0.1, 0.8, 0.1]],
+        dtype=jnp.float32,
+      ),
+      jnp.array([1, 6, 8], dtype=jnp.int32),
+      jnp.zeros(3, dtype=jnp.int32),
+      jnp.array([[0, 1, 2, 0], [1, 2, 0, 2]], dtype=jnp.int32),
+      jnp.array(
+        [
+          [-0.7, -0.1, 0.0],
+          [0.6, -0.7, 0.0],
+          [0.1, 0.8, 0.1],
+          [-0.1, -0.8, -0.1],
+        ],
+        dtype=jnp.float32,
+      ),
+      jnp.zeros(1, dtype=jnp.float32),
+      jnp.zeros(1, dtype=jnp.float32),
+      jnp.zeros(1, dtype=jnp.int32),
+    )
+    cfg = UMAConfig(
+      sphere_channels=4,
+      lmax=2,
+      mmax=2,
+      num_layers=1,
+      hidden_channels=4,
+      cutoff=3.0,
+      edge_channels=4,
+      num_distance_basis=4,
+      ff_type='spectral',
+      use_dataset_embedding=False,
+      use_kernels=False,
+    )
+    jax_model = UMABackbone(config=cfg)
+    pallas_model = UMABackbone(config=replace(cfg, use_kernels=True))
+    params = jax_model.init(jax.random.PRNGKey(17), *inputs)
+    jax_out = jax_model.apply(params, *inputs)['node_embedding']
+    pallas_out = pallas_model.apply(params, *inputs)['node_embedding']
+    self.assertAllClose(pallas_out, jax_out, atol=TEST_TOL, rtol=TEST_TOL)
 
 
 if __name__ == '__main__':
