@@ -172,7 +172,7 @@ def _apply_combinator(indices: Array, param: Parameter, combinator: Callable):
 
 def _kwargs_to_interaction_parameters(
   indices: Array,
-  interaction_type: Optional[Array],
+  interaction_type: Array | None,
   kwargs: Dict[str, Parameter],
   combinators: Dict[str, Callable],
 ) -> Dict[str, Array]:
@@ -188,8 +188,8 @@ def _kwargs_to_interaction_parameters(
 def bond(
   fn: Callable[..., Array],
   displacement_or_metric: DisplacementOrMetricFn,
-  static_bonds: Optional[Array] = None,
-  static_bond_types: Optional[Array] = None,
+  static_bonds: Array | None = None,
+  static_bond_types: Array | None = None,
   ignore_unused_parameters: bool = False,
   **kwargs,
 ) -> Callable[..., Array]:
@@ -268,8 +268,8 @@ def bond(
 
   def mapped_fn(
     R: Array,
-    bonds: Optional[Array] = None,
-    bond_types: Optional[Array] = None,
+    bonds: Array | None = None,
+    bond_types: Array | None = None,
     **dynamic_kwargs,
   ) -> Array:
     accum = f32(0)
@@ -431,8 +431,8 @@ def _split_params_and_combinators(kwargs):
 def angle(
   fn: Callable[..., Array],
   displacement_or_metric: DisplacementOrMetricFn,
-  static_angles: Optional[Array] = None,
-  static_angle_types: Optional[Array] = None,
+  static_angles: Array | None = None,
+  static_angle_types: Array | None = None,
   ignore_unused_parameters: bool = False,
   **kwargs,
 ) -> Callable[..., PyTree]:
@@ -464,8 +464,8 @@ def angle(
 
   def mapped_fn(
     R: Array,
-    angles: Optional[Array] = None,
-    angle_types: Optional[Array] = None,
+    angles: Array | None = None,
+    angle_types: Array | None = None,
     **dynamic_kwargs,
   ):
     accum = f32(0)
@@ -483,8 +483,8 @@ def angle(
 def torsion(
   fn: Callable[..., Array],
   displacement_or_metric: DisplacementOrMetricFn,
-  static_torsions: Optional[Array] = None,
-  static_torsion_types: Optional[Array] = None,
+  static_torsions: Array | None = None,
+  static_torsion_types: Array | None = None,
   ignore_unused_parameters: bool = False,
   **kwargs,
 ) -> Callable[..., PyTree]:
@@ -518,8 +518,8 @@ def torsion(
 
   def mapped_fn(
     R: Array,
-    torsions: Optional[Array] = None,
-    torsion_types: Optional[Array] = None,
+    torsions: Array | None = None,
+    torsion_types: Array | None = None,
     **dynamic_kwargs,
   ):
     accum = f32(0)
@@ -539,8 +539,8 @@ def torsion(
 def pair(
   fn: Callable[..., Array],
   displacement_or_metric: DisplacementOrMetricFn,
-  species: Optional[Array] = None,
-  reduce_axis: Optional[Tuple[int, ...]] = None,
+  species: Array | None = None,
+  reduce_axis: Tuple[int, ...] | None = None,
   keepdims: bool = False,
   ignore_unused_parameters: bool = False,
   **kwargs,
@@ -837,8 +837,8 @@ def _vectorized_cond(
 def pair_neighbor_list(
   fn: Callable[..., Array],
   displacement_or_metric: DisplacementOrMetricFn,
-  species: Optional[Array] = None,
-  reduce_axis: Optional[Tuple[int, ...]] = None,
+  species: Array | None = None,
+  reduce_axis: Tuple[int, ...] | None = None,
   ignore_unused_parameters: bool = False,
   **kwargs,
 ) -> Callable[..., Array]:
@@ -963,8 +963,8 @@ def pair_neighbor_list(
 def triplet(
   fn: Callable[..., Array],
   displacement_or_metric: DisplacementOrMetricFn,
-  species: Optional[Array] = None,
-  reduce_axis: Optional[Tuple[int, ...]] = None,
+  species: Array | None = None,
+  reduce_axis: Tuple[int, ...] | None = None,
   keepdims: bool = False,
   ignore_unused_parameters: bool = False,
   **kwargs,

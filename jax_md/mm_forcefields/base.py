@@ -35,11 +35,11 @@ class Topology(NamedTuple):
   impropers: Array
   exclusion_mask: Array
   pair_14_mask: Array
-  molecule_id: Optional[Array] = None
-  cmap_atoms: Optional[Array] = None
-  cmap_map_idx: Optional[Array] = None
-  exc_pairs: Optional[Array] = None
-  nbfix_atom_type: Optional[Array] = None
+  molecule_id: Array | None = None
+  cmap_atoms: Array | None = None
+  cmap_map_idx: Array | None = None
+  exc_pairs: Array | None = None
+  nbfix_atom_type: Array | None = None
 
 
 class BondedParameters(NamedTuple):
@@ -71,7 +71,7 @@ class BondedParameters(NamedTuple):
   improper_k: Array
   improper_n: Array
   improper_gamma: Array
-  cmap_maps: Optional[Array] = None
+  cmap_maps: Array | None = None
 
 
 class NonbondedParameters(NamedTuple):
@@ -91,11 +91,11 @@ class NonbondedParameters(NamedTuple):
   charges: Array
   sigma: Array
   epsilon: Array
-  exc_charge_prod: Optional[Array] = None
-  exc_sigma: Optional[Array] = None
-  exc_epsilon: Optional[Array] = None
-  nbfix_acoef: Optional[Array] = None
-  nbfix_bcoef: Optional[Array] = None
+  exc_charge_prod: Array | None = None
+  exc_sigma: Array | None = None
+  exc_epsilon: Array | None = None
+  nbfix_acoef: Array | None = None
+  nbfix_bcoef: Array | None = None
 
 
 class NonbondedOptions(NamedTuple):

@@ -137,15 +137,15 @@ class OpenMMSystem(NamedTuple):
   positions: Array
   topology: Topology
   params: Parameters
-  box_vectors: Optional[Array]
+  box_vectors: Array | None
   nb_options: NonbondedOptions
-  recip_alpha: Optional[float]
-  recip_grid: Optional[Array]
-  ewald_error_tolerance: Optional[float]
-  masses: Optional[Array]
-  virtual_sites: Optional[VirtualSiteData]
-  constraint_idx: Optional[Array]
-  constraint_dist: Optional[Array]
+  recip_alpha: float | None
+  recip_grid: Array | None
+  ewald_error_tolerance: float | None
+  masses: Array | None
+  virtual_sites: VirtualSiteData | None
+  constraint_idx: Array | None
+  constraint_dist: Array | None
 
 
 # TODO test more rigorously to make sure these error messages occur as expected
@@ -170,7 +170,7 @@ def _maybe_import_parmed() -> None:
 def load_amber_system(
   prmtop_path: str,
   inpcrd_path: str,
-  nb_method: Optional[NonbondedMethod] = None,
+  nb_method: NonbondedMethod | None = None,
   **kwargs: Any,
 ) -> tuple[Any, Any, Any, Any]:
   """Load Amber inputs and build an OpenMM System."""
@@ -216,8 +216,8 @@ def load_charmm_system(
   crd_path: str,
   psf_path: str,
   param_paths: Sequence[str],
-  nb_method: Optional[NonbondedMethod] = None,
-  sys_info: Optional[str] = None,
+  nb_method: NonbondedMethod | None = None,
+  sys_info: str | None = None,
   **kwargs: Any,
 ) -> tuple[Any, Any, Any, Any]:
   # param_paths is list of files with extensions such as par, prm, top, rtf, inp, and str
@@ -247,7 +247,7 @@ def load_charmm_system(
 def load_gromacs_system(
   gro_path: str,
   top_path: str,
-  nb_method: Optional[NonbondedMethod] = None,
+  nb_method: NonbondedMethod | None = None,
   **kwargs: Any,
 ) -> tuple[Any, Any, Any, Any]:
   _maybe_import_omm()
@@ -279,12 +279,12 @@ def load_tinker_system() -> None:
 def load_generator_system(
   topology: Any,
   generator: Any = None,
-  nb_method: Optional[NonbondedMethod] = None,
-  molecules: Optional[Sequence[Any]] = None,
-  forcefield_files: Optional[Sequence[str]] = None,
+  nb_method: NonbondedMethod | None = None,
+  molecules: Sequence[Any] | None = None,
+  forcefield_files: Sequence[str] | None = None,
   small_molecule_forcefield: str = 'gaff-2.11',
-  generator_kwargs: Optional[Mapping[str, Any]] = None,
-  create_system_kwargs: Optional[Mapping[str, Any]] = None,
+  generator_kwargs: Mapping[str, Any] | None = None,
+  create_system_kwargs: Mapping[str, Any] | None = None,
 ) -> Any:
   """Load a system using OpenMM SystemGenerator (e.g. OpenMMForceFields/OpenFF).
 
@@ -331,8 +331,8 @@ def load_generator_system(
 
 def load_parmed_system(
   structure: Any,
-  param_files: Optional[Sequence[str]] = None,
-  nb_method: Optional[NonbondedMethod] = None,
+  param_files: Sequence[str] | None = None,
+  nb_method: NonbondedMethod | None = None,
   **kwargs: Any,
 ) -> tuple[Any, Any, Any, Any]:
   """Load a system via ParmEd and convert to OpenMM.
@@ -370,7 +370,7 @@ def convert_openmm_system(
   topology: Any,
   positions: Any,
   box_vectors: Any,
-  r_cut: Optional[float] = None,
+  r_cut: float | None = None,
   dr_threshold: float = 0.0,
   format: partition.NeighborListFormat = partition.NeighborListFormat.OrderedSparse,
   precision: str = 'double',
@@ -1019,10 +1019,10 @@ def get_ewald_parameters() -> None:
 
 def virtual_site_apply_positions(
   pos: Array,
-  virtual_sites: Optional[VirtualSiteData],
+  virtual_sites: VirtualSiteData | None,
   displacement_fn: Any,
   shift_fn: Any,
-  box: Optional[Array] = None,
+  box: Array | None = None,
   use_periodic_general: bool = False,
 ) -> Array:
   """Overwrite virtual-site particle positions from parent atoms.
@@ -1133,10 +1133,10 @@ def virtual_site_apply_positions(
 
 def virtual_site_fix_state(
   state: simulate.NVEState,
-  virtual_sites: Optional[VirtualSiteData],
+  virtual_sites: VirtualSiteData | None,
   displacement_fn: Any,
   shift_fn: Any,
-  box: Optional[Array] = None,
+  box: Array | None = None,
   use_periodic_general: bool = False,
 ) -> simulate.NVEState:
   """Make an NVEState safe to integrate with massless virtual sites.

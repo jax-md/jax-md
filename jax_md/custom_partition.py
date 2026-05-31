@@ -662,7 +662,7 @@ def estimate_max_neighbors_from_box(
   r_cutoff: float,
   n_atoms: int,
   safety_factor: float = 2.0,
-  pbc: Optional[Array] = None,  # [dim]
+  pbc: Array | None = None,  # [dim]
 ) -> int:
   r"""Estimate maximum neighbors per atom from box and atom count.
 
@@ -774,7 +774,7 @@ def neighbor_list_multi_image(
   r_cutoff: float,
   dr_threshold: float = 0.0,
   capacity_multiplier: float = 1.25,
-  pbc: Optional[Array] = None,  # [dim]
+  pbc: Array | None = None,  # [dim]
   fractional_coordinates: bool = True,
   ordered: bool = False,
   format: NeighborListFormat = NeighborListFormat.Sparse,
@@ -1013,7 +1013,7 @@ def neighbor_list_multi_image(
 
   def neighbor_list_fn(
     position: Array,  # [N, dim]
-    neighbors: Optional[NeighborListMultiImage] = None,
+    neighbors: NeighborListMultiImage | None = None,
     **kwargs,
   ) -> NeighborListMultiImage:
     """Build or update neighbor list.
@@ -1032,6 +1032,8 @@ def neighbor_list_multi_image(
     if neighbors is None:
       # First call: allocate with capacity computed from position
       return allocate_fn(position, **kwargs)
+
+    position = position.astype(neighbors.reference_position.dtype)
 
     # Update: reuse existing capacity and precomputed integer shifts.
     # Real-space shifts (shifts @ box.T) are recomputed inside build_fn

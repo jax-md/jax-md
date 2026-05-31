@@ -31,12 +31,12 @@ def create_parameters(
   charges: Array,
   sigma: Array,
   epsilon: Array,
-  cmap_maps: Optional[Array] = None,
-  exc_charge_prod: Optional[Array] = None,
-  exc_sigma: Optional[Array] = None,
-  exc_epsilon: Optional[Array] = None,
-  nbfix_acoef: Optional[Array] = None,
-  nbfix_bcoef: Optional[Array] = None,
+  cmap_maps: Array | None = None,
+  exc_charge_prod: Array | None = None,
+  exc_sigma: Array | None = None,
+  exc_epsilon: Array | None = None,
+  nbfix_acoef: Array | None = None,
+  nbfix_bcoef: Array | None = None,
 ) -> Parameters:
   """Create OPLSAA parameters.
 

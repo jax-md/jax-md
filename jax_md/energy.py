@@ -27,7 +27,16 @@ from jax import ops
 from jax.tree_util import tree_map
 from jax import vmap
 from jax.scipy.special import erfc  # error function
-from jax_md import space, smap, partition, nn, quantity, interpolate, util
+from jax_md import (
+  custom_partition,
+  space,
+  smap,
+  partition,
+  nn,
+  quantity,
+  interpolate,
+  util,
+)
 
 from ml_collections import ConfigDict
 
@@ -90,7 +99,7 @@ def simple_spring(
 def simple_spring_bond(
   displacement_or_metric: DisplacementOrMetricFn,
   bond: Array,
-  bond_type: Optional[Array] = None,
+  bond_type: Array | None = None,
   length: Array = 1,
   epsilon: Array = 1,
   alpha: Array = 2,
@@ -164,7 +173,7 @@ def soft_sphere(
 
 def soft_sphere_pair(
   displacement_or_metric: DisplacementOrMetricFn,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   sigma: Array = 1.0,
   epsilon: Array = 1.0,
   alpha: Array = 2.0,
@@ -189,7 +198,7 @@ def soft_sphere_pair(
 def soft_sphere_neighbor_list(
   displacement_or_metric: DisplacementOrMetricFn,
   box_size: Box,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   sigma: Array = 1.0,
   epsilon: Array = 1.0,
   alpha: Array = 2.0,
@@ -260,7 +269,7 @@ def lennard_jones(
 
 def lennard_jones_pair(
   displacement_or_metric: DisplacementOrMetricFn,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   sigma: Array = 1.0,
   epsilon: Array = 1.0,
   r_onset: Array = 2.0,
@@ -286,7 +295,7 @@ def lennard_jones_pair(
 def lennard_jones_neighbor_list(
   displacement_or_metric: DisplacementOrMetricFn,
   box_size: Box,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   sigma: Array = 1.0,
   epsilon: Array = 1.0,
   r_onset: float = 2.0,
@@ -359,7 +368,7 @@ def morse(
 
 def morse_pair(
   displacement_or_metric: DisplacementOrMetricFn,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   sigma: Array = 1.0,
   epsilon: Array = 5.0,
   alpha: Array = 5.0,
@@ -386,7 +395,7 @@ def morse_pair(
 def morse_neighbor_list(
   displacement_or_metric: DisplacementOrMetricFn,
   box_size: Box,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   sigma: Array = 1.0,
   epsilon: Array = 5.0,
   alpha: Array = 5.0,
@@ -1220,7 +1229,7 @@ def _ters_repulsive(A: f64, lam1: f64, R: f64, D: f64, dr: Array) -> Array:
 def tersoff(
   displacement: DisplacementFn,
   params: Array,
-  species: Optional[Array] = None,
+  species: Array | None = None,
 ) -> Callable[[Array], Array]:
   """Computes the Tersoff potential.
 
@@ -1302,7 +1311,7 @@ def tersoff_neighbor_list(
   displacement: DisplacementFn,
   box_size: float,
   params: Array,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   dr_threshold: float = 0.5,
   disable_cell_list: bool = False,
   fractional_coordinates: bool = True,
@@ -1747,7 +1756,7 @@ def eam(
   charge_fn: Callable[[Array], Array],
   embedding_fn: Callable[[Array], Array],
   pairwise_fn: Callable[[Array], Array],
-  axis: Optional[Tuple[int, ...]] = None,
+  axis: Tuple[int, ...] | None = None,
 ) -> Callable[[Array], Array]:
   """.. _eam-pot:
 
@@ -1831,7 +1840,7 @@ def eam_neighbor_list(
   pairwise_fn: Callable[[Array], Array],
   cutoff: float,
   dr_threshold: float = 0.5,
-  axis: Optional[Tuple[int, ...]] = None,
+  axis: Tuple[int, ...] | None = None,
   fractional_coordinates: bool = True,
   format: partition.NeighborListFormat = partition.Sparse,
   neighbor_list_fn: Callable = partition.neighbor_list,
@@ -1951,9 +1960,9 @@ def behler_parrinello(
   displacement: DisplacementFn,
   *,
   key: jax.Array,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   mlp_sizes: Tuple[int, ...] = (30, 30),
-  sym_kwargs: Optional[Dict[str, Any]] = None,
+  sym_kwargs: Dict[str, Any] | None = None,
   per_particle: bool = False,
   spatial_dimension: int = 3,
   activation: Callable = jnp.tanh,
@@ -2002,9 +2011,9 @@ def behler_parrinello_neighbor_list(
   box_size: float,
   *,
   key: jax.Array,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   mlp_sizes: Tuple[int, ...] = (30, 30),
-  sym_kwargs: Optional[Dict[str, Any]] = None,
+  sym_kwargs: Dict[str, Any] | None = None,
   dr_threshold: float = 0.5,
   fractional_coordinates: bool = False,
   format: partition.NeighborListFormat = partition.Sparse,
@@ -2103,7 +2112,7 @@ class EnergyGraphNet(nnx.Module):
     bias_init: Callable = nn.DEFAULT_BIAS_INIT,
     format: partition.NeighborListFormat = partition.Dense,
     dr_threshold: float = 0.0,
-    nodes: Optional[Array] = None,
+    nodes: Array | None = None,
   ):
     rngs = nnx.Rngs(key)
 
@@ -2160,7 +2169,7 @@ class EnergyGraphNet(nnx.Module):
     return output
 
 
-def canonicalize_node_state(nodes: Optional[Array]) -> Optional[Array]:
+def canonicalize_node_state(nodes: Array | None) -> Array | None:
   if nodes is None:
     return nodes
 
@@ -2176,8 +2185,8 @@ def canonicalize_node_state(nodes: Optional[Array]) -> Optional[Array]:
 
 
 def node_state_or_default(
-  nodes: Optional[Array], R: Array, kwargs: Dict[str, Any]
-) -> Optional[Array]:
+  nodes: Array | None, R: Array, kwargs: Dict[str, Any]
+) -> Array | None:
   if 'nodes' in kwargs:
     return canonicalize_node_state(kwargs['nodes'])
   return jnp.zeros((R.shape[0], 1), R.dtype) if nodes is None else nodes
@@ -2186,7 +2195,7 @@ def node_state_or_default(
 def dense_graph_input(
   displacement_fn: DisplacementFn,
   r_cutoff: float,
-  nodes: Optional[Array],
+  nodes: Array | None,
   R: Array,
   **kwargs,
 ) -> nn.GraphsTuple:
@@ -2209,7 +2218,7 @@ def neighbor_graph_input(
   r_cutoff: float,
   dr_threshold: float,
   format: partition.NeighborListFormat,
-  nodes: Optional[Array],
+  nodes: Array | None,
   R: Array,
   neighbor: NeighborList,
   **kwargs,
@@ -2254,7 +2263,7 @@ def graph_network(
   r_cutoff: float,
   *,
   key: jax.Array,
-  nodes: Optional[Array] = None,
+  nodes: Array | None = None,
   spatial_dimension: int = 3,
   n_recurrences: int = 2,
   mlp_sizes: Tuple[int, ...] = (64, 64),
@@ -2311,7 +2320,7 @@ def graph_network_neighbor_list(
   dr_threshold: float,
   *,
   key: jax.Array,
-  nodes: Optional[Array] = None,
+  nodes: Array | None = None,
   spatial_dimension: int = 3,
   n_recurrences: int = 2,
   mlp_sizes: Tuple[int, ...] = (64, 64),
@@ -2503,5 +2512,412 @@ def load_gnome_model_neighbor_list(
       raise ValueError('A one-hot encoding of the atoms is required.')
     graph = featurizer(_atoms, position, neighbor, **kwargs)
     return model.apply(params, graph)[0, 0]
+
+  return neighbor_fn, energy_fn
+
+
+def uma_neighbor_list(
+  displacement_fn,
+  box,
+  cfg=None,
+  atoms=None,
+  checkpoint_path=None,
+  head_type='mlp',
+  neighbor_list_fn: Callable = custom_partition.neighbor_list_multi_image,
+  featurizer_fn: Callable | None = None,
+  charge=None,
+  spin=None,
+  dataset_idx=None,
+  head_dataset='omat',
+  apply_atom_refs=True,
+  atom_refs=None,
+  use_kernels=True,
+  merge_mole=None,
+  so2_block_gemm=None,
+  **nl_kwargs,
+):
+  """Convenience wrapper to compute UMA energy using a neighbor list.
+
+  This follows the standard JAX-MD pattern of returning
+  (neighbor_fn, init_fn, energy_fn). Forces can be computed via
+  ``jax.grad(energy_fn)`` which ensures energy conservation.
+
+  Args:
+    displacement_fn: Displacement function from ``jax_md.space``.
+    box: Box matrix with columns as lattice vectors, shape ``(dim, dim)``.
+    cfg: ``UMAConfig`` instance. If None, uses default config.
+    atoms: Integer atomic numbers, shape ``[num_atoms]``.
+    checkpoint_path: Path to a PyTorch checkpoint to load pretrained weights.
+        If provided, ``init_fn`` returns the converted weights instead of
+        random initialization.
+    head_type: Energy head type: ``'mlp'`` or ``'linear'``.
+    neighbor_list_fn: Neighbor list constructor (default:
+        ``custom_partition.neighbor_list_multi_image``).
+    featurizer_fn: Function to create a UMA featurizer. Defaults to
+        ``uma_multi_image_featurizer`` for multi-image neighbor lists. When
+        using ``partition.neighbor_list``, pass ``uma_featurizer`` explicitly.
+    charge: System charge(s), shape ``[num_systems]`` (default: ``[0]``).
+    spin: System spin(s), shape ``[num_systems]`` (default: ``[0]``).
+    dataset_idx: Integer dataset index, shape ``[num_systems]`` (default: ``[0]``).
+    head_dataset: Dataset name for pretrained MoE energy head selection.
+    apply_atom_refs: Whether to apply checkpoint task normalizer and element
+        references for pretrained checkpoints. Defaults to True when refs are
+        available.
+    atom_refs: Optional per-element task reference array, or a dictionary with
+        ``element_refs``, ``mean``, and ``rmsd`` values. If only an array is
+        provided, ``mean=0`` and ``rmsd=1`` are used.
+    use_kernels: UMA kernel toggle. True enables eligible JAX-MD UMA Pallas
+        kernels.
+    merge_mole: If True, pre-mix MoE expert weights for single-system
+        inference and skip runtime routing. If None, disabled by default.
+    so2_block_gemm: If True, use a block GEMM formulation for SO2 m>0
+        convolutions. If None, enabled for pretrained MoE checkpoints and
+        disabled otherwise.
+    **nl_kwargs: Additional kwargs for neighbor list (e.g., ``fractional_coordinates``).
+
+  Returns:
+    Tuple of ``(neighbor_fn, init_fn, energy_fn)`` where:
+
+    - ``neighbor_fn``: Allocates/updates neighbor list.
+    - ``init_fn(key, position, neighbor, **kw)``: Returns model parameters.
+    - ``energy_fn(params, position, neighbor, **kw)``: Returns scalar energy.
+  """
+  from jax_md._nn.uma.model import UMABackbone, default_config
+  from jax_md._nn.uma.heads import MLPEnergyHead, LinearEnergyHead
+  from jax_md._nn.uma.featurizer import uma_multi_image_featurizer
+  import flax.linen as flax_nn
+
+  # Load pretrained checkpoint (MoE) if provided
+  is_moe = False
+  pretrained_params = None
+  if checkpoint_path is not None:
+    from jax_md._nn.uma.model_moe import load_pretrained
+
+    moe_config, backbone_params, head_params = load_pretrained(
+      checkpoint_path, head_dataset=head_dataset
+    )
+    cfg = moe_config
+    is_moe = True
+    pretrained_params = {
+      'params': {
+        'backbone': backbone_params['params'],
+        'energy_head': head_params['params'],
+      }
+    }
+  elif cfg is None:
+    cfg = default_config()
+
+  # If callers provide a preloaded MoE config/params pair, use the MoE
+  # backbone even when checkpoint_path is not passed here.
+  is_moe = is_moe or hasattr(cfg, 'num_experts')
+  auto_moe_optimizations = checkpoint_path is not None and is_moe
+  merge_mole = False if merge_mole is None else bool(merge_mole)
+  so2_block_gemm = (
+    auto_moe_optimizations if so2_block_gemm is None else bool(so2_block_gemm)
+  )
+
+  if use_kernels is not None:
+    from dataclasses import replace
+
+    cfg = replace(cfg, use_kernels=bool(use_kernels))
+  if so2_block_gemm:
+    if not is_moe:
+      raise ValueError('so2_block_gemm=True requires a UMA MoE config.')
+    from dataclasses import replace
+
+    cfg = replace(cfg, so2_block_gemm=True)
+
+  if merge_mole and not is_moe:
+    raise ValueError('merge_mole=True requires a UMA MoE checkpoint/config.')
+  runtime_cfg = cfg
+  if merge_mole:
+    from dataclasses import replace
+
+    runtime_cfg = replace(cfg, merged_mole=True)
+
+  resolved_atom_refs = None
+  energy_mean = None
+  energy_rmsd = None
+  should_apply_atom_refs = apply_atom_refs and (
+    checkpoint_path is not None or atom_refs is not None
+  )
+  if should_apply_atom_refs:
+    if atom_refs is None:
+      from jax_md._nn.uma.pretrained import load_energy_correction
+
+      correction = None
+      if checkpoint_path is not None:
+        try:
+          correction = load_energy_correction(
+            checkpoint_path, dataset=head_dataset
+          )
+        except Exception as exc:
+          raise ValueError(
+            'Failed to load UMA atom references or energy normalizer for '
+            f'{checkpoint_path!r}. Pass apply_atom_refs=False to use raw '
+            'checkpoint energies, or pass atom_refs explicitly.'
+          ) from exc
+      if correction is not None:
+        atom_refs = correction.get('element_refs')
+        energy_mean = correction.get('mean')
+        energy_rmsd = correction.get('rmsd')
+      else:
+        energy_mean = 0.0
+        energy_rmsd = 1.0
+    elif isinstance(atom_refs, dict):
+      correction = atom_refs
+      atom_refs = correction.get('element_refs', correction.get('atom_refs'))
+      energy_mean = correction.get('mean', 0.0)
+      energy_rmsd = correction.get('rmsd', 1.0)
+    else:
+      energy_mean = 0.0
+      energy_rmsd = 1.0
+    if atom_refs is not None:
+      resolved_atom_refs = jnp.asarray(atom_refs, dtype=jnp.float32)
+    energy_mean = jnp.asarray(energy_mean, dtype=jnp.float32)
+    energy_rmsd = jnp.asarray(energy_rmsd, dtype=jnp.float32)
+
+  # Build neighbor list. The UMA default uses explicit periodic images and
+  # expects a box matrix; keep vector boxes working for common orthorhombic use.
+  neighbor_box = box
+  if neighbor_list_fn is custom_partition.neighbor_list_multi_image:
+    neighbor_box = jnp.asarray(box)
+    if neighbor_box.ndim == 1:
+      neighbor_box = jnp.diag(neighbor_box)
+    nl_kwargs.setdefault('fractional_coordinates', False)
+
+  neighbor_fn = neighbor_list_fn(
+    displacement_fn,
+    neighbor_box,
+    cfg.cutoff,
+    format=partition.Sparse,
+    **nl_kwargs,
+  )
+
+  if featurizer_fn is None:
+    featurizer_fn = uma_multi_image_featurizer
+
+  featurizer = featurizer_fn(displacement_fn, cutoff=cfg.cutoff)
+
+  # Combined backbone + head as a single Flax module
+  class UMAEnergyModel(flax_nn.Module):
+    config: object
+    use_moe: bool = False
+    atom_refs: object = None
+    energy_mean: object = None
+    energy_rmsd: object = None
+
+    @flax_nn.compact
+    def __call__(self, features):
+      if self.use_moe:
+        from jax_md._nn.uma.model_moe import UMAMoEBackbone
+
+        backbone = UMAMoEBackbone(config=self.config, name='backbone')
+      else:
+        backbone = UMABackbone(config=self.config, name='backbone')
+      emb = backbone(
+        features['positions'],
+        features['atomic_numbers'],
+        features['batch'],
+        features['edge_index'],
+        features['edge_distance_vec'],
+        features['charge'],
+        features['spin'],
+        features.get('dataset_idx'),
+      )
+
+      if head_type == 'mlp':
+        head = MLPEnergyHead(
+          sphere_channels=self.config.sphere_channels,
+          hidden_channels=self.config.hidden_channels,
+          name='energy_head',
+        )
+      else:
+        head = LinearEnergyHead(
+          sphere_channels=self.config.sphere_channels,
+          name='energy_head',
+        )
+
+      num_systems = features['charge'].shape[0]
+      result = head(emb['node_embedding'], features['batch'], num_systems)
+      energy = result['energy']
+      if self.energy_rmsd is not None:
+        energy = energy * self.energy_rmsd.astype(energy.dtype)
+        energy = energy + self.energy_mean.astype(energy.dtype)
+      if self.atom_refs is not None:
+        ref_shift = (
+          jnp.zeros((num_systems,), dtype=energy.dtype)
+          .at[features['batch']]
+          .add(self.atom_refs[features['atomic_numbers']].astype(energy.dtype))
+        )
+        energy = energy + ref_shift
+      return energy
+
+  model = UMAEnergyModel(
+    config=runtime_cfg,
+    use_moe=is_moe,
+    atom_refs=resolved_atom_refs,
+    energy_mean=energy_mean,
+    energy_rmsd=energy_rmsd,
+  )
+  init_model = model
+  if merge_mole:
+    init_model = UMAEnergyModel(
+      config=cfg,
+      use_moe=is_moe,
+      atom_refs=resolved_atom_refs,
+      energy_mean=energy_mean,
+      energy_rmsd=energy_rmsd,
+    )
+
+  def init_fn(key, position, neighbor, **kwargs):
+    _atoms = kwargs.pop('atoms', atoms)
+    if _atoms is None:
+      raise ValueError('Integer atomic numbers are required.')
+
+    _charge = kwargs.pop('charge', charge)
+    _spin = kwargs.pop('spin', spin)
+    _dataset_idx = kwargs.pop('dataset_idx', dataset_idx)
+
+    features = featurizer(
+      _atoms,
+      position,
+      neighbor,
+      charge=_charge,
+      spin=_spin,
+      dataset_idx=_dataset_idx,
+      **kwargs,
+    )
+
+    if pretrained_params is not None:
+      result_params = pretrained_params
+    else:
+      result_params = init_model.init(key, features)
+
+    if merge_mole:
+      if features['charge'].shape[0] != 1:
+        raise ValueError('merge_mole=True supports only one system.')
+      from jax_md._nn.uma.model_moe import UMAMoEBackbone, merge_mole_params
+
+      routing_backbone = UMAMoEBackbone(config=cfg)
+      routing_out = routing_backbone.apply(
+        {'params': result_params['params']['backbone']},
+        features['positions'],
+        features['atomic_numbers'],
+        features['batch'],
+        features['edge_index'],
+        features['edge_distance_vec'],
+        features['charge'],
+        features['spin'],
+        features.get('dataset_idx'),
+      )
+      result_params = merge_mole_params(
+        result_params, routing_out['expert_coefficients']
+      )
+
+    return result_params
+
+  def energy_fn(params, position, neighbor, **kwargs):
+    _atoms = kwargs.pop('atoms', atoms)
+    if _atoms is None:
+      raise ValueError('Integer atomic numbers are required.')
+
+    _charge = kwargs.pop('charge', charge)
+    _spin = kwargs.pop('spin', spin)
+    _dataset_idx = kwargs.pop('dataset_idx', dataset_idx)
+
+    features = featurizer(
+      _atoms,
+      position,
+      neighbor,
+      charge=_charge,
+      spin=_spin,
+      dataset_idx=_dataset_idx,
+      **kwargs,
+    )
+    return model.apply(params, features).sum()
+
+  return neighbor_fn, init_fn, energy_fn
+
+
+def mace_neighbor_list(
+  displacement_fn,
+  box,
+  *,
+  model,
+  config: Dict[str, Any],
+  z_atomic,
+  r_cutoff: float,
+  dr_threshold: float = 0.5,
+  fractional_coordinates: bool = False,
+  neighbor_list_fn: Callable = partition.neighbor_list,
+  featurizer_fn=None,
+  head=None,
+  **neighbor_kwargs,
+):
+  """Wraps a MACE-JAX potential as a JAX MD neighbor-list energy.
+
+  Args:
+    displacement_fn: Displacement function from ``jax_md.space``.
+    box: Periodic box with shape ``(3,)`` or ``(3, 3)``.
+    model: Callable MACE-JAX model accepting a MACE batch dictionary.
+    config: Model configuration containing at least ``atomic_numbers``.
+    z_atomic: Atomic numbers for real atoms, shape ``(N,)``.
+    r_cutoff: Neighbor cutoff radius.
+    dr_threshold: Neighbor-list rebuild threshold (skin).
+    fractional_coordinates: Whether positions are fractional coordinates.
+    neighbor_list_fn: Neighbor-list factory.
+    featurizer_fn: Featurizer factory. Defaults to ``mace_featurizer``.
+        For multi-image neighbor lists, pass ``mace_multi_image_featurizer``.
+    head: Optional head array to include in the MACE batch.
+    **neighbor_kwargs: Additional keyword arguments for ``neighbor_list_fn``.
+
+  Returns:
+    A pair ``(neighbor_fn, energy_fn)`` following the standard JAX MD
+    convention. ``energy_fn`` has signature:
+    ``energy_fn(R, *, box=None, neighbor=None, perturbation=None)``.
+  """
+  from jax_md._nn.mace.featurizer import (
+    mace_featurizer,
+    mace_multi_image_featurizer,
+  )
+
+  box_default = jnp.asarray(box)
+
+  neighbor_fn = neighbor_list_fn(
+    displacement_fn,
+    box_default,
+    r_cutoff,
+    dr_threshold=dr_threshold,
+    fractional_coordinates=fractional_coordinates,
+    **neighbor_kwargs,
+  )
+
+  if featurizer_fn is None:
+    featurizer_fn = mace_featurizer
+  if featurizer_fn is mace_multi_image_featurizer:
+    featurize = featurizer_fn(
+      config, z_atomic, fractional_coordinates=fractional_coordinates, head=head
+    )
+  else:
+    featurize = featurizer_fn(
+      displacement_fn,
+      config,
+      z_atomic,
+      fractional_coordinates=fractional_coordinates,
+      head=head,
+    )
+
+  @jax.jit
+  def energy_fn(R, *, box=None, neighbor=None, perturbation=None, **kwargs):
+    box_now = box if box is not None else box_default
+    batch = featurize(R, neighbor, box=box_now, perturbation=perturbation)
+    model_kwargs = dict(kwargs)
+    model_kwargs.setdefault('compute_force', False)
+    model_kwargs.setdefault('compute_stress', False)
+    out = model(batch, **model_kwargs)
+    e = out['energy'] if isinstance(out, dict) and 'energy' in out else out
+    e = jnp.asarray(e)
+    return jnp.reshape(e, ()) if e.shape == (1,) else e
 
   return neighbor_fn, energy_fn

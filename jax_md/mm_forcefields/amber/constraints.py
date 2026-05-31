@@ -42,7 +42,7 @@ def settle(
   masses: Array,
   displacement_fn: DisplacementFn,
   shift_fn: ShiftFn,
-  box: Optional[Array] = None,
+  box: Array | None = None,
   use_periodic_general: bool = False,
 ) -> Array:
   """Apply SETTLE position constraints for 3-atom rigid clusters."""
@@ -64,7 +64,7 @@ def ccma(
   masses: Array,
   displacement_fn: DisplacementFn,
   shift_fn: ShiftFn,
-  box: Optional[Array] = None,
+  box: Array | None = None,
   use_periodic_general: bool = False,
   tolerance: float = 1e-6,
   max_iters: int = 100,
@@ -262,7 +262,7 @@ def ccma_apply_positions(
   masses: Array,
   displacement_fn: DisplacementFn,
   shift_fn: ShiftFn,
-  box: Optional[Array] = None,
+  box: Array | None = None,
   use_periodic_general: bool = False,
   tolerance: float = 1e-6,
   max_iters: int = 150,
@@ -337,7 +337,7 @@ def ccma_apply_velocities(
   constraints: CCMAData,
   masses: Array,
   displacement_fn: DisplacementFn,
-  box: Optional[Array] = None,
+  box: Array | None = None,
   use_periodic_general: bool = False,
   tolerance: float = 1e-6,
   max_iters: int = 150,
@@ -391,7 +391,7 @@ def settle_apply_positions(
   masses: Array,
   displacement_fn: DisplacementFn,
   shift_fn: ShiftFn,
-  box: Optional[Array] = None,
+  box: Array | None = None,
   use_periodic_general: bool = False,
 ) -> Array:
   """Apply SETTLE position constraints for identified 3-atom clusters.
@@ -572,7 +572,7 @@ def settle_apply_velocities(
   settle: SettleData,
   masses: Array,
   displacement_fn: DisplacementFn,
-  box: Optional[Array] = None,
+  box: Array | None = None,
   use_periodic_general: bool = False,
   tolerance: float = 1e-6,
 ) -> Array:

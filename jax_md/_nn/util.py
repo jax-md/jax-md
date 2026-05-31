@@ -36,9 +36,7 @@ import flax.linen as nn
 
 
 Array = util.Array
-FeaturizerFn = Callable[
-  [GraphsTuple, Array, Array, Optional[Array]], GraphsTuple
-]
+FeaturizerFn = Callable[[GraphsTuple, Array, Array, Array | None], GraphsTuple]
 
 f32 = jnp.float32
 
@@ -85,7 +83,7 @@ class MLP(nn.Module):
   nonlinearity: str
 
   use_bias: bool = True
-  scalar_mlp_std: Optional[float] = None
+  scalar_mlp_std: float | None = None
 
   @nn.compact
   def __call__(self, x):

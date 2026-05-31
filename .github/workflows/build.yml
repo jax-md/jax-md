@@ -38,7 +38,14 @@ jobs:
     strategy:
       matrix:
         python-version: ['3.10', '3.11', '3.12', '3.13']
-        test-suite: ['elasticity', 'rigid_body', 'energy', 'simulate', 'nequip', 'reaxff', 'tpu', 'core', 'amber', 'amber_fe']
+        test-suite: ['elasticity', 'rigid_body', 'energy', 'simulate', 'nequip', 'reaxff', 'tpu', 'uma', 'custom_partition', 'custom_smap', 'minimize', 'nn', 'oplsaa', 'partition', 'quantity', 'smap', 'space']
+        include:
+          - python-version: '3.11'
+            test-suite: 'mace'
+          - python-version: '3.12'
+            test-suite: 'mace'
+          - python-version: '3.13'
+            test-suite: 'mace'
     steps:
     - name: Cancel previous
       uses: styfle/cancel-workflow-action@0.11.0
@@ -56,26 +63,44 @@ jobs:
       run: uv venv --python ${{ matrix.python-version }}
     - name: Install dependencies
       run: |
-        uv pip install .
-        uv pip install .[testing]
-        uv pip install pytest pytest-cov netCDF4 ase
+        if [ "${{ matrix.test-suite }}" == "mace" ]; then
+          uv sync --no-dev --group testing --group mace
+          uv pip install pytest-cov
+        else
+          uv pip install .
+          uv pip install pytest pytest-cov netCDF4 ase
+        fi
+        # Install torch + fairchem for UMA tests (PT comparison + pretrained)
+        if [ "${{ matrix.test-suite }}" == "uma" ]; then
+          uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+          uv pip install fairchem-core --no-deps
+          uv pip install huggingface-hub
+        fi
     - name: Set Swap Space
       uses: pierotofy/set-swap-space@master
       with:
        swap-size-gb: 12
+    - name: Cache UMA pretrained checkpoints
+      if: matrix.test-suite == 'uma'
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/fairchem
+        key: uma-checkpoints-v1
     - name: Test with pytest and generate coverage report
+      env:
+        # Used by huggingface_hub to download gated UMA checkpoints.
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
       run: |
-        if [ "${{ matrix.test-suite }}" == "core" ]; then
-          JAX_ENABLE_X64=1 uv run pytest tests --cov=jax_md --cov-report=xml --cov-report=term \
-            --ignore=tests/elasticity_test.py \
-            --ignore=tests/rigid_body_test.py \
-            --ignore=tests/energy_test.py \
-            --ignore=tests/simulate_test.py \
-            --ignore=tests/nequip_test.py \
-            --ignore=tests/reaxff_test.py \
-            --ignore=tests/tpu_test.py \
-            --ignore=tests/amber_test.py \
-            --ignore=tests/amber_fe_test.py
+        if [ "${{ matrix.test-suite }}" == "uma" ]; then
+          JAX_ENABLE_X64=1 uv run pytest \
+            tests/uma_test.py \
+            tests/uma_pretrained_test.py \
+            tests/uma_e2e_test.py \
+            --cov=jax_md --cov-report=xml --cov-report=term
+        elif [ "${{ matrix.test-suite }}" == "mace" ]; then
+          JAX_ENABLE_X64=1 uv run pytest \
+            tests/mace_test.py \
+            --cov=jax_md --cov-report=xml --cov-report=term
         else
           JAX_ENABLE_X64=1 uv run pytest tests/${{ matrix.test-suite }}_test.py --cov=jax_md --cov-report=xml --cov-report=term
         fi

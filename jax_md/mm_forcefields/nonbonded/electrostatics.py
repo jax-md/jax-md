@@ -87,7 +87,7 @@ class CutoffCoulomb(CoulombHandler):
     self,
     charges: Array,
     box: Array | None,
-    exc_charge_prod: Optional[Array],
+    exc_charge_prod: Array | None,
     displacement_fn: DisplacementFn,
     cutoff_fn: CutoffWrapper,
     fractional_coordinates: bool,
@@ -734,8 +734,8 @@ class PMECoulomb(CoulombHandler):
     box: Array,
     exc_charge_prod: Array,
     return_components: bool = False,
-    displacement_fn: Optional[DisplacementFn] = None,
-    cutoff_fn: Optional[CutoffWrapper] = None,
+    displacement_fn: DisplacementFn | None = None,
+    cutoff_fn: CutoffWrapper | None = None,
     fractional_coordinates: bool = False,
   ) -> CoulombFns:
     # TODO look at smap and all 1/r terms to figure out most

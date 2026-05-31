@@ -80,8 +80,8 @@ class FEOptions(object):
     sc_mask: Mask values marking softcore/alchemical atoms
   """
 
-  vdw_scaling: Optional[str] = None
-  coul_scaling: Optional[str] = None
+  vdw_scaling: str | None = None
+  coul_scaling: str | None = None
   ti_mask: Array | float = 1.0
   sc_mask: Array | float = 1.0
   softcore_lrc: bool = False
@@ -199,7 +199,7 @@ def energy(
   coulomb_options: CoulombHandler = CoulombHandler(),
   nb_options: NonbondedOptions = NonbondedOptions(),
   fe_options: FEOptions = FEOptions(),
-  precision: Optional[str] = None,
+  precision: str | None = None,
   dense_mask_format: bool = True,
 ) -> tuple[
   Callable[..., dict[str, Array]],
@@ -1375,9 +1375,9 @@ def _cmap_eval_bicubic(
 # rough analogue to the implementation in CMAPTorsionForce
 def cmap_energy(
   positions: Array,
-  cmap_atoms: Optional[Array],
-  cmap_map_id: Optional[Array],
-  cmap_precomp: Optional[tuple[Array, Array, int]],
+  cmap_atoms: Array | None,
+  cmap_map_id: Array | None,
+  cmap_precomp: tuple[Array, Array, int] | None,
   disp_fn: Callable[..., Array],
 ) -> Array:
   """

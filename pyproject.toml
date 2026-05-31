@@ -73,6 +73,28 @@ docs = [
     "networkx",
     "tqdm",
 ]
+testing = [
+    "pytest",
+    "ase",
+]
+mace = [
+    "mace_jax @ git+https://github.com/ACEsuit/mace-jax@fe19806 ; python_version >= '3.11'",
+]
+uma = [
+    "torch>=2.0.0",           # Loading PyTorch UMA checkpoints
+    "huggingface_hub",        # Downloading pretrained models
+]
+dev = [
+    "pytest",
+    "ase",
+    "ruff",
+    "pre-commit",
+    "torch>=2.0.0",
+    "e3nn",                   # Exact grid matrix computation
+    "huggingface_hub",
+    "fairchem-core",          # PyTorch reference for comparison tests
+    "setuptools<81",          # pkg_resources (needed by torchtnt)
+]
 
 [project.urls]
 Homepage = "https://github.com/google/jax-md"
@@ -88,6 +110,14 @@ packages = ["jax_md"]
 "examples/models/*.pickle" = "examples/models"
 "examples/models/*.png" = "examples/models"
 
+[tool.hatch.build.targets.wheel.force-include]
+"jax_md/_nn/uma/Jd.pt" = "jax_md/_nn/uma/Jd.pt"
+"jax_md/_nn/uma/checkpoints" = "jax_md/_nn/uma/checkpoints"
+
+[tool.hatch.build.targets.sdist.force-include]
+"jax_md/_nn/uma/Jd.pt" = "jax_md/_nn/uma/Jd.pt"
+"jax_md/_nn/uma/checkpoints" = "jax_md/_nn/uma/checkpoints"
+
 [tool.coverage.run]
 source = ["jax_md"]
 
@@ -99,6 +129,14 @@ exclude_lines = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.uv]
+conflicts = [
+    [
+        { group = "dev" },
+        { group = "mace" },
+    ],
+]
 
 [tool.ruff]
 line-length = 80
@@ -150,7 +188,6 @@ ignore = [
     "UP031",
     "UP034",
     "UP037",
-    "UP045",
 ]
 
 [tool.ruff.lint.isort]
