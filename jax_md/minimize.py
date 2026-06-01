@@ -35,10 +35,12 @@ from typing import TypeVar, Callable, Tuple, Union, Any
 
 import jax
 import jax.numpy as jnp
-from jax.tree_util import tree_map, tree_reduce
+from jax.scipy.sparse.linalg import cg
+from jax.tree_util import tree_leaves, tree_map, tree_reduce
 
 from jax_md import quantity
 from jax_md import dataclasses
+from jax_md import partition
 from jax_md import util
 from jax_md import space
 from jax_md import simulate
@@ -216,6 +218,517 @@ def fire_descent(
     return FireDescentState(
       R, P, F, M, dt, alpha, n_pos
     )  # pytype: disable=wrong-arg-count
+
+  return init_fn, apply_fn
+
+
+@dataclasses.dataclass
+class PreconFireDescentState:
+  """State for the ASE-style preconditioned FIRE minimizer.
+
+  Attributes:
+    position: The current position of particles. An ndarray of floats
+      with shape `[n, spatial_dimension]`.
+    velocity: The current optimizer velocity. An ndarray of floats
+      with shape `[n, spatial_dimension]`.
+    force: The current raw force on particles. An ndarray of floats
+      with shape `[n, spatial_dimension]`.
+    dt: A float specifying the current step size.
+    alpha: A float specifying the current FIRE mixing parameter.
+    n_pos: The number of consecutive steps with positive power.
+    initialized: Whether the first-step velocity initialization has happened.
+    preconditioner_position: Reference positions for cached graph
+      preconditioners.
+    preconditioner_previous_position: Previous positions used by ASE-style
+      preconditioner rebuild checks.
+    preconditioner_previous_initialized: Whether
+      ``preconditioner_previous_position`` has been initialized.
+    momentum: Alias for ``velocity`` for compatibility with momentum-based
+      minimizer states.
+  """
+
+  position: Array
+  velocity: Array
+  force: Array
+  dt: float
+  alpha: float
+  n_pos: int
+  initialized: bool
+  preconditioner_position: PyTree
+  preconditioner_previous_position: PyTree
+  preconditioner_previous_initialized: bool
+
+  @property
+  def momentum(self) -> Array:
+    return self.velocity
+
+
+def exp_preconditioner(
+  displacement_fn: space.DisplacementFn,
+  r_cut: Array | float | None = None,
+  r_NN: Array | float | None = None,
+  A: float = 3.0,
+  mu: float = 1.0,
+  c_stab: float = 0.1,
+  solve_tol: float = 1e-5,
+  maxiter: int | None = None,
+  reference_position: Array | None = None,
+  solver: str = 'cg',
+) -> Tuple[Callable[..., Array], Callable[..., Array]]:
+  """Builds ASE-style exponential graph preconditioner callables.
+
+  This implements the position-only universal preconditioner from ASE's
+  ``Exp`` preconditioner in a matrix-free, JAX-friendly form. The scalar atom
+  graph is expanded over Cartesian components as ``P = L kron I_d``.
+
+  Args:
+    displacement_fn: Function returning pair displacements.
+    r_cut: Neighbor cutoff. If ``None``, uses ``2 * r_NN``.
+    r_NN: Nearest-neighbor distance. If ``None``, estimated from ``R``.
+    A: Exponential decay parameter. ``A=0`` gives constant neighbor weights.
+    mu: Energy scale multiplying the preconditioner.
+    c_stab: Diagonal stabilization coefficient.
+    solve_tol: Conjugate-gradient solve tolerance.
+    maxiter: Optional maximum CG iterations.
+    reference_position: Optional positions used to build a fixed preconditioner.
+      If ``None``, the graph is rebuilt from the current ``R`` on every call.
+    solver: Linear solver to use. ``'cg'`` is matrix-free; ``'dense'`` builds
+      the scalar atom matrix and uses a direct dense solve.
+
+  Returns:
+    ``(preconditioner, preconditioner_dot)`` callables suitable for
+    :func:`precon_fire_descent`.
+  """
+
+  def pair_distances(R: Array, **kwargs) -> Array:
+    d = jax.vmap(
+      jax.vmap(
+        lambda Ra, Rb: displacement_fn(Ra, Rb, **kwargs), in_axes=(None, 0)
+      ),
+      in_axes=(0, None),
+    )(R, R)
+    return jnp.sqrt(jnp.sum(d**2, axis=-1))
+
+  def estimate_r_NN(dist: Array) -> Array:
+    N = dist.shape[0]
+    dist_no_self = jnp.where(jnp.eye(N, dtype=bool), jnp.inf, dist)
+    return jnp.max(jnp.min(dist_no_self, axis=1))
+
+  def graph_weights(R: Array, **kwargs) -> Array:
+    R_graph = kwargs.get('preconditioner_position', reference_position)
+    R_graph = R if R_graph is None else R_graph
+    N = R_graph.shape[0]
+    A_value = jnp.asarray(A, dtype=R_graph.dtype)
+    if r_NN is None:
+      r_NN_value = estimate_r_NN(pair_distances(R_graph, **kwargs))
+    else:
+      r_NN_value = jnp.asarray(r_NN, dtype=R_graph.dtype)
+    r_cut_value = (
+      2.0 * r_NN_value
+      if r_cut is None
+      else jnp.asarray(r_cut, dtype=R_graph.dtype)
+    )
+
+    neighbor = kwargs.get('neighbor')
+    if neighbor is not None:
+      if neighbor.format is partition.Dense:
+        idx = neighbor.idx
+        senders = idx.reshape(-1)
+        receivers = jnp.repeat(jnp.arange(N), idx.shape[1])
+        shifts = neighbor.shifts.reshape((-1, R_graph.shape[-1]))
+      else:
+        receivers, senders = neighbor.idx
+        shifts = neighbor.shifts
+      valid = jnp.logical_and(receivers < N, senders < N)
+      send_safe = jnp.clip(senders, 0, N - 1)
+      recv_safe = jnp.clip(receivers, 0, N - 1)
+      shift_cart = shifts.astype(R_graph.dtype) @ neighbor.box.T
+      dR = R_graph[send_safe] + shift_cart - R_graph[recv_safe]
+      dist = jnp.sqrt(jnp.sum(dR**2, axis=-1))
+      weights_edge = jnp.exp(-A_value * (dist / r_NN_value - 1.0))
+      weights_edge = jnp.where(valid, weights_edge, 0.0)
+      return (
+        jnp.zeros((N, N), dtype=R_graph.dtype)
+        .at[recv_safe, send_safe]
+        .add(weights_edge)
+      )
+
+    dist = pair_distances(R_graph, **kwargs)
+    mask = jnp.logical_and(dist < r_cut_value, ~jnp.eye(N, dtype=bool))
+    weights = jnp.exp(-A_value * (dist / r_NN_value - 1.0))
+    return jnp.where(mask, weights, 0.0)
+
+  def graph_matrix(R: Array, **kwargs) -> Array:
+    weights = graph_weights(R, **kwargs)
+    degree = jnp.sum(weights, axis=1)
+    R_graph = kwargs.get('preconditioner_position', reference_position)
+    R_graph = R if R_graph is None else R_graph
+    mu_value = jnp.asarray(mu, dtype=R_graph.dtype)
+    c_stab_value = jnp.asarray(c_stab, dtype=R_graph.dtype)
+    return mu_value * (jnp.diag(degree + c_stab_value) - weights)
+
+  def graph_matvec(R: Array, X: Array, **kwargs) -> Array:
+    weights = graph_weights(R, **kwargs)
+    degree = jnp.sum(weights, axis=1)
+    mu_value = jnp.asarray(mu, dtype=X.dtype)
+    c_stab_value = jnp.asarray(c_stab, dtype=X.dtype)
+    return mu_value * ((degree[:, None] + c_stab_value) * X - weights @ X)
+
+  def preconditioner(R: Array, F: Array, **kwargs) -> Array:
+    if solver == 'dense':
+      return jnp.linalg.solve(graph_matrix(R, **kwargs), F)
+    solve = lambda X: graph_matvec(R, X, **kwargs)
+    return cg(solve, F, tol=solve_tol, maxiter=maxiter)[0]
+
+  def preconditioner_dot(R: Array, X: Array, Y: Array, **kwargs) -> Array:
+    return jnp.sum(X * graph_matvec(R, Y, **kwargs))
+
+  return preconditioner, preconditioner_dot
+
+
+def c1_preconditioner(
+  displacement_fn: space.DisplacementFn,
+  r_cut: Array | float | None = None,
+  r_NN: Array | float | None = None,
+  mu: float = 1.0,
+  c_stab: float = 0.1,
+  solve_tol: float = 1e-5,
+  maxiter: int | None = None,
+  reference_position: Array | None = None,
+  solver: str = 'cg',
+) -> Tuple[Callable[..., Array], Callable[..., Array]]:
+  """Builds ASE-style C1 graph preconditioner callables.
+
+  This is the constant-weight special case of :func:`exp_preconditioner`.
+  """
+  return exp_preconditioner(
+    displacement_fn,
+    r_cut=r_cut,
+    r_NN=r_NN,
+    A=0.0,
+    mu=mu,
+    c_stab=c_stab,
+    solve_tol=solve_tol,
+    maxiter=maxiter,
+    reference_position=reference_position,
+    solver=solver,
+  )
+
+
+def estimate_exp_mu(
+  energy_or_force: Callable[..., Array],
+  displacement_fn: space.DisplacementFn,
+  R: Array,
+  r_cut: Array | float | None = None,
+  r_NN: Array | float | None = None,
+  A: float = 3.0,
+  c_stab: float = 0.1,
+  min_mu: float = 1.0,
+  **kwargs,
+) -> Array:
+  """Estimate the Exp preconditioner energy scale following ASE.
+
+  The estimate matches the finite-difference curvature equation from
+  Packwood et al. and ASE's ``Precon.estimate_mu``:
+
+  ``(grad E(R + V) - grad E(R)) . V = mu * V^T P_{mu=1} V``.
+
+  Args:
+    energy_or_force: Function producing either an energy or a force.
+    displacement_fn: Function returning pair displacements.
+    R: Reference positions.
+    r_cut: Neighbor cutoff. If ``None``, uses ``2 * r_NN``.
+    r_NN: Nearest-neighbor distance. If ``None``, estimated from ``R``.
+    A: Exponential decay parameter for the unit preconditioner.
+    c_stab: Diagonal stabilization coefficient.
+    min_mu: Lower bound applied to the estimate, matching ASE's cap at 1.
+    **kwargs: Extra arguments forwarded to ``energy_or_force`` and
+      ``displacement_fn``.
+
+  Returns:
+    Scalar estimate for ``mu``.
+  """
+  force = quantity.canonicalize_force(energy_or_force)
+
+  def pair_distances(R: Array) -> Array:
+    d = jax.vmap(
+      jax.vmap(
+        lambda Ra, Rb: displacement_fn(Ra, Rb, **kwargs), in_axes=(None, 0)
+      ),
+      in_axes=(0, None),
+    )(R, R)
+    return jnp.sqrt(jnp.sum(d**2, axis=-1))
+
+  def estimate_r_NN_from_R(R: Array) -> Array:
+    dist = pair_distances(R)
+    N = dist.shape[0]
+    dist_no_self = jnp.where(jnp.eye(N, dtype=bool), jnp.inf, dist)
+    return jnp.max(jnp.min(dist_no_self, axis=1))
+
+  r_NN_value = estimate_r_NN_from_R(R) if r_NN is None else r_NN
+  amplitude = 1e-2 * r_NN_value
+  L = jnp.max(R, axis=0) - jnp.min(R, axis=0)
+  safe_L = jnp.where(L == 0, 1.0, L)
+  mode = jnp.where(L == 0, 0.0, jnp.sin(R / safe_L))
+  V = amplitude * mode
+
+  _, unit_dot = exp_preconditioner(
+    displacement_fn,
+    r_cut=r_cut,
+    r_NN=r_NN_value,
+    A=A,
+    mu=1.0,
+    c_stab=c_stab,
+  )
+  F = force(R, **kwargs)
+  F_plus = force(R + V, **kwargs)
+  lhs = jnp.sum((F - F_plus) * V)
+  rhs = unit_dot(R, V, V, **kwargs)
+  return jnp.maximum(lhs / rhs, min_mu)
+
+
+def precon_fire_descent(
+  energy_or_force: Callable[..., Array],
+  shift_fn: ShiftFn,
+  dt_start: float = 0.1,
+  dt_max: float = 1.0,
+  max_move: float = 0.2,
+  n_min: float = 5,
+  f_inc: float = 1.1,
+  f_dec: float = 0.5,
+  alpha_start: float = 0.1,
+  f_alpha: float = 0.99,
+  theta: float = 0.1,
+  armijo_tol: float = 0.0,
+  use_armijo: bool = True,
+  preconditioner_update_threshold: float | None = None,
+  preconditioner: Callable[..., PyTree] | None = None,
+  preconditioner_dot: Callable[..., Array] | None = None,
+) -> Minimizer[PreconFireDescentState]:
+  """Defines ASE-style preconditioned FIRE minimization.
+
+  This optimizer follows the update order of ASE's ``PreconFIRE``. Unlike
+  :func:`fire_descent`, it stores velocity rather than momentum and applies the
+  preconditioned force direction directly.
+
+  Args:
+    energy_or_force: A function that produces either an energy or a force from
+      a set of particle positions specified as an ndarray of shape
+      `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions `R`, by an amount `dR`. Both
+      `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
+    dt_start: The initial step size during minimization as a float.
+    dt_max: The maximum step size during minimization as a float.
+    max_move: The maximum Euclidean norm of the displacement in one step.
+    n_min: An integer specifying the minimum number of positive-power steps
+      before ``dt`` and ``alpha`` should be updated.
+    f_inc: A float specifying the fractional rate by which the step size
+      should be increased.
+    f_dec: A float specifying the fractional rate by which the step size
+      should be decreased.
+    alpha_start: A float specifying the initial FIRE mixing parameter.
+    f_alpha: A float specifying the fractional change in ``alpha``.
+    theta: Armijo sufficient-decrease parameter.
+    armijo_tol: Numerical tolerance for the Armijo comparison. Trials within
+      this tolerance of the sufficient-decrease boundary are rejected. The
+      default ``0.0`` matches ASE's strict comparison.
+    use_armijo: Whether to use ASE's Armijo trial-step rejection. If ``True``,
+      ``energy_or_force`` must be an energy function.
+    preconditioner_update_threshold: Optional maximum absolute displacement
+      threshold for updating cached preconditioner reference positions. ASE
+      uses ``0.5 * r_NN``.
+    preconditioner: Optional callable that returns the preconditioned force
+      direction ``H^{-1} F``. It should take ``(R, F, **kwargs)`` and return a
+      PyTree with the same structure as ``F``.
+    preconditioner_dot: Optional callable for the preconditioner metric. When
+      ``preconditioner`` is supplied, this must take ``(R, X, Y, **kwargs)``
+      and return ``X^T H Y``.
+
+  Returns:
+    See above.
+  """
+  if preconditioner is not None and preconditioner_dot is None:
+    raise ValueError(
+      'preconditioner_dot must be supplied when preconditioner is supplied.'
+    )
+
+  force = quantity.canonicalize_force(energy_or_force)
+
+  def tree_dot(X: PyTree, Y: PyTree) -> Array:
+    return tree_reduce(
+      lambda accum, x_dot_y: accum + x_dot_y,
+      tree_map(lambda x, y: jnp.sum(x * y), X, Y),
+      0.0,
+    )
+
+  def preconditioned_force(R: PyTree, F: PyTree, **kwargs) -> PyTree:
+    if preconditioner is None:
+      return F
+    return preconditioner(R, F, **kwargs)
+
+  def velocity_metric_dot(R: PyTree, X: PyTree, Y: PyTree, **kwargs) -> Array:
+    if preconditioner is None:
+      return tree_dot(X, Y)
+    metric = preconditioner_dot
+    if metric is None:
+      raise ValueError(
+        'preconditioner_dot must be supplied when preconditioner is supplied.'
+      )
+    return metric(R, X, Y, **kwargs)
+
+  def shift_position(R: PyTree, dR: PyTree, **kwargs) -> PyTree:
+    s_fn = shift_fn
+    if isinstance(s_fn, Callable):
+      s_fn = tree_map(lambda r: shift_fn, R)
+    return tree_map(lambda s, r, dr: s(r, dr, **kwargs), s_fn, R, dR)
+
+  def init_fn(R: PyTree, **kwargs) -> PreconFireDescentState:
+    dtype = tree_leaves(R)[0].dtype
+    V = tree_map(lambda x: jnp.zeros_like(x), R)
+    F = force(R, **kwargs)
+    return PreconFireDescentState(
+      R,
+      V,
+      F,
+      jnp.asarray(dt_start, dtype=dtype),
+      jnp.asarray(alpha_start, dtype=dtype),
+      jnp.zeros((), jnp.int32),
+      jnp.array(False),
+      R,
+      R,
+      jnp.array(False),
+    )  # pytype: disable=wrong-arg-count
+
+  def apply_fn(
+    state: PreconFireDescentState, **kwargs
+  ) -> PreconFireDescentState:
+    (
+      R,
+      V,
+      F,
+      dt,
+      alpha,
+      n_pos,
+      initialized,
+      precon_R,
+      precon_previous_R,
+      precon_previous_initialized,
+    ) = dataclasses.unpack(state)
+
+    def tree_max_abs(X: PyTree) -> Array:
+      return tree_reduce(
+        lambda accum, x: jnp.maximum(accum, jnp.max(jnp.abs(x))),
+        X,
+        0.0,
+      )
+
+    if preconditioner_update_threshold is not None:
+      max_old_disp = tree_max_abs(
+        tree_map(lambda r, r0: r - r0, R, precon_previous_R)
+      )
+      update_precon = jnp.logical_and(
+        initialized,
+        jnp.logical_and(
+          precon_previous_initialized,
+          max_old_disp >= preconditioner_update_threshold,
+        ),
+      )
+      precon_R = tree_map(
+        lambda r, r0: jnp.where(update_precon, r, r0), R, precon_R
+      )
+      set_old = initialized
+      precon_previous_R = tree_map(
+        lambda r, r0: jnp.where(set_old, r, r0), R, precon_previous_R
+      )
+      precon_previous_initialized = jnp.logical_or(
+        precon_previous_initialized, initialized
+      )
+
+    precon_kwargs = dict(kwargs)
+    precon_kwargs['preconditioner_position'] = precon_R
+    G = preconditioned_force(R, F, **precon_kwargs)
+
+    def finish_step(V_bar, dt_bar, alpha_bar, n_pos_bar):
+      V_new = tree_map(lambda v, g: v + dt_bar * g, V_bar, G)
+      dR_raw = tree_map(lambda v: dt_bar * v, V_new)
+      dR_norm = jnp.sqrt(tree_dot(dR_raw, dR_raw))
+      dR_scale = jnp.where(dR_norm > max_move, max_move / dR_norm, 1.0)
+      dR = tree_map(lambda dr: dR_scale * dr, dR_raw)
+
+      R_new = shift_position(R, dR, **kwargs)
+      F_new = force(R_new, **kwargs)
+
+      return PreconFireDescentState(
+        R_new,
+        V_new,
+        F_new,
+        dt_bar,
+        alpha_bar,
+        n_pos_bar,
+        jnp.array(True),
+        precon_R,
+        precon_previous_R,
+        precon_previous_initialized,
+      )  # pytype: disable=wrong-arg-count
+
+    F_dot_V = tree_dot(F, V)
+    is_first = jnp.logical_not(initialized)
+    is_positive = jnp.logical_and(initialized, F_dot_V > 0)
+
+    V_zero = tree_map(jnp.zeros_like, V)
+    V_norm = jnp.sqrt(velocity_metric_dot(R, V, V, **precon_kwargs))
+    F_norm = jnp.sqrt(tree_dot(F, G))
+    V_positive = tree_map(
+      lambda v, g: (1.0 - alpha) * v + alpha * (V_norm / F_norm) * g,
+      V,
+      G,
+    )
+
+    grow = n_pos > n_min
+    dt_choice = jnp.array([dt * f_inc, dt_max])
+    dt_positive = jnp.where(grow, jnp.min(dt_choice), dt)
+    alpha_positive = jnp.where(grow, alpha * f_alpha, alpha)
+    n_pos_positive = n_pos + 1
+
+    V_bar = tree_map(
+      lambda v_pos, v_zero: jnp.where(is_positive, v_pos, v_zero),
+      V_positive,
+      V_zero,
+    )
+    dt_bar = jnp.where(is_positive, dt_positive, dt * f_dec)
+    alpha_bar = jnp.where(is_positive, alpha_positive, alpha_start)
+    n_pos_bar = jnp.where(is_positive, n_pos_positive, jnp.zeros((), jnp.int32))
+
+    V_bar = tree_map(
+      lambda v_first, v_later: jnp.where(is_first, v_first, v_later),
+      V_zero,
+      V_bar,
+    )
+    dt_bar = jnp.where(is_first, dt, dt_bar)
+    alpha_bar = jnp.where(is_first, alpha, alpha_bar)
+    n_pos_bar = jnp.where(is_first, n_pos, n_pos_bar)
+
+    armijo_fail = jnp.array(False)
+    if use_armijo:
+      V_test = tree_map(lambda v, g: v + dt * g, V, G)
+      dR_test = tree_map(lambda v: dt * v, V_test)
+      R_test = shift_position(R, dR_test, **kwargs)
+      E = energy_or_force(R, **kwargs)
+      E_test = energy_or_force(R_test, **kwargs)
+      armijo_rhs = E - theta * dt * tree_dot(V_test, F)
+      failed_decrease = E_test > armijo_rhs - armijo_tol
+      armijo_fail = jnp.logical_and(
+        initialized, jnp.logical_or(failed_decrease, ~jnp.isfinite(E_test))
+      )
+
+    V_bar = tree_map(
+      lambda v: jnp.where(armijo_fail, jnp.zeros_like(v), v), V_bar
+    )
+    dt_bar = jnp.where(armijo_fail, dt * f_dec, dt_bar)
+    alpha_bar = jnp.where(armijo_fail, alpha_start, alpha_bar)
+    n_pos_bar = jnp.where(armijo_fail, jnp.zeros((), jnp.int32), n_pos_bar)
+
+    return finish_step(V_bar, dt_bar, alpha_bar, n_pos_bar)
 
   return init_fn, apply_fn
 

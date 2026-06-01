@@ -148,6 +148,229 @@ class DynamicsTest(test_util.JAXMDTestCase):
         E_current = E_new
         dr_current = dr_new
 
+  def test_precon_fire_descent_armijo_rejects_uphill_step(self):
+    R = jnp.array([[1.0]], dtype=f32)
+    energy = lambda R, **kwargs: f32(0.5) * jnp.sum(R**2)
+    _, shift_fn = space.free()
+
+    init_fn, apply_fn = minimize.precon_fire_descent(
+      energy,
+      shift_fn,
+      dt_start=0.1,
+      f_dec=0.5,
+      alpha_start=0.1,
+      use_armijo=True,
+    )
+    state = init_fn(R)
+    state = state.set(
+      velocity=jnp.array([[10.0]], dtype=f32),
+      n_pos=jnp.array(3, dtype=jnp.int32),
+      initialized=jnp.array(True),
+    )
+
+    next_state = apply_fn(state)
+
+    expected_dt = state.dt * 0.5
+    expected_velocity = expected_dt * state.force
+    expected_position = state.position + expected_dt * expected_velocity
+
+    self.assertAllClose(next_state.position, expected_position)
+    self.assertAllClose(next_state.velocity, expected_velocity)
+    self.assertAllClose(
+      next_state.force, quantity.force(energy)(expected_position)
+    )
+    self.assertAlmostEqual(float(next_state.dt), float(expected_dt))
+    self.assertAlmostEqual(float(next_state.alpha), 0.1, delta=1e-3)
+    self.assertAllClose(next_state.n_pos, jnp.array(0, dtype=jnp.int32))
+
+  def test_c1_preconditioner_dot(self):
+    displacement_fn, _ = space.free()
+    _, preconditioner_dot = minimize.c1_preconditioner(
+      displacement_fn,
+      r_cut=1.5,
+      r_NN=1.0,
+      mu=2.0,
+      c_stab=0.25,
+    )
+
+    R = jnp.array([[0.0, 0.0], [1.0, 0.0], [3.0, 0.0]], dtype=f32)
+    X = jnp.array([[1.0, 2.0], [3.0, 5.0], [7.0, 11.0]], dtype=f32)
+    Y = jnp.array([[13.0, 17.0], [19.0, 23.0], [29.0, 31.0]], dtype=f32)
+
+    weights = jnp.array(
+      [[0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+      dtype=f32,
+    )
+    degree = jnp.sum(weights, axis=1)
+    PY = 2.0 * ((degree[:, None] + 0.25) * Y - weights @ Y)
+    expected = jnp.sum(X * PY)
+
+    self.assertAllClose(preconditioner_dot(R, X, Y), expected)
+
+  def test_exp_preconditioner_a_zero_matches_c1(self):
+    displacement_fn, _ = space.free()
+    _, exp_dot = minimize.exp_preconditioner(
+      displacement_fn,
+      r_cut=1.5,
+      r_NN=1.0,
+      A=0.0,
+      mu=2.0,
+      c_stab=0.25,
+    )
+    _, c1_dot = minimize.c1_preconditioner(
+      displacement_fn,
+      r_cut=1.5,
+      r_NN=1.0,
+      mu=2.0,
+      c_stab=0.25,
+    )
+
+    R = jnp.array([[0.0, 0.0], [1.0, 0.0], [3.0, 0.0]], dtype=f32)
+    X = jnp.array([[1.0, 2.0], [3.0, 5.0], [7.0, 11.0]], dtype=f32)
+    Y = jnp.array([[13.0, 17.0], [19.0, 23.0], [29.0, 31.0]], dtype=f32)
+
+    self.assertAllClose(exp_dot(R, X, Y), c1_dot(R, X, Y))
+
+  def test_estimate_exp_mu(self):
+    displacement_fn, _ = space.free()
+    R = jnp.array([[0.0, 0.0], [1.0, 0.2], [2.0, 0.7], [3.0, 1.1]], dtype=f32)
+    stiffness = jnp.array([2.0, 5.0], dtype=f32)
+    energy_fn = lambda R, **kwargs: f32(0.5) * jnp.sum(stiffness * R**2)
+    force_fn = quantity.force(energy_fn)
+
+    mu = minimize.estimate_exp_mu(
+      energy_fn,
+      displacement_fn,
+      R,
+      r_cut=1.6,
+      r_NN=1.0,
+      A=3.0,
+      c_stab=0.25,
+      min_mu=0.0,
+    )
+
+    _, unit_dot = minimize.exp_preconditioner(
+      displacement_fn,
+      r_cut=1.6,
+      r_NN=1.0,
+      A=3.0,
+      mu=1.0,
+      c_stab=0.25,
+    )
+    amplitude = f32(1e-2)
+    L = jnp.max(R, axis=0) - jnp.min(R, axis=0)
+    V = amplitude * jnp.sin(R / L)
+    expected = jnp.sum((force_fn(R) - force_fn(R + V)) * V) / unit_dot(R, V, V)
+
+    self.assertAllClose(mu, expected)
+
+  def test_precon_fire_descent_matches_ase_trajectory(self):
+    if not jax.config.jax_enable_x64:
+      self.skipTest('ASE trajectory parity requires x64.')
+
+    from ase import Atoms
+    from ase.calculators.calculator import Calculator, all_changes
+    from ase.optimize.precon.fire import PreconFIRE
+    from ase.optimize.precon.precon import Exp
+
+    class HarmonicCalculator(Calculator):
+      implemented_properties = ['energy', 'free_energy', 'forces']
+
+      def __init__(self, R0, stiffness):
+        super().__init__()
+        self.R0 = onp.asarray(R0)
+        self.stiffness = onp.asarray(stiffness)
+
+      def calculate(
+        self, atoms=None, properties=None, system_changes=all_changes
+      ):
+        super().calculate(atoms, properties, system_changes)
+        R = self.atoms.get_positions()
+        dR = R - self.R0
+        energy_value = 0.5 * onp.sum(self.stiffness * dR**2)
+        self.results['energy'] = float(energy_value)
+        self.results['free_energy'] = float(energy_value)
+        self.results['forces'] = -self.stiffness * dR
+
+    R = jnp.array(
+      [[0.0, 0.0, 0.0], [1.0, 0.1, 0.0], [0.1, 1.0, 0.0], [0.0, 0.1, 1.0]],
+      dtype=jnp.float64,
+    )
+    R0 = jnp.array(
+      [
+        [0.05, -0.02, 0.01],
+        [0.95, 0.0, 0.02],
+        [0.0, 0.95, -0.01],
+        [0.02, 0.0, 0.95],
+      ],
+      dtype=jnp.float64,
+    )
+    stiffness = jnp.array([1.0, 2.0, 3.0], dtype=jnp.float64)
+
+    energy_fn = lambda R, **kwargs: (
+      f32(0.5) * jnp.sum(stiffness * (R - R0) ** 2)
+    )
+    displacement_fn, shift_fn = space.free()
+    precon, precon_dot = minimize.exp_preconditioner(
+      displacement_fn,
+      r_cut=1.5,
+      r_NN=1.0,
+      A=3.0,
+      mu=2.0,
+      c_stab=0.25,
+      solver='dense',
+      reference_position=R,
+    )
+    init_fn, apply_fn = minimize.precon_fire_descent(
+      energy_fn,
+      shift_fn,
+      dt_start=0.01,
+      dt_max=0.04,
+      max_move=0.2,
+      preconditioner=precon,
+      preconditioner_dot=precon_dot,
+    )
+    state = init_fn(R)
+
+    atoms = Atoms(
+      ['Ar'] * len(R),
+      positions=onp.asarray(R),
+      cell=[20.0, 20.0, 20.0],
+      pbc=False,
+    )
+    atoms.calc = HarmonicCalculator(onp.asarray(R0), onp.asarray(stiffness))
+    opt = PreconFIRE(
+      atoms,
+      logfile=None,
+      trajectory=None,
+      dt=0.01,
+      dtmax=0.04,
+      maxmove=0.2,
+      precon=Exp(
+        A=3.0,
+        r_cut=1.5,
+        r_NN=1.0,
+        mu=2.0,
+        dim=3,
+        c_stab=0.25,
+        solver='direct',
+        force_stab=True,
+      ),
+      use_armijo=True,
+    )
+    opt.initialize()
+
+    for _ in range(12):
+      opt.step()
+      state = apply_fn(state)
+
+      self.assertAllClose(state.position, atoms.get_positions(), atol=1e-10)
+      self.assertAllClose(state.velocity, opt.v, atol=1e-10)
+      self.assertAllClose(state.force, atoms.get_forces(), atol=1e-10)
+      self.assertAlmostEqual(float(state.dt), float(opt.dt), delta=1e-12)
+      self.assertAlmostEqual(float(state.alpha), float(opt.a), delta=1e-12)
+      self.assertEqual(int(state.n_pos), int(opt.Nsteps))
+
 
 class FireDescentBoxTest(test_util.JAXMDTestCase):
   """Tests for fire_descent and fire_descent_box with multi-image NL."""
