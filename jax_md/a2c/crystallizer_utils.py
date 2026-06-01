@@ -83,13 +83,13 @@ def get_subcells_to_crystallize(
     comps = []
     for stoich in stoichs:
       comp = dict(zip(elements, stoich))
-      comps.append(mg.Composition.from_dict(comp).reduced_formula)
+      comps.append(mg.core.Composition.from_dict(comp).reduced_formula)
     restrict_to_compositions = set(comps)
 
   # If a composition list is provided, ensure they are reduced formulas
   if restrict_to_compositions:
     restrict_to_compositions = [
-      mg.Composition(i).reduced_formula for i in restrict_to_compositions
+      mg.core.Composition(i).reduced_formula for i in restrict_to_compositions
     ]
   else:
     restrict_to_compositions = None
@@ -112,7 +112,7 @@ def get_subcells_to_crystallize(
       if nmin <= len(ids) <= nmax:
         if restrict_to_compositions:
           if (
-            mg.Composition(''.join(species[ids])).reduced_formula
+            mg.core.Composition(''.join(species[ids])).reduced_formula
             not in restrict_to_compositions
           ):
             continue
