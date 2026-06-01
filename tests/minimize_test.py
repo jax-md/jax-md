@@ -231,6 +231,75 @@ class DynamicsTest(test_util.JAXMDTestCase):
 
     self.assertAllClose(exp_dot(R, X, Y), c1_dot(R, X, Y))
 
+  def test_exp_preconditioner_standard_neighbor_list(self):
+    displacement_fn, _ = space.free()
+    neighbor_fn = partition.neighbor_list(
+      displacement_fn,
+      box=10.0,
+      r_cutoff=1.5,
+      format=partition.Dense,
+    )
+    R = jnp.array([[0.0, 0.0], [1.0, 0.0], [3.0, 0.0]], dtype=f32)
+    X = jnp.array([[1.0, 2.0], [3.0, 5.0], [7.0, 11.0]], dtype=f32)
+    Y = jnp.array([[13.0, 17.0], [19.0, 23.0], [29.0, 31.0]], dtype=f32)
+    neighbor = neighbor_fn.allocate(R)
+    _, preconditioner_dot = minimize.c1_preconditioner(
+      displacement_fn,
+      r_cut=1.5,
+      r_NN=1.0,
+      mu=2.0,
+      c_stab=0.25,
+    )
+
+    weights = jnp.array(
+      [[0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+      dtype=f32,
+    )
+    degree = jnp.sum(weights, axis=1)
+    PY = 2.0 * ((degree[:, None] + 0.25) * Y - weights @ Y)
+    expected = jnp.sum(X * PY)
+
+    self.assertAllClose(
+      preconditioner_dot(R, X, Y, neighbor=neighbor), expected
+    )
+
+  def test_exp_preconditioner_ordered_sparse_multi_image(self):
+    box = jnp.eye(2, dtype=f32)
+    displacement_fn, _ = space.periodic_general(
+      box, fractional_coordinates=True
+    )
+    sparse_neighbor_fn = neighbor_list_multi_image(
+      None,
+      box,
+      r_cutoff=0.6,
+      fractional_coordinates=True,
+      format=partition.Sparse,
+    )
+    ordered_neighbor_fn = neighbor_list_multi_image(
+      None,
+      box,
+      r_cutoff=0.6,
+      fractional_coordinates=True,
+      format=partition.OrderedSparse,
+    )
+    R = jnp.array([[0.1, 0.1], [0.4, 0.1], [0.8, 0.8]], dtype=f32)
+    X = jnp.array([[1.0, 2.0], [3.0, 5.0], [7.0, 11.0]], dtype=f32)
+    Y = jnp.array([[13.0, 17.0], [19.0, 23.0], [29.0, 31.0]], dtype=f32)
+    sparse_neighbor = sparse_neighbor_fn.allocate(R)
+    ordered_neighbor = ordered_neighbor_fn.allocate(R)
+    _, preconditioner_dot = minimize.c1_preconditioner(
+      displacement_fn,
+      r_cut=0.6,
+      r_NN=0.3,
+      mu=2.0,
+      c_stab=0.25,
+    )
+
+    sparse_dot = preconditioner_dot(R, X, Y, neighbor=sparse_neighbor)
+    ordered_dot = preconditioner_dot(R, X, Y, neighbor=ordered_neighbor)
+
+    self.assertAllClose(ordered_dot, sparse_dot)
+
   def test_estimate_exp_mu(self):
     displacement_fn, _ = space.free()
     R = jnp.array([[0.0, 0.0], [1.0, 0.2], [2.0, 0.7], [3.0, 1.1]], dtype=f32)

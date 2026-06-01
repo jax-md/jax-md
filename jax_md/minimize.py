@@ -224,7 +224,7 @@ def fire_descent(
 
 @dataclasses.dataclass
 class PreconFireDescentState:
-  """State for the ASE-style preconditioned FIRE minimizer.
+  """State for the preconditioned FIRE minimizer.
 
   Attributes:
     position: The current position of particles. An ndarray of floats
@@ -239,7 +239,7 @@ class PreconFireDescentState:
     initialized: Whether the first-step velocity initialization has happened.
     preconditioner_position: Reference positions for cached graph
       preconditioners.
-    preconditioner_previous_position: Previous positions used by ASE-style
+    preconditioner_previous_position: Previous positions used for
       preconditioner rebuild checks.
     preconditioner_previous_initialized: Whether
       ``preconditioner_previous_position`` has been initialized.
@@ -275,11 +275,12 @@ def exp_preconditioner(
   reference_position: Array | None = None,
   solver: str = 'cg',
 ) -> Tuple[Callable[..., Array], Callable[..., Array]]:
-  """Builds ASE-style exponential graph preconditioner callables.
+  """Builds exponential graph preconditioner callables.
 
-  This implements the position-only universal preconditioner from ASE's
-  ``Exp`` preconditioner in a matrix-free, JAX-friendly form. The scalar atom
-  graph is expanded over Cartesian components as ``P = L kron I_d``.
+  This implements the position-only universal preconditioner from Packwood
+  et al., J. Chem. Phys. 144, 164109 (2016), in a matrix-free, JAX-friendly
+  form. The scalar atom graph is expanded over Cartesian components as
+  ``P = L kron I_d``.
 
   Args:
     displacement_fn: Function returning pair displacements.
@@ -331,27 +332,54 @@ def exp_preconditioner(
 
     neighbor = kwargs.get('neighbor')
     if neighbor is not None:
+      if hasattr(neighbor, 'shifts'):
+        if neighbor.format is partition.Dense:
+          idx = neighbor.idx
+          senders = idx.reshape(-1)
+          receivers = jnp.repeat(jnp.arange(N), idx.shape[1])
+          shifts = neighbor.shifts.reshape((-1, R_graph.shape[-1]))
+        else:
+          receivers, senders = neighbor.idx
+          shifts = neighbor.shifts
+        valid = jnp.logical_and(receivers < N, senders < N)
+        send_safe = jnp.clip(senders, 0, N - 1)
+        recv_safe = jnp.clip(receivers, 0, N - 1)
+        shift_cart = shifts.astype(R_graph.dtype) @ neighbor.box.T
+        dR = R_graph[send_safe] + shift_cart - R_graph[recv_safe]
+        dist = jnp.sqrt(jnp.sum(dR**2, axis=-1))
+        weights_edge = jnp.exp(-A_value * (dist / r_NN_value - 1.0))
+        weights_edge = jnp.where(valid, weights_edge, 0.0)
+        weights = (
+          jnp.zeros((N, N), dtype=R_graph.dtype)
+          .at[recv_safe, send_safe]
+          .add(weights_edge)
+        )
+        if neighbor.format is partition.OrderedSparse:
+          weights = weights.at[send_safe, recv_safe].add(weights_edge)
+        return weights
+
       if neighbor.format is partition.Dense:
-        idx = neighbor.idx
-        senders = idx.reshape(-1)
-        receivers = jnp.repeat(jnp.arange(N), idx.shape[1])
-        shifts = neighbor.shifts.reshape((-1, R_graph.shape[-1]))
+        senders = neighbor.idx.reshape(-1)
+        receivers = jnp.repeat(jnp.arange(N), neighbor.idx.shape[1])
       else:
         receivers, senders = neighbor.idx
-        shifts = neighbor.shifts
       valid = jnp.logical_and(receivers < N, senders < N)
       send_safe = jnp.clip(senders, 0, N - 1)
       recv_safe = jnp.clip(receivers, 0, N - 1)
-      shift_cart = shifts.astype(R_graph.dtype) @ neighbor.box.T
-      dR = R_graph[send_safe] + shift_cart - R_graph[recv_safe]
+      dR = jax.vmap(
+        lambda r_recv, r_send: displacement_fn(r_recv, r_send, **kwargs)
+      )(R_graph[recv_safe], R_graph[send_safe])
       dist = jnp.sqrt(jnp.sum(dR**2, axis=-1))
       weights_edge = jnp.exp(-A_value * (dist / r_NN_value - 1.0))
       weights_edge = jnp.where(valid, weights_edge, 0.0)
-      return (
+      weights = (
         jnp.zeros((N, N), dtype=R_graph.dtype)
         .at[recv_safe, send_safe]
         .add(weights_edge)
       )
+      if neighbor.format is partition.OrderedSparse:
+        weights = weights.at[send_safe, recv_safe].add(weights_edge)
+      return weights
 
     dist = pair_distances(R_graph, **kwargs)
     mask = jnp.logical_and(dist < r_cut_value, ~jnp.eye(N, dtype=bool))
@@ -397,7 +425,7 @@ def c1_preconditioner(
   reference_position: Array | None = None,
   solver: str = 'cg',
 ) -> Tuple[Callable[..., Array], Callable[..., Array]]:
-  """Builds ASE-style C1 graph preconditioner callables.
+  """Builds C1 graph preconditioner callables.
 
   This is the constant-weight special case of :func:`exp_preconditioner`.
   """
@@ -426,10 +454,10 @@ def estimate_exp_mu(
   min_mu: float = 1.0,
   **kwargs,
 ) -> Array:
-  """Estimate the Exp preconditioner energy scale following ASE.
+  """Estimate the Exp preconditioner energy scale.
 
   The estimate matches the finite-difference curvature equation from
-  Packwood et al. and ASE's ``Precon.estimate_mu``:
+  Packwood et al., J. Chem. Phys. 144, 164109 (2016):
 
   ``(grad E(R + V) - grad E(R)) . V = mu * V^T P_{mu=1} V``.
 
@@ -505,11 +533,12 @@ def precon_fire_descent(
   preconditioner: Callable[..., PyTree] | None = None,
   preconditioner_dot: Callable[..., Array] | None = None,
 ) -> Minimizer[PreconFireDescentState]:
-  """Defines ASE-style preconditioned FIRE minimization.
+  """Defines preconditioned FIRE minimization.
 
-  This optimizer follows the update order of ASE's ``PreconFIRE``. Unlike
-  :func:`fire_descent`, it stores velocity rather than momentum and applies the
-  preconditioned force direction directly.
+  This optimizer uses the graph-metric preconditioning idea of Packwood et al.,
+  J. Chem. Phys. 144, 164109 (2016). Unlike :func:`fire_descent`, it stores
+  velocity rather than momentum and applies the preconditioned force direction
+  directly.
 
   Args:
     energy_or_force: A function that produces either an energy or a force from
