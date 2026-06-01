@@ -112,7 +112,6 @@ packages = ["jax_md"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "jax_md/_nn/uma/Jd.pt" = "jax_md/_nn/uma/Jd.pt"
-"jax_md/_nn/uma/checkpoints" = "jax_md/_nn/uma/checkpoints"
 
 [tool.hatch.build.targets.sdist.force-include]
 "jax_md/_nn/uma/Jd.pt" = "jax_md/_nn/uma/Jd.pt"
