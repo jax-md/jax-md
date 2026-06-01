@@ -76,6 +76,7 @@ testing = [
 ]
 mace = [
     "mace_jax @ git+https://github.com/ACEsuit/mace-jax@fe19806 ; python_version >= '3.11'",
+    "aiohttp<3.14",
 ]
 uma = [
     "torch>=2.0.0",           # Loading PyTorch UMA checkpoints
