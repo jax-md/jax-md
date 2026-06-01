@@ -81,16 +81,15 @@ mace = [
 uma = [
     "torch>=2.0.0",           # Loading PyTorch UMA checkpoints
     "huggingface_hub",        # Downloading pretrained models
+    "fairchem-core",          # PyTorch reference and UMA model modules
 ]
 dev = [
     "pytest",
     "ase",
     "ruff",
     "pre-commit",
-    "torch>=2.0.0",
     "e3nn",                   # Exact grid matrix computation
     "huggingface_hub",
-    "fairchem-core",          # PyTorch reference for comparison tests
     "setuptools<81",          # pkg_resources (needed by torchtnt)
 ]
 
