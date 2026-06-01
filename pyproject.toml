@@ -133,6 +133,10 @@ conflicts = [
         { group = "dev" },
         { group = "mace" },
     ],
+    [
+        { group = "mace" },
+        { group = "uma" },
+    ],
 ]
 
 [tool.ruff]
