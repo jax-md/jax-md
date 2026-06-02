@@ -285,7 +285,9 @@ def get_subcells_to_crystallize_parallel(
     return _get_subcells_from_axis_triple_range((0, total, *worker_args))
 
   chunk_size = math.ceil(total / n_workers)
-  ranges = [(i, min(i + chunk_size, total)) for i in range(0, total, chunk_size)]
+  ranges = [
+    (i, min(i + chunk_size, total)) for i in range(0, total, chunk_size)
+  ]
   tasks = [(start, end, *worker_args) for start, end in ranges]
 
   candidates: List[Tuple[Sequence[int], onp.ndarray, onp.ndarray]] = []
