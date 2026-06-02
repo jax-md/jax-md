@@ -1023,3 +1023,343 @@ def fire_descent_box(
     )  # pytype: disable=wrong-arg-count
 
   return init_fn, apply_fn
+
+
+@dataclasses.dataclass
+class PreconFireBoxDescentState:
+  """State for the atom + box preconditioned FIRE minimizer."""
+
+  position: Array
+  velocity: Array
+  force: Array
+  box: Array
+  reference_box: Array
+  box_position: Array
+  box_velocity: Array
+  box_force: Array
+  box_factor: Array
+  dt: float
+  alpha: float
+  n_pos: int
+  initialized: bool
+  preconditioner_position: PyTree
+  preconditioner_previous_position: PyTree
+  preconditioner_previous_initialized: bool
+
+  @property
+  def momentum(self) -> Array:
+    return self.velocity
+
+  @property
+  def box_momentum(self) -> Array:
+    return self.box_velocity
+
+
+def precon_fire_descent_box(
+  energy_fn: Callable[..., Array],
+  shift_fn: ShiftFn,
+  dt_start: float = 0.1,
+  dt_max: float = 1.0,
+  max_move: float = 0.2,
+  n_min: float = 5,
+  f_inc: float = 1.1,
+  f_dec: float = 0.5,
+  alpha_start: float = 0.1,
+  f_alpha: float = 0.99,
+  theta: float = 0.1,
+  armijo_tol: float = 0.0,
+  use_armijo: bool = True,
+  preconditioner: Callable[..., PyTree] | None = None,
+  preconditioner_dot: Callable[..., Array] | None = None,
+  cell_preconditioner: Array | float = 1.0,
+  preconditioner_update_threshold: float | None = None,
+  scalar_pressure: float = 0.0,
+  hydrostatic_strain: bool = False,
+  constant_volume: bool = False,
+  mask: Array = None,
+) -> Minimizer[PreconFireBoxDescentState]:
+  """Preconditioned FIRE minimization of atoms and the simulation box."""
+  del shift_fn
+
+  if preconditioner is not None and preconditioner_dot is None:
+    raise ValueError(
+      'preconditioner_dot must be supplied when preconditioner is supplied.'
+    )
+
+  force_fn = quantity.canonicalize_force(energy_fn)
+
+  def tree_dot(X: PyTree, Y: PyTree) -> Array:
+    return tree_reduce(
+      lambda accum, x_dot_y: accum + x_dot_y,
+      tree_map(lambda x, y: jnp.sum(x * y), X, Y),
+      0.0,
+    )
+
+  def preconditioned_force(R: PyTree, F: PyTree, **kwargs) -> PyTree:
+    if preconditioner is None:
+      return F
+    return preconditioner(R, F, **kwargs)
+
+  def velocity_metric_dot(R: PyTree, X: PyTree, Y: PyTree, **kwargs) -> Array:
+    if preconditioner is None:
+      return tree_dot(X, Y)
+    metric = preconditioner_dot
+    if metric is None:
+      raise ValueError(
+        'preconditioner_dot must be supplied when preconditioner is supplied.'
+      )
+    return metric(R, X, Y, **kwargs)
+
+  def tree_max_abs(X: PyTree) -> Array:
+    return tree_reduce(
+      lambda accum, x: jnp.maximum(accum, jnp.max(jnp.abs(x))),
+      X,
+      0.0,
+    )
+
+  def virial_fn(R, box, **kwargs):
+    dim = R.shape[1]
+    I_d = jnp.eye(dim, dtype=box.dtype)
+    zero = jnp.zeros((dim, dim), dtype=box.dtype)
+
+    def U(eps):
+      return energy_fn(R, box=box, perturbation=(I_d + eps), **kwargs)
+
+    dUdeps = jax.grad(U)(zero)
+    v = -dUdeps
+    v = (v + v.T) / 2.0
+    if scalar_pressure != 0.0:
+      vol = quantity.volume(dim, box)
+      v = v - scalar_pressure * vol * I_d
+    if hydrostatic_strain:
+      tr = jnp.trace(v)
+      v = jnp.eye(dim, dtype=v.dtype) * (tr / dim)
+    if mask is not None:
+      v = v * jnp.asarray(mask, dtype=v.dtype)
+    if constant_volume:
+      tr = jnp.trace(v)
+      v = v - jnp.eye(dim, dtype=v.dtype) * (tr / dim)
+    return v
+
+  def actual_box(ref_box, F_deform):
+    return ref_box @ F_deform.T
+
+  def actual_position(q_R, F_deform):
+    return q_R @ F_deform.T
+
+  def generalized_position(R, F_deform):
+    return jnp.linalg.solve(F_deform, R.T).T
+
+  def generalized_force(F_real, F_deform):
+    return F_real @ F_deform
+
+  def box_force_fn(virial, F_deform, bf):
+    W_F = jnp.linalg.solve(F_deform, virial.T).T
+    return W_F / bf
+
+  def init_fn(
+    R: Array,
+    box: Array,
+    box_factor: Array = None,
+    **kwargs,
+  ) -> PreconFireBoxDescentState:
+    dtype = tree_leaves(R)[0].dtype
+    N = R.shape[0]
+    dim = R.shape[1]
+    if box_factor is None:
+      box_factor = jnp.asarray(N, dtype=dtype)
+    I_d = jnp.eye(dim, dtype=box.dtype)
+    F_deform = I_d
+    q_R = generalized_position(R, F_deform)
+    R_actual = actual_position(q_R, F_deform)
+    F_real = force_fn(R_actual, box=box, **kwargs)
+    F = generalized_force(F_real, F_deform)
+    F_b = box_force_fn(virial_fn(R_actual, box, **kwargs), F_deform, box_factor)
+    return PreconFireBoxDescentState(  # type: ignore[call-arg]
+      q_R,  # type: ignore[call-arg]
+      tree_map(jnp.zeros_like, q_R),
+      F,
+      box,
+      box,
+      box_factor * I_d,
+      jnp.zeros_like(box),
+      F_b,
+      box_factor,
+      jnp.asarray(dt_start, dtype=dtype),
+      jnp.asarray(alpha_start, dtype=dtype),
+      jnp.zeros((), jnp.int32),
+      jnp.array(False),
+      R,
+      R,
+      jnp.array(False),
+    )  # pytype: disable=wrong-arg-count
+
+  def apply_fn(
+    state: PreconFireBoxDescentState, **kwargs
+  ) -> PreconFireBoxDescentState:
+    (
+      R,
+      V,
+      F,
+      _,
+      ref_box,
+      X_b,
+      V_b,
+      F_b,
+      bf,
+      dt,
+      alpha,
+      n_pos,
+      initialized,
+      precon_R,
+      precon_previous_R,
+      precon_previous_initialized,
+    ) = dataclasses.unpack(state)
+
+    F_deform = X_b / bf
+    box = actual_box(ref_box, F_deform)
+    R_actual = actual_position(R, F_deform)
+
+    if preconditioner_update_threshold is not None:
+      max_old_disp = tree_max_abs(
+        tree_map(lambda r, r0: r - r0, R, precon_previous_R)
+      )
+      update_precon = jnp.logical_and(
+        initialized,
+        jnp.logical_and(
+          precon_previous_initialized,
+          max_old_disp >= preconditioner_update_threshold,
+        ),
+      )
+      precon_R = tree_map(
+        lambda r, r0: jnp.where(update_precon, r, r0), R, precon_R
+      )
+      precon_previous_R = tree_map(
+        lambda r, r0: jnp.where(initialized, r, r0), R, precon_previous_R
+      )
+      precon_previous_initialized = jnp.logical_or(
+        precon_previous_initialized, initialized
+      )
+
+    precon_kwargs = dict(kwargs)
+    precon_kwargs['box'] = box
+    precon_kwargs['preconditioner_position'] = precon_R
+    G = preconditioned_force(R, F, **precon_kwargs)
+    cell_precon = jnp.asarray(cell_preconditioner, dtype=F_b.dtype)
+    G_b = F_b if preconditioner is None else F_b / cell_precon
+
+    F_dot_V = tree_dot(F, V) + jnp.sum(F_b * V_b)
+    is_first = jnp.logical_not(initialized)
+    is_positive = jnp.logical_and(initialized, F_dot_V > 0)
+
+    V_zero = tree_map(jnp.zeros_like, V)
+    V_b_zero = jnp.zeros_like(V_b)
+    box_velocity_norm = (
+      jnp.sum(V_b**2)
+      if preconditioner is None
+      else cell_precon * jnp.sum(V_b**2)
+    )
+    V_norm = jnp.sqrt(
+      velocity_metric_dot(R, V, V, **precon_kwargs) + box_velocity_norm
+    )
+    F_norm = jnp.sqrt(tree_dot(F, G) + jnp.sum(F_b * G_b))
+    V_positive = tree_map(
+      lambda v, g: (1.0 - alpha) * v + alpha * (V_norm / F_norm) * g,
+      V,
+      G,
+    )
+    V_b_positive = (1.0 - alpha) * V_b + alpha * (V_norm / F_norm) * G_b
+
+    grow = n_pos > n_min
+    dt_choice = jnp.array([dt * f_inc, dt_max])
+    dt_positive = jnp.where(grow, jnp.min(dt_choice), dt)
+    alpha_positive = jnp.where(grow, alpha * f_alpha, alpha)
+    n_pos_positive = n_pos + 1
+
+    V_bar = tree_map(
+      lambda v_pos, v_zero: jnp.where(is_positive, v_pos, v_zero),
+      V_positive,
+      V_zero,
+    )
+    V_b_bar = jnp.where(is_positive, V_b_positive, V_b_zero)
+    dt_bar = jnp.where(is_positive, dt_positive, dt * f_dec)
+    alpha_bar = jnp.where(is_positive, alpha_positive, alpha_start)
+    n_pos_bar = jnp.where(is_positive, n_pos_positive, jnp.zeros((), jnp.int32))
+
+    V_bar = tree_map(
+      lambda v_first, v_later: jnp.where(is_first, v_first, v_later),
+      V_zero,
+      V_bar,
+    )
+    V_b_bar = jnp.where(is_first, V_b_zero, V_b_bar)
+    dt_bar = jnp.where(is_first, dt, dt_bar)
+    alpha_bar = jnp.where(is_first, alpha, alpha_bar)
+    n_pos_bar = jnp.where(is_first, n_pos, n_pos_bar)
+
+    armijo_fail = jnp.array(False)
+    if use_armijo:
+      V_test = tree_map(lambda v, g: v + dt * g, V, G)
+      V_b_test = V_b + dt * G_b
+      dR_test = tree_map(lambda v: dt * v, V_test)
+      X_b_test = X_b + dt * V_b_test
+      box_test = actual_box(ref_box, X_b_test / bf)
+      q_R_test = R + dR_test
+      E = energy_fn(R_actual, box=box, **kwargs)
+      E_test = energy_fn(
+        actual_position(q_R_test, X_b_test / bf), box=box_test, **kwargs
+      )
+      power_test = tree_dot(V_test, F) + jnp.sum(V_b_test * F_b)
+      armijo_rhs = E - theta * dt * power_test
+      failed_decrease = E_test > armijo_rhs - armijo_tol
+      armijo_fail = jnp.logical_and(
+        initialized, jnp.logical_or(failed_decrease, ~jnp.isfinite(E_test))
+      )
+
+    V_bar = tree_map(
+      lambda v: jnp.where(armijo_fail, jnp.zeros_like(v), v), V_bar
+    )
+    V_b_bar = jnp.where(armijo_fail, V_b_zero, V_b_bar)
+    dt_bar = jnp.where(armijo_fail, dt * f_dec, dt_bar)
+    alpha_bar = jnp.where(armijo_fail, alpha_start, alpha_bar)
+    n_pos_bar = jnp.where(armijo_fail, jnp.zeros((), jnp.int32), n_pos_bar)
+
+    V_new = tree_map(lambda v, g: v + dt_bar * g, V_bar, G)
+    V_b_new = V_b_bar + dt_bar * G_b
+    dR_raw = tree_map(lambda v: dt_bar * v, V_new)
+    dX_b_raw = dt_bar * V_b_new
+    dR_norm = jnp.sqrt(tree_dot(dR_raw, dR_raw) + jnp.sum(dX_b_raw**2))
+    dR_scale = jnp.where(dR_norm > max_move, max_move / dR_norm, 1.0)
+    dR = tree_map(lambda dr: dR_scale * dr, dR_raw)
+    dX_b = dR_scale * dX_b_raw
+
+    R_new = R + dR
+    X_b_new = X_b + dX_b
+    F_deform_new = X_b_new / bf
+    box_new = actual_box(ref_box, F_deform_new)
+    R_actual_new = actual_position(R_new, F_deform_new)
+    F_real_new = force_fn(R_actual_new, box=box_new, **kwargs)
+    F_new = generalized_force(F_real_new, F_deform_new)
+    F_b_new = box_force_fn(
+      virial_fn(R_actual_new, box_new, **kwargs), F_deform_new, bf
+    )
+
+    return PreconFireBoxDescentState(  # type: ignore[call-arg]
+      R_new,  # type: ignore[call-arg]
+      V_new,
+      F_new,
+      box_new,
+      ref_box,
+      X_b_new,
+      V_b_new,
+      F_b_new,
+      bf,
+      dt_bar,
+      alpha_bar,
+      n_pos_bar,
+      jnp.array(True),
+      precon_R,
+      precon_previous_R,
+      precon_previous_initialized,
+    )  # pytype: disable=wrong-arg-count
+
+  return init_fn, apply_fn

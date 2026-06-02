@@ -596,6 +596,293 @@ class FireDescentBoxTest(test_util.JAXMDTestCase):
       'Box should have changed.',
     )
 
+  def test_precon_fire_descent_box_reduces_energy_and_changes_box(self):
+    dtype = self.R.dtype
+    R = jnp.array([[0.15, -0.05], [0.9, 0.2], [0.25, 0.85]], dtype=dtype)
+    R0 = jnp.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], dtype=dtype)
+    box = jnp.array([[1.3, 0.1], [0.0, 0.9]], dtype=dtype)
+    box_target = jnp.array([[1.0, 0.0], [0.0, 1.0]], dtype=dtype)
+
+    def energy_fn(R, box=None, perturbation=None, **kwargs):
+      del kwargs
+      box_eff = box
+      if perturbation is not None:
+        box_eff = perturbation @ box
+      return f32(0.5) * (
+        jnp.sum((R - R0) ** 2) + jnp.sum((box_eff - box_target) ** 2)
+      )
+
+    _, shift_fn = space.free()
+    init_fn, apply_fn = minimize.precon_fire_descent_box(
+      energy_fn,
+      shift_fn,
+      dt_start=0.01,
+      dt_max=0.05,
+      max_move=0.2,
+    )
+
+    state = init_fn(R, box)
+    initial_energy = energy_fn(state.position, box=state.box)
+
+    for _ in range(60):
+      state = apply_fn(state)
+
+    final_energy = energy_fn(state.position, box=state.box)
+    self.assertLess(final_energy, initial_energy)
+    self.assertGreater(float(jnp.linalg.norm(state.box - box)), 1e-4)
+
+  def test_precon_fire_descent_box_armijo_rejects_uphill_step(self):
+    dtype = self.R.dtype
+    R = jnp.array([[1.0, 0.0], [0.0, 1.0]], dtype=dtype)
+    box = jnp.eye(2, dtype=dtype)
+    box_target = f32(0.9) * jnp.eye(2, dtype=dtype)
+
+    def energy_fn(R, box=None, perturbation=None, **kwargs):
+      del kwargs
+      box_eff = box
+      if perturbation is not None:
+        box_eff = perturbation @ box
+      return f32(0.5) * (jnp.sum(R**2) + jnp.sum((box_eff - box_target) ** 2))
+
+    _, shift_fn = space.free()
+    init_fn, apply_fn = minimize.precon_fire_descent_box(
+      energy_fn,
+      shift_fn,
+      dt_start=0.1,
+      f_dec=0.5,
+      alpha_start=0.1,
+      use_armijo=True,
+    )
+    state = init_fn(R, box)
+    state = state.set(
+      velocity=-10.0 * state.force,
+      box_velocity=-10.0 * state.box_force,
+      n_pos=jnp.array(3, dtype=jnp.int32),
+      initialized=jnp.array(True),
+    )
+
+    next_state = apply_fn(state)
+
+    expected_dt = state.dt * 0.5
+    expected_velocity = expected_dt * state.force
+    expected_box_velocity = expected_dt * state.box_force
+    expected_position = state.position + expected_dt * expected_velocity
+    expected_box_position = (
+      state.box_position + expected_dt * expected_box_velocity
+    )
+    expected_box = (
+      state.reference_box @ (expected_box_position / state.box_factor).T
+    )
+
+    self.assertAllClose(next_state.position, expected_position)
+    self.assertAllClose(next_state.velocity, expected_velocity)
+    self.assertAllClose(next_state.box_position, expected_box_position)
+    self.assertAllClose(next_state.box_velocity, expected_box_velocity)
+    self.assertAllClose(next_state.box, expected_box)
+    self.assertAlmostEqual(float(next_state.dt), float(expected_dt))
+    self.assertAlmostEqual(float(next_state.alpha), 0.1, delta=1e-3)
+    self.assertAllClose(next_state.n_pos, jnp.array(0, dtype=jnp.int32))
+
+  def test_precon_fire_descent_box_identity_preconditioner_jit(self):
+    dtype = self.R.dtype
+    R = jnp.array([[0.2, 0.0], [0.8, 0.25], [0.1, 0.75]], dtype=dtype)
+    R0 = jnp.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]], dtype=dtype)
+    box = jnp.array([[1.2, 0.05], [0.0, 0.95]], dtype=dtype)
+    box_target = jnp.eye(2, dtype=dtype)
+
+    def energy_fn(R, box=None, perturbation=None, **kwargs):
+      del kwargs
+      box_eff = box
+      if perturbation is not None:
+        box_eff = perturbation @ box
+      return f32(0.5) * (
+        jnp.sum((R - R0) ** 2) + jnp.sum((box_eff - box_target) ** 2)
+      )
+
+    def preconditioner(R, F, **kwargs):
+      del R, kwargs
+      return F
+
+    def preconditioner_dot(R, X, Y, **kwargs):
+      del R, kwargs
+      return jnp.sum(X * Y)
+
+    _, shift_fn = space.free()
+    init_fn, apply_fn = minimize.precon_fire_descent_box(
+      energy_fn,
+      shift_fn,
+      dt_start=0.01,
+      dt_max=0.05,
+      max_move=0.2,
+      preconditioner=preconditioner,
+      preconditioner_dot=preconditioner_dot,
+    )
+
+    state = init_fn(R, box)
+    initial_energy = energy_fn(state.position, box=state.box)
+
+    @jit
+    def five_steps(state):
+      for _ in range(5):
+        state = apply_fn(state)
+      return state
+
+    state = five_steps(state)
+    final_energy = energy_fn(state.position, box=state.box)
+
+    self.assertTrue(bool(state.initialized))
+    self.assertLess(final_energy, initial_energy)
+
+  def test_precon_fire_descent_box_requires_metric(self):
+    energy_fn = lambda R, box=None, **kwargs: jnp.sum(R**2)
+    _, shift_fn = space.free()
+    preconditioner = lambda R, F, **kwargs: F
+
+    with self.assertRaises(ValueError):
+      minimize.precon_fire_descent_box(
+        energy_fn, shift_fn, preconditioner=preconditioner
+      )
+
+  def test_precon_fire_descent_box_matches_ase_trajectory(self):
+    if not getattr(jax.config, 'jax_enable_x64', False):
+      self.skipTest('ASE UnitCellFilter trajectory parity requires x64.')
+
+    from ase import Atoms
+    from ase.calculators.calculator import Calculator, all_changes
+    from ase.filters import UnitCellFilter
+    from ase.optimize.precon.fire import PreconFIRE
+    from ase.optimize.precon.precon import Exp
+    from ase.stress import full_3x3_to_voigt_6_stress
+
+    class HarmonicBoxCalculator(Calculator):
+      implemented_properties = ['energy', 'free_energy', 'forces', 'stress']
+
+      def __init__(self, R0, stiffness, box_target):
+        super().__init__()
+        self.R0 = onp.asarray(R0)
+        self.stiffness = onp.asarray(stiffness)
+        self.box_target = onp.asarray(box_target)
+
+      def calculate(
+        self, atoms=None, properties=None, system_changes=all_changes
+      ):
+        super().calculate(atoms, properties, system_changes)
+        R = self.atoms.get_positions()
+        box = self.atoms.cell.array
+        dR = R - self.R0
+        dbox = box - self.box_target
+        energy_value = 0.5 * (
+          onp.sum(self.stiffness * dR**2) + onp.sum(dbox**2)
+        )
+        self.results['energy'] = float(energy_value)
+        self.results['free_energy'] = float(energy_value)
+        self.results['forces'] = -self.stiffness * dR
+        volume = self.atoms.get_volume()
+        stress_full = box @ dbox.T / volume
+        self.results['stress'] = full_3x3_to_voigt_6_stress(stress_full)
+
+    R = jnp.array(
+      [[0.0, 0.0, 0.0], [1.0, 0.1, 0.0], [0.1, 1.0, 0.0]],
+      dtype=jnp.float64,
+    )
+    R0 = jnp.array(
+      [[0.05, -0.02, 0.01], [0.95, 0.0, 0.02], [0.0, 0.95, -0.01]],
+      dtype=jnp.float64,
+    )
+    stiffness = jnp.array([1.0, 2.0, 3.0], dtype=jnp.float64)
+    box = jnp.diag(jnp.array([4.0, 4.2, 4.4], dtype=jnp.float64))
+    box_target = jnp.diag(jnp.array([3.95, 4.1, 4.3], dtype=jnp.float64))
+
+    def energy_fn(R, box=None, perturbation=None, **kwargs):
+      del kwargs
+      box_eff = box
+      if perturbation is not None:
+        box_eff = perturbation @ box
+      return f32(0.5) * (
+        jnp.sum(stiffness * (R - R0) ** 2)
+        + jnp.sum((box_eff - box_target) ** 2)
+      )
+
+    displacement_fn, shift_fn = space.free()
+    precon, precon_dot = minimize.exp_preconditioner(
+      displacement_fn,
+      r_cut=1.5,
+      r_NN=1.0,
+      A=3.0,
+      mu=2.0,
+      c_stab=0.25,
+      solver='dense',
+      reference_position=R,
+    )
+    init_fn, apply_fn = minimize.precon_fire_descent_box(
+      energy_fn,
+      shift_fn,
+      dt_start=0.01,
+      dt_max=0.04,
+      max_move=0.2,
+      preconditioner=precon,
+      preconditioner_dot=precon_dot,
+      cell_preconditioner=1.0,
+    )
+    state = init_fn(R, box, box_factor=jnp.asarray(float(len(R))))
+
+    atoms = Atoms(
+      ['Ar'] * len(R),
+      positions=onp.asarray(R),
+      cell=onp.asarray(box),
+      pbc=True,
+    )
+    atoms.calc = HarmonicBoxCalculator(
+      onp.asarray(R0), onp.asarray(stiffness), onp.asarray(box_target)
+    )
+    ucf = UnitCellFilter(atoms, cell_factor=float(len(R)))
+    opt = PreconFIRE(
+      ucf,
+      logfile=None,
+      trajectory=None,
+      dt=0.01,
+      dtmax=0.04,
+      maxmove=0.2,
+      precon=Exp(
+        A=3.0,
+        r_cut=1.5,
+        r_NN=1.0,
+        mu=2.0,
+        mu_c=1.0,
+        dim=3,
+        c_stab=0.25,
+        solver='direct',
+        force_stab=True,
+      ),
+      use_armijo=True,
+    )
+    opt.initialize()
+
+    for _ in range(12):
+      opt.step()
+      state = apply_fn(state)
+
+      self.assertAllClose(
+        jnp.vstack([state.position, state.box_position]),
+        ucf.get_positions(),
+        atol=1e-10,
+      )
+      self.assertAllClose(
+        jnp.vstack([state.force, state.box_force]),
+        ucf.get_forces(),
+        atol=1e-10,
+      )
+      opt_velocity = opt.v
+      assert opt_velocity is not None
+      self.assertAllClose(state.velocity, opt_velocity[: len(R)], atol=1e-10)
+      self.assertAllClose(
+        state.box_velocity, opt_velocity[len(R) :], atol=1e-10
+      )
+      self.assertAllClose(state.box, atoms.cell.array, atol=1e-10)
+      self.assertAlmostEqual(float(state.dt), float(opt.dt), delta=1e-12)
+      self.assertAlmostEqual(float(state.alpha), float(opt.a), delta=1e-12)
+      self.assertEqual(int(state.n_pos), int(opt.Nsteps))
+
 
 if __name__ == '__main__':
   absltest.main()
