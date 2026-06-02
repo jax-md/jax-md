@@ -102,6 +102,10 @@ Download = "https://pypi.org/project/jax-md/"
 
 [tool.hatch.build.targets.wheel]
 packages = ["jax_md"]
+exclude = [
+    "jax_md/_nn/uma/Jd.pt",
+    "jax_md/_nn/uma/checkpoints/*.json",
+]
 
 [tool.hatch.build.targets.wheel.shared-data]
 "examples/models/*.pickle" = "examples/models"
@@ -110,6 +114,12 @@ packages = ["jax_md"]
 [tool.hatch.build.targets.wheel.force-include]
 "jax_md/_nn/uma/Jd.pt" = "jax_md/_nn/uma/Jd.pt"
 "jax_md/_nn/uma/checkpoints" = "jax_md/_nn/uma/checkpoints"
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "jax_md/_nn/uma/Jd.pt",
+    "jax_md/_nn/uma/checkpoints/*.json",
+]
 
 [tool.hatch.build.targets.sdist.force-include]
 "jax_md/_nn/uma/Jd.pt" = "jax_md/_nn/uma/Jd.pt"
@@ -134,6 +144,16 @@ conflicts = [
         { group = "mace" },
     ],
 ]
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.ruff]
 line-length = 80
