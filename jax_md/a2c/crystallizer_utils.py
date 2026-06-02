@@ -18,7 +18,8 @@ import itertools
 import os
 from typing import Sequence, Any, List, Tuple, Optional, Union
 import numpy as onp
-import pymatgen as mg
+from pymatgen.core.structure import Structure
+from pymatgen.core.composition import Composition
 
 
 class Box(onp.ndarray):
@@ -47,7 +48,7 @@ class BoxColumnMatrix(Box):
 
 
 def get_subcells_to_crystallize(
-  structure: mg.core.Structure,
+  structure: Structure,
   d_frac: float = 0.05,
   nmin: int = 1,
   nmax: int = 48,
@@ -83,13 +84,13 @@ def get_subcells_to_crystallize(
     comps = []
     for stoich in stoichs:
       comp = dict(zip(elements, stoich))
-      comps.append(mg.core.Composition.from_dict(comp).reduced_formula)
+      comps.append(Composition.from_dict(comp).reduced_formula)
     restrict_to_compositions = set(comps)
 
   # If a composition list is provided, ensure they are reduced formulas
   if restrict_to_compositions:
     restrict_to_compositions = [
-      mg.core.Composition(i).reduced_formula for i in restrict_to_compositions
+      Composition(i).reduced_formula for i in restrict_to_compositions
     ]
   else:
     restrict_to_compositions = None
@@ -112,7 +113,7 @@ def get_subcells_to_crystallize(
       if nmin <= len(ids) <= nmax:
         if restrict_to_compositions:
           if (
-            mg.core.Composition(''.join(species[ids])).reduced_formula
+            Composition(''.join(species[ids])).reduced_formula
             not in restrict_to_compositions
           ):
             continue
@@ -125,7 +126,7 @@ def subcells_to_structures(
   position: onp.ndarray,
   box: Union[BoxColumnMatrix, BoxRowMatrix],
   species: Sequence[str],
-) -> List[mg.core.Structure]:
+) -> List[Structure]:
   """Create pymatgen Structure objects from subcell slices.
 
   Args:
@@ -150,7 +151,7 @@ def subcells_to_structures(
     new_pos = (pos - ldot) / (hdot - ldot)
     new_box = box * (hdot - ldot)
     structures.append(
-      mg.core.Structure(
+      Structure(
         new_box.T,  # back to row format expected by pymatgen
         onp.array(species)[ids].tolist(),
         coords=new_pos,
@@ -177,7 +178,7 @@ def get_candidate_subset(
 
 
 def valid_subcell(
-  structure: mg.core.Structure,
+  structure: Structure,
   initial_energy: float,
   final_energy: float,
   e_tol: float = 0.001,
