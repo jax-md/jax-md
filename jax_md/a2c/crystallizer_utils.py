@@ -146,7 +146,7 @@ def _get_subcells_from_axis_triple_range(
     Sequence[Tuple[int, int]],
     int,
     int,
-    Optional[frozenset[str]],
+    frozenset[str] | None,
   ],
 ) -> List[Tuple[Sequence[int], onp.ndarray, onp.ndarray]]:
   """Scan axis-triple indices [start, end) and return matching subcells.
