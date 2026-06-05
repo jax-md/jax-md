@@ -1012,6 +1012,28 @@ class CustomPartitionTest(parameterized.TestCase):
     n_edges2 = update_and_count(pos_frac + 0.001, nbrs)
     self.assertGreater(int(n_edges2), 0)
 
+  def test_update_flags_shift_range_growth_without_capacity_overflow(self):
+    """Cell changes that need more periodic images should request realloc."""
+    box = jnp.eye(3, dtype=jnp.float32) * 10.0
+    shrunken_box = jnp.eye(3, dtype=jnp.float32)
+    pos_frac = jnp.array([[0.0, 0.0, 0.0]], dtype=jnp.float32)
+
+    neighbor_fn = neighbor_list_multi_image(
+      None,
+      box,
+      2.5,
+      format=NeighborListFormat.Sparse,
+      fractional_coordinates=True,
+    )
+    nbrs = neighbor_fn.allocate(pos_frac, box=box, extra_capacity=200)
+    self.assertFalse(bool(nbrs.did_buffer_overflow))
+
+    updated = nbrs.update(pos_frac, box=shrunken_box)
+
+    self.assertTrue(bool(updated.did_buffer_overflow))
+    n_edges = int(jnp.sum(updated.idx[0] < len(pos_frac)))
+    self.assertLess(n_edges, updated.max_occupancy)
+
   def test_empty_system(self):
     """Test behavior with a single atom (no neighbors)."""
     box = np.eye(3) * 10.0
