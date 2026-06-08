@@ -48,12 +48,9 @@ dependencies = [
     "optax",
     "frozendict",
     "pymatgen>=2021.3.4",
-<<<<<<< HEAD
     "openmm<=8.5.0",
     "openmmforcefields",
     "parmed",
-=======
->>>>>>> origin/main
 ]
 
 [dependency-groups]
