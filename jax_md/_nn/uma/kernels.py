@@ -947,8 +947,9 @@ def _segment_mm_bwd_dweights_batching_rule(
     batching.not_mapped,
     batch_size,
   )
-  flat_grad_y = _move_or_broadcast_batch(grad_y, g_bdim, batch_size).reshape(
-    batch_size * grad_y.shape[-2], grad_y.shape[-1]
+  moved_grad_y = _move_or_broadcast_batch(grad_y, g_bdim, batch_size)
+  flat_grad_y = moved_grad_y.reshape(
+    moved_grad_y.shape[0] * moved_grad_y.shape[1], moved_grad_y.shape[2]
   )
   batched_weights_shape = (batch_size * weights_shape[0],) + weights_shape[1:]
   out = segment_mm_bwd_dweights_p.bind(
@@ -1009,11 +1010,13 @@ def _segment_mm_bwd_dweights_jvp_batching_rule(
     batching.not_mapped,
     batch_size,
   )
-  flat_grad_y = _move_or_broadcast_batch(grad_y, g_bdim, batch_size).reshape(
-    batch_size * grad_y.shape[-2], grad_y.shape[-1]
+  moved_grad_y = _move_or_broadcast_batch(grad_y, g_bdim, batch_size)
+  flat_grad_y = moved_grad_y.reshape(
+    moved_grad_y.shape[0] * moved_grad_y.shape[1], moved_grad_y.shape[2]
   )
-  flat_tg = _move_or_broadcast_batch(tg, tg_bdim, batch_size).reshape(
-    batch_size * tg.shape[-2], tg.shape[-1]
+  moved_tg = _move_or_broadcast_batch(tg, tg_bdim, batch_size)
+  flat_tg = moved_tg.reshape(
+    moved_tg.shape[0] * moved_tg.shape[1], moved_tg.shape[2]
   )
   batched_weights_shape = (batch_size * weights_shape[0],) + weights_shape[1:]
   out = segment_mm_bwd_dweights_jvp_p.bind(
