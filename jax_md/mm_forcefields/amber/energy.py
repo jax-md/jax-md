@@ -605,9 +605,7 @@ def energy(
   # a workable solution with the current cell list and AABBs if large
   # CutoffNonPeriodic systems will be used.
   neighbor_box = box_vectors if nb_options.use_pbc else 1.0
-  neighbor_r_cut = (
-    nb_options.r_cut if nb_options.r_cut is not None else jnp.inf
-  )
+  neighbor_r_cut = nb_options.r_cut if nb_options.r_cut is not None else jnp.inf
 
   neighbor_fn = neighbor.create_neighbor_list(
     disp_fn,
