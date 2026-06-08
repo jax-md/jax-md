@@ -50,6 +50,13 @@ dependencies = [
     "pymatgen>=2021.3.4",
 ]
 
+[project.optional-dependencies]
+amber = [
+    "openmm<=8.5.0",
+    "openmmforcefields",
+    "parmed",
+]
+
 [dependency-groups]
 docs = [
     "sphinx>=7.2.0",
@@ -113,7 +120,6 @@ exclude = [
 
 [tool.hatch.build.targets.wheel.force-include]
 "jax_md/_nn/uma/Jd.pt" = "jax_md/_nn/uma/Jd.pt"
-"jax_md/_nn/uma/checkpoints" = "jax_md/_nn/uma/checkpoints"
 
 [tool.hatch.build.targets.sdist]
 exclude = [
