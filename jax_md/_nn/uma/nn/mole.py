@@ -14,6 +14,8 @@ import flax.linen as nn
 import jax
 import jax.numpy as jnp
 
+from jax_md._nn.uma.kernels import segment_mm
+
 
 class MOLEWeights(nn.Module):
   """MOLE weight parameter container with the same path as MOLELinear."""
@@ -60,6 +62,8 @@ class MOLELinear(nn.Module):
   use_bias: bool = True
   merged: bool = False
   assume_equal_contiguous_batches: bool = False
+  use_segment_mm_pallas: bool = False
+  max_segment_size: int | None = None
 
   @nn.compact
   def __call__(
@@ -128,29 +132,45 @@ class MOLELinear(nn.Module):
         else:
           raise ValueError(f'MOLELinear: unsupported input ndim={x.ndim}')
       else:
-        # General multi-system case: per-system matmul via scan. Each step
-        # multiplies all rows by one system's weight and masks the rows that
-        # belong to that system. This handles uneven and interleaved batches.
-        if x.ndim == 2:
-
-          def apply_system(acc, inputs):
-            system_weights, system_idx = inputs
-            system_out = jnp.einsum('ni,oi->no', x, system_weights)
-            mask = batch_indices == system_idx
-            return acc + jnp.where(mask[:, None], system_out, 0.0), None
-        elif x.ndim == 3:
-
-          def apply_system(acc, inputs):
-            system_weights, system_idx = inputs
-            system_out = jnp.einsum('nci,oi->nco', x, system_weights)
-            mask = batch_indices == system_idx
-            return acc + jnp.where(mask[:, None, None], system_out, 0.0), None
+        use_segment_mm = (
+          self.use_segment_mm_pallas
+          and self.max_segment_size is not None
+          and jax.default_backend() == 'gpu'
+        )
+        if use_segment_mm:
+          out = segment_mm(
+            x,
+            mixed_weights,
+            jnp.bincount(batch_indices, length=B),
+            use_pallas=True,
+            max_size=self.max_segment_size,
+          )
         else:
-          raise ValueError(f'MOLELinear: unsupported input ndim={x.ndim}')
+          # General multi-system case: per-system matmul via scan. Each step
+          # multiplies all rows by one system's weight and masks the rows that
+          # belong to that system. This handles uneven and interleaved batches.
+          if x.ndim == 2:
 
-        init = jnp.zeros(x.shape[:-1] + (self.out_features,), dtype=x.dtype)
-        system_ids = jnp.arange(B, dtype=batch_indices.dtype)
-        out, _ = jax.lax.scan(apply_system, init, (mixed_weights, system_ids))
+            def apply_system(acc, inputs):
+              system_weights, system_idx = inputs
+              system_out = jnp.einsum('ni,oi->no', x, system_weights)
+              mask = batch_indices == system_idx
+              return acc + jnp.where(mask[:, None], system_out, 0.0), None
+
+          elif x.ndim == 3:
+
+            def apply_system(acc, inputs):
+              system_weights, system_idx = inputs
+              system_out = jnp.einsum('nci,oi->nco', x, system_weights)
+              mask = batch_indices == system_idx
+              return acc + jnp.where(mask[:, None, None], system_out, 0.0), None
+
+          else:
+            raise ValueError(f'MOLELinear: unsupported input ndim={x.ndim}')
+
+          init = jnp.zeros(x.shape[:-1] + (self.out_features,), dtype=x.dtype)
+          system_ids = jnp.arange(B, dtype=batch_indices.dtype)
+          out, _ = jax.lax.scan(apply_system, init, (mixed_weights, system_ids))
 
     if self.use_bias:
       bias = self.param(

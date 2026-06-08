@@ -57,6 +57,1152 @@ def compiler_params(
   return plt.CompilerParams(num_warps=num_warps, num_stages=num_stages)
 
 
+def segment_mm_fwd_kernel(
+  x_ref,  # [N, I]
+  weights_ref,  # [B, O, I]
+  sizes_ref,  # [B]
+  starts_ref,  # [B]
+  init_ref,  # [N, O]
+  out_ref,  # [N, O]
+  *,
+  block_m: int,
+  block_n: int,
+  block_k: int,
+):
+  system = pl.program_id(0)
+  del init_ref
+  row_block = pl.program_id(1)
+  out_block = pl.program_id(2)
+  k_block = pl.program_id(3)
+
+  rows = row_block * block_m + jnp.arange(block_m)  # [block_m]
+  outs = out_block * block_n + jnp.arange(block_n)  # [block_n]
+  ks = k_block * block_k + jnp.arange(block_k)  # [block_k]
+  start = plt.load(starts_ref.at[system])
+  size = plt.load(sizes_ref.at[system])
+  row_idx = start + rows  # [block_m]
+  row_idx_safe = jnp.minimum(row_idx, x_ref.shape[0] - 1)  # [block_m]
+  outs_safe = jnp.minimum(outs, weights_ref.shape[1] - 1)  # [block_n]
+
+  x = plt.load(
+    x_ref.at[row_idx_safe[:, None], ks[None, :]],
+    mask=(rows[:, None] < size) & (ks[None, :] < x_ref.shape[1]),
+    other=0.0,
+  )  # [block_m, block_k]
+  w = plt.load(
+    weights_ref.at[system, outs_safe[:, None], ks[None, :]],
+    mask=(outs[:, None] < weights_ref.shape[1])
+    & (ks[None, :] < x_ref.shape[1]),
+    other=0.0,
+  )  # [block_n, block_k]
+  acc = jnp.dot(
+    x, w.T, precision=jax.lax.Precision.HIGHEST
+  )  # [block_m, block_n]
+
+  plt.atomic_add(
+    out_ref,
+    (row_idx_safe[:, None], outs_safe[None, :]),
+    acc.astype(out_ref.dtype),
+    mask=(rows[:, None] < size) & (outs[None, :] < weights_ref.shape[1]),
+  )
+
+
+def segment_mm_fwd(
+  x,  # [N, I]
+  weights,  # [B, O, I]
+  sizes,  # [B]
+  starts,  # [B]
+  max_size=None,
+  block_m=16,
+  block_n=16,
+  block_k=128,
+):
+  """Pallas/Triton forward segmented matmul."""
+  max_size = x.shape[0] if max_size is None else max_size
+  init = jnp.zeros((x.shape[0], weights.shape[1]), dtype=x.dtype)  # [N, O]
+  grid = (
+    sizes.shape[0],
+    max(1, ceil_div(max_size, block_m)),
+    ceil_div(weights.shape[1], block_n),
+    ceil_div(x.shape[1], block_k),
+  )
+  return pl.pallas_call(
+    partial(
+      segment_mm_fwd_kernel,
+      block_m=block_m,
+      block_n=block_n,
+      block_k=block_k,
+    ),
+    out_shape=jax.ShapeDtypeStruct(init.shape, init.dtype),
+    grid=grid,
+    input_output_aliases={4: 0},
+    compiler_params=plt.CompilerParams(num_warps=4, num_stages=3),
+  )(x, weights, sizes, starts, init)
+
+
+def segment_mm_bwd_dx_kernel(
+  grad_y_ref,  # [N, O]
+  weights_ref,  # [B, O, I]
+  sizes_ref,  # [B]
+  starts_ref,  # [B]
+  init_ref,  # [N, I]
+  out_ref,  # [N, I]
+  *,
+  block_m: int,
+  block_n: int,
+  block_k: int,
+):
+  system = pl.program_id(0)
+  row_block = pl.program_id(1)
+  in_block = pl.program_id(2)
+  out_block = pl.program_id(3)
+  del init_ref
+
+  rows = row_block * block_m + jnp.arange(block_m)  # [block_m]
+  ins = in_block * block_n + jnp.arange(block_n)  # [block_n]
+  outs = out_block * block_k + jnp.arange(block_k)  # [block_k]
+  start = plt.load(starts_ref.at[system])
+  size = plt.load(sizes_ref.at[system])
+  row_idx = start + rows  # [block_m]
+  row_idx_safe = jnp.minimum(row_idx, grad_y_ref.shape[0] - 1)  # [block_m]
+  ins_safe = jnp.minimum(ins, weights_ref.shape[2] - 1)  # [block_n]
+  outs_safe = jnp.minimum(outs, weights_ref.shape[1] - 1)  # [block_k]
+
+  grad_y = plt.load(
+    grad_y_ref.at[row_idx_safe[:, None], outs_safe[None, :]],
+    mask=(rows[:, None] < size) & (outs[None, :] < weights_ref.shape[1]),
+    other=0.0,
+  )  # [block_m, block_k]
+  weights = plt.load(
+    weights_ref.at[system, outs_safe[None, :], ins_safe[:, None]],
+    mask=(outs[None, :] < weights_ref.shape[1])
+    & (ins[:, None] < weights_ref.shape[2]),
+    other=0.0,
+  )  # [block_n, block_k]
+  acc = jnp.dot(
+    grad_y, weights.T, precision=jax.lax.Precision.HIGHEST
+  )  # [block_m, block_n]
+
+  plt.atomic_add(
+    out_ref,
+    (row_idx_safe[:, None], ins_safe[None, :]),
+    acc.astype(out_ref.dtype),
+    mask=(rows[:, None] < size) & (ins[None, :] < weights_ref.shape[2]),
+  )
+
+
+def _segment_mm_bwd_dx(
+  grad_y,  # [N, O]
+  weights,  # [B, O, I]
+  sizes,  # [B]
+  starts,  # [B]
+  max_size=None,
+  block_m=16,
+  block_n=16,
+  block_k=128,
+):
+  max_size = grad_y.shape[0] if max_size is None else max_size
+  init = jnp.zeros(
+    (grad_y.shape[0], weights.shape[2]), dtype=grad_y.dtype
+  )  # [N, I]
+  if grad_y.shape[0] == 0:
+    return init
+  grid = (
+    sizes.shape[0],
+    max(1, ceil_div(max_size, block_m)),
+    ceil_div(weights.shape[2], block_n),
+    ceil_div(weights.shape[1], block_k),
+  )
+  return pl.pallas_call(
+    partial(
+      segment_mm_bwd_dx_kernel,
+      block_m=block_m,
+      block_n=block_n,
+      block_k=block_k,
+    ),
+    out_shape=jax.ShapeDtypeStruct(init.shape, init.dtype),
+    grid=grid,
+    input_output_aliases={4: 0},
+    compiler_params=plt.CompilerParams(num_warps=4, num_stages=3),
+  )(grad_y, weights, sizes, starts, init)
+
+
+def segment_mm_bwd_dweights_kernel(
+  x_ref,  # [N, I]
+  grad_y_ref,  # [N, O]
+  sizes_ref,  # [B]
+  starts_ref,  # [B]
+  out_ref,  # [B, O, I]
+  *,
+  num_row_blocks: int,
+  block_m: int,
+  block_n: int,
+  block_k: int,
+):
+  system = pl.program_id(0)
+  out_block = pl.program_id(1)
+  in_block = pl.program_id(2)
+
+  outs = out_block * block_n + jnp.arange(block_n)  # [block_n]
+  ins = in_block * block_k + jnp.arange(block_k)  # [block_k]
+  outs_safe = jnp.minimum(outs, grad_y_ref.shape[1] - 1)  # [block_n]
+  ins_safe = jnp.minimum(ins, x_ref.shape[1] - 1)  # [block_k]
+  start = plt.load(starts_ref.at[system])
+  size = plt.load(sizes_ref.at[system])
+
+  def body(row_block, acc):
+    rows = row_block * block_m + jnp.arange(block_m)  # [block_m]
+    row_idx = start + rows  # [block_m]
+    row_idx_safe = jnp.minimum(row_idx, x_ref.shape[0] - 1)  # [block_m]
+    mask = rows < size  # [block_m]
+    grad_y = plt.load(
+      grad_y_ref.at[row_idx_safe[:, None], outs_safe[None, :]],
+      mask=mask[:, None] & (outs[None, :] < grad_y_ref.shape[1]),
+      other=0.0,
+    )  # [block_m, block_n]
+    x = plt.load(
+      x_ref.at[row_idx_safe[:, None], ins_safe[None, :]],
+      mask=mask[:, None] & (ins[None, :] < x_ref.shape[1]),
+      other=0.0,
+    )  # [block_m, block_k]
+    return acc + jnp.dot(grad_y.T, x, precision=jax.lax.Precision.HIGHEST)
+
+  init = jnp.zeros(
+    (block_n, block_k), dtype=out_ref.dtype
+  )  # [block_n, block_k]
+  acc = jax.lax.fori_loop(0, num_row_blocks, body, init)  # [block_n, block_k]
+  plt.store(
+    out_ref.at[system, outs_safe[:, None], ins_safe[None, :]],
+    acc.astype(out_ref.dtype),
+    mask=(outs[:, None] < grad_y_ref.shape[1])
+    & (ins[None, :] < x_ref.shape[1]),
+  )
+
+
+def _segment_mm_bwd_dweights(
+  x,  # [N, I]
+  grad_y,  # [N, O]
+  sizes,  # [B]
+  starts,  # [B]
+  weights_shape,  # (B, O, I)
+  max_size=None,
+  block_m=32,
+  block_n=16,
+  block_k=16,
+):
+  max_size = x.shape[0] if max_size is None else max_size
+  init = jnp.zeros(weights_shape, dtype=grad_y.dtype)  # [B, O, I]
+  if x.shape[0] == 0:
+    return init
+  num_row_blocks = max(1, ceil_div(max_size, block_m))
+  grid = (
+    sizes.shape[0],
+    ceil_div(weights_shape[1], block_n),
+    ceil_div(weights_shape[2], block_k),
+  )
+  return pl.pallas_call(
+    partial(
+      segment_mm_bwd_dweights_kernel,
+      num_row_blocks=num_row_blocks,
+      block_m=block_m,
+      block_n=block_n,
+      block_k=block_k,
+    ),
+    out_shape=jax.ShapeDtypeStruct(init.shape, init.dtype),
+    grid=grid,
+    compiler_params=plt.CompilerParams(num_warps=4, num_stages=3),
+  )(x, grad_y, sizes, starts)
+
+
+def _segment_mm_impl(x, weights, sizes, starts, *, max_size):
+  return segment_mm_fwd(x, weights, sizes, starts, max_size=max_size)
+
+
+def _segment_mm_abstract_eval(
+  x_aval, weights_aval, sizes_aval, starts_aval, *, max_size
+):
+  del sizes_aval, starts_aval, max_size
+  return core.ShapedArray(
+    (x_aval.shape[0], weights_aval.shape[1]), x_aval.dtype
+  )
+
+
+def _segment_mm_jvp_impl(x, weights, sizes, starts, tx, tw, *, max_size):
+  return segment_mm_p.bind(
+    tx, weights, sizes, starts, max_size=max_size
+  ) + segment_mm_p.bind(x, tw, sizes, starts, max_size=max_size)
+
+
+def _segment_mm_jvp_abstract_eval(
+  x_aval, weights_aval, sizes_aval, starts_aval, tx_aval, tw_aval, *, max_size
+):
+  del sizes_aval, starts_aval, tx_aval, tw_aval, max_size
+  return core.ShapedArray(
+    (x_aval.shape[0], weights_aval.shape[1]), x_aval.dtype
+  )
+
+
+def _segment_mm_jvp_rule(primals, tangents, *, max_size):
+  x, weights, sizes, starts = primals
+  tx, tw, _, _ = tangents
+  out = segment_mm_p.bind(x, weights, sizes, starts, max_size=max_size)
+  tangent_out = segment_mm_jvp_p.bind(
+    x,
+    weights,
+    sizes,
+    starts,
+    _zero_tangent(tx, x),
+    _zero_tangent(tw, weights),
+    max_size=max_size,
+  )
+  return out, tangent_out
+
+
+def _segment_mm_transpose_rule(
+  cotangent, x, weights, sizes, starts, *, max_size
+):
+  if type(cotangent) is ad.Zero:
+    return None, None, None, None
+
+  grad_x = None
+  grad_weights = None
+  if ad.is_undefined_primal(x):
+    grad_x = segment_mm_bwd_dx_p.bind(
+      cotangent, weights, sizes, starts, max_size=max_size
+    )
+  if ad.is_undefined_primal(weights):
+    grad_weights = segment_mm_bwd_dweights_p.bind(
+      x,
+      cotangent,
+      sizes,
+      starts,
+      weights_shape=weights.aval.shape,
+      max_size=max_size,
+    )
+  return grad_x, grad_weights, None, None
+
+
+def _segment_mm_jvp_jvp_rule(primals, tangents, *, max_size):
+  x, weights, sizes, starts, tx, tw = primals
+  tx0, tw0, _, _, ttx, ttw = tangents
+  x_tangent = _zero_tangent(tx0, x)
+  weights_tangent = _zero_tangent(tw0, weights)
+  tx_tangent = _zero_tangent(ttx, tx)
+  tw_tangent = _zero_tangent(ttw, tw)
+  out = segment_mm_jvp_p.bind(
+    x, weights, sizes, starts, tx, tw, max_size=max_size
+  )
+  tangent_out = (
+    segment_mm_p.bind(tx_tangent, weights, sizes, starts, max_size=max_size)
+    + segment_mm_p.bind(tx, weights_tangent, sizes, starts, max_size=max_size)
+    + segment_mm_p.bind(x_tangent, tw, sizes, starts, max_size=max_size)
+    + segment_mm_p.bind(x, tw_tangent, sizes, starts, max_size=max_size)
+  )
+  return out, tangent_out
+
+
+def _segment_mm_jvp_transpose_rule(
+  cotangent, x, weights, sizes, starts, tx, tw, *, max_size
+):
+  if type(cotangent) is ad.Zero:
+    return None, None, None, None, None, None
+
+  x_value = _zero_if_undefined(x)
+  weights_value = _zero_if_undefined(weights)
+  tx_value = _zero_if_undefined(tx)
+  tw_value = _zero_if_undefined(tw)
+
+  grad_x = None
+  grad_weights = None
+  grad_tx = None
+  grad_tw = None
+  if ad.is_undefined_primal(x):
+    grad_x = segment_mm_bwd_dx_p.bind(
+      cotangent, tw_value, sizes, starts, max_size=max_size
+    )
+  if ad.is_undefined_primal(weights):
+    grad_weights = segment_mm_bwd_dweights_p.bind(
+      tx_value,
+      cotangent,
+      sizes,
+      starts,
+      weights_shape=weights.aval.shape,
+      max_size=max_size,
+    )
+  if ad.is_undefined_primal(tx):
+    grad_tx = segment_mm_bwd_dx_p.bind(
+      cotangent, weights_value, sizes, starts, max_size=max_size
+    )
+  if ad.is_undefined_primal(tw):
+    grad_tw = segment_mm_bwd_dweights_p.bind(
+      x_value,
+      cotangent,
+      sizes,
+      starts,
+      weights_shape=tw.aval.shape,
+      max_size=max_size,
+    )
+  return grad_x, grad_weights, None, None, grad_tx, grad_tw
+
+
+def _segment_mm_flatten_batch(
+  x, weights, sizes, starts, x_bdim, weights_bdim, batch_size
+):
+  x = _move_or_broadcast_batch(x, x_bdim, batch_size)
+  weights = _move_or_broadcast_batch(weights, weights_bdim, batch_size)
+  n_rows = x.shape[1]
+  n_segments = weights.shape[1]
+  flat_x = x.reshape(batch_size * n_rows, x.shape[-1])
+  flat_weights = weights.reshape(
+    batch_size * n_segments, weights.shape[-2], weights.shape[-1]
+  )
+  offsets = (jnp.arange(batch_size, dtype=starts.dtype) * n_rows)[:, None]
+  flat_starts = (starts[None, :] + offsets).reshape(batch_size * n_segments)
+  flat_sizes = jnp.broadcast_to(sizes, (batch_size, sizes.shape[0])).reshape(
+    batch_size * n_segments
+  )
+  return flat_x, flat_weights, flat_sizes, flat_starts, n_rows
+
+
+def _segment_mm_batching_rule(vals, dims, *, max_size):
+  x, weights, sizes, starts = vals
+  x_bdim, weights_bdim, sizes_bdim, starts_bdim = dims
+  if (
+    sizes_bdim is not batching.not_mapped
+    or starts_bdim is not batching.not_mapped
+  ):
+    raise NotImplementedError('Batched sizes/starts are not supported.')
+  if x_bdim is batching.not_mapped and weights_bdim is batching.not_mapped:
+    return (
+      segment_mm_p.bind(x, weights, sizes, starts, max_size=max_size),
+      batching.not_mapped,
+    )
+
+  batch_size = _batch_size((x, weights), (x_bdim, weights_bdim))
+  flat_x, flat_weights, flat_sizes, flat_starts, n_rows = (
+    _segment_mm_flatten_batch(
+      x, weights, sizes, starts, x_bdim, weights_bdim, batch_size
+    )
+  )
+  out = segment_mm_p.bind(
+    flat_x, flat_weights, flat_sizes, flat_starts, max_size=max_size
+  )
+  return out.reshape(batch_size, n_rows, out.shape[-1]), 0
+
+
+def _segment_mm_jvp_batching_rule(vals, dims, *, max_size):
+  x, weights, sizes, starts, tx, tw = vals
+  x_bdim, weights_bdim, sizes_bdim, starts_bdim, tx_bdim, tw_bdim = dims
+  if (
+    sizes_bdim is not batching.not_mapped
+    or starts_bdim is not batching.not_mapped
+  ):
+    raise NotImplementedError('Batched sizes/starts are not supported.')
+  if all(
+    dim is batching.not_mapped
+    for dim in (x_bdim, weights_bdim, tx_bdim, tw_bdim)
+  ):
+    return (
+      segment_mm_jvp_p.bind(
+        x, weights, sizes, starts, tx, tw, max_size=max_size
+      ),
+      batching.not_mapped,
+    )
+
+  batch_size = _batch_size(
+    (x, weights, tx, tw), (x_bdim, weights_bdim, tx_bdim, tw_bdim)
+  )
+  flat_x, flat_weights, flat_sizes, flat_starts, n_rows = (
+    _segment_mm_flatten_batch(
+      x, weights, sizes, starts, x_bdim, weights_bdim, batch_size
+    )
+  )
+  flat_tx, flat_tw, _, _, _ = _segment_mm_flatten_batch(
+    tx, tw, sizes, starts, tx_bdim, tw_bdim, batch_size
+  )
+  out = segment_mm_jvp_p.bind(
+    flat_x,
+    flat_weights,
+    flat_sizes,
+    flat_starts,
+    flat_tx,
+    flat_tw,
+    max_size=max_size,
+  )
+  return out.reshape(batch_size, n_rows, out.shape[-1]), 0
+
+
+def _segment_mm_bwd_dx_impl(grad_y, weights, sizes, starts, *, max_size):
+  return _segment_mm_bwd_dx(grad_y, weights, sizes, starts, max_size=max_size)
+
+
+def _segment_mm_bwd_dx_abstract_eval(
+  grad_y_aval, weights_aval, sizes_aval, starts_aval, *, max_size
+):
+  del sizes_aval, starts_aval, max_size
+  return core.ShapedArray(
+    (grad_y_aval.shape[0], weights_aval.shape[2]), grad_y_aval.dtype
+  )
+
+
+def _segment_mm_bwd_dx_jvp_rule(primals, tangents, *, max_size):
+  grad_y, weights, sizes, starts = primals
+  tg, tw, _, _ = tangents
+  out = segment_mm_bwd_dx_p.bind(
+    grad_y, weights, sizes, starts, max_size=max_size
+  )
+  tangent_out = segment_mm_bwd_dx_jvp_p.bind(
+    grad_y,
+    weights,
+    sizes,
+    starts,
+    _zero_tangent(tg, grad_y),
+    _zero_tangent(tw, weights),
+    max_size=max_size,
+  )
+  return out, tangent_out
+
+
+def _segment_mm_bwd_dx_transpose_rule(
+  cotangent, grad_y, weights, sizes, starts, *, max_size
+):
+  if type(cotangent) is ad.Zero:
+    return None, None, None, None
+  grad_y_value = _zero_if_undefined(grad_y)
+  weights_value = _zero_if_undefined(weights)
+  grad_grad_y = None
+  grad_weights = None
+  if ad.is_undefined_primal(grad_y):
+    grad_grad_y = segment_mm_p.bind(
+      cotangent, weights_value, sizes, starts, max_size=max_size
+    )
+  if ad.is_undefined_primal(weights):
+    grad_weights = segment_mm_bwd_dweights_p.bind(
+      cotangent,
+      grad_y_value,
+      sizes,
+      starts,
+      weights_shape=weights.aval.shape,
+      max_size=max_size,
+    )
+  return grad_grad_y, grad_weights, None, None
+
+
+def _segment_mm_bwd_dx_jvp_impl(
+  grad_y, weights, sizes, starts, tg, tw, *, max_size
+):
+  return segment_mm_bwd_dx_p.bind(
+    tg, weights, sizes, starts, max_size=max_size
+  ) + segment_mm_bwd_dx_p.bind(grad_y, tw, sizes, starts, max_size=max_size)
+
+
+def _segment_mm_bwd_dx_jvp_abstract_eval(
+  grad_y_aval,
+  weights_aval,
+  sizes_aval,
+  starts_aval,
+  tg_aval,
+  tw_aval,
+  *,
+  max_size,
+):
+  del sizes_aval, starts_aval, tg_aval, tw_aval, max_size
+  return core.ShapedArray(
+    (grad_y_aval.shape[0], weights_aval.shape[2]), grad_y_aval.dtype
+  )
+
+
+def _segment_mm_bwd_dx_jvp_jvp_rule(primals, tangents, *, max_size):
+  grad_y, weights, sizes, starts, tg, tw = primals
+  tg0, tw0, _, _, ttg, ttw = tangents
+  grad_y_tangent = _zero_tangent(tg0, grad_y)
+  weights_tangent = _zero_tangent(tw0, weights)
+  tg_tangent = _zero_tangent(ttg, tg)
+  tw_tangent = _zero_tangent(ttw, tw)
+  out = segment_mm_bwd_dx_jvp_p.bind(
+    grad_y, weights, sizes, starts, tg, tw, max_size=max_size
+  )
+  tangent_out = (
+    segment_mm_bwd_dx_p.bind(
+      tg_tangent, weights, sizes, starts, max_size=max_size
+    )
+    + segment_mm_bwd_dx_p.bind(
+      tg, weights_tangent, sizes, starts, max_size=max_size
+    )
+    + segment_mm_bwd_dx_p.bind(
+      grad_y_tangent, tw, sizes, starts, max_size=max_size
+    )
+    + segment_mm_bwd_dx_p.bind(
+      grad_y, tw_tangent, sizes, starts, max_size=max_size
+    )
+  )
+  return out, tangent_out
+
+
+def _segment_mm_bwd_dx_jvp_transpose_rule(
+  cotangent, grad_y, weights, sizes, starts, tg, tw, *, max_size
+):
+  if type(cotangent) is ad.Zero:
+    return None, None, None, None, None, None
+  grad_y_value = _zero_if_undefined(grad_y)
+  weights_value = _zero_if_undefined(weights)
+  tg_value = _zero_if_undefined(tg)
+  tw_value = _zero_if_undefined(tw)
+  grad_grad_y = None
+  grad_weights = None
+  grad_tg = None
+  grad_tw = None
+  if ad.is_undefined_primal(grad_y):
+    grad_grad_y = segment_mm_p.bind(
+      cotangent, tw_value, sizes, starts, max_size=max_size
+    )
+  if ad.is_undefined_primal(weights):
+    grad_weights = segment_mm_bwd_dweights_p.bind(
+      cotangent,
+      tg_value,
+      sizes,
+      starts,
+      weights_shape=weights.aval.shape,
+      max_size=max_size,
+    )
+  if ad.is_undefined_primal(tg):
+    grad_tg = segment_mm_p.bind(
+      cotangent, weights_value, sizes, starts, max_size=max_size
+    )
+  if ad.is_undefined_primal(tw):
+    grad_tw = segment_mm_bwd_dweights_p.bind(
+      cotangent,
+      grad_y_value,
+      sizes,
+      starts,
+      weights_shape=tw.aval.shape,
+      max_size=max_size,
+    )
+  return grad_grad_y, grad_weights, None, None, grad_tg, grad_tw
+
+
+def _segment_mm_bwd_dx_batching_rule(vals, dims, *, max_size):
+  grad_y, weights, sizes, starts = vals
+  g_bdim, weights_bdim, sizes_bdim, starts_bdim = dims
+  if (
+    sizes_bdim is not batching.not_mapped
+    or starts_bdim is not batching.not_mapped
+  ):
+    raise NotImplementedError('Batched sizes/starts are not supported.')
+  if g_bdim is batching.not_mapped and weights_bdim is batching.not_mapped:
+    return (
+      segment_mm_bwd_dx_p.bind(
+        grad_y, weights, sizes, starts, max_size=max_size
+      ),
+      batching.not_mapped,
+    )
+  batch_size = _batch_size((grad_y, weights), (g_bdim, weights_bdim))
+  flat_g, flat_weights, flat_sizes, flat_starts, n_rows = (
+    _segment_mm_flatten_batch(
+      grad_y, weights, sizes, starts, g_bdim, weights_bdim, batch_size
+    )
+  )
+  out = segment_mm_bwd_dx_p.bind(
+    flat_g, flat_weights, flat_sizes, flat_starts, max_size=max_size
+  )
+  return out.reshape(batch_size, n_rows, out.shape[-1]), 0
+
+
+def _segment_mm_bwd_dx_jvp_batching_rule(vals, dims, *, max_size):
+  grad_y, weights, sizes, starts, tg, tw = vals
+  g_bdim, weights_bdim, sizes_bdim, starts_bdim, tg_bdim, tw_bdim = dims
+  if (
+    sizes_bdim is not batching.not_mapped
+    or starts_bdim is not batching.not_mapped
+  ):
+    raise NotImplementedError('Batched sizes/starts are not supported.')
+  if all(
+    dim is batching.not_mapped
+    for dim in (g_bdim, weights_bdim, tg_bdim, tw_bdim)
+  ):
+    return (
+      segment_mm_bwd_dx_jvp_p.bind(
+        grad_y, weights, sizes, starts, tg, tw, max_size=max_size
+      ),
+      batching.not_mapped,
+    )
+  batch_size = _batch_size(
+    (grad_y, weights, tg, tw), (g_bdim, weights_bdim, tg_bdim, tw_bdim)
+  )
+  flat_g, flat_weights, flat_sizes, flat_starts, n_rows = (
+    _segment_mm_flatten_batch(
+      grad_y, weights, sizes, starts, g_bdim, weights_bdim, batch_size
+    )
+  )
+  flat_tg, flat_tw, _, _, _ = _segment_mm_flatten_batch(
+    tg, tw, sizes, starts, tg_bdim, tw_bdim, batch_size
+  )
+  out = segment_mm_bwd_dx_jvp_p.bind(
+    flat_g,
+    flat_weights,
+    flat_sizes,
+    flat_starts,
+    flat_tg,
+    flat_tw,
+    max_size=max_size,
+  )
+  return out.reshape(batch_size, n_rows, out.shape[-1]), 0
+
+
+def _segment_mm_bwd_dweights_impl(
+  x, grad_y, sizes, starts, *, weights_shape, max_size
+):
+  return _segment_mm_bwd_dweights(
+    x, grad_y, sizes, starts, weights_shape, max_size=max_size
+  )
+
+
+def _segment_mm_bwd_dweights_abstract_eval(
+  x_aval, grad_y_aval, sizes_aval, starts_aval, *, weights_shape, max_size
+):
+  del x_aval, sizes_aval, starts_aval, max_size
+  return core.ShapedArray(weights_shape, grad_y_aval.dtype)
+
+
+def _segment_mm_bwd_dweights_jvp_rule(
+  primals, tangents, *, weights_shape, max_size
+):
+  x, grad_y, sizes, starts = primals
+  tx, tg, _, _ = tangents
+  out = segment_mm_bwd_dweights_p.bind(
+    x, grad_y, sizes, starts, weights_shape=weights_shape, max_size=max_size
+  )
+  tangent_out = segment_mm_bwd_dweights_jvp_p.bind(
+    x,
+    grad_y,
+    sizes,
+    starts,
+    _zero_tangent(tx, x),
+    _zero_tangent(tg, grad_y),
+    weights_shape=weights_shape,
+    max_size=max_size,
+  )
+  return out, tangent_out
+
+
+def _segment_mm_bwd_dweights_transpose_rule(
+  cotangent, x, grad_y, sizes, starts, *, weights_shape, max_size
+):
+  del weights_shape
+  if type(cotangent) is ad.Zero:
+    return None, None, None, None
+  x_value = _zero_if_undefined(x)
+  grad_y_value = _zero_if_undefined(grad_y)
+  grad_x = None
+  grad_grad_y = None
+  if ad.is_undefined_primal(x):
+    grad_x = segment_mm_bwd_dx_p.bind(
+      grad_y_value, cotangent, sizes, starts, max_size=max_size
+    )
+  if ad.is_undefined_primal(grad_y):
+    grad_grad_y = segment_mm_p.bind(
+      x_value, cotangent, sizes, starts, max_size=max_size
+    )
+  return grad_x, grad_grad_y, None, None
+
+
+def _segment_mm_bwd_dweights_jvp_impl(
+  x, grad_y, sizes, starts, tx, tg, *, weights_shape, max_size
+):
+  return segment_mm_bwd_dweights_p.bind(
+    tx, grad_y, sizes, starts, weights_shape=weights_shape, max_size=max_size
+  ) + segment_mm_bwd_dweights_p.bind(
+    x, tg, sizes, starts, weights_shape=weights_shape, max_size=max_size
+  )
+
+
+def _segment_mm_bwd_dweights_jvp_abstract_eval(
+  x_aval,
+  grad_y_aval,
+  sizes_aval,
+  starts_aval,
+  tx_aval,
+  tg_aval,
+  *,
+  weights_shape,
+  max_size,
+):
+  del x_aval, sizes_aval, starts_aval, tx_aval, tg_aval, max_size
+  return core.ShapedArray(weights_shape, grad_y_aval.dtype)
+
+
+def _segment_mm_bwd_dweights_jvp_jvp_rule(
+  primals, tangents, *, weights_shape, max_size
+):
+  x, grad_y, sizes, starts, tx, tg = primals
+  tx0, tg0, _, _, ttx, ttg = tangents
+  x_tangent = _zero_tangent(tx0, x)
+  grad_y_tangent = _zero_tangent(tg0, grad_y)
+  tx_tangent = _zero_tangent(ttx, tx)
+  tg_tangent = _zero_tangent(ttg, tg)
+  out = segment_mm_bwd_dweights_jvp_p.bind(
+    x,
+    grad_y,
+    sizes,
+    starts,
+    tx,
+    tg,
+    weights_shape=weights_shape,
+    max_size=max_size,
+  )
+  tangent_out = (
+    segment_mm_bwd_dweights_p.bind(
+      tx_tangent,
+      grad_y,
+      sizes,
+      starts,
+      weights_shape=weights_shape,
+      max_size=max_size,
+    )
+    + segment_mm_bwd_dweights_p.bind(
+      tx,
+      grad_y_tangent,
+      sizes,
+      starts,
+      weights_shape=weights_shape,
+      max_size=max_size,
+    )
+    + segment_mm_bwd_dweights_p.bind(
+      x_tangent,
+      tg,
+      sizes,
+      starts,
+      weights_shape=weights_shape,
+      max_size=max_size,
+    )
+    + segment_mm_bwd_dweights_p.bind(
+      x,
+      tg_tangent,
+      sizes,
+      starts,
+      weights_shape=weights_shape,
+      max_size=max_size,
+    )
+  )
+  return out, tangent_out
+
+
+def _segment_mm_bwd_dweights_jvp_transpose_rule(
+  cotangent, x, grad_y, sizes, starts, tx, tg, *, weights_shape, max_size
+):
+  del weights_shape
+  if type(cotangent) is ad.Zero:
+    return None, None, None, None, None, None
+  x_value = _zero_if_undefined(x)
+  grad_y_value = _zero_if_undefined(grad_y)
+  tx_value = _zero_if_undefined(tx)
+  tg_value = _zero_if_undefined(tg)
+  grad_x = None
+  grad_grad_y = None
+  grad_tx = None
+  grad_tg = None
+  if ad.is_undefined_primal(x):
+    grad_x = segment_mm_bwd_dx_p.bind(
+      tg_value, cotangent, sizes, starts, max_size=max_size
+    )
+  if ad.is_undefined_primal(grad_y):
+    grad_grad_y = segment_mm_p.bind(
+      tx_value, cotangent, sizes, starts, max_size=max_size
+    )
+  if ad.is_undefined_primal(tx):
+    grad_tx = segment_mm_bwd_dx_p.bind(
+      grad_y_value, cotangent, sizes, starts, max_size=max_size
+    )
+  if ad.is_undefined_primal(tg):
+    grad_tg = segment_mm_p.bind(
+      x_value, cotangent, sizes, starts, max_size=max_size
+    )
+  return grad_x, grad_grad_y, None, None, grad_tx, grad_tg
+
+
+def _segment_mm_bwd_dweights_batching_rule(
+  vals, dims, *, weights_shape, max_size
+):
+  x, grad_y, sizes, starts = vals
+  x_bdim, g_bdim, sizes_bdim, starts_bdim = dims
+  if (
+    sizes_bdim is not batching.not_mapped
+    or starts_bdim is not batching.not_mapped
+  ):
+    raise NotImplementedError('Batched sizes/starts are not supported.')
+  if x_bdim is batching.not_mapped and g_bdim is batching.not_mapped:
+    return (
+      segment_mm_bwd_dweights_p.bind(
+        x, grad_y, sizes, starts, weights_shape=weights_shape, max_size=max_size
+      ),
+      batching.not_mapped,
+    )
+  batch_size = _batch_size((x, grad_y), (x_bdim, g_bdim))
+  flat_x, _, flat_sizes, flat_starts, _ = _segment_mm_flatten_batch(
+    x,
+    jnp.zeros(weights_shape, dtype=grad_y.dtype),
+    sizes,
+    starts,
+    x_bdim,
+    batching.not_mapped,
+    batch_size,
+  )
+  flat_grad_y = _move_or_broadcast_batch(grad_y, g_bdim, batch_size).reshape(
+    batch_size * grad_y.shape[-2], grad_y.shape[-1]
+  )
+  batched_weights_shape = (batch_size * weights_shape[0],) + weights_shape[1:]
+  out = segment_mm_bwd_dweights_p.bind(
+    flat_x,
+    flat_grad_y,
+    flat_sizes,
+    flat_starts,
+    weights_shape=batched_weights_shape,
+    max_size=max_size,
+  )
+  return out.reshape((batch_size,) + weights_shape), 0
+
+
+def _segment_mm_bwd_dweights_jvp_batching_rule(
+  vals, dims, *, weights_shape, max_size
+):
+  x, grad_y, sizes, starts, tx, tg = vals
+  x_bdim, g_bdim, sizes_bdim, starts_bdim, tx_bdim, tg_bdim = dims
+  if (
+    sizes_bdim is not batching.not_mapped
+    or starts_bdim is not batching.not_mapped
+  ):
+    raise NotImplementedError('Batched sizes/starts are not supported.')
+  if all(
+    dim is batching.not_mapped for dim in (x_bdim, g_bdim, tx_bdim, tg_bdim)
+  ):
+    return (
+      segment_mm_bwd_dweights_jvp_p.bind(
+        x,
+        grad_y,
+        sizes,
+        starts,
+        tx,
+        tg,
+        weights_shape=weights_shape,
+        max_size=max_size,
+      ),
+      batching.not_mapped,
+    )
+  batch_size = _batch_size(
+    (x, grad_y, tx, tg), (x_bdim, g_bdim, tx_bdim, tg_bdim)
+  )
+  flat_x, _, flat_sizes, flat_starts, _ = _segment_mm_flatten_batch(
+    x,
+    jnp.zeros(weights_shape, dtype=grad_y.dtype),
+    sizes,
+    starts,
+    x_bdim,
+    batching.not_mapped,
+    batch_size,
+  )
+  flat_tx, _, _, _, _ = _segment_mm_flatten_batch(
+    tx,
+    jnp.zeros(weights_shape, dtype=grad_y.dtype),
+    sizes,
+    starts,
+    tx_bdim,
+    batching.not_mapped,
+    batch_size,
+  )
+  flat_grad_y = _move_or_broadcast_batch(grad_y, g_bdim, batch_size).reshape(
+    batch_size * grad_y.shape[-2], grad_y.shape[-1]
+  )
+  flat_tg = _move_or_broadcast_batch(tg, tg_bdim, batch_size).reshape(
+    batch_size * tg.shape[-2], tg.shape[-1]
+  )
+  batched_weights_shape = (batch_size * weights_shape[0],) + weights_shape[1:]
+  out = segment_mm_bwd_dweights_jvp_p.bind(
+    flat_x,
+    flat_grad_y,
+    flat_sizes,
+    flat_starts,
+    flat_tx,
+    flat_tg,
+    weights_shape=batched_weights_shape,
+    max_size=max_size,
+  )
+  return out.reshape((batch_size,) + weights_shape), 0
+
+
+segment_mm_p = core.Primitive('uma_segment_mm')
+segment_mm_p.multiple_results = False
+segment_mm_jvp_p = core.Primitive('uma_segment_mm_jvp')
+segment_mm_jvp_p.multiple_results = False
+segment_mm_bwd_dx_p = core.Primitive('uma_segment_mm_bwd_dx')
+segment_mm_bwd_dx_p.multiple_results = False
+segment_mm_bwd_dx_jvp_p = core.Primitive('uma_segment_mm_bwd_dx_jvp')
+segment_mm_bwd_dx_jvp_p.multiple_results = False
+segment_mm_bwd_dweights_p = core.Primitive('uma_segment_mm_bwd_dweights')
+segment_mm_bwd_dweights_p.multiple_results = False
+segment_mm_bwd_dweights_jvp_p = core.Primitive(
+  'uma_segment_mm_bwd_dweights_jvp'
+)
+segment_mm_bwd_dweights_jvp_p.multiple_results = False
+
+
+segment_mm_jvp_p.def_impl(_segment_mm_jvp_impl)
+segment_mm_jvp_p.def_abstract_eval(_segment_mm_jvp_abstract_eval)
+mlir.register_lowering(
+  segment_mm_jvp_p, mlir.lower_fun(_segment_mm_jvp_impl, multiple_results=False)
+)
+ad.primitive_jvps[segment_mm_jvp_p] = _segment_mm_jvp_jvp_rule
+ad.primitive_transposes[segment_mm_jvp_p] = _segment_mm_jvp_transpose_rule
+batching.primitive_batchers[segment_mm_jvp_p] = _segment_mm_jvp_batching_rule
+
+segment_mm_p.def_impl(_segment_mm_impl)
+segment_mm_p.def_abstract_eval(_segment_mm_abstract_eval)
+mlir.register_lowering(
+  segment_mm_p, mlir.lower_fun(_segment_mm_impl, multiple_results=False)
+)
+ad.primitive_jvps[segment_mm_p] = _segment_mm_jvp_rule
+ad.primitive_transposes[segment_mm_p] = _segment_mm_transpose_rule
+batching.primitive_batchers[segment_mm_p] = _segment_mm_batching_rule
+
+segment_mm_bwd_dx_jvp_p.def_impl(_segment_mm_bwd_dx_jvp_impl)
+segment_mm_bwd_dx_jvp_p.def_abstract_eval(_segment_mm_bwd_dx_jvp_abstract_eval)
+mlir.register_lowering(
+  segment_mm_bwd_dx_jvp_p,
+  mlir.lower_fun(_segment_mm_bwd_dx_jvp_impl, multiple_results=False),
+)
+ad.primitive_jvps[segment_mm_bwd_dx_jvp_p] = _segment_mm_bwd_dx_jvp_jvp_rule
+ad.primitive_transposes[segment_mm_bwd_dx_jvp_p] = (
+  _segment_mm_bwd_dx_jvp_transpose_rule
+)
+batching.primitive_batchers[segment_mm_bwd_dx_jvp_p] = (
+  _segment_mm_bwd_dx_jvp_batching_rule
+)
+
+segment_mm_bwd_dx_p.def_impl(_segment_mm_bwd_dx_impl)
+segment_mm_bwd_dx_p.def_abstract_eval(_segment_mm_bwd_dx_abstract_eval)
+mlir.register_lowering(
+  segment_mm_bwd_dx_p,
+  mlir.lower_fun(_segment_mm_bwd_dx_impl, multiple_results=False),
+)
+ad.primitive_jvps[segment_mm_bwd_dx_p] = _segment_mm_bwd_dx_jvp_rule
+ad.primitive_transposes[segment_mm_bwd_dx_p] = _segment_mm_bwd_dx_transpose_rule
+batching.primitive_batchers[segment_mm_bwd_dx_p] = (
+  _segment_mm_bwd_dx_batching_rule
+)
+
+segment_mm_bwd_dweights_jvp_p.def_impl(_segment_mm_bwd_dweights_jvp_impl)
+segment_mm_bwd_dweights_jvp_p.def_abstract_eval(
+  _segment_mm_bwd_dweights_jvp_abstract_eval
+)
+mlir.register_lowering(
+  segment_mm_bwd_dweights_jvp_p,
+  mlir.lower_fun(_segment_mm_bwd_dweights_jvp_impl, multiple_results=False),
+)
+ad.primitive_jvps[segment_mm_bwd_dweights_jvp_p] = (
+  _segment_mm_bwd_dweights_jvp_jvp_rule
+)
+ad.primitive_transposes[segment_mm_bwd_dweights_jvp_p] = (
+  _segment_mm_bwd_dweights_jvp_transpose_rule
+)
+batching.primitive_batchers[segment_mm_bwd_dweights_jvp_p] = (
+  _segment_mm_bwd_dweights_jvp_batching_rule
+)
+
+segment_mm_bwd_dweights_p.def_impl(_segment_mm_bwd_dweights_impl)
+segment_mm_bwd_dweights_p.def_abstract_eval(
+  _segment_mm_bwd_dweights_abstract_eval
+)
+mlir.register_lowering(
+  segment_mm_bwd_dweights_p,
+  mlir.lower_fun(_segment_mm_bwd_dweights_impl, multiple_results=False),
+)
+ad.primitive_jvps[segment_mm_bwd_dweights_p] = _segment_mm_bwd_dweights_jvp_rule
+ad.primitive_transposes[segment_mm_bwd_dweights_p] = (
+  _segment_mm_bwd_dweights_transpose_rule
+)
+batching.primitive_batchers[segment_mm_bwd_dweights_p] = (
+  _segment_mm_bwd_dweights_batching_rule
+)
+
+
+def segment_mm_reference(x, weights, sizes):
+  """Reference segmented matmul.
+
+  Computes ``out[start_b:end_b] = x[start_b:end_b] @ weights[b].T``.
+  """
+  starts = jnp.cumsum(jnp.concatenate([jnp.zeros(1, sizes.dtype), sizes[:-1]]))
+  rows = jnp.arange(x.shape[0], dtype=sizes.dtype)
+
+  def apply_system(acc, system_idx):
+    y = jnp.einsum('ni,oi->no', x, weights[system_idx])
+    start = starts[system_idx]
+    mask = (rows >= start) & (rows < start + sizes[system_idx])
+    return acc + jnp.where(mask[:, None], y, 0.0), None
+
+  init = jnp.zeros((x.shape[0], weights.shape[1]), dtype=x.dtype)
+  out, _ = jax.lax.scan(apply_system, init, jnp.arange(sizes.shape[0]))
+  return out
+
+
+@jax.custom_vjp
+def _segment_mm_2d(x, weights, sizes):
+  return segment_mm_reference(x, weights, sizes)
+
+
+def _segment_mm_fwd(x, weights, sizes):
+  y = segment_mm_reference(x, weights, sizes)
+  return y, (x, weights, sizes)
+
+
+def _segment_mm_bwd(res, grad_y):
+  x, weights, sizes = res
+  starts = jnp.cumsum(jnp.concatenate([jnp.zeros(1, sizes.dtype), sizes[:-1]]))
+  rows = jnp.arange(x.shape[0], dtype=sizes.dtype)
+  grad_x = segment_mm_reference(grad_y, jnp.swapaxes(weights, 1, 2), sizes)
+
+  def grad_weight(system_idx):
+    start = starts[system_idx]
+    mask = (rows >= start) & (rows < start + sizes[system_idx])
+    x_b = jnp.where(mask[:, None], x, 0.0)
+    g_b = jnp.where(mask[:, None], grad_y, 0.0)
+    return jnp.einsum('no,ni->oi', g_b, x_b)
+
+  grad_weights = jax.vmap(grad_weight)(jnp.arange(sizes.shape[0]))
+  return grad_x, grad_weights, None
+
+
+_segment_mm_2d.defvjp(_segment_mm_fwd, _segment_mm_bwd)
+
+
+def _segment_mm_2d_fwd(x, weights, sizes, max_size):
+  return segment_mm_p.bind(
+    x,
+    weights,
+    sizes,
+    jnp.cumsum(jnp.concatenate([jnp.zeros(1, sizes.dtype), sizes[:-1]])),
+    max_size=max_size,
+  )
+
+
+def segment_mm(x, weights, sizes, use_pallas=False, max_size=None):
+  """Segmented matmul with support for ``[N, I]`` and ``[N, C, I]`` inputs."""
+  sizes = sizes.astype(jnp.int32)
+  use_pallas = use_pallas and jax.default_backend() == 'gpu'
+  if x.ndim == 2:
+    if use_pallas:
+      return _segment_mm_2d_fwd(x, weights, sizes, max_size)
+    return _segment_mm_2d(x, weights, sizes)
+  if x.ndim == 3:
+    n, c, i = x.shape
+    flat = x.reshape(n * c, i)
+    if use_pallas:
+      flat_max_size = None if max_size is None else max_size * c
+      out = _segment_mm_2d_fwd(flat, weights, sizes * c, max_size=flat_max_size)
+    else:
+      out = _segment_mm_2d(flat, weights, sizes * c)
+    return out.reshape(n, c, weights.shape[1])
+  raise ValueError(f'segment_mm: unsupported input ndim={x.ndim}')
+
+
 def check_coefficients(*arrays: jnp.ndarray) -> None:
   for array in arrays:
     if array.shape[-2] != COEFFICIENT_DIM:
