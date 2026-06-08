@@ -597,10 +597,20 @@ def energy(
   else:
     mask_fn = _create_sparse_mask(topology.n_atoms, topology.exc_pairs)
 
+  # NOTE It's desireable to still use the neighbor list machinery to handle
+  # non periodic systems for uniform exclusion masking and smap use.
+  # In nonperiodic cutoff cases, it also isn't ideal to generate an N^2
+  # neighbor list but the cell list is currently disabled for NOBC cases.
+  # Issues related to inhomogeneity aside, it may be worth seeing if there's
+  # a workable solution with the current cell list and AABBs if large
+  # CutoffNonPeriodic systems will be used.
+  neighbor_box = box_vectors if nb_options.use_pbc else 1.0
+  neighbor_r_cut = nb_options.r_cut if nb_options.r_cut is not None else jnp.inf
+
   neighbor_fn = neighbor.create_neighbor_list(
     disp_fn,
-    box_vectors if nb_options.use_pbc else None,
-    nb_options.r_cut,
+    neighbor_box,
+    neighbor_r_cut,
     nb_options.dr_threshold,
     custom_mask_function=mask_fn,
     fractional_coordinates=nb_options.fractional_coordinates,
