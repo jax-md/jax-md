@@ -64,6 +64,7 @@ class MOLELinear(nn.Module):
   assume_equal_contiguous_batches: bool = False
   use_segment_mm_pallas: bool = False
   max_segment_size: int | None = None
+  assume_segment_contiguous_batches: bool = False
 
   @nn.compact
   def __call__(
@@ -132,8 +133,11 @@ class MOLELinear(nn.Module):
         else:
           raise ValueError(f'MOLELinear: unsupported input ndim={x.ndim}')
       else:
+        # segment_mm uses sizes as contiguous row segments; callers must
+        # guarantee batch_indices are grouped by system before enabling it.
         use_segment_mm = (
-          self.use_segment_mm_pallas
+          self.assume_segment_contiguous_batches
+          and self.use_segment_mm_pallas
           and self.max_segment_size is not None
           and jax.default_backend() == 'gpu'
         )

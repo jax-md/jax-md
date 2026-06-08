@@ -398,7 +398,7 @@ class MOLEInferencePathTest(test_util.JAXMDTestCase):
 
   def test_mole_linear_inference_paths_match_reference(self):
     key = jax.random.PRNGKey(12)
-    keys = jax.random.split(key, 6)
+    keys = jax.random.split(key, 8)
     cases = [
       (
         jax.random.normal(keys[0], (7, 5)),
@@ -412,15 +412,71 @@ class MOLEInferencePathTest(test_util.JAXMDTestCase):
         jnp.array([0, 0, 0, 0, 1, 1, 1, 1], dtype=jnp.int32),
         False,
       ),
+      (
+        jax.random.normal(keys[4], (6, 5)),
+        jax.nn.softmax(jax.random.normal(keys[5], (3, 4)), axis=-1),
+        jnp.array([0, 1, 0, 2, 1, 2], dtype=jnp.int32),
+        True,
+      ),
     ]
     for x, coefficients, batch_indices, use_bias in cases:
       layer = MOLELinear(4, 5, 6, use_bias=use_bias)
-      params = layer.init(keys[4], x, coefficients, batch_indices)
+      params = layer.init(keys[6], x, coefficients, batch_indices)
       actual = layer.apply(params, x, coefficients, batch_indices)
       expected = manual_mole_linear(
         params, x, coefficients, batch_indices, use_bias
       )
       self.assertAllClose(actual, expected, atol=TEST_TOL, rtol=TEST_TOL)
+
+  def test_mole_linear_segment_mm_requires_contiguous_opt_in(self):
+    key = jax.random.PRNGKey(18)
+    keys = jax.random.split(key, 4)
+    x = jax.random.normal(keys[0], (6, 5))
+    coefficients = jax.nn.softmax(jax.random.normal(keys[1], (3, 4)), axis=-1)
+    batch_indices = jnp.array([0, 1, 0, 2, 1, 2], dtype=jnp.int32)
+    layer = MOLELinear(
+      4,
+      5,
+      6,
+      use_bias=True,
+      use_segment_mm_pallas=True,
+      max_segment_size=2,
+    )
+    params = layer.init(keys[2], x, coefficients, batch_indices)
+
+    actual = layer.apply(params, x, coefficients, batch_indices)
+    expected = manual_mole_linear(
+      params, x, coefficients, batch_indices, use_bias=True
+    )
+
+    self.assertAllClose(actual, expected, atol=TEST_TOL, rtol=TEST_TOL)
+
+  def test_mole_linear_segment_mm_contiguous_opt_in_matches_reference(self):
+    if jax.default_backend() != 'gpu':
+      self.skipTest('Pallas segment_mm path requires a GPU backend.')
+
+    key = jax.random.PRNGKey(19)
+    keys = jax.random.split(key, 4)
+    x = jax.random.normal(keys[0], (5, 5))
+    coefficients = jax.nn.softmax(jax.random.normal(keys[1], (2, 4)), axis=-1)
+    batch_indices = jnp.array([0, 0, 1, 1, 1], dtype=jnp.int32)
+    layer = MOLELinear(
+      4,
+      5,
+      6,
+      use_bias=True,
+      use_segment_mm_pallas=True,
+      max_segment_size=3,
+      assume_segment_contiguous_batches=True,
+    )
+    params = layer.init(keys[2], x, coefficients, batch_indices)
+
+    actual = layer.apply(params, x, coefficients, batch_indices)
+    expected = manual_mole_linear(
+      params, x, coefficients, batch_indices, use_bias=True
+    )
+
+    self.assertAllClose(actual, expected, atol=TEST_TOL, rtol=TEST_TOL)
 
   def test_mole_linear_accepts_merged_weights(self):
     key = jax.random.PRNGKey(14)
