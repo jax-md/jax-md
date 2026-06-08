@@ -14,11 +14,38 @@ on:
       - main
 
 jobs:
-  build:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+    - name: Set up Python
+      run: uv python install 3.12
+    - name: Create virtual environment
+      run: uv venv --python 3.12
+    - name: Install dependencies
+      run: |
+        uv pip install .
+        uv pip install ruff
+    - name: Run ruff check
+      run: uv run ruff check .
+    - name: Run ruff format check
+      run: uv run ruff format --check .
+
+  test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.8', '3.9', '3.10']
+        python-version: ['3.10', '3.11', '3.12', '3.13']
+        test-suite: ['elasticity', 'rigid_body', 'energy', 'simulate', 'nequip', 'reaxff', 'tpu', 'uma', 'custom_partition', 'custom_smap', 'minimize', 'nn', 'oplsaa', 'partition', 'quantity', 'smap', 'space', 'amber', 'amber_fe']
+        include:
+          - python-version: '3.11'
+            test-suite: 'mace'
+          - python-version: '3.12'
+            test-suite: 'mace'
+          - python-version: '3.13'
+            test-suite: 'mace'
     steps:
     - name: Cancel previous
       uses: styfle/cancel-workflow-action@0.11.0
@@ -28,44 +55,83 @@ jobs:
       run: |
         sudo apt-get -y install pandoc
     - uses: actions/checkout@v3
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
+      run: uv python install ${{ matrix.python-version }}
+    - name: Create virtual environment
+      run: uv venv --python ${{ matrix.python-version }}
     - name: Install dependencies
       run: |
-        pip install --upgrade pip
-        pip install .
-        pip install .[testing]
-        pip install pytest
-        pip install pytest-xdist
-        pip install pytest-cov
-        pip install netCDF4
+        if [ "${{ matrix.test-suite }}" == "mace" ]; then
+          uv sync --no-dev --group testing --group mace
+          uv pip install pytest-cov
+        elif [ "${{ matrix.test-suite }}" == "amber" ] || [ "${{ matrix.test-suite }}" == "amber_fe" ]; then
+          uv pip install ".[amber]"
+          uv pip install pytest pytest-cov netCDF4 ase
+        else
+          uv pip install .
+          uv pip install pytest pytest-cov netCDF4 ase
+        fi
+        # Install torch + fairchem for UMA tests (PT comparison + pretrained)
+        if [ "${{ matrix.test-suite }}" == "uma" ]; then
+          uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+          uv pip install fairchem-core --no-deps
+          uv pip install huggingface-hub
+        fi
     - name: Set Swap Space
       uses: pierotofy/set-swap-space@master
       with:
-       swap-size-gb: 10
+       swap-size-gb: 12
+    - name: Cache UMA pretrained checkpoints
+      if: matrix.test-suite == 'uma'
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/fairchem
+        key: uma-checkpoints-v1
     - name: Test with pytest and generate coverage report
+      env:
+        # Used by huggingface_hub to download gated UMA checkpoints.
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
       run: |
-        JAX_ENABLE_X64=1 pytest --cov=jax_md --cov-report=xml --cov-report=term --cov-config=setup.cfg
+        if [ "${{ matrix.test-suite }}" == "uma" ]; then
+          JAX_ENABLE_X64=1 uv run pytest \
+            tests/uma_test.py \
+            tests/uma_pretrained_test.py \
+            tests/uma_e2e_test.py \
+            --cov=jax_md --cov-report=xml --cov-report=term
+        elif [ "${{ matrix.test-suite }}" == "mace" ]; then
+          JAX_ENABLE_X64=1 uv run pytest \
+            tests/mace_test.py \
+            --cov=jax_md --cov-report=xml --cov-report=term
+        else
+          JAX_ENABLE_X64=1 uv run pytest tests/${{ matrix.test-suite }}_test.py --cov=jax_md --cov-report=xml --cov-report=term
+        fi
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v1
+      uses: codecov/codecov-action@v4
       with:
         file: ./coverage.xml
-    # The below step just reports the success or failure of tests as a "commit status".
-    # This is needed for copybara integration.
+        flags: py${{ matrix.python-version }}-${{ matrix.test-suite }}
+        name: py${{ matrix.python-version }}-${{ matrix.test-suite }}
+        token: ${{ secrets.CODECOV_TOKEN }}
+      continue-on-error: true
+
+  # This is needed for copybara integration.
+  build-status:
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    if: always()
+    steps:
     - name: Report success or failure as github status
-      if: always()
       shell: bash
       run: |
-        status="${{ job.status }}"
-        lowercase_status=$(echo $status | tr '[:upper:]' '[:lower:]')
+        status="${{ (needs.lint.result == 'success' && needs.test.result == 'success') && 'success' || 'failure' }}"
         curl -sS --request POST \
         --url https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.sha }} \
         --header 'authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' \
         --header 'content-type: application/json' \
         --data '{
-           "state": "'$lowercase_status'",
+           "state": "'$status'",
            "target_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
            "description": "'$status'",
            "context": "github-actions/Build"

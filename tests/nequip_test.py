@@ -14,7 +14,6 @@
 
 """Tests jax_md.nn."""
 
-
 from absl.testing import parameterized
 
 from ml_collections import ConfigDict
@@ -46,7 +45,9 @@ def tile(position, box, nodes, tile_count):
   position = jnp.reshape(position, (-1, 3))
   box *= tile_count
 
-  nodes = jnp.broadcast_to(nodes[:, None, :], (nodes.shape[0], len(dR), nodes.shape[1]))
+  nodes = jnp.broadcast_to(
+    nodes[:, None, :], (nodes.shape[0], len(dR), nodes.shape[1])
+  )
   nodes = jnp.reshape(nodes, (-1, nodes.shape[-1]))
 
   return position, box, nodes
@@ -95,11 +96,11 @@ def test_config() -> ConfigDict:
 
   # average number of neighbors per atom, used to divide activations are sum
   # in the nequip convolution, helpful for internal normalization.
-  config.n_neighbors = 10.
+  config.n_neighbors = 10.0
 
   # Standard deviation used for the initializer of the weight matrix in the
   # radial scalar MLP
-  config.scalar_mlp_std = 4.
+  config.scalar_mlp_std = 4.0
 
   config.train_dataset = ['harder_silicon']
   config.test_dataset = ['harder_silicon']
@@ -150,19 +151,20 @@ def test_config() -> ConfigDict:
 
 
 class NequIPTest(test_util.JAXMDTestCase):
-
   def setup(self):
     c = test_config()
 
     # dummy system
     atoms = onp.zeros((3, 94))
-    atoms[0][5] = 1.
-    atoms[1][5] = 1.
-    atoms[2][5] = 1.
+    atoms[0][5] = 1.0
+    atoms[1][5] = 1.0
+    atoms[2][5] = 1.0
     atoms = jnp.array(atoms)
 
     box = jnp.eye(3) * 1
-    pos = jnp.array([[0., 0., 0.], [0.239487, 0., 0.], [0.5234, 0.78234, 0.]])
+    pos = jnp.array(
+      [[0.0, 0.0, 0.0], [0.239487, 0.0, 0.0], [0.5234, 0.78234, 0.0]]
+    )
 
     pos, box, atoms = tile(pos, box, atoms, 5)
 
@@ -171,11 +173,12 @@ class NequIPTest(test_util.JAXMDTestCase):
     # build network and initialize
     net = nequip.model_from_config(c)
     neighbor = partition.neighbor_list(
-        displacement,
-        jnp.diag(box),
-        r_cutoff=2.5,
-        format=partition.Sparse,
-        fractional_coordinates=True)
+      displacement,
+      jnp.diag(box),
+      r_cutoff=2.5,
+      format=partition.Sparse,
+      fractional_coordinates=True,
+    )
     params = None
 
     @jax.jit
@@ -211,7 +214,8 @@ class NequIPTest(test_util.JAXMDTestCase):
 
     # eval on rotated input
     energy_rotated_input, force_rotated_input = e_f_fn(
-        params, atoms, rotated_pos, box)
+      params, atoms, rotated_pos, box
+    )
 
     # energy should be invariant
     self.assertAllClose(energy_rotated_input, energy)
@@ -230,27 +234,28 @@ class NequIPTest(test_util.JAXMDTestCase):
     """Test that the energy changes smoothly as an atom enters the nbh."""
     c = test_config()
 
-    c.r_max = 4.
+    c.r_max = 4.0
 
     # dummy C-C dimer
     atoms = onp.zeros((2, 94))
-    atoms[0][5] = 1.
-    atoms[1][5] = 1.
+    atoms[0][5] = 1.0
+    atoms[1][5] = 1.0
     atoms = jnp.array(atoms)
 
     box = jnp.eye(3) * 10
-    pos = jnp.array([[0., 0., 0.], [0.5, 0., 0.]])
+    pos = jnp.array([[0.0, 0.0, 0.0], [0.5, 0.0, 0.0]])
 
     displacement, _ = space.periodic_general(box)
 
     # build network and initialize
     net = nequip.model_from_config(c)
     neighbor = partition.neighbor_list(
-        displacement,
-        jnp.diag(box),
-        r_cutoff=5.0,
-        format=partition.Sparse,
-        fractional_coordinates=True)
+      displacement,
+      jnp.diag(box),
+      r_cutoff=5.0,
+      format=partition.Sparse,
+      fractional_coordinates=True,
+    )
     params = None
 
     @jax.jit
@@ -268,13 +273,13 @@ class NequIPTest(test_util.JAXMDTestCase):
 
     energy_force_fn = jax.value_and_grad(apply_fn, argnums=2)
 
-    r0 = 3.999 / 10.
-    r1 = 4.000 / 10.
-    r2 = 4.001 / 10.
+    r0 = 3.999 / 10.0
+    r1 = 4.000 / 10.0
+    r2 = 4.001 / 10.0
 
     es = []
     for r in [r0, r1, r2]:
-      position = jnp.array([[0., 0., 0.], [0., 0., r]])
+      position = jnp.array([[0.0, 0.0, 0.0], [0.0, 0.0, r]])
       e = energy_force_fn(params, atoms, position, nbrs)
       es.append(e[0])
 
@@ -285,10 +290,8 @@ class NequIPTest(test_util.JAXMDTestCase):
   def test_zero_outside_cutoff(self):
     """Test that basis + envelope give 0 if two atoms don't see each other."""
     bessel = nn_util.BesselEmbedding(
-        count=8,
-        inner_cutoff=4 - 0.5,
-        outer_cutoff=4
-        )
+      count=8, inner_cutoff=4 - 0.5, outer_cutoff=4
+    )
 
     scalar_dr_edge = jnp.expand_dims(jnp.array(4.1), 0)
 
@@ -299,18 +302,14 @@ class NequIPTest(test_util.JAXMDTestCase):
   def test_radial_net_zero_to_zero(self):
     """Test that the radial net gives f(0) = 0."""
     fc = nn_util.MLP(
-        (64, 64, 1),
-        'raw_swish',
-        use_bias=False,
-        scalar_mlp_std=4.0
+      (64, 64, 1), 'raw_swish', use_bias=False, scalar_mlp_std=4.0
     )
-    x = jnp.array([0.])
+    x = jnp.array([0.0])
     variables = fc.init(random.PRNGKey(0), x)
     fc_out = fc.apply(variables, x)
 
-    self.assertAllClose(fc_out[0], 0.)
+    self.assertAllClose(fc_out[0], 0.0)
 
 
 if __name__ == '__main__':
   absltest.main()
-

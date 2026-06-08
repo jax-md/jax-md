@@ -38,6 +38,7 @@ f64 = util.f64
 def constant(f):
   def schedule(unused_t):
     return f
+
   return schedule
 
 
@@ -70,21 +71,26 @@ def spline(y, dx, degree=3):
   params = PPoly.from_spline(fn)
   # Store the coefficients of the spline fit to an array.
   coeffs = np.array(params.c)
+
   def spline_fn(x):
     """Evaluates the spline fit for values of x."""
     ind = np.array(x / dx, dtype=np.int64)
     # The spline is defined for x values between 0 and largest value of y. If x
     # is outside this domain, truncate its ind value to within the domain.
     truncated_ind = np.array(
-        np.where(ind < num_points, ind, num_points - 1), np.int64)
+      np.where(ind < num_points, ind, num_points - 1), np.int64
+    )
     truncated_ind = np.array(
-        np.where(truncated_ind >= 0, truncated_ind, 0), np.int64)
+      np.where(truncated_ind >= 0, truncated_ind, 0), np.int64
+    )
     result = np.array(0, x.dtype)
     dX = x - np.array(ind, np.float32) * dx
     for i in range(degree + 1):  # sum over the polynomial terms up to degree.
-      result = result + np.array(coeffs[degree - i, truncated_ind + 2],
-                                 x.dtype) * dX ** np.array(i, x.dtype)
+      result = result + np.array(
+        coeffs[degree - i, truncated_ind + 2], x.dtype
+      ) * dX ** np.array(i, x.dtype)
     # For x values that are outside the domain of the spline fit, return zeros.
     result = np.where(ind < num_points, result, np.array(0.0, x.dtype))
     return result
+
   return spline_fn
