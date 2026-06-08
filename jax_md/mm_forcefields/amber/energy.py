@@ -883,7 +883,7 @@ def energy(
       sc_sc_coul_1r_edge = pair_coul_1r_edge_fn(
         positions,
         nbr_list,
-        charge_sq=params.nonbonded.charges,
+        charge_sq=nonbonded.charges,
         **space_kwarg,
       )
       sc_sc_coul_full = jnp.sum(jnp.where(sc_sc_mask, sc_sc_coul_1r_edge, 0.0))
