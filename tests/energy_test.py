@@ -1550,6 +1550,109 @@ class EnergyTest(test_util.JAXMDTestCase):
       rtol=tol,
     )
 
+  @parameterized.named_parameters(
+    test_util.cases_from_list(
+      {'testcase_name': f'_dtype={dtype.__name__}', 'dtype': dtype}
+      for dtype in POSITION_DTYPE
+    )
+  )
+  def test_triangle_area_potential(self, dtype):
+    displacement_fn, _ = space.free()
+    R = jnp.array(
+      [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+      dtype=dtype,
+    )
+    triangles = jnp.array([[0, 1, 2]], dtype=jnp.int32)
+
+    areas = energy._calc_triangle_areas(R, triangles, displacement_fn)
+    self.assertAllClose(areas, jnp.array([0.5], dtype=dtype))
+    self.assertAllClose(
+      energy.triangle_area_potential(
+        R, triangles, displacement_fn, A_0=dtype(0.5), k=dtype(1.0)
+      ),
+      dtype(0.0),
+    )
+
+  @parameterized.named_parameters(
+    test_util.cases_from_list(
+      {'testcase_name': f'_dtype={dtype.__name__}', 'dtype': dtype}
+      for dtype in POSITION_DTYPE
+    )
+  )
+  def test_triangle_area_potential_uses_periodic_displacement(self, dtype):
+    displacement_fn, _ = space.periodic(jnp.array([1.0, 1.0, 1.0], dtype=dtype))
+    R = jnp.array(
+      [[0.95, 0.0, 0.0], [0.05, 0.0, 0.0], [0.95, 0.2, 0.0]],
+      dtype=dtype,
+    )
+    triangles = jnp.array([[0, 1, 2]], dtype=jnp.int32)
+
+    areas = energy._calc_triangle_areas(R, triangles, displacement_fn)
+    self.assertAllClose(areas, jnp.array([0.01], dtype=dtype))
+
+  @parameterized.named_parameters(
+    test_util.cases_from_list(
+      {'testcase_name': f'_dtype={dtype.__name__}', 'dtype': dtype}
+      for dtype in POSITION_DTYPE
+    )
+  )
+  def test_volume_potential_unwrapped_tetrahedron(self, dtype):
+    R = jnp.array(
+      [
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+      ],
+      dtype=dtype,
+    )
+    triangles = jnp.array(
+      [[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]], dtype=jnp.int32
+    )
+    expected_volume = dtype(1.0 / 6.0)
+
+    self.assertAllClose(energy._calc_volume(R, triangles), expected_volume)
+    self.assertAllClose(
+      energy.volume_potential(R, triangles, V_0=expected_volume, k=dtype(1.0)),
+      dtype(0.0),
+    )
+
+    translated = R + jnp.array([2.0, -3.0, 5.0], dtype=dtype)
+    self.assertAllClose(
+      energy._calc_volume(translated, triangles), expected_volume
+    )
+
+  @parameterized.named_parameters(
+    test_util.cases_from_list(
+      {'testcase_name': f'_dtype={dtype.__name__}', 'dtype': dtype}
+      for dtype in POSITION_DTYPE
+    )
+  )
+  def test_bending_potential_is_finite_and_differentiable(self, dtype):
+    displacement_fn, _ = space.free()
+    R = jnp.array(
+      [
+        [1.0, 1.0, 1.0],
+        [-1.0, -1.0, 1.0],
+        [-1.0, 1.0, -1.0],
+        [1.0, -1.0, -1.0],
+      ],
+      dtype=dtype,
+    )
+    triangles = jnp.array(
+      [[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]], dtype=jnp.int32
+    )
+
+    energy_fn = lambda position: energy.bending_potential(
+      position, triangles, displacement_fn, kappa=dtype(1.0)
+    )
+    bending_energy = jit(energy_fn)(R)
+    bending_force = jit(grad(energy_fn))(R)
+
+    self.assertAllClose(jnp.any(jnp.isnan(bending_energy)), False)
+    self.assertAllClose(jnp.any(jnp.isnan(bending_force)), False)
+    self.assertAllClose(bending_force.shape, R.shape)
+
 
 make_fcc_fractional = test_util.make_fcc_fractional
 
