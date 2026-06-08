@@ -66,6 +66,9 @@ jobs:
         if [ "${{ matrix.test-suite }}" == "mace" ]; then
           uv sync --no-dev --group testing --group mace
           uv pip install pytest-cov
+        elif [ "${{ matrix.test-suite }}" == "amber" ] || [ "${{ matrix.test-suite }}" == "amber_fe" ]; then
+          uv pip install ".[amber]"
+          uv pip install pytest pytest-cov netCDF4 ase
         else
           uv pip install .
           uv pip install pytest pytest-cov netCDF4 ase

@@ -48,6 +48,10 @@ dependencies = [
     "optax",
     "frozendict",
     "pymatgen>=2021.3.4",
+]
+
+[project.optional-dependencies]
+amber = [
     "openmm<=8.5.0",
     "openmmforcefields",
     "parmed",

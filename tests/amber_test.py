@@ -101,6 +101,11 @@ except ImportError:
   app = None
   unit = None
 
+if openmm is None:
+  pytest.skip('OpenMM is not installed.', allow_module_level=True)
+assert app is not None
+assert unit is not None
+
 _DATA_ROOT = Path(__file__).parent / 'data'
 _AMBER_DATA_DIR = _DATA_ROOT / 'amber_data'
 _AMBER_DATA_TARBALL = _DATA_ROOT / 'amber_data.tar.gz'

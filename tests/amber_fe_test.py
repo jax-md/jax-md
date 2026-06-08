@@ -6,6 +6,7 @@ from pathlib import Path
 
 import jax
 from absl.testing import absltest, parameterized
+import pytest
 
 jax.config.update('jax_enable_x64', True)
 import jax.numpy as jnp
@@ -25,6 +26,11 @@ except ImportError:
   mm = None
   app = None
   u = None
+
+if mm is None:
+  pytest.skip('OpenMM is not installed.', allow_module_level=True)
+assert app is not None
+assert u is not None
 
 _DATA_ROOT = Path(__file__).parent / 'data'
 _AMBER_DATA_DIR = _DATA_ROOT / 'amber_data'
