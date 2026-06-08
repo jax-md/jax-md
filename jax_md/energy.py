@@ -2599,6 +2599,11 @@ def volume_potential(R_mem: Array, triangles: Array, V_0: float, k: float):
 
   Returns:
       energy contribution due to global volume conservation
+
+  Note:
+      This calculation assumes the membrane vertices are in a single unwrapped
+      coordinate frame. Wrapped periodic coordinates are not supported because
+      the enclosed volume is a global surface property.
   """
   V = _calc_volume(R_mem, triangles)
   return k * (V - V_0) ** 2 / (2 * V_0)
