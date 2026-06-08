@@ -47,7 +47,7 @@ dependencies = [
     "e3nn-jax",
     "optax",
     "frozendict",
-    "pymatgen",
+    "pymatgen>=2021.3.4",
     "openmm<=8.5.0",
     "openmmforcefields",
     "parmed",
