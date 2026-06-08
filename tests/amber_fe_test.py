@@ -352,7 +352,7 @@ def build_jax_alchemical_components(
     coulomb_options=coul,
     nb_options=converted.nb_options,
     fe_options=fe_opts,
-    dense_mask_format=False,
+    dense_mask_format=True,
   )
   nbr = neighbor_fn.allocate(converted.positions)
   return converted, energy_fn, neighbor_fn, nbr, sc_mask
