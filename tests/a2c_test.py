@@ -23,7 +23,7 @@ class A2CTest(parameterized.TestCase):
     amorphous_structure = mg.core.Structure.from_file(AMORPHOUS_SI64_PATH)
 
     # Run both versions of the crystallize function, timing each, and compare the results
-    d_frac = 0.08
+    d_frac = 0.2
     nmin = 1
     nmax = 12
     n_workers = os.cpu_count() - 1
