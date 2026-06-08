@@ -877,13 +877,17 @@ def energy(
 
     coul_dir_pot = jnp.sum(coul_dir_edge)
 
+    # NOTE the use of params.nonbonded.charges is required due to the fact
+    # that the sc-sc term acts on the unscaled charges; there are cases
+    # where this could cause issues if other alchemical schemes are used in
+    # the future, but this is correct for linear decoupling of charges
     if use_softcore_vdw and use_linear_coul:
       assert pair_coul_1r_edge_fn is not None
       sc_sc_mask, _, _ = _sc_edge_masks(nbr_list)
       sc_sc_coul_1r_edge = pair_coul_1r_edge_fn(
         positions,
         nbr_list,
-        charge_sq=nonbonded.charges,
+        charge_sq=params.nonbonded.charges,
         **space_kwarg,
       )
       sc_sc_coul_full = jnp.sum(jnp.where(sc_sc_mask, sc_sc_coul_1r_edge, 0.0))
