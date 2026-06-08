@@ -301,6 +301,11 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
       # (
       #   "RAMP1_AMBER/RAMP1_tip3p_box.prmtop",
       #   "RAMP1_AMBER/RAMP1_tip3p_box.inpcrd",
+      #   app.CutoffNonPeriodic,
+      # ),
+      # (
+      #   "RAMP1_AMBER/RAMP1_tip3p_box.prmtop",
+      #   "RAMP1_AMBER/RAMP1_tip3p_box.inpcrd",
       #   app.CutoffPeriodic,
       # ),
       # (
@@ -540,6 +545,28 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
 
     self.assertLess(rel_dE, 1e-4)
     self.assertLess(rms_error, 1e-4)
+
+  @parameterized.parameters(
+    app.CutoffPeriodic,
+    app.CutoffNonPeriodic,
+    app.Ewald,
+  )
+  def test_unsupported_nonbonded_method(self, nb_method):
+    prmtop_file = os.path.join(DATA_DIR, 'RAMP1_AMBER/RAMP1_tip3p_box.prmtop')
+    inpcrd_file = os.path.join(DATA_DIR, 'RAMP1_AMBER/RAMP1_tip3p_box.inpcrd')
+
+    omm_system, omm_topology, omm_positions, omm_box_vectors = (
+      load_amber_system(prmtop_file, inpcrd_file, nb_method)
+    )
+
+    with self.assertRaises(NotImplementedError):
+      convert_openmm_system(
+        omm_system,
+        omm_topology,
+        omm_positions,
+        omm_box_vectors,
+        format=partition.NeighborListFormat.OrderedSparse,
+      )
 
   """
   Notes:

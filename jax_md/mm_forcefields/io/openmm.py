@@ -612,6 +612,15 @@ def convert_openmm_system(
     elif isinstance(force, openmm.NonbondedForce):
       # Relevant options from force object
       nb_method = force.getNonbondedMethod()
+      if nb_method in (
+        openmm.NonbondedForce.CutoffPeriodic,
+        openmm.NonbondedForce.CutoffNonPeriodic,
+        openmm.NonbondedForce.Ewald,
+      ):
+        raise NotImplementedError(
+          'OpenMM NonbondedMethod CutoffPeriodic, CutoffNonPeriodic, and '
+          'Ewald are not yet supported by convert_openmm_system.'
+        )
       if force.getNonbondedMethod() is not openmm.NonbondedForce.NoCutoff:
         if r_cut is None:
           r_cut = force.getCutoffDistance().value_in_unit(unit.angstrom)
@@ -679,7 +688,11 @@ def convert_openmm_system(
             [int(nx_ctx), int(ny_ctx), int(nz_ctx)], dtype=wp_int
           )
 
-      if nb_method is not openmm.NonbondedForce.NoCutoff:
+      if nb_method in (
+        openmm.NonbondedForce.CutoffPeriodic,
+        openmm.NonbondedForce.Ewald,
+        openmm.NonbondedForce.PME,
+      ):
         use_pbc = True
         # OpenMM supports triclinic periodic boxes (see 22.1 in the OMM manual)
         # have to convert lower triangular to upper triangular matrix e.g.
@@ -979,6 +992,10 @@ def convert_openmm_system(
     disp_coef=disp_coef,
     r_switch=r_switch,
   )
+
+  # To guard against cases where box vectors are provided, but not used
+  if not use_pbc:
+    box_vectors = None
 
   return OpenMMSystem(
     jnp.asarray(pos, dtype=jnp.float64),
