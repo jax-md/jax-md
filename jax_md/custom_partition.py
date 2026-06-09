@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 from jax_md import dataclasses, partition, space
 from jax_md.partition import NeighborListFormat
-from typing import Callable, Tuple, Union, Optional
+from typing import Callable, Tuple, Union
 
 # Type aliases
 Array = jnp.ndarray
@@ -36,7 +36,9 @@ class NeighborListMultiImage:
     shifts: Integer shift vectors. Sparse: (capacity, dim). Dense: (N, max_neighbors, dim).
       The real-space shift is ``shifts @ box.T``.
     reference_position: Positions when the list was built, shape (N, dim).
+    reference_box: Box when the list was built, shape (dim, dim).
     box: An affine transformation; see ``jax_md.space.periodic_general``.
+    search_shifts: Integer image stencil used to build this allocation.
     format: NeighborListFormat.Sparse, OrderedSparse, or Dense.
     max_occupancy: For Sparse: total capacity. For Dense: max_neighbors.
     update_fn: Function to update the neighbor list.
@@ -50,7 +52,9 @@ class NeighborListMultiImage:
   # Dense: Array[N, max_neighbors, dim]
   shifts: Array  # real-space shift = shifts @ box.T
   reference_position: Array  # [N, dim]
+  reference_box: Array  # [dim, dim]
   box: Array  # [dim, dim]
+  search_shifts: Array  # [num_shifts, dim]
   format: NeighborListFormat = dataclasses.static_field()
   max_occupancy: int = dataclasses.static_field()
   update_fn: Callable[..., 'NeighborListMultiImage'] = (
@@ -185,6 +189,18 @@ def _compute_shift_ranges(
   ranges = [jnp.arange(-n, n + 1) for n in n_max_int]  # List of [2*n+1]
   grids = jnp.meshgrid(*ranges, indexing='ij')
   return jnp.stack([g.ravel() for g in grids], axis=-1)  # [num_shifts, dim]
+
+
+def _compute_shift_n_max(
+  box: Array,  # [dim, dim]
+  r_cutoff: float,
+  pbc: Array,  # [dim]
+) -> Array:  # [dim]
+  """Compute per-axis multi-image shift extents with fixed output shape."""
+  inv_box_T = jnp.linalg.inv(box).T  # [dim, dim]
+  heights = 1.0 / jnp.linalg.norm(inv_box_T, axis=0)  # [dim]
+  n_max = jnp.ceil(r_cutoff / heights).astype(i32)  # [dim]
+  return jnp.where(pbc, n_max, 0)
 
 
 def _compute_distances_sq(
@@ -398,7 +414,9 @@ def _build_neighbor_list_sparse(
     idx=(receivers, senders),
     shifts=edge_shifts,
     reference_position=position,
+    reference_box=box,
     box=box,
+    search_shifts=shifts,
     format=NeighborListFormat.Sparse,
     did_buffer_overflow=(n_valid > capacity),
     max_occupancy=capacity,
@@ -484,7 +502,9 @@ def _build_neighbor_list_orderedsparse(
     idx=(receivers, senders),
     shifts=edge_shifts,
     reference_position=position,
+    reference_box=box,
     box=box,
+    search_shifts=shifts,
     format=NeighborListFormat.OrderedSparse,
     did_buffer_overflow=(n_valid > capacity),
     max_occupancy=capacity,
@@ -588,7 +608,9 @@ def _build_neighbor_list_dense(
     idx=neighbor_idx,
     shifts=neighbor_shifts,
     reference_position=position,
+    reference_box=box,
     box=box,
+    search_shifts=shifts,
     format=NeighborListFormat.Dense,
     did_buffer_overflow=did_overflow,
     max_occupancy=max_neighbors,
@@ -662,7 +684,7 @@ def estimate_max_neighbors_from_box(
   r_cutoff: float,
   n_atoms: int,
   safety_factor: float = 2.0,
-  pbc: Optional[Array] = None,  # [dim]
+  pbc: Array | None = None,  # [dim]
 ) -> int:
   r"""Estimate maximum neighbors per atom from box and atom count.
 
@@ -774,11 +796,10 @@ def neighbor_list_multi_image(
   r_cutoff: float,
   dr_threshold: float = 0.0,
   capacity_multiplier: float = 1.25,
-  pbc: Optional[Array] = None,  # [dim]
+  pbc: Array | None = None,  # [dim]
   fractional_coordinates: bool = True,
   ordered: bool = False,
   format: NeighborListFormat = NeighborListFormat.Sparse,
-  max_neighbors: Optional[int] = None,
   **kwargs,
 ) -> NeighborListMultiImageFns:
   r"""Returns functions to build neighbor lists for small periodic boxes.
@@ -808,22 +829,9 @@ def neighbor_list_multi_image(
 
   .. code-block:: python
 
-     from jax_md.custom_partition import (
-         neighbor_list_multi_image,
-         estimate_max_neighbors,
-     )
+     from jax_md.custom_partition import neighbor_list_multi_image
 
-     # Basic usage: uses default max_neighbors=100
      neighbor_fn = neighbor_list_multi_image(None, box, r_cutoff)
-     nbrs = neighbor_fn.allocate(R)
-
-     # With explicit max_neighbors
-     neighbor_fn = neighbor_list_multi_image(None, box, r_cutoff, max_neighbors=50)
-
-     # Use estimate_max_neighbors for density-based estimation
-     max_nbrs = estimate_max_neighbors(box, r_cutoff, n_atoms=N)
-     neighbor_fn = neighbor_list_multi_image(None, box, r_cutoff, max_neighbors=max_nbrs)
-
      nbrs = neighbor_fn.allocate(R)
 
      for _ in range(steps):
@@ -854,23 +862,20 @@ def neighbor_list_multi_image(
       - ``OrderedSparse``: Like Sparse but only :math:`i < j` pairs.
       - ``Dense``: Per-atom neighbors. Shape ``[N, max_neighbors]``.
 
-    max_neighbors: Maximum neighbors per atom. Default: 100. Use
-      ``estimate_max_neighbors()`` for density-based estimation.
     **kwargs: Additional arguments (ignored, for API compatibility).
 
   Returns:
     ``NeighborListMultiImageFns`` with:
 
-    - ``allocate(position)``: Create new neighbor list from positions ``[N, dim]``.
+    - ``allocate(position, box=None)``: Create new neighbor list from
+      positions ``[N, dim]``.  Pass ``box=new_box`` to rebuild for a
+      different box geometry (e.g. during cell optimization).
     - ``update(position, neighbors)``: Update existing neighbor list.
   """
   del displacement_or_metric  # Unused - multi-image uses explicit shifts
 
-  # Configuration constants
-  DEFAULT_MAX_NEIGHBORS = 256  # Default max neighbors per atom if not specified
-
-  box = jnp.asarray(box)  # [dim, dim]
-  dim = box.shape[0]
+  default_box = jnp.asarray(box)  # [dim, dim]
+  dim = default_box.shape[0]
   use_dense = format is NeighborListFormat.Dense
   use_ordered = ordered or (format is NeighborListFormat.OrderedSparse)
 
@@ -882,18 +887,11 @@ def neighbor_list_multi_image(
   search_cutoff = r_cutoff + dr_threshold
 
   # Pre-compute shift vectors using reciprocal lattice heights
-  shifts = _compute_shift_ranges(box, search_cutoff, pbc)  # [num_shifts, dim]
-  shifts_real = shifts @ box.T  # [num_shifts, dim]
-  zero_shift_idx = int(jnp.argmin(jnp.sum(shifts**2, axis=1)))
+  shifts = _compute_shift_ranges(
+    default_box, search_cutoff, pbc
+  )  # [num_shifts, dim]
 
-  # Compute neighbors_per_atom from max_neighbors or default
-  if max_neighbors is not None:
-    neighbors_per_atom = int(max_neighbors * capacity_multiplier)
-  else:
-    neighbors_per_atom = int(DEFAULT_MAX_NEIGHBORS * capacity_multiplier)
-
-  # Displacement threshold for skipping rebuild
-  threshold_sq = (dr_threshold / 2.0) ** 2
+  num_shifts = shifts.shape[0]
 
   # Placeholder for circular reference in NeighborListMultiImage.update
   def update_fn_placeholder(position, neighbors, **kwargs):
@@ -905,70 +903,54 @@ def neighbor_list_multi_image(
   # This avoids recompilation when N stays constant across calls
   build_fn_cache = {}
 
-  def compute_capacity(N: int) -> int:
-    """Compute capacity from number of atoms."""
+  def _initial_probe_capacity(N: int) -> int:
+    """Geometry-based probe capacity estimate."""
+    est = estimate_max_neighbors_from_box(
+      default_box, search_cutoff, N, safety_factor=5.0, pbc=pbc
+    )
+    npa = max(int(est * capacity_multiplier), num_shifts)
     if use_dense:
-      return neighbors_per_atom
-    else:
-      cap = N * neighbors_per_atom
-      if use_ordered:
-        cap = cap // 2 + N  # Ordered stores ~half the edges
-      return cap
+      return npa
+    cap = N * npa
+    if use_ordered:
+      cap = cap // 2 + N
+    return cap
+
+  # Select format-specific build function once at construction time
+  if use_dense:
+    build_nl_fn = _build_neighbor_list_dense
+  elif use_ordered:
+    build_nl_fn = _build_neighbor_list_orderedsparse
+  else:
+    build_nl_fn = _build_neighbor_list_sparse
+
+  def make_build_fn(capacity):
+    """Create a build function for given capacity."""
+
+    @jax.jit
+    def build_fn(pos, box, nl_shifts):
+      shifts_real = nl_shifts @ box.T
+      zero_idx = jnp.argmin(jnp.sum(nl_shifts**2, axis=1))
+      return build_nl_fn(
+        pos,
+        box,
+        nl_shifts,
+        shifts_real,
+        zero_idx,
+        search_cutoff,
+        capacity,
+        fractional_coordinates,
+        update_fn_ref[0],
+      )
+
+    return build_fn
 
   def get_build_fn(capacity: int):
-    """Get or create JIT-compiled build function for given capacity."""
+    """Get or create a build function for given capacity."""
     if capacity in build_fn_cache:
       return build_fn_cache[capacity]
 
-    # Create build function for this capacity
-    if use_dense:
-
-      @jax.jit
-      def build_fn(pos):  # pos: [N, dim]
-        return _build_neighbor_list_dense(
-          pos,
-          box,
-          shifts,
-          shifts_real,
-          zero_shift_idx,
-          search_cutoff,
-          capacity,
-          fractional_coordinates,
-          update_fn_ref[0],
-        )
-
-    elif use_ordered:
-
-      @jax.jit
-      def build_fn(pos):  # pos: [N, dim]
-        return _build_neighbor_list_orderedsparse(
-          pos,
-          box,
-          shifts,
-          shifts_real,
-          zero_shift_idx,
-          search_cutoff,
-          capacity,
-          fractional_coordinates,
-          update_fn_ref[0],
-        )
-
-    else:
-
-      @jax.jit
-      def build_fn(pos):  # pos: [N, dim]
-        return _build_neighbor_list_sparse(
-          pos,
-          box,
-          shifts,
-          shifts_real,
-          zero_shift_idx,
-          search_cutoff,
-          capacity,
-          fractional_coordinates,
-          update_fn_ref[0],
-        )
-
+    build_fn = make_build_fn(capacity)
     build_fn_cache[capacity] = build_fn
     return build_fn
 
@@ -976,50 +958,79 @@ def neighbor_list_multi_image(
   def check_needs_rebuild(
     position: Array,  # [N, dim]
     reference_position: Array,  # [N, dim]
+    box: Array,  # [dim, dim]
+    reference_box: Array,  # [dim, dim]
+    nl_shifts: Array,  # [num_shifts, dim]
   ) -> Array:  # scalar bool
     """Check if maximum displacement exceeds threshold."""
     if fractional_coordinates:
       pos_new = position @ box.T  # [N, dim]
-      pos_old = reference_position @ box.T
+      pos_old = reference_position @ reference_box.T
     else:
       pos_new = position
       pos_old = reference_position
-    max_disp_sq = jnp.max(jnp.sum((pos_new - pos_old) ** 2, axis=-1))
-    return max_disp_sq >= threshold_sq
+    max_atom_disp = jnp.sqrt(
+      jnp.max(jnp.sum((pos_new - pos_old) ** 2, axis=-1))
+    )
+
+    # box deformation moves that periodic image by
+    # shift @ (box - reference_box).T; this can dominate for large shifts
+    shift_delta = nl_shifts @ (box - reference_box).T
+    max_shift_disp = jnp.sqrt(jnp.max(jnp.sum(shift_delta**2, axis=-1)))
+    # any pair displacement can change by at most the motion of both atoms plus
+    # the deformation of its stored periodic image shift.
+    return 2.0 * max_atom_disp + max_shift_disp >= dr_threshold
 
   # Choose update strategy at function creation time (not trace time)
   use_threshold = dr_threshold > 0
 
   def allocate_fn(
-    position: Array, extra_capacity: int = 0, **kwargs
+    position: Array, extra_capacity: int = 0, box: Array = None, **kwargs
   ) -> NeighborListMultiImage:
     """Allocate a new neighbor list from positions [N, dim].
-
-    Computes capacity based on position.shape[0] and caches the JIT-compiled
-    build function for efficient reuse with the same N.
 
     Args:
       position: Atom positions. Shape ``[N, dim]``.
       extra_capacity: Additional capacity to add (multiplied by N for Sparse).
         Use this to recover from buffer overflow.
+      box: Override box for this allocation.  If provided, shift vectors
+        are recomputed for the new box geometry.  This is needed when
+        the cell changes during cell optimization.
 
     Returns:
       New neighbor list.
     """
     position = jnp.asarray(position)
     N = position.shape[0]
-    base_capacity = compute_capacity(N)
-    # For sparse formats, extra_capacity is per-atom; for dense it's absolute
+    _extra = extra_capacity if use_dense else N * extra_capacity
+    current_box = jnp.asarray(box) if box is not None else default_box
+    nl_shifts = _compute_shift_ranges(current_box, search_cutoff, pbc)
+
+    # Probe with geometry-based estimate; retry with 2x on overflow.
+    cap = _initial_probe_capacity(N) + _extra
+    while True:
+      probe_fn = get_build_fn(cap)
+      probe = probe_fn(position, current_box, nl_shifts)
+      if not probe.did_buffer_overflow:
+        break
+      cap = cap * 2
+
     if use_dense:
-      capacity = base_capacity + extra_capacity
+      actual_occ = int(jnp.max(jnp.sum(probe.idx < N, axis=1)))
     else:
-      capacity = base_capacity + N * extra_capacity
-    build_fn = get_build_fn(capacity)
-    return build_fn(position)
+      actual_occ = int(jnp.sum(probe.idx[0] < N))
+
+    max_occupancy = max(int(actual_occ * capacity_multiplier) + _extra, 1)
+
+    if max_occupancy == cap:
+      return probe
+
+    build_fn = get_build_fn(max_occupancy)
+    return build_fn(position, current_box, nl_shifts)
 
   def neighbor_list_fn(
     position: Array,  # [N, dim]
-    neighbors: Optional[NeighborListMultiImage] = None,
+    neighbors: NeighborListMultiImage | None = None,
     **kwargs,
   ) -> NeighborListMultiImage:
     """Build or update neighbor list.
@@ -1027,7 +1038,8 @@ def neighbor_list_multi_image(
     Args:
       position: Atom positions. Shape ``[N, dim]``.
       neighbors: Existing neighbor list, or None to allocate new.
-      **kwargs: Additional arguments (unused, for API compatibility).
+      **kwargs: Accepts ``box=`` to rebuild with a different box
+        geometry.
 
     Returns:
       Updated neighbor list.
@@ -1038,20 +1050,45 @@ def neighbor_list_multi_image(
       # First call: allocate with capacity computed from position
       return allocate_fn(position, **kwargs)
 
-    # Update: reuse existing capacity from neighbor list
+    position = position.astype(neighbors.reference_position.dtype)
+
+    current_box = jnp.asarray(kwargs.get('box', neighbors.box))
+    required_shift_n_max = _compute_shift_n_max(current_box, search_cutoff, pbc)
+    allocated_shift_n_max = jnp.max(
+      jnp.abs(neighbors.search_shifts), axis=0
+    ).astype(i32)
+    shift_range_overflow = jnp.any(required_shift_n_max > allocated_shift_n_max)
+
     capacity = neighbors.max_occupancy
     build_fn = get_build_fn(capacity)
 
-    # Check if rebuild needed based on displacement threshold
+    def rebuild(pos):
+      updated = build_fn(pos, current_box, neighbors.search_shifts)
+      return dataclasses.replace(
+        updated,
+        did_buffer_overflow=(
+          updated.did_buffer_overflow | shift_range_overflow
+        ),
+      )
+
     if use_threshold:
       return jax.lax.cond(
-        check_needs_rebuild(position, neighbors.reference_position),
-        build_fn,  # True branch: rebuild
-        lambda pos: neighbors,  # False branch: return existing
+        (
+          shift_range_overflow
+          | check_needs_rebuild(
+            position,
+            neighbors.reference_position,
+            current_box,
+            neighbors.reference_box,
+            neighbors.search_shifts,
+          )
+        ),
+        rebuild,
+        lambda pos: dataclasses.replace(neighbors, box=current_box),
         position,
       )
 
-    return build_fn(position)
+    return rebuild(position)
 
   # Close the circular reference
   update_fn_ref[0] = neighbor_list_fn

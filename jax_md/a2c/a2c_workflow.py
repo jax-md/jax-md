@@ -128,8 +128,11 @@ def main(unused_argv):
   )
   print('Amorphous structure is ready:', amorphous_structure)
 
-  subcells = crystallizer_utils.get_subcells_to_crystallize(
-    amorphous_structure, 0.1, 2, 8
+  subcells = crystallizer_utils.get_subcells_to_crystallize_parallel(
+    structure=amorphous_structure,
+    d_frac=0.1,
+    nmin=2,
+    nmax=8,
   )
   print('Created %d subcells from a-Si' % len(subcells))
 

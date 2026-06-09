@@ -14,22 +14,17 @@
 
 """Neural Network Primitives."""
 
-from typing import Callable, Tuple, Dict, Any, Optional
+from typing import Callable, Tuple
 
-import numpy as onp
-
+from flax import nnx
 import jax
-from jax import vmap, jit
+from jax import vmap
 import jax.numpy as jnp
 
-from jax_md import space, dataclasses, quantity, partition, smap
+from jax_md import dataclasses, partition
 from jax_md import util as jmd_util
-import haiku as hk
 
-from collections import namedtuple
-from functools import partial, reduce
-from jax.tree_util import tree_map
-from jax import ops
+from functools import partial
 
 import jraph
 
@@ -42,15 +37,55 @@ from ._nn import util
 
 
 Array = jmd_util.Array
-f32 = jmd_util.f32
-f64 = jmd_util.f64
 
-InitFn = Callable[..., Array]
-CallFn = Callable[..., Array]
+ActivationFn = Callable[[Array], Array]
 
-DisplacementOrMetricFn = space.DisplacementOrMetricFn
-DisplacementFn = space.DisplacementFn
-NeighborList = partition.NeighborList
+DEFAULT_KERNEL_INIT = jax.nn.initializers.variance_scaling(
+  1.0, 'fan_avg', 'truncated_normal'
+)
+DEFAULT_BIAS_INIT = jax.nn.initializers.zeros
+
+
+class MLP(nnx.Module):
+  """Multi-layer perceptron with configurable activation."""
+
+  def __init__(
+    self,
+    in_features: int,
+    output_sizes: Tuple[int, ...],
+    *,
+    rngs: nnx.Rngs,
+    activation: ActivationFn = jax.nn.relu,
+    kernel_init: Callable = DEFAULT_KERNEL_INIT,
+    bias_init: Callable = DEFAULT_BIAS_INIT,
+    use_bias: bool = True,
+    activate_final: bool = True,
+  ):
+    self.activation = activation
+    self.activate_final = activate_final
+    sizes = (in_features,) + tuple(output_sizes)
+    self.num_layers = len(sizes) - 1
+    for i in range(self.num_layers):
+      setattr(
+        self,
+        f'layers_{i}',
+        nnx.Linear(
+          sizes[i],
+          sizes[i + 1],
+          use_bias=use_bias,
+          kernel_init=kernel_init,
+          bias_init=bias_init,
+          rngs=rngs,
+        ),
+      )
+
+  def __call__(self, x: Array) -> Array:
+    for i in range(self.num_layers):
+      x = getattr(self, f'layers_{i}')(x)
+      if self.activate_final or i < self.num_layers - 1:
+        x = self.activation(x)
+    return x
+
 
 # TO BE DELETED BELOW:
 # Graph neural network primitives
@@ -134,8 +169,7 @@ def GraphMapFeatures(
   _global_fn = global_fn if global_fn is not None else identity
 
   def embed_fn(graph):
-    return dataclasses.replace(
-      graph,
+    return graph._replace(
       nodes=_node_fn(graph.nodes),
       edges=_edge_fn(graph.edges),
       globals=_global_fn(graph.globals),
@@ -144,7 +178,7 @@ def GraphMapFeatures(
   return embed_fn
 
 
-def _apply_node_fn(
+def apply_node_fn(
   graph: GraphsTuple, node_fn: Callable[[Array, Array, Array, Array], Array]
 ) -> Array:
   mask = graph.edge_idx < graph.nodes.shape[0]
@@ -172,7 +206,7 @@ def _apply_node_fn(
   return node_fn(graph.nodes, incoming_edges, outgoing_edges, _globals)
 
 
-def _apply_edge_fn(
+def apply_edge_fn(
   graph: GraphsTuple, edge_fn: Callable[[Array, Array, Array, Array], Array]
 ) -> Array:
   if graph.nodes is not None:
@@ -198,7 +232,7 @@ def _apply_edge_fn(
   return edge_fn(graph.edges, incoming_nodes, outgoing_nodes, _globals) * mask
 
 
-def _apply_global_fn(
+def apply_global_fn(
   graph: GraphsTuple, global_fn: Callable[[Array, Array, Array], Array]
 ) -> Array:
   nodes = None if graph.nodes is None else jnp.sum(graph.nodes, axis=0)
@@ -221,37 +255,35 @@ class GraphNetwork:
 
   def __init__(
     self,
-    edge_fn: Callable[[Array], Array],
-    node_fn: Callable[[Array], Array],
-    global_fn: Callable[[Array], Array],
+    edge_fn: Callable[[Array, Array, Array, Array], Array],
+    node_fn: Callable[[Array, Array, Array, Array], Array],
+    global_fn: Callable[[Array, Array, Array], Array],
   ):
-    self._node_fn = (
-      None
-      if node_fn is None
-      else partial(_apply_node_fn, node_fn=vmap(node_fn))
+    self.node_fn = (
+      None if node_fn is None else partial(apply_node_fn, node_fn=vmap(node_fn))
     )
 
-    self._edge_fn = (
+    self.edge_fn = (
       None
       if edge_fn is None
-      else partial(_apply_edge_fn, edge_fn=vmap(vmap(edge_fn)))
+      else partial(apply_edge_fn, edge_fn=vmap(vmap(edge_fn)))
     )
 
-    self._global_fn = (
+    self.global_fn = (
       None
       if global_fn is None
-      else partial(_apply_global_fn, global_fn=global_fn)
+      else partial(apply_global_fn, global_fn=global_fn)
     )
 
   def __call__(self, graph: GraphsTuple) -> GraphsTuple:
-    if self._edge_fn is not None:
-      graph = dataclasses.replace(graph, edges=self._edge_fn(graph))
+    if self.edge_fn is not None:
+      graph = graph._replace(edges=self.edge_fn(graph))
 
-    if self._node_fn is not None:
-      graph = dataclasses.replace(graph, nodes=self._node_fn(graph))
+    if self.node_fn is not None:
+      graph = graph._replace(nodes=self.node_fn(graph))
 
-    if self._global_fn is not None:
-      graph = dataclasses.replace(graph, globals=self._global_fn(graph))
+    if self.global_fn is not None:
+      graph = graph._replace(globals=self.global_fn(graph))
 
     return graph
 
@@ -259,13 +291,13 @@ class GraphNetwork:
 # Prefab Networks
 
 
-class GraphNetEncoder(hk.Module):
+class GraphNetEncoder(nnx.Module):
   """Implements a Graph Neural Network for energy fitting.
 
   Based on the network used in "Unveiling the predictive power of static
   structure in glassy systems"; Bapst et al.
   (https://www.nature.com/articles/s41567-020-0842-8). This network first
-  embeds edges, nodes, and global state. Then `n_recurrences` of GraphNetwork
+  embeds edges, nodes, and global state. Then ``n_recurrences`` of GraphNetwork
   layers are applied. Unlike in Bapst et al. this network does not include a
   readout, which should be added separately depending on the application.
 
@@ -276,60 +308,70 @@ class GraphNetEncoder(hk.Module):
 
   def __init__(
     self,
+    in_node_features: int,
+    in_edge_features: int,
+    in_global_features: int,
     n_recurrences: int,
     mlp_sizes: Tuple[int, ...],
-    mlp_kwargs: Optional[Dict[str, Any]] = None,
+    *,
+    rngs: nnx.Rngs,
+    activation: ActivationFn = jax.nn.relu,
+    kernel_init: Callable = DEFAULT_KERNEL_INIT,
+    bias_init: Callable = DEFAULT_BIAS_INIT,
     format: partition.NeighborListFormat = partition.Dense,
-    name: str = 'GraphNetEncoder',
   ):
-    super(GraphNetEncoder, self).__init__(name=name)
+    self.n_recurrences = n_recurrences
+    self.format = format
 
-    if mlp_kwargs is None:
-      mlp_kwargs = {}
-
-    self._n_recurrences = n_recurrences
-
-    embedding_fn = lambda name: hk.nets.MLP(
-      output_sizes=mlp_sizes, activate_final=True, name=name, **mlp_kwargs
+    kw = dict(
+      rngs=rngs,
+      activation=activation,
+      kernel_init=kernel_init,
+      bias_init=bias_init,
+      activate_final=True,
     )
+    m = mlp_sizes[-1]
 
-    model_fn = lambda name: (
-      lambda *args: hk.nets.MLP(
-        output_sizes=mlp_sizes, activate_final=True, name=name, **mlp_kwargs
-      )(jnp.concatenate(args, axis=-1))
-    )
+    self.EdgeEncoder = MLP(in_edge_features, mlp_sizes, **kw)
+    self.NodeEncoder = MLP(in_node_features, mlp_sizes, **kw)
+    self.GlobalEncoder = MLP(in_global_features, mlp_sizes, **kw)
 
-    if format is partition.Dense:
-      self._encoder = GraphMapFeatures(
-        embedding_fn('EdgeEncoder'),
-        embedding_fn('NodeEncoder'),
-        embedding_fn('GlobalEncoder'),
-      )
-      self._propagation_network = lambda: GraphNetwork(
-        model_fn('EdgeFunction'),
-        model_fn('NodeFunction'),
-        model_fn('GlobalFunction'),
-      )
-    elif format is partition.Sparse:
-      self._encoder = jraph.GraphMapFeatures(
-        embedding_fn('EdgeEncoder'),
-        embedding_fn('NodeEncoder'),
-        embedding_fn('GlobalEncoder'),
-      )
-      self._propagation_network = lambda: jraph.GraphNetwork(
-        model_fn('EdgeFunction'),
-        model_fn('NodeFunction'),
-        model_fn('GlobalFunction'),
-      )
+    for i in range(n_recurrences):
+      setattr(self, f'edge_fns_{i}', MLP(8 * m, mlp_sizes, **kw))
+      setattr(self, f'node_fns_{i}', MLP(6 * m, mlp_sizes, **kw))
+      setattr(self, f'global_fns_{i}', MLP(4 * m, mlp_sizes, **kw))
+
+  def __call__(self, graph: GraphsTuple) -> GraphsTuple:
+    if self.format is partition.Dense:
+      graph_map_features = GraphMapFeatures
+      graph_network = GraphNetwork
+    elif self.format is partition.Sparse:
+      graph_map_features = jraph.GraphMapFeatures
+      graph_network = jraph.GraphNetwork
     else:
       raise ValueError()
 
-  def __call__(self, graph: GraphsTuple) -> GraphsTuple:
-    encoded = self._encoder(graph)
+    encoded = graph_map_features(
+      self.EdgeEncoder, self.NodeEncoder, self.GlobalEncoder
+    )(graph)
+
     outputs = encoded
 
-    for _ in range(self._n_recurrences):
+    for i in range(self.n_recurrences):
+      edge_mlp = getattr(self, f'edge_fns_{i}')
+      node_mlp = getattr(self, f'node_fns_{i}')
+      global_mlp = getattr(self, f'global_fns_{i}')
+
+      def edge_update(edges, sent, received, globals_, mlp=edge_mlp):
+        return mlp(jnp.concatenate((edges, sent, received, globals_), axis=-1))
+
+      def node_update(nodes, sent, received, globals_, mlp=node_mlp):
+        return mlp(jnp.concatenate((nodes, sent, received, globals_), axis=-1))
+
+      def global_update(nodes, edges, globals_, mlp=global_mlp):
+        return mlp(jnp.concatenate((nodes, edges, globals_), axis=-1))
+
       inputs = concatenate_graph_features((outputs, encoded))
-      outputs = self._propagation_network()(inputs)
+      outputs = graph_network(edge_update, node_update, global_update)(inputs)
 
     return outputs

@@ -20,14 +20,23 @@ from typing import Callable, Tuple, TextIO, Dict, Any, Optional
 
 import re
 
+from flax import nnx
 import jax
 import jax.numpy as jnp
 from jax import ops
 from jax.tree_util import tree_map
 from jax import vmap
-import haiku as hk
 from jax.scipy.special import erfc  # error function
-from jax_md import space, smap, partition, nn, quantity, interpolate, util
+from jax_md import (
+  custom_partition,
+  space,
+  smap,
+  partition,
+  nn,
+  quantity,
+  interpolate,
+  util,
+)
 
 from ml_collections import ConfigDict
 
@@ -90,7 +99,7 @@ def simple_spring(
 def simple_spring_bond(
   displacement_or_metric: DisplacementOrMetricFn,
   bond: Array,
-  bond_type: Optional[Array] = None,
+  bond_type: Array | None = None,
   length: Array = 1,
   epsilon: Array = 1,
   alpha: Array = 2,
@@ -164,7 +173,7 @@ def soft_sphere(
 
 def soft_sphere_pair(
   displacement_or_metric: DisplacementOrMetricFn,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   sigma: Array = 1.0,
   epsilon: Array = 1.0,
   alpha: Array = 2.0,
@@ -189,7 +198,7 @@ def soft_sphere_pair(
 def soft_sphere_neighbor_list(
   displacement_or_metric: DisplacementOrMetricFn,
   box_size: Box,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   sigma: Array = 1.0,
   epsilon: Array = 1.0,
   alpha: Array = 2.0,
@@ -260,7 +269,7 @@ def lennard_jones(
 
 def lennard_jones_pair(
   displacement_or_metric: DisplacementOrMetricFn,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   sigma: Array = 1.0,
   epsilon: Array = 1.0,
   r_onset: Array = 2.0,
@@ -286,7 +295,7 @@ def lennard_jones_pair(
 def lennard_jones_neighbor_list(
   displacement_or_metric: DisplacementOrMetricFn,
   box_size: Box,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   sigma: Array = 1.0,
   epsilon: Array = 1.0,
   r_onset: float = 2.0,
@@ -359,7 +368,7 @@ def morse(
 
 def morse_pair(
   displacement_or_metric: DisplacementOrMetricFn,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   sigma: Array = 1.0,
   epsilon: Array = 5.0,
   alpha: Array = 5.0,
@@ -386,7 +395,7 @@ def morse_pair(
 def morse_neighbor_list(
   displacement_or_metric: DisplacementOrMetricFn,
   box_size: Box,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   sigma: Array = 1.0,
   epsilon: Array = 5.0,
   alpha: Array = 5.0,
@@ -1220,7 +1229,7 @@ def _ters_repulsive(A: f64, lam1: f64, R: f64, D: f64, dr: Array) -> Array:
 def tersoff(
   displacement: DisplacementFn,
   params: Array,
-  species: Optional[Array] = None,
+  species: Array | None = None,
 ) -> Callable[[Array], Array]:
   """Computes the Tersoff potential.
 
@@ -1302,7 +1311,7 @@ def tersoff_neighbor_list(
   displacement: DisplacementFn,
   box_size: float,
   params: Array,
-  species: Optional[Array] = None,
+  species: Array | None = None,
   dr_threshold: float = 0.5,
   disable_cell_list: bool = False,
   fractional_coordinates: bool = True,
@@ -1747,7 +1756,7 @@ def eam(
   charge_fn: Callable[[Array], Array],
   embedding_fn: Callable[[Array], Array],
   pairwise_fn: Callable[[Array], Array],
-  axis: Optional[Tuple[int, ...]] = None,
+  axis: Tuple[int, ...] | None = None,
 ) -> Callable[[Array], Array]:
   """.. _eam-pot:
 
@@ -1831,7 +1840,7 @@ def eam_neighbor_list(
   pairwise_fn: Callable[[Array], Array],
   cutoff: float,
   dr_threshold: float = 0.5,
-  axis: Optional[Tuple[int, ...]] = None,
+  axis: Tuple[int, ...] | None = None,
   fractional_coordinates: bool = True,
   format: partition.NeighborListFormat = partition.Sparse,
   neighbor_list_fn: Callable = partition.neighbor_list,
@@ -1904,59 +1913,135 @@ def eam_from_lammps_parameters_neighbor_list(
   )
 
 
-def behler_parrinello(
-  displacement: DisplacementFn,
-  species: Optional[Array] = None,
-  mlp_sizes: Tuple[int, ...] = (30, 30),
-  mlp_kwargs: Optional[Dict[str, Any]] = None,
-  sym_kwargs: Optional[Dict[str, Any]] = None,
-  per_particle: bool = False,
-) -> Tuple[nn.InitFn, Callable[[PyTree, Array], Array]]:
-  if sym_kwargs is None:
-    sym_kwargs = {}
-  if mlp_kwargs is None:
-    mlp_kwargs = {'activation': jnp.tanh}
+class BehlerParrinelloEnergy(nnx.Module):
+  """Behler-Parrinello symmetry-function energy model.
 
-  sym_fn = bp.symmetry_functions(displacement, species, **sym_kwargs)
+  Callable as ``model(R, neighbor=None, **kwargs) -> scalar``.
+  """
 
-  @hk.without_apply_rng
-  @hk.transform
-  def model(R, **kwargs):
-    embedding_fn = hk.nets.MLP(
-      output_sizes=mlp_sizes + (1,),
+  def __init__(
+    self,
+    sym_fn,
+    in_features,
+    mlp_sizes,
+    *,
+    rngs,
+    per_particle=False,
+    activation=jnp.tanh,
+  ):
+    self.sym_fn = sym_fn
+    self.per_particle = per_particle
+    self.mlp = nn.MLP(
+      in_features,
+      mlp_sizes + (1,),
+      rngs=rngs,
       activate_final=False,
-      name='BPEncoder',
-      **mlp_kwargs,
+      activation=activation,
     )
-    embedding_fn = vmap(embedding_fn)
-    sym = sym_fn(R, **kwargs)
-    readout = embedding_fn(sym)
-    if per_particle:
+
+  def __call__(self, R, neighbor=None, **kwargs):
+    if neighbor is not None:
+      sym = self.sym_fn(R, neighbor, **kwargs)
+    else:
+      sym = self.sym_fn(R, **kwargs)
+    readout = vmap(self.mlp)(sym)
+    if self.per_particle:
       return readout
     return jnp.sum(readout)
 
-  return model.init, model.apply
+
+def _probe_sym_dim(sym_fn, species, spatial_dimension=3):
+  n = len(species) if species is not None else 3
+  dummy = jnp.zeros((n, spatial_dimension))
+  return sym_fn(dummy).shape[-1]
+
+
+def behler_parrinello(
+  displacement: DisplacementFn,
+  *,
+  key: jax.Array,
+  species: Array | None = None,
+  mlp_sizes: Tuple[int, ...] = (30, 30),
+  sym_kwargs: Dict[str, Any] | None = None,
+  per_particle: bool = False,
+  spatial_dimension: int = 3,
+  activation: Callable = jnp.tanh,
+):
+  """Build a Behler-Parrinello symmetry-function energy model.
+
+  Args:
+    displacement: Function to compute displacement between two positions.
+    key: A JAX random key used to initialize model parameters.
+    species: None or an integer array specifying the species of each particle.
+    mlp_sizes: Layer widths for the per-particle MLP.
+    sym_kwargs: Additional kwargs for symmetry function construction.
+    per_particle: If True, return per-particle energies instead of the total.
+    spatial_dimension: The spatial dimension of the system (default 3).
+    activation: Activation function for the MLP (default ``jnp.tanh``).
+
+  Returns:
+    An ``energy_fn(R, **kwargs) -> scalar``.  The underlying NNX module is
+    accessible via ``energy_fn.model`` for training.
+  """
+  if sym_kwargs is None:
+    sym_kwargs = {}
+
+  sym_fn = bp.symmetry_functions(displacement, species, **sym_kwargs)
+  sym_dim = _probe_sym_dim(sym_fn, species, spatial_dimension)
+
+  model = BehlerParrinelloEnergy(
+    sym_fn,
+    sym_dim,
+    mlp_sizes,
+    rngs=nnx.Rngs(key),
+    per_particle=per_particle,
+    activation=activation,
+  )
+
+  def energy_fn(R, **kwargs):
+    return model(R, **kwargs)
+
+  energy_fn.model = model
+
+  return energy_fn
 
 
 def behler_parrinello_neighbor_list(
   displacement: DisplacementFn,
   box_size: float,
-  species: Optional[Array] = None,
+  *,
+  key: jax.Array,
+  species: Array | None = None,
   mlp_sizes: Tuple[int, ...] = (30, 30),
-  mlp_kwargs: Optional[Dict[str, Any]] = None,
-  sym_kwargs: Optional[Dict[str, Any]] = None,
+  sym_kwargs: Dict[str, Any] | None = None,
   dr_threshold: float = 0.5,
   fractional_coordinates: bool = False,
   format: partition.NeighborListFormat = partition.Sparse,
   neighbor_list_fn: Callable = partition.neighbor_list,
+  activation: Callable = jnp.tanh,
   **neighbor_kwargs,
-) -> Tuple[
-  NeighborFn, nn.InitFn, Callable[[PyTree, Array, NeighborList], Array]
-]:
+):
+  """Build a Behler-Parrinello energy model with neighbor lists.
+
+  Args:
+    displacement: Function to compute displacement between two positions.
+    box_size: The size of the simulation volume.
+    key: A JAX random key used to initialize model parameters.
+    species: None or an integer array specifying the species of each particle.
+    mlp_sizes: Layer widths for the per-particle MLP.
+    sym_kwargs: Additional kwargs for symmetry function construction.
+    dr_threshold: Halo radius for neighbor list construction.
+    fractional_coordinates: Whether coordinates are fractional.
+    format: Neighbor list format (``Dense`` or ``Sparse``).
+    activation: Activation function for the MLP (default ``jnp.tanh``).
+
+  Returns:
+    A tuple ``(neighbor_fn, energy_fn)`` where
+    ``energy_fn(R, neighbor=nbrs) -> scalar``.  The underlying NNX module is
+    accessible via ``energy_fn.model`` for training.
+  """
   if sym_kwargs is None:
     sym_kwargs = {}
-  if mlp_kwargs is None:
-    mlp_kwargs = {'activation': jnp.tanh}
 
   cutoff_distance = 8.0
   if 'cutoff_distance' in sym_kwargs:
@@ -1972,70 +2057,119 @@ def behler_parrinello_neighbor_list(
     **neighbor_kwargs,
   )
 
+  box_arr = jnp.asarray(box_size)
+  spatial_dimension = box_arr.shape[-1] if box_arr.ndim >= 1 else 3
+
   sym_fn = bp.symmetry_functions_neighbor_list(
     displacement, species, **sym_kwargs
   )
+  sym_dim = _probe_sym_dim(
+    bp.symmetry_functions(displacement, species, **sym_kwargs),
+    species,
+    spatial_dimension,
+  )
 
-  @hk.without_apply_rng
-  @hk.transform
-  def model(R, neighbor, **kwargs):
-    embedding_fn = hk.nets.MLP(
-      output_sizes=mlp_sizes + (1,),
-      activate_final=False,
-      name='BPEncoder',
-      **mlp_kwargs,
-    )
-    embedding_fn = vmap(embedding_fn)
-    sym = sym_fn(R, neighbor, **kwargs)
-    readout = embedding_fn(sym)
-    return jnp.sum(readout)
+  model = BehlerParrinelloEnergy(
+    sym_fn,
+    sym_dim,
+    mlp_sizes,
+    rngs=nnx.Rngs(key),
+    activation=activation,
+  )
 
-  return neighbor_fn, model.init, model.apply
+  def energy_fn(R, neighbor=None, **kwargs):
+    return model(R, neighbor, **kwargs)
+
+  energy_fn.model = model
+
+  return neighbor_fn, energy_fn
 
 
-class EnergyGraphNet(hk.Module):
-  """Implements a Graph Neural Network for energy fitting.
+class EnergyGraphNet(nnx.Module):
+  """Graph Neural Network energy model.
 
-  This model uses a GraphNetEmbedding combined with a decoder applied to the
-  global state.
+  Combines a ``GraphNetEncoder`` with a global decoder to predict a scalar
+  energy from positions and (optionally) a neighbor list.
+
+  The model stores the graph-construction config so that ``__call__`` accepts
+  ``(R, neighbor=None, **kwargs)`` directly, matching the standard jax_md
+  energy function signature.
   """
 
   def __init__(
     self,
-    n_recurrences: int,
-    mlp_sizes: Tuple[int, ...],
-    mlp_kwargs: Optional[Dict[str, Any]] = None,
+    displacement_fn: space.DisplacementFn,
+    r_cutoff: float,
+    *,
+    key: jax.Array,
+    in_node_features: int = 1,
+    in_edge_features: int = 3,
+    in_global_features: int = 1,
+    n_recurrences: int = 2,
+    mlp_sizes: Tuple[int, ...] = (64, 64),
+    activation: Callable = jax.nn.softplus,
+    kernel_init: Callable = nn.DEFAULT_KERNEL_INIT,
+    bias_init: Callable = nn.DEFAULT_BIAS_INIT,
     format: partition.NeighborListFormat = partition.Dense,
-    name: str = 'Energy',
+    dr_threshold: float = 0.0,
+    nodes: Array | None = None,
   ):
-    super(EnergyGraphNet, self).__init__(name=name)
+    rngs = nnx.Rngs(key)
 
-    if mlp_kwargs is None:
-      mlp_kwargs = {
-        'w_init': hk.initializers.VarianceScaling(),
-        'b_init': hk.initializers.VarianceScaling(0.1),
-        'activation': jax.nn.softplus,
-      }
-    self._format = format
-    self._graph_net = nn.GraphNetEncoder(
-      n_recurrences, mlp_sizes, mlp_kwargs, format
+    self.displacement_fn = displacement_fn
+    self.r_cutoff = r_cutoff
+    self.dr_threshold = dr_threshold
+    self.format = format
+    self.nodes = nodes
+
+    kw = dict(
+      activation=activation, kernel_init=kernel_init, bias_init=bias_init
     )
-    self._decoder = hk.nets.MLP(
-      output_sizes=mlp_sizes + (1,),
+    m = mlp_sizes[-1]
+    self.GraphNetEncoder = nn.GraphNetEncoder(
+      in_node_features=in_node_features,
+      in_edge_features=in_edge_features,
+      in_global_features=in_global_features,
+      n_recurrences=n_recurrences,
+      mlp_sizes=mlp_sizes,
+      rngs=rngs,
+      format=format,
+      **kw,
+    )
+    self.GlobalDecoder = nn.MLP(
+      m,
+      mlp_sizes + (1,),
+      rngs=rngs,
       activate_final=False,
-      name='GlobalDecoder',
-      **mlp_kwargs,
+      **kw,
     )
 
-  def __call__(self, graph: nn.GraphsTuple) -> jnp.ndarray:
-    output = self._graph_net(graph)
-    output = jnp.squeeze(self._decoder(output.globals), axis=-1)
-    if self._format is partition.Sparse:
+  def _build_graph(self, R, neighbor, **kwargs):
+    if neighbor is None:
+      return dense_graph_input(
+        self.displacement_fn, self.r_cutoff, self.nodes, R, **kwargs
+      )
+    return neighbor_graph_input(
+      self.displacement_fn,
+      self.r_cutoff,
+      self.dr_threshold,
+      self.format,
+      self.nodes,
+      R,
+      neighbor,
+      **kwargs,
+    )
+
+  def __call__(self, R, neighbor=None, **kwargs):
+    graph = self._build_graph(R, neighbor, **kwargs)
+    output = self.GraphNetEncoder(graph)
+    output = jnp.squeeze(self.GlobalDecoder(output.globals), axis=-1)
+    if self.format is partition.Sparse:
       output = output[0]
     return output
 
 
-def _canonicalize_node_state(nodes: Optional[Array]) -> Optional[Array]:
+def canonicalize_node_state(nodes: Array | None) -> Array | None:
   if nodes is None:
     return nodes
 
@@ -2050,64 +2184,133 @@ def _canonicalize_node_state(nodes: Optional[Array]) -> Optional[Array]:
   return nodes
 
 
+def node_state_or_default(
+  nodes: Array | None, R: Array, kwargs: Dict[str, Any]
+) -> Array | None:
+  if 'nodes' in kwargs:
+    return canonicalize_node_state(kwargs['nodes'])
+  return jnp.zeros((R.shape[0], 1), R.dtype) if nodes is None else nodes
+
+
+def dense_graph_input(
+  displacement_fn: DisplacementFn,
+  r_cutoff: float,
+  nodes: Array | None,
+  R: Array,
+  **kwargs,
+) -> nn.GraphsTuple:
+  N = R.shape[0]
+  d = partial(displacement_fn, **kwargs)
+  d = space.map_product(d)
+  dR = d(R, R)
+
+  dr_2 = space.square_distance(dR)
+  nodes = node_state_or_default(nodes, R, kwargs)
+  edge_idx = jnp.broadcast_to(jnp.arange(N)[jnp.newaxis, :], (N, N))
+  edge_idx = jnp.where(dr_2 < r_cutoff**2, edge_idx, N)
+  globals_ = jnp.zeros((1,), R.dtype)
+
+  return nn.GraphsTuple(nodes, dR, globals_, edge_idx)
+
+
+def neighbor_graph_input(
+  displacement_fn: DisplacementFn,
+  r_cutoff: float,
+  dr_threshold: float,
+  format: partition.NeighborListFormat,
+  nodes: Array | None,
+  R: Array,
+  neighbor: NeighborList,
+  **kwargs,
+):
+  N = R.shape[0]
+  d = partial(displacement_fn, **kwargs)
+  nodes = node_state_or_default(nodes, R, kwargs)
+  globals_ = jnp.zeros((1,), R.dtype)
+
+  if format is partition.Dense:
+    d = space.map_neighbor(d)
+    R_neigh = R[neighbor.idx]
+    dR = d(R, R_neigh)
+
+    dr_2 = space.square_distance(dR)
+    edge_idx = jnp.where(dr_2 < r_cutoff**2, neighbor.idx, N)
+    return nn.GraphsTuple(nodes, dR, globals_, edge_idx)
+
+  d = space.map_bond(d)
+  dR = d(R[neighbor.idx[0]], R[neighbor.idx[1]])
+  if dr_threshold > 0.0:
+    dr_2 = space.square_distance(dR)
+    mask = dr_2 < r_cutoff**2 + 1e-5
+    graph = partition.to_jraph(neighbor, mask)
+    # TODO(schsam): It seems wasteful to recompute dR after we remask the
+    # edges. If I can think of a clean way to get rid of this, I should.
+    dR = d(R[graph.receivers], R[graph.senders])
+  else:
+    graph = partition.to_jraph(neighbor)
+
+  return graph._replace(
+    nodes=jnp.concatenate(
+      (nodes, jnp.zeros((1,) + nodes.shape[1:], R.dtype)), axis=0
+    ),
+    edges=dR,
+    globals=jnp.broadcast_to(globals_[:, None], (2, 1)),
+  )
+
+
 def graph_network(
   displacement_fn: DisplacementFn,
   r_cutoff: float,
-  nodes: Optional[Array] = None,
+  *,
+  key: jax.Array,
+  nodes: Array | None = None,
+  spatial_dimension: int = 3,
   n_recurrences: int = 2,
   mlp_sizes: Tuple[int, ...] = (64, 64),
-  mlp_kwargs: Optional[Dict[str, Any]] = None,
-) -> Tuple[nn.InitFn, Callable[[PyTree, Array], Array]]:
+  **model_kwargs,
+) -> 'EnergyGraphNet':
   """Convenience wrapper around EnergyGraphNet model.
 
   Args:
     displacement_fn: Function to compute displacement between two positions.
     r_cutoff: A floating point cutoff; Edges will be added to the graph
       for pairs of particles whose separation is smaller than the cutoff.
-    nodes: None or an ndarray of shape `[N, node_dim]` specifying the state
+    key: A JAX random key used to initialize model parameters.
+    nodes: None or an ndarray of shape ``[N, node_dim]`` specifying the state
       of the nodes. If None this is set to the zeros vector. Often, for a
       system with multiple species, this could be the species id.
+    spatial_dimension: The spatial dimension of the system (default 3).
     n_recurrences: The number of steps of message passing in the graph network.
     mlp_sizes: A tuple specifying the layer-widths for the fully-connected
       networks used to update the states in the graph network.
-    mlp_kwargs: A dict specifying args for the fully-connected networks used to
-      update the states in the graph network.
+    **model_kwargs: Additional kwargs forwarded to ``EnergyGraphNet``
+      (e.g. ``activation``, ``kernel_init``, ``bias_init``).
 
   Returns:
-    A tuple of functions. An `params = init_fn(key, R)` that instantiates the
-    model parameters and an `E = apply_fn(params, R)` that computes the energy
-    for a particular state.
+    An ``energy_fn(R, **kwargs) -> scalar``.  The underlying NNX module is
+    accessible via ``energy_fn.model`` for training.
   """
+  nodes = canonicalize_node_state(nodes)
+  node_dim = 1 if nodes is None else nodes.shape[-1]
 
-  nodes = _canonicalize_node_state(nodes)
+  model = EnergyGraphNet(
+    displacement_fn,
+    r_cutoff,
+    key=key,
+    in_node_features=node_dim,
+    in_edge_features=spatial_dimension,
+    n_recurrences=n_recurrences,
+    mlp_sizes=mlp_sizes,
+    nodes=nodes,
+    **model_kwargs,
+  )
 
-  @hk.without_apply_rng
-  @hk.transform
-  def model(R: Array, **kwargs) -> Array:
-    N = R.shape[0]
+  def energy_fn(R, **kwargs):
+    return model(R, **kwargs)
 
-    d = partial(displacement_fn, **kwargs)
-    d = space.map_product(d)
-    dR = d(R, R)
+  energy_fn.model = model
 
-    dr_2 = space.square_distance(dR)
-
-    if 'nodes' in kwargs:
-      _nodes = _canonicalize_node_state(kwargs['nodes'])
-    else:
-      _nodes = jnp.zeros((N, 1), R.dtype) if nodes is None else nodes
-
-    edge_idx = jnp.broadcast_to(jnp.arange(N)[jnp.newaxis, :], (N, N))
-    edge_idx = jnp.where(dr_2 < r_cutoff**2, edge_idx, N)
-
-    _globals = jnp.zeros((1,), R.dtype)
-
-    net = EnergyGraphNet(n_recurrences, mlp_sizes, mlp_kwargs)
-    return net(
-      nn.GraphsTuple(_nodes, dR, _globals, edge_idx)
-    )  # pytype: disable=wrong-arg-count
-
-  return model.init, model.apply
+  return energy_fn
 
 
 def graph_network_neighbor_list(
@@ -2115,17 +2318,17 @@ def graph_network_neighbor_list(
   box_size: Box,
   r_cutoff: float,
   dr_threshold: float,
-  nodes: Optional[Array] = None,
+  *,
+  key: jax.Array,
+  nodes: Array | None = None,
+  spatial_dimension: int = 3,
   n_recurrences: int = 2,
   mlp_sizes: Tuple[int, ...] = (64, 64),
-  mlp_kwargs: Optional[Dict[str, Any]] = None,
   fractional_coordinates: bool = False,
   format: partition.NeighborListFormat = partition.Sparse,
   neighbor_list_fn: Callable = partition.neighbor_list,
   **neighbor_kwargs,
-) -> Tuple[
-  NeighborFn, nn.InitFn, Callable[[PyTree, Array, NeighborList], Array]
-]:
+):
   """Convenience wrapper around EnergyGraphNet model using neighbor lists.
 
   Args:
@@ -2135,74 +2338,41 @@ def graph_network_neighbor_list(
     r_cutoff: A floating point cutoff; Edges will be added to the graph
       for pairs of particles whose separation is smaller than the cutoff.
     dr_threshold: A floating point number specifying a "halo" radius that we use
-      for neighbor list construction. See `neighbor_list` for details.
-    nodes: None or an ndarray of shape `[N, node_dim]` specifying the state
-      of the nodes. If None this is set to the zeroes vector. Often, for a
+      for neighbor list construction. See ``neighbor_list`` for details.
+    key: A JAX random key used to initialize model parameters.
+    nodes: None or an ndarray of shape ``[N, node_dim]`` specifying the state
+      of the nodes. If None this is set to the zeros vector. Often, for a
       system with multiple species, this could be the species id.
+    spatial_dimension: The spatial dimension of the system (default 3).
     n_recurrences: The number of steps of message passing in the graph network.
     mlp_sizes: A tuple specifying the layer-widths for the fully-connected
       networks used to update the states in the graph network.
-    mlp_kwargs: A dict specifying args for the fully-connected networks used to
-      update the states in the graph network.
     fractional_coordinates: A boolean specifying whether or not the coordinates
       will be in the unit cube.
-    format: The format of the neighbor list. See `partition.NeighborListFormat`
-      for details. Only `Dense` and `Sparse` formats are accepted. If the `Dense`
-      format is used, then the graph network is constructed using the JAX MD
-      backend, otherwise Jraph is used.
+    format: The format of the neighbor list. See ``partition.NeighborListFormat``
+      for details. Only ``Dense`` and ``Sparse`` formats are accepted. If the
+      ``Dense`` format is used, then the graph network is constructed using the
+      JAX MD backend, otherwise Jraph is used.
+    **neighbor_kwargs: Additional kwargs forwarded to the neighbor list
+      constructor and to ``EnergyGraphNet`` (e.g. ``activation``,
+      ``kernel_init``, ``bias_init``).
 
   Returns:
-    A pair of functions. An `params = init_fn(key, R)` that instantiates the
-    model parameters and an `E = apply_fn(params, R)` that computes the energy
-    for a particular state.
+    A tuple ``(neighbor_fn, energy_fn)`` where
+    ``energy_fn(R, neighbor=nbrs) -> scalar``.  The underlying NNX module is
+    accessible via ``energy_fn.model`` for training.
   """
+  nodes = canonicalize_node_state(nodes)
+  node_dim = 1 if nodes is None else nodes.shape[-1]
 
-  nodes = _canonicalize_node_state(nodes)
+  box_arr = jnp.asarray(box_size)
+  if box_arr.ndim >= 1:
+    spatial_dimension = box_arr.shape[-1]
 
-  @hk.without_apply_rng
-  @hk.transform
-  def model(R, neighbor, **kwargs):
-    N = R.shape[0]
-    d = partial(displacement_fn, **kwargs)
-
-    if 'nodes' in kwargs:
-      _nodes = _canonicalize_node_state(kwargs['nodes'])
-    else:
-      _nodes = jnp.zeros((N, 1), R.dtype) if nodes is None else nodes
-
-    _globals = jnp.zeros((1,), R.dtype)
-
-    if format is partition.Dense:
-      d = space.map_neighbor(d)
-      R_neigh = R[neighbor.idx]
-      dR = d(R, R_neigh)
-
-      dr_2 = space.square_distance(dR)
-      edge_idx = jnp.where(dr_2 < r_cutoff**2, neighbor.idx, N)
-      graph = nn.GraphsTuple(_nodes, dR, _globals, edge_idx)
-    else:
-      d = space.map_bond(d)
-      dR = d(R[neighbor.idx[0]], R[neighbor.idx[1]])
-      if dr_threshold > 0.0:
-        dr_2 = space.square_distance(dR)
-        mask = dr_2 < r_cutoff**2 + 1e-5
-        graph = partition.to_jraph(neighbor, mask)
-        # TODO(schsam): It seems wasteful to recompute dR after we remask the
-        # edges. If I can think of a clean way to get rid of this, I should.
-        dR = d(R[graph.receivers], R[graph.senders])
-      else:
-        graph = partition.to_jraph(neighbor)
-
-      graph = graph._replace(
-        nodes=jnp.concatenate(
-          (_nodes, jnp.zeros((1,) + _nodes.shape[1:], R.dtype)), axis=0
-        ),
-        edges=dR,
-        globals=jnp.broadcast_to(_globals[:, None], (2, 1)),
-      )
-
-    net = EnergyGraphNet(n_recurrences, mlp_sizes, mlp_kwargs, format)
-    return net(graph)  # pytype: disable=wrong-arg-count
+  model_kwargs = {}
+  for k in ('activation', 'kernel_init', 'bias_init'):
+    if k in neighbor_kwargs:
+      model_kwargs[k] = neighbor_kwargs.pop(k)
 
   neighbor_fn = neighbor_list_fn(
     displacement_fn,
@@ -2214,9 +2384,27 @@ def graph_network_neighbor_list(
     format=format,
     **neighbor_kwargs,
   )
-  init_fn, apply_fn = model.init, model.apply
 
-  return neighbor_fn, init_fn, apply_fn
+  model = EnergyGraphNet(
+    displacement_fn,
+    r_cutoff,
+    key=key,
+    in_node_features=node_dim,
+    in_edge_features=spatial_dimension,
+    n_recurrences=n_recurrences,
+    mlp_sizes=mlp_sizes,
+    format=format,
+    dr_threshold=dr_threshold,
+    nodes=nodes,
+    **model_kwargs,
+  )
+
+  def energy_fn(R, neighbor=None, **kwargs):
+    return model(R, neighbor, **kwargs)
+
+  energy_fn.model = model
+
+  return neighbor_fn, energy_fn
 
 
 def nequip_neighbor_list(
@@ -2324,5 +2512,605 @@ def load_gnome_model_neighbor_list(
       raise ValueError('A one-hot encoding of the atoms is required.')
     graph = featurizer(_atoms, position, neighbor, **kwargs)
     return model.apply(params, graph)[0, 0]
+
+  return neighbor_fn, energy_fn
+
+
+# TRIANGULATED SURFACE POTENTIALS / MEMBRANE POTENTIALS
+
+
+def triangle_area_potential(
+  R_mem: Array,
+  triangles: Array,
+  displacement_fn: DisplacementOrMetricFn,
+  A_0: Array,
+  k: Array,
+) -> Array:
+  """.. _triangle_area_potential
+
+  Local area conservation of  the triangles in the vesicle discretization as
+  proposed by Vutukuri HR et al. (Gompper Group)
+  https://doi.org/10.1038/s41586-020-2730-x
+
+  Args:
+      R_mem (Array, shape: (N, spatial dim)): Positions of the membrane
+          vertices. (R_mem is allowed to contain non-membrane particles too,
+          only particles with indices in 'triangles' are considered in the
+          calculation)
+      triangles (Array, shape: (2(N-1), 3)): Array of triangles storing the indices
+          of the vertices that comprise the triangle
+      displacement_fn (DisplacementOrMetricFn): _description_
+      A_0 (Array): desired triangle area
+      k (Array): local-area conservation coefficient
+
+  Returns:
+      energy contribution due to local area conservation
+  """
+  areas = _calc_triangle_areas(R_mem, triangles, displacement_fn)
+  energy = 0.5 * k * util.high_precision_sum((areas - A_0) ** 2 / A_0)
+  return energy
+
+
+def _calc_triangle_areas(
+  R_mem: Array, triangles: Array, displacement_fn: DisplacementOrMetricFn
+) -> Array:
+  """
+  Calculate the areas of the triangle given an a point cloud and
+  its triangulation
+
+  Args:
+      R_mem (Array, shape: (N, spatial dim)): Positions of the membrane
+          vertices. (R_mem is allowed to contain non-membrane particles too,
+          only particles with indices in 'triangles' are considered in the
+          calculation)
+      triangles (Array, shape: (2(N-1), 3)): Array of triangles storing the indices
+          of the vertices that comprise the triangle
+      displacement_fn (DisplacementOrMetricFn): _description_
+
+  Returns:
+      Array of shape (N) where the i-th entry is the area of the i-th triangle
+      of the triangles array.
+  """
+  R0 = R_mem[triangles[:, 0]]
+  vec_displacement_fn = vmap(displacement_fn)
+  dR1 = vec_displacement_fn(R_mem[triangles[:, 1]], R0)
+  dR2 = vec_displacement_fn(R_mem[triangles[:, 2]], R0)
+  dr1 = space.distance(dR1)
+  dr2 = space.distance(dR2)
+  cos = vmap(quantity.cosine_angle_between_two_vectors)(dR1, dR2)
+  sin = jnp.sqrt(1 - cos**2)
+  return 0.5 * dr1 * dr2 * sin
+
+
+def volume_potential(R_mem: Array, triangles: Array, V_0: float, k: float):
+  """.. _volume_potential
+  Global volume conservation of the vesicle as used by Vutukuri HR et al.
+  (Gompper Group) https://doi.org/10.1038/s41586-020-2730-x
+
+  Args:
+      R_mem (Array, shape: (N, spatial dim)): Positions of the membrane
+          vertices. (R_mem is allowed to contain non-membrane particles too,
+          only particles with indices in 'triangles' are considered in the
+          calculation)
+      triangles (Array, shape: (2(N-1), 3)): Array of triangles storing the indices
+          of the vertices that comprise the triangle
+      V_0 (float): desired vesicle volume
+      k (float): volume stiffness
+
+  Returns:
+      energy contribution due to global volume conservation
+
+  Note:
+      This calculation assumes the membrane vertices are in a single unwrapped
+      coordinate frame. Wrapped periodic coordinates are not supported because
+      the enclosed volume is a global surface property.
+  """
+  V = _calc_volume(R_mem, triangles)
+  return k * (V - V_0) ** 2 / (2 * V_0)
+
+
+def _calc_volume(R_mem: Array, triangles: Array) -> Array:
+  """
+  Calculates the volume enclosed by a triangulated surface
+  (arbitrary non-convex polyhedron).
+  Assumes vertices are ordered in triangle list.
+  Implementation Follows https://doi.org/10.1109/MCG.1984.6429334
+
+  Args:
+      R_mem (Array, shape: (N, spatial dim)): Positions of the membrane
+          vertices. (R_mem is allowed to contain non-membrane particles too,
+          only particles with indices in 'triangles' are considered in the
+          calculation)
+      triangles (Array, shape: (2(N-1), 3)): Array of triangles storing the indices
+          of the vertices that comprise the triangle
+  Returns:
+      Volume enclosed by triangulated surface
+  """
+  a = R_mem[triangles[:, 0]]
+  b = R_mem[triangles[:, 1]]
+  c = R_mem[triangles[:, 2]]
+
+  det = (
+    a[:, 0] * (b[:, 1] * c[:, 2] - c[:, 1] * b[:, 2])
+    - a[:, 1] * (b[:, 0] * c[:, 2] - c[:, 0] * b[:, 2])
+    + a[:, 2] * (b[:, 0] * c[:, 1] - c[:, 0] * b[:, 1])
+  )
+
+  return jnp.abs(util.high_precision_sum(det)) / 6
+
+
+def bending_potential(
+  R_mem: Array,
+  triangles: Array,
+  displacement_fn: DisplacementOrMetricFn,
+  kappa: Array,
+) -> Array:
+  """.. _bending_potential
+  Calculates the bending potential of an triangulated surface,
+  based on discretization by Gompper: https://doi.org/10.1051/jp1:1996246
+
+  Args:
+      R_mem (Array, shape: (N, spatial dim)): Positions of the membrane
+          vertices
+      triangles (Array, shape: (N, 3)): Array of triangles storing the indices
+          of the vertices that comprise the triangle
+      displacement_fn (DisplacementOrMetricFn): _description_
+      kappa (Array, scalar): Bending rigidity
+
+  Returns:
+      Energy of the membrane conformation due to the bending potential
+  """
+  displacement_fn = vmap(displacement_fn)
+  cos = vmap(quantity.cosine_angle_between_two_vectors)
+  N = R_mem.shape[0]
+
+  R0 = R_mem[triangles[:, 0]]
+  R1 = R_mem[triangles[:, 1]]
+  R2 = R_mem[triangles[:, 2]]
+
+  dR01 = displacement_fn(R1, R0)  # R1 - R0
+  dR12 = displacement_fn(R2, R1)  # R2 - R1
+  dR20 = displacement_fn(R0, R2)  # R0 - R2
+
+  dr01 = space.distance(dR01)
+  dr12 = space.distance(dR12)
+  dr20 = space.distance(dR20)
+
+  cos01 = cos(dR20, -dR12)
+  cos12 = cos(dR01, -dR20)
+  cos20 = cos(dR12, -dR01)
+
+  cot01 = cos01 / (jnp.sqrt(1 - cos01**2) + 1e-7)
+  cot12 = cos12 / (jnp.sqrt(1 - cos12**2) + 1e-7)
+  cot20 = cos20 / (jnp.sqrt(1 - cos20**2) + 1e-7)
+
+  sigma0 = dr01**2 * cot01 + dr20**2 * cot20
+  sigma1 = dr01**2 * cot01 + dr12**2 * cot12
+  sigma2 = dr12**2 * cot12 + dr20**2 * cot20
+
+  sigma = jnp.zeros(N)  # sigma per vertex
+  sigma = sigma.at[triangles[:, 0]].add(sigma0)
+  sigma = sigma.at[triangles[:, 1]].add(sigma1)
+  sigma = sigma.at[triangles[:, 2]].add(sigma2)
+  sigma = sigma / 8
+
+  rho = jnp.zeros((N, 3))  # per Vertex
+  rho = rho.at[triangles[:, 0]].add(
+    cot20[:, None] * dR20 - cot01[:, None] * dR01
+  )
+  rho = rho.at[triangles[:, 1]].add(
+    cot01[:, None] * dR01 - cot12[:, None] * dR12
+  )
+  rho = rho.at[triangles[:, 2]].add(
+    cot12[:, None] * dR12 - cot20[:, None] * dR20
+  )
+
+  per_particle = jnp.sum(rho * rho, axis=1) / (sigma + 1e-7)
+  return (kappa / 8) * util.high_precision_sum(per_particle)
+
+
+def uma_neighbor_list(
+  displacement_fn,
+  box,
+  cfg=None,
+  atoms=None,
+  checkpoint_path=None,
+  head_type='mlp',
+  neighbor_list_fn: Callable = custom_partition.neighbor_list_multi_image,
+  featurizer_fn: Callable | None = None,
+  charge=None,
+  spin=None,
+  dataset_idx=None,
+  head_dataset='omat',
+  apply_atom_refs=True,
+  atom_refs=None,
+  use_kernels=True,
+  merge_mole=None,
+  so2_block_gemm=None,
+  **nl_kwargs,
+):
+  """Convenience wrapper to compute UMA energy using a neighbor list.
+
+  This follows the standard JAX-MD pattern of returning
+  (neighbor_fn, init_fn, energy_fn). Forces can be computed via
+  ``jax.grad(energy_fn)`` which ensures energy conservation.
+
+  Args:
+    displacement_fn: Displacement function from ``jax_md.space``.
+    box: Box matrix with columns as lattice vectors, shape ``(dim, dim)``.
+    cfg: ``UMAConfig`` instance. If None, uses default config.
+    atoms: Integer atomic numbers, shape ``[num_atoms]``.
+    checkpoint_path: Path to a PyTorch checkpoint to load pretrained weights.
+        If provided, ``init_fn`` returns the converted weights instead of
+        random initialization.
+    head_type: Energy head type: ``'mlp'`` or ``'linear'``.
+    neighbor_list_fn: Neighbor list constructor (default:
+        ``custom_partition.neighbor_list_multi_image``).
+    featurizer_fn: Function to create a UMA featurizer. Defaults to
+        ``uma_multi_image_featurizer`` for multi-image neighbor lists. When
+        using ``partition.neighbor_list``, pass ``uma_featurizer`` explicitly.
+    charge: System charge(s), shape ``[num_systems]`` (default: ``[0]``).
+    spin: System spin(s), shape ``[num_systems]`` (default: ``[0]``).
+    dataset_idx: Integer dataset index, shape ``[num_systems]`` (default: ``[0]``).
+    head_dataset: Dataset name for pretrained MoE energy head selection.
+    apply_atom_refs: Whether to apply checkpoint task normalizer and element
+        references for pretrained checkpoints. Defaults to True when refs are
+        available.
+    atom_refs: Optional per-element task reference array, or a dictionary with
+        ``element_refs``, ``mean``, and ``rmsd`` values. If only an array is
+        provided, ``mean=0`` and ``rmsd=1`` are used.
+    use_kernels: UMA kernel toggle. True enables eligible JAX-MD UMA Pallas
+        kernels.
+    merge_mole: If True, pre-mix MoE expert weights for single-system
+        inference and skip runtime routing. If None, disabled by default.
+    so2_block_gemm: If True, use a block GEMM formulation for SO2 m>0
+        convolutions. If None, enabled for pretrained MoE checkpoints and
+        disabled otherwise.
+    **nl_kwargs: Additional kwargs for neighbor list (e.g., ``fractional_coordinates``).
+
+  Returns:
+    Tuple of ``(neighbor_fn, init_fn, energy_fn)`` where:
+
+    - ``neighbor_fn``: Allocates/updates neighbor list.
+    - ``init_fn(key, position, neighbor, **kw)``: Returns model parameters.
+    - ``energy_fn(params, position, neighbor, **kw)``: Returns scalar energy.
+  """
+  from jax_md._nn.uma.model import UMABackbone, default_config
+  from jax_md._nn.uma.heads import MLPEnergyHead, LinearEnergyHead
+  from jax_md._nn.uma.featurizer import uma_multi_image_featurizer
+  import flax.linen as flax_nn
+
+  # Load pretrained checkpoint (MoE) if provided
+  is_moe = False
+  pretrained_params = None
+  if checkpoint_path is not None:
+    from jax_md._nn.uma.model_moe import load_pretrained
+
+    moe_config, backbone_params, head_params = load_pretrained(
+      checkpoint_path, head_dataset=head_dataset
+    )
+    cfg = moe_config
+    is_moe = True
+    pretrained_params = {
+      'params': {
+        'backbone': backbone_params['params'],
+        'energy_head': head_params['params'],
+      }
+    }
+  elif cfg is None:
+    cfg = default_config()
+
+  # If callers provide a preloaded MoE config/params pair, use the MoE
+  # backbone even when checkpoint_path is not passed here.
+  is_moe = is_moe or hasattr(cfg, 'num_experts')
+  auto_moe_optimizations = checkpoint_path is not None and is_moe
+  merge_mole = False if merge_mole is None else bool(merge_mole)
+  so2_block_gemm = (
+    auto_moe_optimizations if so2_block_gemm is None else bool(so2_block_gemm)
+  )
+
+  if use_kernels is not None:
+    from dataclasses import replace
+
+    cfg = replace(cfg, use_kernels=bool(use_kernels))
+  if so2_block_gemm:
+    if not is_moe:
+      raise ValueError('so2_block_gemm=True requires a UMA MoE config.')
+    from dataclasses import replace
+
+    cfg = replace(cfg, so2_block_gemm=True)
+
+  if merge_mole and not is_moe:
+    raise ValueError('merge_mole=True requires a UMA MoE checkpoint/config.')
+  runtime_cfg = cfg
+  if merge_mole:
+    from dataclasses import replace
+
+    runtime_cfg = replace(cfg, merged_mole=True)
+
+  resolved_atom_refs = None
+  energy_mean = None
+  energy_rmsd = None
+  should_apply_atom_refs = apply_atom_refs and (
+    checkpoint_path is not None or atom_refs is not None
+  )
+  if should_apply_atom_refs:
+    if atom_refs is None:
+      from jax_md._nn.uma.pretrained import load_energy_correction
+
+      correction = None
+      if checkpoint_path is not None:
+        try:
+          correction = load_energy_correction(
+            checkpoint_path, dataset=head_dataset
+          )
+        except Exception as exc:
+          raise ValueError(
+            'Failed to load UMA atom references or energy normalizer for '
+            f'{checkpoint_path!r}. Pass apply_atom_refs=False to use raw '
+            'checkpoint energies, or pass atom_refs explicitly.'
+          ) from exc
+      if correction is not None:
+        atom_refs = correction.get('element_refs')
+        energy_mean = correction.get('mean')
+        energy_rmsd = correction.get('rmsd')
+      else:
+        energy_mean = 0.0
+        energy_rmsd = 1.0
+    elif isinstance(atom_refs, dict):
+      correction = atom_refs
+      atom_refs = correction.get('element_refs', correction.get('atom_refs'))
+      energy_mean = correction.get('mean', 0.0)
+      energy_rmsd = correction.get('rmsd', 1.0)
+    else:
+      energy_mean = 0.0
+      energy_rmsd = 1.0
+    if atom_refs is not None:
+      resolved_atom_refs = jnp.asarray(atom_refs, dtype=jnp.float32)
+    energy_mean = jnp.asarray(energy_mean, dtype=jnp.float32)
+    energy_rmsd = jnp.asarray(energy_rmsd, dtype=jnp.float32)
+
+  # Build neighbor list. The UMA default uses explicit periodic images and
+  # expects a box matrix; keep vector boxes working for common orthorhombic use.
+  neighbor_box = box
+  if neighbor_list_fn is custom_partition.neighbor_list_multi_image:
+    neighbor_box = jnp.asarray(box)
+    if neighbor_box.ndim == 1:
+      neighbor_box = jnp.diag(neighbor_box)
+    nl_kwargs.setdefault('fractional_coordinates', False)
+
+  neighbor_fn = neighbor_list_fn(
+    displacement_fn,
+    neighbor_box,
+    cfg.cutoff,
+    format=partition.Sparse,
+    **nl_kwargs,
+  )
+
+  if featurizer_fn is None:
+    featurizer_fn = uma_multi_image_featurizer
+
+  featurizer = featurizer_fn(displacement_fn, cutoff=cfg.cutoff)
+
+  # Combined backbone + head as a single Flax module
+  class UMAEnergyModel(flax_nn.Module):
+    config: object
+    use_moe: bool = False
+    atom_refs: object = None
+    energy_mean: object = None
+    energy_rmsd: object = None
+
+    @flax_nn.compact
+    def __call__(self, features):
+      if self.use_moe:
+        from jax_md._nn.uma.model_moe import UMAMoEBackbone
+
+        backbone = UMAMoEBackbone(config=self.config, name='backbone')
+      else:
+        backbone = UMABackbone(config=self.config, name='backbone')
+      emb = backbone(
+        features['positions'],
+        features['atomic_numbers'],
+        features['batch'],
+        features['edge_index'],
+        features['edge_distance_vec'],
+        features['charge'],
+        features['spin'],
+        features.get('dataset_idx'),
+      )
+
+      if head_type == 'mlp':
+        head = MLPEnergyHead(
+          sphere_channels=self.config.sphere_channels,
+          hidden_channels=self.config.hidden_channels,
+          name='energy_head',
+        )
+      else:
+        head = LinearEnergyHead(
+          sphere_channels=self.config.sphere_channels,
+          name='energy_head',
+        )
+
+      num_systems = features['charge'].shape[0]
+      result = head(emb['node_embedding'], features['batch'], num_systems)
+      energy = result['energy']
+      if self.energy_rmsd is not None:
+        energy = energy * self.energy_rmsd.astype(energy.dtype)
+        energy = energy + self.energy_mean.astype(energy.dtype)
+      if self.atom_refs is not None:
+        ref_shift = (
+          jnp.zeros((num_systems,), dtype=energy.dtype)
+          .at[features['batch']]
+          .add(self.atom_refs[features['atomic_numbers']].astype(energy.dtype))
+        )
+        energy = energy + ref_shift
+      return energy
+
+  model = UMAEnergyModel(
+    config=runtime_cfg,
+    use_moe=is_moe,
+    atom_refs=resolved_atom_refs,
+    energy_mean=energy_mean,
+    energy_rmsd=energy_rmsd,
+  )
+  init_model = model
+  if merge_mole:
+    init_model = UMAEnergyModel(
+      config=cfg,
+      use_moe=is_moe,
+      atom_refs=resolved_atom_refs,
+      energy_mean=energy_mean,
+      energy_rmsd=energy_rmsd,
+    )
+
+  def init_fn(key, position, neighbor, **kwargs):
+    _atoms = kwargs.pop('atoms', atoms)
+    if _atoms is None:
+      raise ValueError('Integer atomic numbers are required.')
+
+    _charge = kwargs.pop('charge', charge)
+    _spin = kwargs.pop('spin', spin)
+    _dataset_idx = kwargs.pop('dataset_idx', dataset_idx)
+
+    features = featurizer(
+      _atoms,
+      position,
+      neighbor,
+      charge=_charge,
+      spin=_spin,
+      dataset_idx=_dataset_idx,
+      **kwargs,
+    )
+
+    if pretrained_params is not None:
+      result_params = pretrained_params
+    else:
+      result_params = init_model.init(key, features)
+
+    if merge_mole:
+      if features['charge'].shape[0] != 1:
+        raise ValueError('merge_mole=True supports only one system.')
+      from jax_md._nn.uma.model_moe import UMAMoEBackbone, merge_mole_params
+
+      routing_backbone = UMAMoEBackbone(config=cfg)
+      routing_out = routing_backbone.apply(
+        {'params': result_params['params']['backbone']},
+        features['positions'],
+        features['atomic_numbers'],
+        features['batch'],
+        features['edge_index'],
+        features['edge_distance_vec'],
+        features['charge'],
+        features['spin'],
+        features.get('dataset_idx'),
+      )
+      result_params = merge_mole_params(
+        result_params, routing_out['expert_coefficients']
+      )
+
+    return result_params
+
+  def energy_fn(params, position, neighbor, **kwargs):
+    _atoms = kwargs.pop('atoms', atoms)
+    if _atoms is None:
+      raise ValueError('Integer atomic numbers are required.')
+
+    _charge = kwargs.pop('charge', charge)
+    _spin = kwargs.pop('spin', spin)
+    _dataset_idx = kwargs.pop('dataset_idx', dataset_idx)
+
+    features = featurizer(
+      _atoms,
+      position,
+      neighbor,
+      charge=_charge,
+      spin=_spin,
+      dataset_idx=_dataset_idx,
+      **kwargs,
+    )
+    return model.apply(params, features).sum()
+
+  return neighbor_fn, init_fn, energy_fn
+
+
+def mace_neighbor_list(
+  displacement_fn,
+  box,
+  *,
+  model,
+  config: Dict[str, Any],
+  z_atomic,
+  r_cutoff: float,
+  dr_threshold: float = 0.5,
+  fractional_coordinates: bool = False,
+  neighbor_list_fn: Callable = partition.neighbor_list,
+  featurizer_fn=None,
+  head=None,
+  **neighbor_kwargs,
+):
+  """Wraps a MACE-JAX potential as a JAX MD neighbor-list energy.
+
+  Args:
+    displacement_fn: Displacement function from ``jax_md.space``.
+    box: Periodic box with shape ``(3,)`` or ``(3, 3)``.
+    model: Callable MACE-JAX model accepting a MACE batch dictionary.
+    config: Model configuration containing at least ``atomic_numbers``.
+    z_atomic: Atomic numbers for real atoms, shape ``(N,)``.
+    r_cutoff: Neighbor cutoff radius.
+    dr_threshold: Neighbor-list rebuild threshold (skin).
+    fractional_coordinates: Whether positions are fractional coordinates.
+    neighbor_list_fn: Neighbor-list factory.
+    featurizer_fn: Featurizer factory. Defaults to ``mace_featurizer``.
+        For multi-image neighbor lists, pass ``mace_multi_image_featurizer``.
+    head: Optional head array to include in the MACE batch.
+    **neighbor_kwargs: Additional keyword arguments for ``neighbor_list_fn``.
+
+  Returns:
+    A pair ``(neighbor_fn, energy_fn)`` following the standard JAX MD
+    convention. ``energy_fn`` has signature:
+    ``energy_fn(R, *, box=None, neighbor=None, perturbation=None)``.
+  """
+  from jax_md._nn.mace.featurizer import (
+    mace_featurizer,
+    mace_multi_image_featurizer,
+  )
+
+  box_default = jnp.asarray(box)
+
+  neighbor_fn = neighbor_list_fn(
+    displacement_fn,
+    box_default,
+    r_cutoff,
+    dr_threshold=dr_threshold,
+    fractional_coordinates=fractional_coordinates,
+    **neighbor_kwargs,
+  )
+
+  if featurizer_fn is None:
+    featurizer_fn = mace_featurizer
+  if featurizer_fn is mace_multi_image_featurizer:
+    featurize = featurizer_fn(
+      config, z_atomic, fractional_coordinates=fractional_coordinates, head=head
+    )
+  else:
+    featurize = featurizer_fn(
+      displacement_fn,
+      config,
+      z_atomic,
+      fractional_coordinates=fractional_coordinates,
+      head=head,
+    )
+
+  @jax.jit
+  def energy_fn(R, *, box=None, neighbor=None, perturbation=None, **kwargs):
+    box_now = box if box is not None else box_default
+    batch = featurize(R, neighbor, box=box_now, perturbation=perturbation)
+    model_kwargs = dict(kwargs)
+    model_kwargs.setdefault('compute_force', False)
+    model_kwargs.setdefault('compute_stress', False)
+    out = model(batch, **model_kwargs)
+    e = out['energy'] if isinstance(out, dict) and 'energy' in out else out
+    e = jnp.asarray(e)
+    return jnp.reshape(e, ()) if e.shape == (1,) else e
 
   return neighbor_fn, energy_fn

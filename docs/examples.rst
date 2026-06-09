@@ -8,7 +8,11 @@ Examples
    examples/nvt_simulation
    examples/npt_simulation
    examples/nve_neighbor_list
-   examples/minimize
+   examples/neural_networks
+   examples/equivariant_neural_networks
    examples/fire_minimization
    examples/reaxff_nve_simulation
    examples/custom_nl
+   examples/symmetric_md
+   examples/oplsaa_torsion
+   examples/uma_example

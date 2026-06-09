@@ -15,7 +15,6 @@ import jax.numpy as np
 from jax_md import smap, space, partition, quantity
 from jax_md.custom_partition import (
   neighbor_list_multi_image,
-  estimate_max_neighbors_from_box,
   NeighborListFormat,
 )
 from jax_md.custom_smap import pair_neighbor_list_multi_image
@@ -107,9 +106,8 @@ class CustomSmapTest(test_util.JAXMDTestCase):
 
       # Multi-image neighbor list
       box = np.eye(spatial_dimension, dtype=dtype) * box_size
-      max_neighbors = estimate_max_neighbors_from_box(box, sigma, N)
       mi_neighbor_fn = neighbor_list_multi_image(
-        None, box, sigma, max_neighbors=max_neighbors, format=format
+        None, box, sigma, format=format
       )
       mi_nbrs = mi_neighbor_fn.allocate(R_frac)
 
@@ -174,9 +172,8 @@ class CustomSmapTest(test_util.JAXMDTestCase):
     box = np.eye(spatial_dimension, dtype=dtype) * box_size
 
     # Multi-image should find more neighbors than MIC for this setup
-    max_neighbors = estimate_max_neighbors_from_box(box, r_cutoff, N)
     mi_neighbor_fn = neighbor_list_multi_image(
-      None, box, r_cutoff, max_neighbors=max_neighbors, format=format
+      None, box, r_cutoff, format=format
     )
     mi_nbrs = mi_neighbor_fn.allocate(R_frac)
 
@@ -225,15 +222,10 @@ class CustomSmapTest(test_util.JAXMDTestCase):
     R_frac = R / box_size
 
     box = np.eye(spatial_dimension, dtype=dtype) * box_size
-    max_neighbors = estimate_max_neighbors_from_box(
-      box, float(np.max(sigma_matrix)), N
-    )
-
     mi_neighbor_fn = neighbor_list_multi_image(
       None,
       box,
       float(np.max(sigma_matrix)),
-      max_neighbors=max_neighbors,
       format=format,
     )
     mi_nbrs = mi_neighbor_fn.allocate(R_frac)
@@ -281,11 +273,7 @@ class CustomSmapTest(test_util.JAXMDTestCase):
     R_frac = R / box_size
 
     box = np.eye(spatial_dimension, dtype=dtype) * box_size
-    max_neighbors = estimate_max_neighbors_from_box(box, sigma, N)
-
-    mi_neighbor_fn = neighbor_list_multi_image(
-      None, box, sigma, max_neighbors=max_neighbors, format=format
-    )
+    mi_neighbor_fn = neighbor_list_multi_image(None, box, sigma, format=format)
     mi_nbrs = mi_neighbor_fn.allocate(R_frac)
 
     # Total energy
@@ -338,7 +326,6 @@ class CustomSmapTest(test_util.JAXMDTestCase):
       None,
       box,
       sigma,
-      max_neighbors=50,
       format=NeighborListFormat.OrderedSparse,
     )
     mi_nbrs = mi_neighbor_fn.allocate(R_frac)
@@ -386,9 +373,8 @@ class CustomSmapTest(test_util.JAXMDTestCase):
     R_frac = random.uniform(split, (N, spatial_dimension), dtype=dtype)
     box = np.eye(spatial_dimension, dtype=dtype) * box_size
 
-    max_neighbors = estimate_max_neighbors_from_box(box, r_cutoff, N)
     mi_neighbor_fn = neighbor_list_multi_image(
-      None, box, r_cutoff, max_neighbors=max_neighbors, format=format
+      None, box, r_cutoff, format=format
     )
     mi_nbrs = mi_neighbor_fn.allocate(R_frac)
 
@@ -435,13 +421,10 @@ class CustomSmapTest(test_util.JAXMDTestCase):
     R = box_size * random.uniform(split, (N, spatial_dimension), dtype=dtype)
 
     box = np.eye(spatial_dimension, dtype=dtype) * box_size
-    max_neighbors = estimate_max_neighbors_from_box(box, sigma, N)
-
     mi_neighbor_fn = neighbor_list_multi_image(
       None,
       box,
       sigma,
-      max_neighbors=max_neighbors,
       format=format,
       fractional_coordinates=False,  # Use Cartesian
     )
@@ -485,9 +468,8 @@ class CustomSmapTest(test_util.JAXMDTestCase):
     R_frac = random.uniform(split, (N, spatial_dimension), dtype=dtype)
     box = np.eye(spatial_dimension, dtype=dtype) * box_size
 
-    max_neighbors = estimate_max_neighbors_from_box(box, sigma_dynamic, N)
     mi_neighbor_fn = neighbor_list_multi_image(
-      None, box, sigma_dynamic, max_neighbors=max_neighbors, format=format
+      None, box, sigma_dynamic, format=format
     )
     mi_nbrs = mi_neighbor_fn.allocate(R_frac)
 
@@ -531,12 +513,10 @@ class CustomSmapTest(test_util.JAXMDTestCase):
     R_frac = random.uniform(split, (N, spatial_dimension), dtype=dtype)
     box = np.eye(spatial_dimension, dtype=dtype) * box_size
 
-    max_neighbors = estimate_max_neighbors_from_box(box, sigma, N)
     mi_neighbor_fn = neighbor_list_multi_image(
       None,
       box,
       sigma,
-      max_neighbors=max_neighbors,
       format=NeighborListFormat.Dense,
     )
     mi_nbrs = mi_neighbor_fn.allocate(R_frac)
@@ -586,12 +566,10 @@ class CustomSmapTest(test_util.JAXMDTestCase):
 
     # Multi-image neighbor list
     box = np.eye(spatial_dimension, dtype=dtype) * box_size
-    max_neighbors = estimate_max_neighbors_from_box(box, r_cutoff, N)
     mi_neighbor_fn = neighbor_list_multi_image(
       None,
       box,
       r_cutoff,
-      max_neighbors=max_neighbors,
       format=NeighborListFormat.Sparse,
     )
     mi_nbrs = mi_neighbor_fn.allocate(R_frac)

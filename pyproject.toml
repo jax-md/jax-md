@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "jax-md"
-version = "0.2.27"
+version = "0.2.28"
 description = "Differentiable, Hardware Accelerated, Molecular Dynamics"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -45,10 +45,16 @@ dependencies = [
     "einops",
     "ml_collections",
     "e3nn-jax",
-    "dm-haiku",
     "optax",
     "frozendict",
-    "pymatgen",
+    "pymatgen>=2021.3.4",
+]
+
+[project.optional-dependencies]
+amber = [
+    "openmm<=8.5.0",
+    "openmmforcefields",
+    "parmed",
 ]
 
 [dependency-groups]
@@ -65,7 +71,33 @@ docs = [
     "matplotlib",
     "seaborn",
     "ase",
+    "ase-db-backends",
+    "symd",
+    "importlib-resources",
+    "networkx",
     "tqdm",
+]
+testing = [
+    "pytest",
+    "ase",
+]
+mace = [
+    "mace_jax @ git+https://github.com/ACEsuit/mace-jax@fe19806 ; python_version >= '3.11'",
+]
+uma = [
+    "torch>=2.0.0",           # Loading PyTorch UMA checkpoints
+    "huggingface_hub",        # Downloading pretrained models
+]
+dev = [
+    "pytest",
+    "ase",
+    "ruff",
+    "pre-commit",
+    "torch>=2.0.0",
+    "e3nn",                   # Exact grid matrix computation
+    "huggingface_hub",
+    "fairchem-core",          # PyTorch reference for comparison tests
+    "setuptools<81",          # pkg_resources (needed by torchtnt)
 ]
 
 [project.urls]
@@ -77,10 +109,27 @@ Download = "https://pypi.org/project/jax-md/"
 
 [tool.hatch.build.targets.wheel]
 packages = ["jax_md"]
+exclude = [
+    "jax_md/_nn/uma/Jd.pt",
+    "jax_md/_nn/uma/checkpoints/*.json",
+]
 
 [tool.hatch.build.targets.wheel.shared-data]
 "examples/models/*.pickle" = "examples/models"
 "examples/models/*.png" = "examples/models"
+
+[tool.hatch.build.targets.wheel.force-include]
+"jax_md/_nn/uma/Jd.pt" = "jax_md/_nn/uma/Jd.pt"
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "jax_md/_nn/uma/Jd.pt",
+    "jax_md/_nn/uma/checkpoints/*.json",
+]
+
+[tool.hatch.build.targets.sdist.force-include]
+"jax_md/_nn/uma/Jd.pt" = "jax_md/_nn/uma/Jd.pt"
+"jax_md/_nn/uma/checkpoints" = "jax_md/_nn/uma/checkpoints"
 
 [tool.coverage.run]
 source = ["jax_md"]
@@ -93,6 +142,24 @@ exclude_lines = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.uv]
+conflicts = [
+    [
+        { group = "dev" },
+        { group = "mace" },
+    ],
+]
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.ruff]
 line-length = 80
@@ -144,7 +211,6 @@ ignore = [
     "UP031",
     "UP034",
     "UP037",
-    "UP045",
 ]
 
 [tool.ruff.lint.isort]

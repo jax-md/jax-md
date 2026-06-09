@@ -21,7 +21,6 @@ To get started playing around with JAX MD check out the following colab notebook
 
 - [JAX MD Cookbook](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/jax_md_cookbook.ipynb)
 - [Custom Potentials](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/customizing_potentials_cookbook.ipynb)
-- [Neural Network Potentials](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/neural_networks.ipynb)
 - [Flocking](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/flocking.ipynb)
 - [Meta Optimization](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/meta_optimization.ipynb)
 - [Swap Monte Carlo (Cargese Summer School)](https://colab.research.google.com/github/google/jax-md/blob/main/notebooks/cargese_swap_mc.ipynb)
@@ -36,6 +35,7 @@ JAX MD also comes with self contained python scripts which you run locally if yo
 - [NVT Simulation](examples/nvt_simulation.py)
 - [NPT Simulation](examples/npt_simulation.py)
 - [NVE with Neighbor Lists](examples/nve_neighbor_list.py)
+- [Neural Network Potentials](examples/neural_networks.py)
 
 You can install JAX MD locally with pip,
 

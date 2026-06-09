@@ -232,8 +232,8 @@ class FullyConnectedTensorProductE3nn(nn.Module):
   """Flax module of an equivariant Fully-Connected Tensor Product."""
 
   irreps_out: Irreps
-  irreps_in1: Optional[Irreps] = None
-  irreps_in2: Optional[Irreps] = None
+  irreps_in1: Irreps | None = None
+  irreps_in2: Irreps | None = None
 
   @nn.compact
   def __call__(self, x1: IrrepsArray, x2: IrrepsArray, **kwargs) -> IrrepsArray:
@@ -288,7 +288,7 @@ class FullyConnectedTensorProductE3nn(nn.Module):
 
 class Linear(nn.Module):
   irreps_out: Irreps
-  irreps_in: Optional[Irreps] = None
+  irreps_in: Irreps | None = None
 
   @nn.compact
   def __call__(self, x: IrrepsArray) -> IrrepsArray:
