@@ -957,9 +957,7 @@ class CustomPartitionTest(parameterized.TestCase):
     """Fractional-coordinate threshold uses the box from allocation."""
     default_box = jnp.eye(3, dtype=jnp.float32) * 10.0
     allocated_box = jnp.eye(3, dtype=jnp.float32) * 20.0
-    pos_frac = jnp.array(
-      [[0.1, 0.1, 0.1], [0.4, 0.4, 0.4]], dtype=jnp.float32
-    )
+    pos_frac = jnp.array([[0.1, 0.1, 0.1], [0.4, 0.4, 0.4]], dtype=jnp.float32)
     moved_frac = pos_frac.at[0, 0].add(0.03)
 
     neighbor_fn = neighbor_list_multi_image(
@@ -974,9 +972,7 @@ class CustomPartitionTest(parameterized.TestCase):
 
     updated = nbrs.update(moved_frac)
 
-    np.testing.assert_array_almost_equal(
-      updated.reference_position, moved_frac
-    )
+    np.testing.assert_array_almost_equal(updated.reference_position, moved_frac)
     np.testing.assert_array_almost_equal(updated.box, allocated_box)
     np.testing.assert_array_almost_equal(updated.reference_box, allocated_box)
 
@@ -984,9 +980,7 @@ class CustomPartitionTest(parameterized.TestCase):
     """Small box changes update current box without refreshing references."""
     box = jnp.eye(3, dtype=jnp.float32) * 20.0
     new_box = jnp.eye(3, dtype=jnp.float32) * 20.1
-    pos_frac = jnp.array(
-      [[0.1, 0.1, 0.1], [0.4, 0.4, 0.4]], dtype=jnp.float32
-    )
+    pos_frac = jnp.array([[0.1, 0.1, 0.1], [0.4, 0.4, 0.4]], dtype=jnp.float32)
 
     neighbor_fn = neighbor_list_multi_image(
       None,
@@ -1007,9 +1001,7 @@ class CustomPartitionTest(parameterized.TestCase):
     """Large box changes refresh the reference geometry."""
     box = jnp.eye(3, dtype=jnp.float32) * 20.0
     new_box = jnp.eye(3, dtype=jnp.float32) * 22.0
-    pos_frac = jnp.array(
-      [[0.1, 0.1, 0.1], [0.4, 0.4, 0.4]], dtype=jnp.float32
-    )
+    pos_frac = jnp.array([[0.1, 0.1, 0.1], [0.4, 0.4, 0.4]], dtype=jnp.float32)
 
     neighbor_fn = neighbor_list_multi_image(
       None,

@@ -969,7 +969,9 @@ def neighbor_list_multi_image(
     else:
       pos_new = position
       pos_old = reference_position
-    max_atom_disp = jnp.sqrt(jnp.max(jnp.sum((pos_new - pos_old) ** 2, axis=-1)))
+    max_atom_disp = jnp.sqrt(
+      jnp.max(jnp.sum((pos_new - pos_old) ** 2, axis=-1))
+    )
 
     # box deformation moves that periodic image by
     # shift @ (box - reference_box).T; this can dominate for large shifts
