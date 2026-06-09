@@ -36,6 +36,7 @@ class NeighborListMultiImage:
     shifts: Integer shift vectors. Sparse: (capacity, dim). Dense: (N, max_neighbors, dim).
       The real-space shift is ``shifts @ box.T``.
     reference_position: Positions when the list was built, shape (N, dim).
+    reference_box: Box when the list was built, shape (dim, dim).
     box: An affine transformation; see ``jax_md.space.periodic_general``.
     search_shifts: Integer image stencil used to build this allocation.
     format: NeighborListFormat.Sparse, OrderedSparse, or Dense.
@@ -51,6 +52,7 @@ class NeighborListMultiImage:
   # Dense: Array[N, max_neighbors, dim]
   shifts: Array  # real-space shift = shifts @ box.T
   reference_position: Array  # [N, dim]
+  reference_box: Array  # [dim, dim]
   box: Array  # [dim, dim]
   search_shifts: Array  # [num_shifts, dim]
   format: NeighborListFormat = dataclasses.static_field()
@@ -412,6 +414,7 @@ def _build_neighbor_list_sparse(
     idx=(receivers, senders),
     shifts=edge_shifts,
     reference_position=position,
+    reference_box=box,
     box=box,
     search_shifts=shifts,
     format=NeighborListFormat.Sparse,
@@ -499,6 +502,7 @@ def _build_neighbor_list_orderedsparse(
     idx=(receivers, senders),
     shifts=edge_shifts,
     reference_position=position,
+    reference_box=box,
     box=box,
     search_shifts=shifts,
     format=NeighborListFormat.OrderedSparse,
@@ -604,6 +608,7 @@ def _build_neighbor_list_dense(
     idx=neighbor_idx,
     shifts=neighbor_shifts,
     reference_position=position,
+    reference_box=box,
     box=box,
     search_shifts=shifts,
     format=NeighborListFormat.Dense,
@@ -888,9 +893,6 @@ def neighbor_list_multi_image(
 
   num_shifts = shifts.shape[0]
 
-  # Displacement threshold for skipping rebuild
-  threshold_sq = (dr_threshold / 2.0) ** 2
-
   # Placeholder for circular reference in NeighborListMultiImage.update
   def update_fn_placeholder(position, neighbors, **kwargs):
     raise NotImplementedError()
@@ -956,16 +958,26 @@ def neighbor_list_multi_image(
   def check_needs_rebuild(
     position: Array,  # [N, dim]
     reference_position: Array,  # [N, dim]
+    box: Array,  # [dim, dim]
+    reference_box: Array,  # [dim, dim]
+    nl_shifts: Array,  # [num_shifts, dim]
   ) -> Array:  # scalar bool
     """Check if maximum displacement exceeds threshold."""
     if fractional_coordinates:
-      pos_new = position @ default_box.T  # [N, dim]
-      pos_old = reference_position @ default_box.T
+      pos_new = position @ box.T  # [N, dim]
+      pos_old = reference_position @ reference_box.T
     else:
       pos_new = position
       pos_old = reference_position
-    max_disp_sq = jnp.max(jnp.sum((pos_new - pos_old) ** 2, axis=-1))
-    return max_disp_sq >= threshold_sq
+    max_atom_disp = jnp.sqrt(jnp.max(jnp.sum((pos_new - pos_old) ** 2, axis=-1)))
+
+    # box deformation moves that periodic image by
+    # shift @ (box - reference_box).T; this can dominate for large shifts
+    shift_delta = nl_shifts @ (box - reference_box).T
+    max_shift_disp = jnp.sqrt(jnp.max(jnp.sum(shift_delta**2, axis=-1)))
+    # any pair displacement can change by at most the motion of both atoms plus
+    # the deformation of its stored periodic image shift.
+    return 2.0 * max_atom_disp + max_shift_disp >= dr_threshold
 
   # Choose update strategy at function creation time (not trace time)
   use_threshold = dr_threshold > 0
@@ -1038,7 +1050,7 @@ def neighbor_list_multi_image(
 
     position = position.astype(neighbors.reference_position.dtype)
 
-    current_box = jnp.asarray(kwargs.get('box', default_box))
+    current_box = jnp.asarray(kwargs.get('box', neighbors.box))
     required_shift_n_max = _compute_shift_n_max(current_box, search_cutoff, pbc)
     allocated_shift_n_max = jnp.max(
       jnp.abs(neighbors.search_shifts), axis=0
@@ -1057,13 +1069,20 @@ def neighbor_list_multi_image(
         ),
       )
 
-    # If box= was provided the geometry has changed; always rebuild.
-    # The displacement threshold only applies when the box is unchanged.
-    if use_threshold and 'box' not in kwargs:
+    if use_threshold:
       return jax.lax.cond(
-        check_needs_rebuild(position, neighbors.reference_position),
+        (
+          shift_range_overflow
+          | check_needs_rebuild(
+            position,
+            neighbors.reference_position,
+            current_box,
+            neighbors.reference_box,
+            neighbors.search_shifts,
+          )
+        ),
         rebuild,
-        lambda pos: neighbors,
+        lambda pos: dataclasses.replace(neighbors, box=current_box),
         position,
       )
 

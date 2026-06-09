@@ -951,6 +951,80 @@ class CustomPartitionTest(parameterized.TestCase):
 
     # Box should be stored
     np.testing.assert_array_almost_equal(nbrs.box, box)
+    np.testing.assert_array_almost_equal(nbrs.reference_box, box)
+
+  def test_update_uses_stored_box_for_fractional_threshold(self):
+    """Fractional-coordinate threshold uses the box from allocation."""
+    default_box = jnp.eye(3, dtype=jnp.float32) * 10.0
+    allocated_box = jnp.eye(3, dtype=jnp.float32) * 20.0
+    pos_frac = jnp.array(
+      [[0.1, 0.1, 0.1], [0.4, 0.4, 0.4]], dtype=jnp.float32
+    )
+    moved_frac = pos_frac.at[0, 0].add(0.03)
+
+    neighbor_fn = neighbor_list_multi_image(
+      None,
+      default_box,
+      1.0,
+      dr_threshold=1.0,
+      format=NeighborListFormat.Sparse,
+      fractional_coordinates=True,
+    )
+    nbrs = neighbor_fn.allocate(pos_frac, box=allocated_box)
+
+    updated = nbrs.update(moved_frac)
+
+    np.testing.assert_array_almost_equal(
+      updated.reference_position, moved_frac
+    )
+    np.testing.assert_array_almost_equal(updated.box, allocated_box)
+    np.testing.assert_array_almost_equal(updated.reference_box, allocated_box)
+
+  def test_update_reuses_neighbor_list_for_small_box_change(self):
+    """Small box changes update current box without refreshing references."""
+    box = jnp.eye(3, dtype=jnp.float32) * 20.0
+    new_box = jnp.eye(3, dtype=jnp.float32) * 20.1
+    pos_frac = jnp.array(
+      [[0.1, 0.1, 0.1], [0.4, 0.4, 0.4]], dtype=jnp.float32
+    )
+
+    neighbor_fn = neighbor_list_multi_image(
+      None,
+      box,
+      1.0,
+      dr_threshold=1.0,
+      format=NeighborListFormat.Sparse,
+      fractional_coordinates=True,
+    )
+    nbrs = neighbor_fn.allocate(pos_frac, box=box)
+
+    updated = nbrs.update(pos_frac, box=new_box)
+
+    np.testing.assert_array_almost_equal(updated.reference_box, box)
+    np.testing.assert_array_almost_equal(updated.box, new_box)
+
+  def test_update_rebuilds_neighbor_list_for_large_box_change(self):
+    """Large box changes refresh the reference geometry."""
+    box = jnp.eye(3, dtype=jnp.float32) * 20.0
+    new_box = jnp.eye(3, dtype=jnp.float32) * 22.0
+    pos_frac = jnp.array(
+      [[0.1, 0.1, 0.1], [0.4, 0.4, 0.4]], dtype=jnp.float32
+    )
+
+    neighbor_fn = neighbor_list_multi_image(
+      None,
+      box,
+      1.0,
+      dr_threshold=1.0,
+      format=NeighborListFormat.Sparse,
+      fractional_coordinates=True,
+    )
+    nbrs = neighbor_fn.allocate(pos_frac, box=box)
+
+    updated = nbrs.update(pos_frac, box=new_box)
+
+    np.testing.assert_array_almost_equal(updated.reference_box, new_box)
+    np.testing.assert_array_almost_equal(updated.box, new_box)
 
   def test_dataclass_replace(self):
     """Test that dataclasses.replace works on NeighborListMultiImage."""
