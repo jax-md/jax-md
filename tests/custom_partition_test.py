@@ -951,6 +951,72 @@ class CustomPartitionTest(parameterized.TestCase):
 
     # Box should be stored
     np.testing.assert_array_almost_equal(nbrs.box, box)
+    np.testing.assert_array_almost_equal(nbrs.reference_box, box)
+
+  def test_update_uses_stored_box_for_fractional_threshold(self):
+    """Fractional-coordinate threshold uses the box from allocation."""
+    default_box = jnp.eye(3, dtype=jnp.float32) * 10.0
+    allocated_box = jnp.eye(3, dtype=jnp.float32) * 20.0
+    pos_frac = jnp.array([[0.1, 0.1, 0.1], [0.4, 0.4, 0.4]], dtype=jnp.float32)
+    moved_frac = pos_frac.at[0, 0].add(0.03)
+
+    neighbor_fn = neighbor_list_multi_image(
+      None,
+      default_box,
+      1.0,
+      dr_threshold=1.0,
+      format=NeighborListFormat.Sparse,
+      fractional_coordinates=True,
+    )
+    nbrs = neighbor_fn.allocate(pos_frac, box=allocated_box)
+
+    updated = nbrs.update(moved_frac)
+
+    np.testing.assert_array_almost_equal(updated.reference_position, moved_frac)
+    np.testing.assert_array_almost_equal(updated.box, allocated_box)
+    np.testing.assert_array_almost_equal(updated.reference_box, allocated_box)
+
+  def test_update_reuses_neighbor_list_for_small_box_change(self):
+    """Small box changes update current box without refreshing references."""
+    box = jnp.eye(3, dtype=jnp.float32) * 20.0
+    new_box = jnp.eye(3, dtype=jnp.float32) * 20.1
+    pos_frac = jnp.array([[0.1, 0.1, 0.1], [0.4, 0.4, 0.4]], dtype=jnp.float32)
+
+    neighbor_fn = neighbor_list_multi_image(
+      None,
+      box,
+      1.0,
+      dr_threshold=1.0,
+      format=NeighborListFormat.Sparse,
+      fractional_coordinates=True,
+    )
+    nbrs = neighbor_fn.allocate(pos_frac, box=box)
+
+    updated = nbrs.update(pos_frac, box=new_box)
+
+    np.testing.assert_array_almost_equal(updated.reference_box, box)
+    np.testing.assert_array_almost_equal(updated.box, new_box)
+
+  def test_update_rebuilds_neighbor_list_for_large_box_change(self):
+    """Large box changes refresh the reference geometry."""
+    box = jnp.eye(3, dtype=jnp.float32) * 20.0
+    new_box = jnp.eye(3, dtype=jnp.float32) * 22.0
+    pos_frac = jnp.array([[0.1, 0.1, 0.1], [0.4, 0.4, 0.4]], dtype=jnp.float32)
+
+    neighbor_fn = neighbor_list_multi_image(
+      None,
+      box,
+      1.0,
+      dr_threshold=1.0,
+      format=NeighborListFormat.Sparse,
+      fractional_coordinates=True,
+    )
+    nbrs = neighbor_fn.allocate(pos_frac, box=box)
+
+    updated = nbrs.update(pos_frac, box=new_box)
+
+    np.testing.assert_array_almost_equal(updated.reference_box, new_box)
+    np.testing.assert_array_almost_equal(updated.box, new_box)
 
   def test_dataclass_replace(self):
     """Test that dataclasses.replace works on NeighborListMultiImage."""
@@ -1011,6 +1077,28 @@ class CustomPartitionTest(parameterized.TestCase):
     # Call again to ensure caching works
     n_edges2 = update_and_count(pos_frac + 0.001, nbrs)
     self.assertGreater(int(n_edges2), 0)
+
+  def test_update_flags_shift_range_growth_without_capacity_overflow(self):
+    """Cell changes that need more periodic images should request realloc."""
+    box = jnp.eye(3, dtype=jnp.float32) * 10.0
+    shrunken_box = jnp.eye(3, dtype=jnp.float32)
+    pos_frac = jnp.array([[0.0, 0.0, 0.0]], dtype=jnp.float32)
+
+    neighbor_fn = neighbor_list_multi_image(
+      None,
+      box,
+      2.5,
+      format=NeighborListFormat.Sparse,
+      fractional_coordinates=True,
+    )
+    nbrs = neighbor_fn.allocate(pos_frac, box=box, extra_capacity=200)
+    self.assertFalse(bool(nbrs.did_buffer_overflow))
+
+    updated = nbrs.update(pos_frac, box=shrunken_box)
+
+    self.assertTrue(bool(updated.did_buffer_overflow))
+    n_edges = int(jnp.sum(updated.idx[0] < len(pos_frac)))
+    self.assertLess(n_edges, updated.max_occupancy)
 
   def test_empty_system(self):
     """Test behavior with a single atom (no neighbors)."""
