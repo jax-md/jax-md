@@ -44,7 +44,7 @@ OPTIMIZATION_STEPS = 10
 STOCHASTIC_SAMPLES = 10
 SPATIAL_DIMENSION = [2, 3]
 
-if jax.config.jax_enable_x64:
+if jax.config.jax_enable_x64:  # ty: ignore[possibly-unbound-attribute]
   DTYPE = [f32, f64]
 else:
   DTYPE = [f32]
@@ -334,7 +334,7 @@ class DynamicsTest(test_util.JAXMDTestCase):
     self.assertAllClose(mu, expected)
 
   def test_precon_fire_descent_matches_ase_trajectory(self):
-    if not jax.config.jax_enable_x64:
+    if not jax.config.jax_enable_x64:  # ty: ignore[possibly-unbound-attribute]
       self.skipTest('ASE trajectory parity requires x64.')
 
     from ase import Atoms
@@ -483,7 +483,9 @@ class FireDescentBoxTest(test_util.JAXMDTestCase):
         neighbor = neighbor.set(
           box=box, shifts=neighbor.shifts.astype(box.dtype)
         )
-      return raw_energy_fn(R, neighbor=neighbor, **kwargs)
+      # The neighbor-list energy function accepts `neighbor` as a keyword,
+      # but its declared Callable return type erases parameter names.
+      return raw_energy_fn(R, neighbor=neighbor, **kwargs)  # ty: ignore[missing-argument, unknown-argument]
 
     self.energy_fn = energy_fn
     self.nbrs = self.neighbor_fn.allocate(self.R, box=self.box)
@@ -571,7 +573,9 @@ class FireDescentBoxTest(test_util.JAXMDTestCase):
         neighbor = neighbor.set(
           box=box, shifts=neighbor.shifts.astype(box.dtype)
         )
-      return raw_energy_fn(R, neighbor=neighbor, **kwargs)
+      # The neighbor-list energy function accepts `neighbor` as a keyword,
+      # but its declared Callable return type erases parameter names.
+      return raw_energy_fn(R, neighbor=neighbor, **kwargs)  # ty: ignore[missing-argument, unknown-argument]
 
     nbrs = neighbor_fn.allocate(R, box=box)
     E_init = float(energy_fn(R, box=box, neighbor=nbrs))
