@@ -985,7 +985,7 @@ def neighbor_list_multi_image(
   use_threshold = dr_threshold > 0
 
   def allocate_fn(
-    position: Array, extra_capacity: int = 0, box: Array = None, **kwargs
+    position: Array, extra_capacity: int = 0, box: Array | None = None, **kwargs
   ) -> NeighborListMultiImage:
     """Allocate a new neighbor list from positions [N, dim].
 

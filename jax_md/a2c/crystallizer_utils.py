@@ -58,7 +58,7 @@ def get_subcells_to_crystallize(
   restrict_to_compositions: Sequence[str] | None = None,
   max_coef: int | None = None,
   elements: Sequence[str] | None = None,
-) -> List[Tuple[Sequence[int], onp.ndarray, onp.ndarray]]:
+) -> List[Tuple[Union[Sequence[int], onp.ndarray], onp.ndarray, onp.ndarray]]:
   """Get subcell structures to relax out of a large structure (e.g. amorphous).
 
   Args:

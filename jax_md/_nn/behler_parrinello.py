@@ -183,7 +183,7 @@ def radial_symmetry_functions_neighbor_list(
   radial_fn = vmap(radial_fn, (0, None))
 
   def sym_fn(
-    R: Array, neighbor: NeighborList, mask: Array = None, **kwargs
+    R: Array, neighbor: NeighborList, mask: Array | None = None, **kwargs
   ) -> Array:
     _metric = partial(metric, **kwargs)
     if neighbor.format is partition.Dense:
@@ -373,8 +373,8 @@ def angular_symmetry_functions_neighbor_list(
   def sym_fn(
     R: Array,
     neighbor: NeighborList,
-    mask_i: Array = None,
-    mask_j: Array = None,
+    mask_i: Array | None = None,
+    mask_j: Array | None = None,
     **kwargs,
   ) -> Array:
     D_fn = partial(displacement, **kwargs)

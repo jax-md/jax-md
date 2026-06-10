@@ -72,7 +72,7 @@ from jax_md.util import safe_mask
 
 
 DisplacementFn = Callable[[Array, Array], Array]
-MetricFn = Callable[[Array, Array], float]
+MetricFn = Callable[[Array, Array], Array]
 DisplacementOrMetricFn = Union[DisplacementFn, MetricFn]
 
 ShiftFn = Callable[[Array, Array], Array]

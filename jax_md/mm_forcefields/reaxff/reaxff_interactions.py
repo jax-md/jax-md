@@ -603,8 +603,8 @@ def reaxff_inter_list(
   backprop_solve: bool = False,
   tors_2013: bool = False,
   solver_model: str = 'EEM',
-  short_inters_capacity_multiplier: int = 1.2,
-  long_inters_capacity_multiplier: int = 1.2,
+  short_inters_capacity_multiplier: float = 1.2,
+  long_inters_capacity_multiplier: float = 1.2,
 ) -> Tuple[ReaxFFNeighborListFns, Callable]:
   """Contains all the necessary logic to run a reaxff simulation and allocate, reallocate, update and energy_fn functions.
 

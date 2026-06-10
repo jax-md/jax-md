@@ -238,8 +238,6 @@ allowed-unresolved-imports = [
 invalid-argument-type = "ignore"
 unresolved-attribute = "ignore"
 not-subscriptable = "ignore"
-invalid-parameter-default = "ignore"
-invalid-return-type = "ignore"
 invalid-assignment = "ignore"
 unsupported-operator = "ignore"
 # Useful but false-positive-prone (e.g. `energy_fn(R, **kwargs)`): warn only.

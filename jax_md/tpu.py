@@ -764,7 +764,7 @@ def nve(force_fn: GridFn, dt: float) -> Simulator:
   return init_fn, apply_fn
 
 
-def kinetic_energy(state: NVEState) -> float:
+def kinetic_energy(state: NVEState) -> Array:
   grid = state.position
   if grid.topology and len(grid.cell_data.shape) > grid.num_dims + 2:
     return 0.5 * np.sum(unfold_mesh(state.velocity, grid) ** 2)
@@ -907,7 +907,7 @@ def _settle_particle_locations(grid: TPUGrid) -> TPUGrid:
 
 def _generate_offset_kernel_channel_last(
   axis: str, grid: TPUGrid
-) -> Tuple[Array, Array]:
+) -> Tuple[onp.ndarray, onp.ndarray]:
   """Generates weights and biases to get displacements with convolutions.
 
   These will act on an array of shape [BL x X x Y ... x C] and are used in the
@@ -979,7 +979,9 @@ def _generate_offset_kernel_channel_last(
   return kernel, bias
 
 
-def _generate_offset_kernel(axis: str, grid: TPUGrid) -> Tuple[Array, Array]:
+def _generate_offset_kernel(
+  axis: str, grid: TPUGrid
+) -> Tuple[onp.ndarray, onp.ndarray]:
   """Generates weights and biases to get displacements with convolutions.
 
   These will act on an array of shape [BL x C x H x W] and are used in the
@@ -1392,7 +1394,7 @@ def _fold_grid(
   batch_size: int | None = None,
   factors: Tuple[int, ...] | None = None,
   inner_fold: bool = True,
-) -> Array:
+) -> Tuple[Array, Tuple[int, ...]]:
   """Takes data from a contiguous grid and folds it into patches.
 
   This function takes data in a grid of shape (X, Y, Z, C) and folds it into
@@ -1496,7 +1498,9 @@ def _send_prev(x: Array, axis_name: str) -> Array:
   return lax.ppermute(x, perm=perm, axis_name=axis_name)
 
 
-def _extract_halo(grid_data_unfolded: Array, pad_size: int, axis: str) -> Array:
+def _extract_halo(
+  grid_data_unfolded: Array, pad_size: int, axis: str
+) -> Tuple[Array, Array]:
   """Extract the padding halo from an unfolded grid along a specific axis."""
 
   if axis == 'X':
@@ -1547,7 +1551,9 @@ def _mesh_transport(cell_data: Array, grid: TPUGrid) -> Array:
 # Dynamics utilities for updating particle cell occupancies.
 
 
-def _pairwise_exchange(cell_data: Array, axis: int, grid: TPUGrid) -> Array:
+def _pairwise_exchange(
+  cell_data: Array, axis: int, grid: TPUGrid
+) -> Tuple[Array, Array]:
   """Exchanges particles along an axis if the swap reduces frustration."""
   # `cell_data` has shape [X x Y x ... C]
 
@@ -1640,7 +1646,7 @@ def _get_aux(
 
 def _set_aux(
   cell_data: Array, aux: PyTree
-) -> Tuple[Array, TreeDef, Tuple[int, ...]]:
+) -> Tuple[Array, TreeDef, onp.ndarray]:
   """Flattens a PyTree of auxiliary data and adds it to a grid."""
   flat_aux, aux_tree = tree_flatten(aux)
   aux_sizes = [x.shape[-1] for x in flat_aux]
@@ -1651,9 +1657,7 @@ def _set_aux(
   return cell_data, aux_tree, aux_sizes
 
 
-def _get_aux_spec(
-  num_dims: int, aux: PyTree
-) -> Tuple[TreeDef, Tuple[int, ...]]:
+def _get_aux_spec(num_dims: int, aux: PyTree) -> Tuple[TreeDef, onp.ndarray]:
   """Extract the structure of auxiliary data."""
   flat_aux, aux_tree = tree_flatten(aux)
   aux_sizes = [x.shape[-1] for x in flat_aux]

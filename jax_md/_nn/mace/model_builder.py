@@ -45,7 +45,7 @@ def normalize_cueq_config(
 def normalize_atomic_config(
   config: dict[str, Any],
   *,
-  dtype: np.dtype = np.float32,
+  dtype: np.typing.DTypeLike = np.float32,
 ) -> tuple[dict[str, Any], tuple[int, ...], np.ndarray]:
   atomic_numbers = tuple(int(z) for z in config.get('atomic_numbers', []))
   if not atomic_numbers:

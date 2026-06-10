@@ -45,7 +45,7 @@ def register_custom_simulation_type(t: Any):
   CUSTOM_SIMULATION_TYPE += [t]
 
 
-def check_custom_simulation_type(x: Any) -> bool:
+def check_custom_simulation_type(x: Any) -> None:
   if type(x) in CUSTOM_SIMULATION_TYPE:
     raise ValueError()
 

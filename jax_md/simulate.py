@@ -188,13 +188,13 @@ def position_step(state: T, shift_fn: Callable, dt: float, **kwargs) -> T:
 
 
 @dispatch_by_state
-def kinetic_energy(state: T) -> Array:
+def kinetic_energy(state: T) -> Array | float:
   """Compute the kinetic energy of a state."""
   return quantity.kinetic_energy(momentum=state.momentum, mass=state.mass)
 
 
 @dispatch_by_state
-def temperature(state: T) -> Array:
+def temperature(state: T) -> Array | float:
   """Compute the temperature of a state."""
   return quantity.temperature(momentum=state.momentum, mass=state.mass)
 
@@ -753,7 +753,7 @@ class NPTNoseHooverState:
 
 def _npt_box_info(
   state: NPTNoseHooverState,
-) -> Tuple[float, Callable[[float], float]]:
+) -> Tuple[Array, Callable[[float], Array]]:
   """Gets the current volume and a function to compute the box from volume."""
   dim = state.position.shape[1]
   ref = state.reference_box

@@ -56,7 +56,7 @@ def coulomb_direct(dr: Array, charge_sq: Array, alpha: float) -> Array:
 def coulomb_direct_pair(
   displacement_fn: DisplacementOrMetricFn,
   charge: Array,
-  species: Array = None,
+  species: Array | None = None,
   alpha: float = 0.35,
 ) -> Callable[[Array], Array]:
   return smap.pair(
@@ -72,7 +72,7 @@ def coulomb_direct_neighbor_list(
   displacement_or_metric: DisplacementOrMetricFn,
   box: Box,
   charge: Array,
-  species: Array = None,
+  species: Array | None = None,
   alpha: float = 0.35,
   cutoff: float = 9.0,
   **neighbor_kwargs,
@@ -187,7 +187,7 @@ def coulomb_ewald_neighbor_list(
   displacement_fn: Array,
   box: Array,
   charge: Array,
-  species: Array = None,
+  species: Array | None = None,
   alpha: float = 0.34,
   g_max: float = 5.0,
 ) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
@@ -207,7 +207,7 @@ def coulomb(
   box: Box,
   charge: Array,
   grid_points: Array,
-  species: Array = None,
+  species: Array | None = None,
   alpha: float = 0.34,
   fractional_coordinates: bool = False,
 ) -> Callable[[Array], Array]:
@@ -229,7 +229,7 @@ def coulomb_neighbor_list(
   box: Box,
   charge: Array,
   grid_points: Array,
-  species: Array = None,
+  species: Array | None = None,
   alpha: float = 0.34,
   cutoff: float = 9.0,
   fractional_coordinates: bool = False,

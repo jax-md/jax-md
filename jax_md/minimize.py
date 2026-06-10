@@ -168,7 +168,9 @@ def fire_descent(
   nve_init_fn, nve_step_fn = simulate.nve(energy_or_force, shift_fn, dt_start)
   force = quantity.canonicalize_force(energy_or_force)
 
-  def init_fn(R: PyTree, mass: Array = 1.0, **kwargs) -> FireDescentState:
+  def init_fn(
+    R: PyTree, mass: Array | float = 1.0, **kwargs
+  ) -> FireDescentState:
     P = tree_map(lambda x: jnp.zeros_like(x), R)
     n_pos = jnp.zeros((), jnp.int32)
     F = force(R, **kwargs)
@@ -583,7 +585,7 @@ def precon_fire_descent(
 
   force = quantity.canonicalize_force(energy_or_force)
 
-  def tree_dot(X: PyTree, Y: PyTree) -> Array:
+  def tree_dot(X: PyTree, Y: PyTree) -> Array | float:
     return tree_reduce(
       lambda accum, x_dot_y: accum + x_dot_y,
       tree_map(lambda x, y: jnp.sum(x * y), X, Y),
@@ -595,7 +597,9 @@ def precon_fire_descent(
       return F
     return preconditioner(R, F, **kwargs)
 
-  def velocity_metric_dot(R: PyTree, X: PyTree, Y: PyTree, **kwargs) -> Array:
+  def velocity_metric_dot(
+    R: PyTree, X: PyTree, Y: PyTree, **kwargs
+  ) -> Array | float:
     if preconditioner is None:
       return tree_dot(X, Y)
     metric = preconditioner_dot
@@ -644,7 +648,7 @@ def precon_fire_descent(
       precon_previous_initialized,
     ) = dataclasses.unpack(state)
 
-    def tree_max_abs(X: PyTree) -> Array:
+    def tree_max_abs(X: PyTree) -> Array | float:
       return tree_reduce(
         lambda accum, x: jnp.maximum(accum, jnp.max(jnp.abs(x))),
         X,
@@ -823,7 +827,7 @@ def fire_descent_box(
   scalar_pressure: float = 0.0,
   hydrostatic_strain: bool = False,
   constant_volume: bool = False,
-  mask: Array = None,
+  mask: Array | None = None,
 ) -> Minimizer[FireBoxDescentState]:
   """FIRE minimization of both atomic positions and the simulation box.
 
@@ -908,9 +912,9 @@ def fire_descent_box(
   def init_fn(
     R: Array,
     box: Array,
-    mass: Array = 1.0,
-    box_mass: Array = None,
-    box_factor: Array = None,
+    mass: Array | float = 1.0,
+    box_mass: Array | None = None,
+    box_factor: Array | None = None,
     **kwargs,
   ) -> FireBoxDescentState:
     N = R.shape[0]
@@ -1076,7 +1080,7 @@ def precon_fire_descent_box(
   scalar_pressure: float = 0.0,
   hydrostatic_strain: bool = False,
   constant_volume: bool = False,
-  mask: Array = None,
+  mask: Array | None = None,
 ) -> Minimizer[PreconFireBoxDescentState]:
   """Preconditioned FIRE minimization of atoms and the simulation box."""
   del shift_fn
@@ -1088,7 +1092,7 @@ def precon_fire_descent_box(
 
   force_fn = quantity.canonicalize_force(energy_fn)
 
-  def tree_dot(X: PyTree, Y: PyTree) -> Array:
+  def tree_dot(X: PyTree, Y: PyTree) -> Array | float:
     return tree_reduce(
       lambda accum, x_dot_y: accum + x_dot_y,
       tree_map(lambda x, y: jnp.sum(x * y), X, Y),
@@ -1100,7 +1104,9 @@ def precon_fire_descent_box(
       return F
     return preconditioner(R, F, **kwargs)
 
-  def velocity_metric_dot(R: PyTree, X: PyTree, Y: PyTree, **kwargs) -> Array:
+  def velocity_metric_dot(
+    R: PyTree, X: PyTree, Y: PyTree, **kwargs
+  ) -> Array | float:
     if preconditioner is None:
       return tree_dot(X, Y)
     metric = preconditioner_dot
@@ -1110,7 +1116,7 @@ def precon_fire_descent_box(
       )
     return metric(R, X, Y, **kwargs)
 
-  def tree_max_abs(X: PyTree) -> Array:
+  def tree_max_abs(X: PyTree) -> Array | float:
     return tree_reduce(
       lambda accum, x: jnp.maximum(accum, jnp.max(jnp.abs(x))),
       X,
@@ -1160,7 +1166,7 @@ def precon_fire_descent_box(
   def init_fn(
     R: Array,
     box: Array,
-    box_factor: Array = None,
+    box_factor: Array | None = None,
     **kwargs,
   ) -> PreconFireBoxDescentState:
     dtype = tree_leaves(R)[0].dtype

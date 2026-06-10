@@ -175,7 +175,7 @@ def _kwargs_to_interaction_parameters(
   interaction_type: Array | None,
   kwargs: Dict[str, Parameter],
   combinators: Dict[str, Callable],
-) -> Dict[str, Array]:
+) -> Dict[str, Parameter]:
   """Extract parameters for bond/angle/torsion with optional combinators."""
   for k, v in kwargs.items():
     if k in combinators:
@@ -362,7 +362,7 @@ def _get_matrix_parameters(
 
 def _kwargs_to_parameters(
   species: Array, kwargs: Dict[str, Parameter], combinators: Dict[str, Callable]
-) -> Dict[str, Array]:
+) -> Dict[str, Parameter]:
   """Extract parameters from keyword arguments."""
   # NOTE(schsam): We could pull out the species case from the generic case.
   s_kwargs = {}
@@ -810,7 +810,7 @@ def _neighborhood_kwargs_to_params(
   species: Array,
   kwargs: Dict[str, Array],
   combinators: Dict[str, Callable],
-) -> Dict[str, Array]:
+) -> Dict[str, Parameter]:
   out_dict = {}
   for k in kwargs:
     if species is None or (util.is_array(kwargs[k]) and kwargs[k].ndim == 1):

@@ -148,7 +148,9 @@ def _quaternion_rotate(q: Array, v: Array) -> Array:
   return _quaternion_rotate_raw(q, v)
 
 
-def _quaternion_rotate_fwd(q: Array, v: Array) -> Array:
+def _quaternion_rotate_fwd(
+  q: Array, v: Array
+) -> Tuple[Array, Tuple[Array, Array]]:
   return _quaternion_rotate(q, v), (q, v)
 
 
@@ -198,7 +200,7 @@ class Quaternion:
     return 3 * reduce(operator.mul, self.vec.shape[:-1], 1)
 
   @property
-  def ndim(self) -> Tuple[int, ...]:
+  def ndim(self) -> int:
     return self.vec.ndim
 
   def conj(self):
@@ -413,7 +415,7 @@ def canonicalize_momentum(
 
 def kinetic_energy(
   position: RigidBody, momentum: RigidBody, mass: RigidBody
-) -> float:
+) -> Array | float:
   """Computes the kinetic energy of a system with some momenta."""
   momentum = canonicalize_momentum(position, momentum)
   ke = tree_map(
@@ -424,7 +426,7 @@ def kinetic_energy(
 
 def temperature(
   position: RigidBody, momentum: RigidBody, mass: RigidBody
-) -> float:
+) -> Array | float:
   """Computes the temperature of a system with some momenta."""
   dof = quantity.count_dof(momentum)
   momentum = canonicalize_momentum(position, momentum)
@@ -680,12 +682,12 @@ def _(state):
 
 
 @simulate.kinetic_energy.register(RigidBody)
-def _(state) -> Array:
+def _(state) -> Array | float:
   return kinetic_energy(state.position, state.momentum, state.mass)
 
 
 @simulate.temperature.register(RigidBody)
-def _(state) -> Array:
+def _(state) -> Array | float:
   return temperature(state.position, state.momentum, state.mass)
 
 

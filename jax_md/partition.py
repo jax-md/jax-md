@@ -133,7 +133,7 @@ class CellListFns:
 
 def _cell_dimensions(
   spatial_dimension: int, box_size: Box, minimum_cell_size: float
-) -> Tuple[Box, Array, Array, int]:
+) -> Tuple[Box, Array, onp.ndarray, int]:
   """Compute the number of cells-per-side and total number of cells in a box."""
   if isinstance(box_size, int) or isinstance(box_size, float):
     box_size = float(box_size)
@@ -515,7 +515,7 @@ class PartitionError:
 
   code: Array
 
-  def update(self, bit: bytes, pred: Array) -> Array:
+  def update(self, bit: bytes, pred: Array) -> 'PartitionError':
     """Possibly adds an error based on a predicate."""
     zero = jnp.zeros((), jnp.uint8)
     bit = jnp.array(bit, dtype=jnp.uint8)
@@ -657,7 +657,7 @@ def is_format_valid(fmt: NeighborListFormat):
     )
 
 
-def is_box_valid(box: Array) -> bool:
+def is_box_valid(box: Array) -> bool | Array:
   if jnp.isscalar(box) or box.ndim == 0 or box.ndim == 1:
     return True
   if box.ndim == 2:
@@ -709,17 +709,17 @@ class NeighborList:
     return self.update_fn(position, self, **kwargs)
 
   @property
-  def did_buffer_overflow(self) -> bool:
+  def did_buffer_overflow(self) -> Array:
     return self.error.code & (
       PEC.NEIGHBOR_LIST_OVERFLOW | PEC.CELL_LIST_OVERFLOW
     )
 
   @property
-  def cell_size_too_small(self) -> bool:
+  def cell_size_too_small(self) -> Array:
     return self.error.code & PEC.CELL_SIZE_TOO_SMALL
 
   @property
-  def malformed_box(self) -> bool:
+  def malformed_box(self) -> Array:
     return self.error.code & PEC.MALFORMED_BOX
 
 
@@ -771,7 +771,7 @@ class NeighborListFns:
     return iter((self.allocate, self.update))
 
 
-NeighborFn = Callable[[Array, NeighborList | None, int | None], NeighborList]
+NeighborFn = Callable[[Array, NeighborList | None, int], NeighborList]
 
 
 def neighbor_list(
@@ -934,7 +934,9 @@ def neighbor_list(
     return jnp.where(self_mask, idx.shape[0], idx)
 
   @jit
-  def prune_neighbor_list_dense(position: Array, idx: Array, **kwargs) -> Array:
+  def prune_neighbor_list_dense(
+    position: Array, idx: Array, **kwargs
+  ) -> Tuple[Array, Array]:
     d = partial(metric_sq, **kwargs)
     d = space.map_neighbor(d)
 
@@ -956,7 +958,7 @@ def neighbor_list(
   @jit
   def prune_neighbor_list_sparse(
     position: Array, idx: Array, **kwargs
-  ) -> Array:
+  ) -> Tuple[Array, Array]:
     d = partial(metric_sq, **kwargs)
     d = space.map_bond(d)
 
@@ -982,7 +984,9 @@ def neighbor_list(
     return jnp.stack((receiver_idx, sender_idx)), max_occupancy
 
   @jit
-  def prune_cell_list_sparse(position: Array, idx: Array, **kwargs) -> Array:
+  def prune_cell_list_sparse(
+    position: Array, idx: Array, **kwargs
+  ) -> Tuple[Array, Array]:
     N = position.shape[0]
     sender_idx = jnp.broadcast_to(jnp.arange(N, dtype=i32)[:, None], idx.shape)
 

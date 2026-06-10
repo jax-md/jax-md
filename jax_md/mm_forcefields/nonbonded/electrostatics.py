@@ -91,7 +91,7 @@ class CutoffCoulomb(CoulombHandler):
     displacement_fn: DisplacementFn,
     cutoff_fn: CutoffWrapper,
     fractional_coordinates: bool,
-  ) -> tuple[EnergyFn, EnergyFn]:
+  ) -> EnergyFn:
     def pair_energy_map(dr, charge_sq, **unused_kwargs):
       """Compute pairwise coulomb energy."""
       energy = COULOMB_CONSTANT * (charge_sq / dr)
@@ -122,9 +122,9 @@ class CutoffCoulomb(CoulombHandler):
     box_kwarg: BoxKwarg,
     exc_pairs: Array,
     exc_charge_prod: Array,
-    coulomb_fns: CoulombFns,
+    coulomb_fns: EnergyFn,
     return_components: bool = False,
-  ) -> Array:
+  ) -> tuple[Array | float, Array]:
     bond_coul_fn = coulomb_fns
 
     energy = 0.0
@@ -794,7 +794,7 @@ class PMECoulomb(CoulombHandler):
     exc_charge_prod: Array,
     coulomb_fns: CoulombFns,
     return_components: bool = False,
-  ) -> Array:
+  ) -> tuple[Array, Array]:
     recip_fn, bond_corr_fn, bond_coul_fn = coulomb_fns
 
     ### Reciprocal space contribution

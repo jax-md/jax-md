@@ -184,10 +184,10 @@ def _convert_responses_to_elastic_constants(response_all: Array) -> Array:
 def athermal_moduli(
   energy_fn: Callable[..., Array],
   tether_strength: float = 1e-10,
-  gradient_check: Array = None,
+  gradient_check: Array | None = None,
   cg_tol: float = 1e-7,
   check_convergence: bool = False,
-) -> Callable[..., Array]:
+) -> Callable[..., Array | tuple[Array, Array]]:
   """Setup calculation of elastic modulus tensor.
 
   Args:
@@ -222,7 +222,9 @@ def athermal_moduli(
   Return: A function to calculate the elastic modulus tensor
   """
 
-  def calculate_emt(R: Array, box: Array, **kwargs) -> Array:
+  def calculate_emt(
+    R: Array, box: Array, **kwargs
+  ) -> Array | tuple[Array, Array]:
     """Calculate the elastic modulus tensor.
 
     `energy_fn(R)` corresponds to the state around which we are expanding

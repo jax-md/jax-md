@@ -83,9 +83,9 @@ NeighborListFormat = partition.NeighborListFormat
 
 def simple_spring(
   dr: Array,
-  length: Array = 1,
-  epsilon: Array = 1,
-  alpha: Array = 2,
+  length: Array | float = 1,
+  epsilon: Array | float = 1,
+  alpha: Array | float = 2,
   **unused_kwargs,
 ) -> Array:
   """Isotropic spring potential with a given rest length.
@@ -100,9 +100,9 @@ def simple_spring_bond(
   displacement_or_metric: DisplacementOrMetricFn,
   bond: Array,
   bond_type: Array | None = None,
-  length: Array = 1,
-  epsilon: Array = 1,
-  alpha: Array = 2,
+  length: Array | float = 1,
+  epsilon: Array | float = 1,
+  alpha: Array | float = 2,
 ) -> Callable[[Array], Array]:
   """Convenience wrapper to compute energy of particles bonded by springs."""
   length = maybe_downcast(length)
@@ -122,9 +122,9 @@ def simple_spring_bond(
 
 def soft_sphere(
   dr: Array,
-  sigma: Array = 1,
-  epsilon: Array = 1,
-  alpha: Array = 2,
+  sigma: Array | float = 1,
+  epsilon: Array | float = 1,
+  alpha: Array | float = 2,
   **unused_kwargs,
 ) -> Array:
   """.. _soft-sphere:
@@ -174,9 +174,9 @@ def soft_sphere(
 def soft_sphere_pair(
   displacement_or_metric: DisplacementOrMetricFn,
   species: Array | None = None,
-  sigma: Array = 1.0,
-  epsilon: Array = 1.0,
-  alpha: Array = 2.0,
+  sigma: Array | float = 1.0,
+  epsilon: Array | float = 1.0,
+  alpha: Array | float = 2.0,
   per_particle: bool = False,
 ) -> Callable[[Array], Array]:
   """Convenience wrapper to compute :ref:`soft sphere energy <soft-sphere>` over a system."""
@@ -199,9 +199,9 @@ def soft_sphere_neighbor_list(
   displacement_or_metric: DisplacementOrMetricFn,
   box_size: Box,
   species: Array | None = None,
-  sigma: Array = 1.0,
-  epsilon: Array = 1.0,
-  alpha: Array = 2.0,
+  sigma: Array | float = 1.0,
+  epsilon: Array | float = 1.0,
+  alpha: Array | float = 2.0,
   dr_threshold: float = 0.2,
   per_particle: bool = False,
   fractional_coordinates: bool = False,
@@ -242,7 +242,10 @@ def soft_sphere_neighbor_list(
 
 
 def lennard_jones(
-  dr: Array, sigma: Array = 1, epsilon: Array = 1, **unused_kwargs
+  dr: Array,
+  sigma: Array | float = 1,
+  epsilon: Array | float = 1,
+  **unused_kwargs,
 ) -> Array:
   """.. _lj-pot:
 
@@ -270,10 +273,10 @@ def lennard_jones(
 def lennard_jones_pair(
   displacement_or_metric: DisplacementOrMetricFn,
   species: Array | None = None,
-  sigma: Array = 1.0,
-  epsilon: Array = 1.0,
-  r_onset: Array = 2.0,
-  r_cutoff: Array = 2.5,
+  sigma: Array | float = 1.0,
+  epsilon: Array | float = 1.0,
+  r_onset: Array | float = 2.0,
+  r_cutoff: Array | float = 2.5,
   per_particle: bool = False,
 ) -> Callable[[Array], Array]:
   """Convenience wrapper to compute :ref:`Lennard-Jones energy <lj-pot>` over a system."""
@@ -296,8 +299,8 @@ def lennard_jones_neighbor_list(
   displacement_or_metric: DisplacementOrMetricFn,
   box_size: Box,
   species: Array | None = None,
-  sigma: Array = 1.0,
-  epsilon: Array = 1.0,
+  sigma: Array | float = 1.0,
+  epsilon: Array | float = 1.0,
   r_onset: float = 2.0,
   r_cutoff: float = 2.5,
   dr_threshold: float = 0.5,
@@ -340,9 +343,9 @@ def lennard_jones_neighbor_list(
 
 def morse(
   dr: Array,
-  sigma: Array = 1.0,
-  epsilon: Array = 5.0,
-  alpha: Array = 5.0,
+  sigma: Array | float = 1.0,
+  epsilon: Array | float = 5.0,
+  alpha: Array | float = 5.0,
   **unused_kwargs,
 ) -> Array:
   """.. _morse-pot:
@@ -369,9 +372,9 @@ def morse(
 def morse_pair(
   displacement_or_metric: DisplacementOrMetricFn,
   species: Array | None = None,
-  sigma: Array = 1.0,
-  epsilon: Array = 5.0,
-  alpha: Array = 5.0,
+  sigma: Array | float = 1.0,
+  epsilon: Array | float = 5.0,
+  alpha: Array | float = 5.0,
   r_onset: float = 2.0,
   r_cutoff: float = 2.5,
   per_particle: bool = False,
@@ -396,9 +399,9 @@ def morse_neighbor_list(
   displacement_or_metric: DisplacementOrMetricFn,
   box_size: Box,
   species: Array | None = None,
-  sigma: Array = 1.0,
-  epsilon: Array = 5.0,
-  alpha: Array = 5.0,
+  sigma: Array | float = 1.0,
+  epsilon: Array | float = 5.0,
+  alpha: Array | float = 5.0,
   r_onset: float = 2.0,
   r_cutoff: float = 2.5,
   dr_threshold: float = 0.5,
@@ -576,7 +579,7 @@ def multiplicative_isotropic_cutoff(
 
 
 def dsf_coulomb(
-  r: Array, Q_sq: Array, alpha: Array = 0.25, cutoff: float = 8.0
+  r: Array, Q_sq: Array, alpha: Array | float = 0.25, cutoff: float = 8.0
 ) -> Array:
   """Damped-shifted-force approximation of the coulombic interaction."""
   qqr2e = 332.06371  # Coulombic conversion factor: 1/(4*pi*epo).
@@ -1010,7 +1013,7 @@ def stillinger_weber_neighbor_list(
 # Tersoff model
 
 
-def load_lammps_tersoff_parameters(file: TextIO) -> Array:
+def load_lammps_tersoff_parameters(file: TextIO) -> list[Dict[str, Any]]:
   """.. _ts-lammps:
 
   Reads Tersoff parameters from a LAMMPS file and returns parameter tables.
@@ -2269,7 +2272,7 @@ def graph_network(
   n_recurrences: int = 2,
   mlp_sizes: Tuple[int, ...] = (64, 64),
   **model_kwargs,
-) -> 'EnergyGraphNet':
+) -> Callable[..., Array]:
   """Convenience wrapper around EnergyGraphNet model.
 
   Args:
@@ -2411,7 +2414,7 @@ def graph_network_neighbor_list(
 def nequip_neighbor_list(
   displacement_fn,
   box,
-  cfg: ConfigDict = None,
+  cfg: ConfigDict | None = None,
   atoms=None,
   neighbor_list_fn: Callable = partition.neighbor_list,
   featurizer_fn: Callable = nn.util.neighbor_list_featurizer,
