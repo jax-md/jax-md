@@ -499,8 +499,13 @@ def parallelize(f: Callable, topology: Tuple[int]) -> Callable:
   devs = mesh_utils.create_device_mesh(topology)
   mesh = Mesh(devs, labels)
 
+  # TODO: dead xmap-era code (broken since the shard_map migration):
+  # `shard_map` here is the *module*, so this raises "TypeError: 'module'
+  # object is not callable", and the kwargs below are not accepted by the
+  # current API. Needs a rewrite against
+  # `jax.shard_map(f, mesh=..., in_specs=..., out_specs=...)`.
   return mesh(
-    shard_map(
+    shard_map(  # ty: ignore[call-non-callable]
       f,
       in_axes=labels + [...],
       out_axes=labels + [...],

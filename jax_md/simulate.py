@@ -1292,7 +1292,7 @@ def hybrid_swap_mc(
   kT: float,
   t_md: float,
   N_swap: int,
-  sigma_fn: Callable[[Array], Array] | None = None,
+  sigma_fn: Callable[[Array, Array], Array] | None = None,
 ) -> Simulator:
   """Simulation of Hybrid Swap Monte-Carlo.
 
@@ -1341,10 +1341,12 @@ def hybrid_swap_mc(
 
   # Canonicalize the argument names to be dr and sigma.
   wrapped_energy_fn = lambda dr, sigma: energy_fn(dr, sigma)
-  if sigma_fn is None:
-    sigma_fn = lambda si, sj: 0.5 * (si + sj)
+  # Bind to a new name so the non-None narrowing holds inside closures.
+  combine_sigma = (
+    sigma_fn if sigma_fn is not None else lambda si, sj: 0.5 * (si + sj)
+  )
   nbr_energy_fn = smap.pair_neighbor_list(
-    wrapped_energy_fn, metric_fn, sigma=sigma_fn
+    wrapped_energy_fn, metric_fn, sigma=combine_sigma
   )
 
   nvt_init_fn, nvt_step_fn = nvt_nose_hoover(
@@ -1391,11 +1393,11 @@ def hybrid_swap_mc(
     dR = nbr_metric_fn(R_ij, R_neigh)
 
     # Compute the energy before the swap.
-    energy = energy_fn(dR, sigma_fn(sigma_ij, sigma_neigh))
+    energy = energy_fn(dR, combine_sigma(sigma_ij, sigma_neigh))
     energy = jnp.sum(energy * (nbrs_ij < N))
 
     # Compute the energy after the swap.
-    new_energy = energy_fn(dR, sigma_fn(new_sigma_ij, new_sigma_neigh))
+    new_energy = energy_fn(dR, combine_sigma(new_sigma_ij, new_sigma_neigh))
     new_energy = jnp.sum(new_energy * (nbrs_ij < N))
 
     # Accept or reject with a metropolis probability.
