@@ -49,7 +49,7 @@ ForceFn = Callable[..., Array]
 
 T = TypeVar('T')
 InitFn = Callable[..., T]
-ApplyFn = Callable[[T], T]
+ApplyFn = Callable[..., T]
 Simulator = Tuple[InitFn, ApplyFn]
 
 

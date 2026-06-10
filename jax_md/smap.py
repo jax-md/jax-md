@@ -721,10 +721,16 @@ def _get_neighborhood_matrix_params(
     elif params.mapping is ParameterTreeMapping.PerParticle:
       if partition.is_sparse(format):
         c_fn = space.map_bond(combinator)
-        return tree_map(lambda p: c_fn(p[idx[0]], p[idx[1]]), params.tree)
+        return tree_map(
+          lambda p: c_fn(p[idx[0]], p[idx[1]]),  # ty: ignore[too-many-positional-arguments]
+          params.tree,
+        )
       else:
         c_fn = space.map_neighbor(combinator)
-        return tree_map(lambda p: c_fn(p, p[idx]), params.tree)
+        return tree_map(
+          lambda p: c_fn(p, p[idx]),  # ty: ignore[too-many-positional-arguments]
+          params.tree,
+        )
     elif params.mapping is ParameterTreeMapping.PerBond:
 
       def query(p, id_a, id_b):

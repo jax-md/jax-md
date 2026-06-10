@@ -23,7 +23,16 @@ from collections import namedtuple
 from enum import Enum
 from enum import IntEnum
 
-from typing import Any, Callable, Optional, Dict, Tuple, Generator, Union
+from typing import (
+  Any,
+  Callable,
+  Optional,
+  Dict,
+  Tuple,
+  Generator,
+  Union,
+  Protocol,
+)
 
 import math
 from operator import mul
@@ -773,7 +782,17 @@ class NeighborListFns:
     return iter((self.allocate, self.update))
 
 
-NeighborFn = Callable[[Array, NeighborList | None, int], NeighborList]
+class NeighborFn(Protocol):
+  """Allocates or updates a neighbor list, with optional kwargs."""
+
+  def __call__(
+    self,
+    position: Array,
+    neighbors: NeighborList | None = None,
+    /,
+    extra_capacity: int = 0,
+    **kwargs,
+  ) -> NeighborList: ...
 
 
 def neighbor_list(

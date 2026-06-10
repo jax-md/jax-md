@@ -152,7 +152,7 @@ def radial_symmetry_functions_neighbor_list(
   species: Array,
   etas: Array,
   cutoff_distance: float,
-) -> Callable[[Array, NeighborList], Array]:
+) -> Callable[..., Array]:
   """Returns a function that computes radial symmetry functions.
 
 
@@ -335,7 +335,7 @@ def angular_symmetry_functions_neighbor_list(
   lambdas: Array,
   zetas: Array,
   cutoff_distance: float,
-) -> Callable[[Array, NeighborList], Array]:
+) -> Callable[..., Array]:
   """Returns a function that computes angular symmetry functions.
 
   Args:
@@ -448,7 +448,7 @@ def symmetry_functions_neighbor_list(
   lambdas: Array | None = None,
   zetas: Array | None = None,
   cutoff_distance: float = 8.0,
-) -> Callable[[Array, NeighborList], Array]:
+) -> Callable[..., Array]:
   if radial_etas is None:
     radial_etas = jnp.array(
       [9e-4, 0.01, 0.02, 0.035, 0.06, 0.1, 0.2, 0.4], f32

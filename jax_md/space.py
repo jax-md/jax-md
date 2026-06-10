@@ -50,7 +50,7 @@ map_neighbor:
   `[n, neighbors, spatial_dim]`.
 """
 
-from typing import Callable, Union, Tuple, Any, Optional
+from typing import Callable, Union, Tuple, Any, Optional, Protocol
 
 from jax.core import ShapedArray
 
@@ -71,11 +71,26 @@ from jax_md.util import safe_mask
 # Types
 
 
-DisplacementFn = Callable[[Array, Array], Array]
-MetricFn = Callable[[Array, Array], Array]
+class DisplacementFn(Protocol):
+  """Computes the displacement between two points, with optional kwargs."""
+
+  def __call__(self, Ra: Array, Rb: Array, /, **kwargs) -> Array: ...
+
+
+class MetricFn(Protocol):
+  """Computes the distance between two points, with optional kwargs."""
+
+  def __call__(self, Ra: Array, Rb: Array, /, **kwargs) -> Array: ...
+
+
 DisplacementOrMetricFn = Union[DisplacementFn, MetricFn]
 
-ShiftFn = Callable[[Array, Array], Array]
+
+class ShiftFn(Protocol):
+  """Moves points by a displacement, with optional kwargs (e.g. `box`)."""
+
+  def __call__(self, R: Array, dR: Array, /, **kwargs) -> Array: ...
+
 
 Space = Tuple[DisplacementFn, ShiftFn]
 Box = Array

@@ -37,7 +37,7 @@ def pair_neighbor_list_multi_image(
   ignore_unused_parameters: bool = False,  # For API compatibility
   fractional_coordinates: bool = True,
   **static_kwargs,
-) -> Callable[[Array, NeighborListMultiImage], Array]:
+) -> Callable[..., Array]:
   r"""Creates a function for pair potentials using multi-image neighbors.
 
   This function is analogous to ``jax_md.smap.pair_neighbor_list`` but works

@@ -57,7 +57,6 @@ amber = [
     "openmmforcefields",
     "parmed",
 ]
-
 [dependency-groups]
 docs = [
     "sphinx>=7.2.0",
@@ -240,9 +239,6 @@ unresolved-attribute = "ignore"
 not-subscriptable = "ignore"
 invalid-assignment = "ignore"
 unsupported-operator = "ignore"
-# Useful but false-positive-prone (e.g. `energy_fn(R, **kwargs)`): warn only.
-unknown-argument = "warn"
-missing-argument = "warn"
-too-many-positional-arguments = "warn"
+# Useful but false-positive-prone (flax `apply` output unions): warn only.
 index-out-of-bounds = "warn"
 no-matching-overload = "warn"

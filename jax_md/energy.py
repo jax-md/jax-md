@@ -209,7 +209,7 @@ def soft_sphere_neighbor_list(
   neighbor_list_fn: Callable = partition.neighbor_list,
   pair_neighbor_list_fn: Callable = smap.pair_neighbor_list,
   **neighbor_kwargs,
-) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
+) -> Tuple[NeighborFn, Callable[..., Array]]:
   """Convenience wrapper to compute :ref:`soft spheres <soft-sphere>` using a neighbor list."""
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
@@ -310,7 +310,7 @@ def lennard_jones_neighbor_list(
   neighbor_list_fn: Callable = partition.neighbor_list,
   pair_neighbor_list_fn: Callable = smap.pair_neighbor_list,
   **neighbor_kwargs,
-) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
+) -> Tuple[NeighborFn, Callable[..., Array]]:
   """Convenience wrapper to compute :ref:`Lennard-Jones <lj-pot>` using a neighbor list."""
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
@@ -411,7 +411,7 @@ def morse_neighbor_list(
   neighbor_list_fn: Callable = partition.neighbor_list,
   pair_neighbor_list_fn: Callable = smap.pair_neighbor_list,
   **neighbor_kwargs,
-) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
+) -> Tuple[NeighborFn, Callable[..., Array]]:
   """Convenience wrapper to compute :ref:`Morse <morse-pot>` using a neighbor list."""
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
@@ -698,7 +698,7 @@ def bks_neighbor_list(
   neighbor_list_fn: Callable = partition.neighbor_list,
   pair_neighbor_list_fn: Callable = smap.pair_neighbor_list,
   **neighbor_kwargs,
-) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
+) -> Tuple[NeighborFn, Callable[..., Array]]:
   """Convenience wrapper to compute :ref:`BKS energy <bks-pot>` using a neighbor list."""
   Q_sq = maybe_downcast(Q_sq)
   exp_coeff = maybe_downcast(exp_coeff)
@@ -802,7 +802,7 @@ def bks_silica_neighbor_list(
   neighbor_list_fn: Callable = partition.neighbor_list,
   pair_neighbor_list_fn: Callable = smap.pair_neighbor_list,
   **neighbor_kwargs,
-) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
+) -> Tuple[NeighborFn, Callable[..., Array]]:
   """Convenience wrapper to compute :ref:`BKS energy <bks-pot>` using neighbor lists."""
   kwargs = {**BKS_SILICA_DICT, **neighbor_kwargs}
   neighbor_fn, bks_pair_fn = bks_neighbor_list(
@@ -971,7 +971,7 @@ def stillinger_weber_neighbor_list(
   format: NeighborListFormat = partition.Dense,
   neighbor_list_fn: Callable = partition.neighbor_list,
   **neighbor_kwargs,
-) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
+) -> Tuple[NeighborFn, Callable[..., Array]]:
   """Convenience wrapper to compute :ref:`Stillinger-Weber <sw-pot>`
   using a neighbor list.
   """
@@ -1322,7 +1322,7 @@ def tersoff_neighbor_list(
   format: NeighborListFormat = partition.Dense,
   neighbor_list_fn: Callable = partition.neighbor_list,
   **neighbor_kwargs,
-) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
+) -> Tuple[NeighborFn, Callable[..., Array]]:
   """Computes the Tersoff potential.
 
   The Tersoff potential [1] which is commonly used to model
@@ -1420,7 +1420,7 @@ def tersoff_from_lammps_parameters_neighbor_list(
   fractional_coordinates=True,
   neighbor_list_fn: Callable = partition.neighbor_list,
   **neighbor_kwargs,
-) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
+) -> Tuple[NeighborFn, Callable[..., Array]]:
   """Convenience wrapper to compute Tersoff energy with LAMMPS parameters."""
   return tersoff_neighbor_list(
     displacement,
@@ -1618,7 +1618,7 @@ def edip_neighbor_list(
   format: NeighborListFormat = partition.Dense,
   neighbor_list_fn: Callable = partition.neighbor_list,
   **neighbor_kwargs,
-) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
+) -> Tuple[NeighborFn, Callable[..., Array]]:
   two_body_fn = partial(
     _edip_radial_interaction, A, B, rho, sigma, c, alpha, beta, cutoff
   )
@@ -1849,7 +1849,7 @@ def eam_neighbor_list(
   format: partition.NeighborListFormat = partition.Sparse,
   neighbor_list_fn: Callable = partition.neighbor_list,
   **neighbor_kwargs,
-) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
+) -> Tuple[NeighborFn, Callable[..., Array]]:
   """Convenience wrapper to compute :ref:`EAM <eam-pot>` using a neighbor list."""
   metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
 
@@ -1904,7 +1904,7 @@ def eam_from_lammps_parameters_neighbor_list(
   fractional_coordinates=True,
   neighbor_list_fn: Callable = partition.neighbor_list,
   **neighbor_kwargs,
-) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
+) -> Tuple[NeighborFn, Callable[..., Array]]:
   """Convenience wrapper to compute :ref:`EAM energy <eam-pot>`
   with parameters from LAMMPS using a neighbor list.."""
   return eam_neighbor_list(
