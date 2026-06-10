@@ -361,7 +361,9 @@ def _get_matrix_parameters(
 
 
 def _kwargs_to_parameters(
-  species: Array, kwargs: Dict[str, Parameter], combinators: Dict[str, Callable]
+  species: Array | None,
+  kwargs: Dict[str, Parameter],
+  combinators: Dict[str, Callable],
 ) -> Dict[str, Parameter]:
   """Extract parameters from keyword arguments."""
   # NOTE(schsam): We could pull out the species case from the generic case.
@@ -539,7 +541,7 @@ def torsion(
 def pair(
   fn: Callable[..., Array],
   displacement_or_metric: DisplacementOrMetricFn,
-  species: Array | None = None,
+  species: util.ArrayLike | None = None,
   reduce_axis: Tuple[int, ...] | None = None,
   keepdims: bool = False,
   ignore_unused_parameters: bool = False,
@@ -630,7 +632,7 @@ def pair(
   elif util.is_array(species):
     species = onp.array(species)
     _check_species_dtype(species)
-    species_count = int(onp.max(species))  # ty: ignore[no-matching-overload]
+    species_count = int(onp.max(species))
     if reduce_axis is not None or keepdims:
       # TODO(schsam): Support reduce_axis with static species.
       raise ValueError

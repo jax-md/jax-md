@@ -478,21 +478,21 @@ def metric(displacement: DisplacementFn) -> MetricFn:
 
 
 def map_product(
-  metric_or_displacement: DisplacementOrMetricFn,
+  metric_or_displacement: DisplacementOrMetricFn | Callable[..., Array],
 ) -> DisplacementOrMetricFn:
   """Vectorizes a metric or displacement function over all pairs."""
   return vmap(vmap(metric_or_displacement, (0, None), 0), (None, 0), 0)
 
 
 def map_bond(
-  metric_or_displacement: DisplacementOrMetricFn,
+  metric_or_displacement: DisplacementOrMetricFn | Callable[..., Array],
 ) -> DisplacementOrMetricFn:
   """Vectorizes a metric or displacement function over bonds."""
   return vmap(metric_or_displacement, (0, 0), 0)
 
 
 def map_neighbor(
-  metric_or_displacement: DisplacementOrMetricFn,
+  metric_or_displacement: DisplacementOrMetricFn | Callable[..., Array],
 ) -> DisplacementOrMetricFn:
   """Vectorizes a metric or displacement function over neighborhoods."""
 

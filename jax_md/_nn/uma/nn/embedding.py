@@ -57,7 +57,7 @@ def dataset_name_to_idx(name: str, dataset_list: List[str]) -> int:
 
 
 def dataset_names_to_indices(
-  names: List[str], dataset_list: List[str]
+  names: List[str], dataset_list: List[str] | None
 ) -> jnp.ndarray:
   """Convert a list of dataset names to integer indices (call outside JIT).
 
