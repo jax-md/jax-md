@@ -18,19 +18,19 @@ try:
   import openmm.app as app  # type: ignore
   import openmm.unit as unit  # type: ignore
 except ImportError:  # pragma: no cover
-  openmm = None
-  app = None
-  unit = None
+  openmm = None  # ty: ignore[invalid-assignment]
+  app = None  # ty: ignore[invalid-assignment]
+  unit = None  # ty: ignore[invalid-assignment]
 
 try:
   from openmmforcefields.generators import SystemGenerator  # type: ignore
 except ImportError:  # pragma: no cover
-  SystemGenerator = None
+  SystemGenerator = None  # ty: ignore[invalid-assignment]
 
 try:
   import parmed  # type: ignore
 except ImportError:  # pragma: no cover
-  parmed = None
+  parmed = None  # ty: ignore[invalid-assignment]
 
 from jax_md import partition, simulate, space, util
 from jax_md.mm_forcefields.base import (
@@ -139,9 +139,9 @@ class OpenMMSystem(NamedTuple):
   params: Parameters
   box_vectors: Array | None
   nb_options: NonbondedOptions
-  recip_alpha: float | None
+  recip_alpha: Array | None
   recip_grid: Array | None
-  ewald_error_tolerance: float | None
+  ewald_error_tolerance: Array | None
   masses: Array | None
   virtual_sites: VirtualSiteData | None
   constraint_idx: Array | None
@@ -207,7 +207,9 @@ def _charmm_read_box(psf: Any, filename: str) -> Any:
         if segments[0].strip() == 'BOXLZ':
           boxlz = float(segments[1])
   psf.setBox(
-    boxlx * unit.angstroms, boxly * unit.angstroms, boxlz * unit.angstroms
+    boxlx * unit.angstroms,  # ty: ignore[unsupported-operator]
+    boxly * unit.angstroms,  # ty: ignore[unsupported-operator]
+    boxlz * unit.angstroms,  # ty: ignore[unsupported-operator]
   )
   return psf
 
@@ -259,9 +261,13 @@ def load_gromacs_system(
     includeDir='/usr/local/gromacs/share/gromacs/top',
   )
   if nb_method is None:
-    nb_method = app.PME if gro.boxVectors is not None else app.NoCutoff
+    nb_method = (
+      app.PME
+      if gro.boxVectors is not None  # ty: ignore[unresolved-attribute]
+      else app.NoCutoff
+    )
   system = top.createSystem(nonbondedMethod=nb_method, **kwargs)
-  return system, top.topology, positions, gro.boxVectors
+  return system, top.topology, positions, gro.boxVectors  # ty: ignore[unresolved-attribute]
 
 
 # TODO is this necessary/will amoeba be supported?
@@ -320,7 +326,7 @@ def load_generator_system(
     )
 
   create_system_kwargs = create_system_kwargs or {}
-  system = generator.createSystem(
+  system = generator.createSystem(  # ty: ignore[possibly-unbound-attribute]
     topology,
     molecules=molecules,
     nonbondedMethod=nb_method,
@@ -676,7 +682,9 @@ def convert_openmm_system(
           or (int(ny) == 0)
           or (int(nz) == 0)
         ):
-          integrator = openmm.VerletIntegrator(1.0 * unit.femtosecond)
+          integrator = openmm.VerletIntegrator(
+            1.0 * unit.femtosecond  # ty: ignore[unresolved-attribute]
+          )
           platform = openmm.Platform.getPlatformByName('Reference')
           context = openmm.Context(system, integrator, platform)
           context.setPositions(positions)
@@ -771,10 +779,16 @@ def convert_openmm_system(
             * values[:, 1]
             * (
               _eval_nonbonded_switch_integral(
-                r_cut, r_switch_cur, r_cut, values[:, 0]
+                r_cut,  # ty: ignore[invalid-argument-type]
+                r_switch_cur,
+                r_cut,  # ty: ignore[invalid-argument-type]
+                values[:, 0],
               )
               - _eval_nonbonded_switch_integral(
-                r_switch_cur, r_switch_cur, r_cut, values[:, 0]
+                r_switch_cur,
+                r_switch_cur,
+                r_cut,  # ty: ignore[invalid-argument-type]
+                values[:, 0],
               )
             )
           )
@@ -787,9 +801,12 @@ def convert_openmm_system(
             count_c
             * eps_c
             * (
-              _eval_nonbonded_switch_integral(r_cut, r_switch_cur, r_cut, sig_c)
+              _eval_nonbonded_switch_integral(r_cut, r_switch_cur, r_cut, sig_c)  # ty: ignore[invalid-argument-type]
               - _eval_nonbonded_switch_integral(
-                r_switch_cur, r_switch_cur, r_cut, sig_c
+                r_switch_cur,
+                r_switch_cur,
+                r_cut,  # ty: ignore[invalid-argument-type]
+                sig_c,
               )
             )
           )
@@ -978,19 +995,19 @@ def convert_openmm_system(
 
   # TODO jax types?
   nb_options = NonbondedOptions(
-    r_cut=r_cut,
+    r_cut=r_cut,  # ty: ignore[invalid-argument-type]
     dr_threshold=dr_threshold,
     use_soft_lj=use_soft_lj,
-    lj_cap=lj_cap,
+    lj_cap=lj_cap,  # ty: ignore[invalid-argument-type]
     use_shift_lj=use_shift_lj,
-    scale_14_lj=scale_14_lj,
-    scale_14_coul=scale_14_coul,
+    scale_14_lj=scale_14_lj,  # ty: ignore[invalid-argument-type]
+    scale_14_coul=scale_14_coul,  # ty: ignore[invalid-argument-type]
     use_pbc=use_pbc,
     nb_format=format,
     use_periodic_general=use_periodic_general,
     fractional_coordinates=fractional_coordinates,
     disp_coef=disp_coef,
-    r_switch=r_switch,
+    r_switch=r_switch,  # ty: ignore[invalid-argument-type]
   )
 
   # To guard against cases where box vectors are provided, but not used
@@ -1189,6 +1206,6 @@ def virtual_site_fix_state(
   )
   safe_force = jnp.where(mask, jnp.zeros_like(state.force), state.force)
 
-  return state.set(
+  return state.set(  # ty: ignore[unresolved-attribute]
     position=pos, mass=safe_mass, momentum=safe_momentum, force=safe_force
   )
