@@ -486,7 +486,7 @@ def mesh_and_axes(topology):
   return mesh, P(*labels)
 
 
-def parallelize(f: Callable, topology: Tuple[int]) -> Callable:
+def parallelize(f: Callable, topology: Tuple[int, ...]) -> Callable:
   """Apply pmap for each axis over which the computation is distributed."""
 
   if not topology:
@@ -514,7 +514,7 @@ def parallelize(f: Callable, topology: Tuple[int]) -> Callable:
   )
 
 
-def _psum(x: Array, topology: Tuple[int]) -> Array:
+def _psum(x: Array, topology: Tuple[int, ...]) -> Array:
   labels = ['X', 'Y', 'Z']
   n = len(topology)
   labels = labels[:n]

@@ -871,7 +871,9 @@ def _transform_to_diagonal_frame(shape: RigidPointUnion) -> RigidPointUnion:
   )
 
 
-def point_union_shape(points: Array, masses: Array) -> RigidPointUnion:
+def point_union_shape(
+  points: util.ArrayLike, masses: util.ArrayLike
+) -> RigidPointUnion:
   """Construct a rigid body out of points and masses.
 
   See :ref:`rigid_body_union` for details.

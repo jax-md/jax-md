@@ -67,6 +67,7 @@ maybe_downcast = util.maybe_downcast
 f32 = util.f32
 f64 = util.f64
 Array = util.Array
+ArrayLike = util.ArrayLike
 
 PyTree = Any
 Box = space.Box
@@ -650,13 +651,13 @@ def bks(
 
 def bks_pair(
   displacement_or_metric: DisplacementOrMetricFn,
-  species: Array,
-  Q_sq: Array,
-  exp_coeff: Array,
-  exp_decay: Array,
-  attractive_coeff: Array,
-  repulsive_coeff: Array,
-  coulomb_alpha: Array,
+  species: ArrayLike,
+  Q_sq: ArrayLike,
+  exp_coeff: ArrayLike,
+  exp_decay: ArrayLike,
+  attractive_coeff: ArrayLike,
+  repulsive_coeff: ArrayLike,
+  coulomb_alpha: ArrayLike,
   cutoff: float,
 ) -> Callable[[Array], Array]:
   """Convenience wrapper to compute :ref:`BKS energy <bks-pot>` over a system."""
@@ -684,13 +685,13 @@ def bks_pair(
 def bks_neighbor_list(
   displacement_or_metric: DisplacementOrMetricFn,
   box_size: Box,
-  species: Array,
-  Q_sq: Array,
-  exp_coeff: Array,
-  exp_decay: Array,
-  attractive_coeff: Array,
-  repulsive_coeff: Array,
-  coulomb_alpha: Array,
+  species: ArrayLike,
+  Q_sq: ArrayLike,
+  exp_coeff: ArrayLike,
+  exp_decay: ArrayLike,
+  attractive_coeff: ArrayLike,
+  repulsive_coeff: ArrayLike,
+  coulomb_alpha: ArrayLike,
   cutoff: float,
   dr_threshold: float = 0.8,
   fractional_coordinates: bool = False,

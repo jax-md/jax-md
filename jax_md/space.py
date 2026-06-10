@@ -63,6 +63,7 @@ import jax
 import jax.numpy as jnp
 
 from jax_md.util import Array
+from jax_md.util import ArrayLike
 from jax_md.util import f32
 from jax_md.util import f64
 from jax_md.util import safe_mask
@@ -93,7 +94,7 @@ class ShiftFn(Protocol):
 
 
 Space = Tuple[DisplacementFn, ShiftFn]
-Box = Array
+Box = ArrayLike
 
 
 # Exceptions
@@ -106,8 +107,9 @@ class UnexpectedBoxException(Exception):
 # Primitive Spatial Transforms
 
 
-def inverse(box: Box) -> Box:
+def inverse(box: Box) -> Array:
   """Compute the inverse of an affine transformation."""
+  box = jnp.asarray(box)
   if jnp.isscalar(box) or box.size == 1:
     return 1 / box
   elif box.ndim == 1:

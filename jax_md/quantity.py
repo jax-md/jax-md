@@ -110,6 +110,7 @@ def count_dof(position: Array) -> int:
 
 
 def volume(dimension: int, box: Box) -> Array:
+  box = jnp.asarray(box)
   if jnp.isscalar(box) or not box.ndim:
     return box**dimension
   elif box.ndim == 1:
@@ -662,7 +663,7 @@ def box_size_at_number_density(
 
 def box_from_parameters(
   a: float, b: float, c: float, alpha: float, beta: float, gamma: float
-) -> Box:
+) -> Array:
   alpha = alpha * jnp.pi / 180
   beta = beta * jnp.pi / 180
   gamma = gamma * jnp.pi / 180

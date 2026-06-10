@@ -58,6 +58,7 @@ import jraph
 
 
 Array = util.Array
+ArrayLike = util.ArrayLike
 PyTree = Any
 f32 = util.f32
 f64 = util.f64
@@ -798,8 +799,8 @@ class NeighborFn(Protocol):
 def neighbor_list(
   displacement_or_metric: DisplacementOrMetricFn,
   box: Box,
-  r_cutoff: float,
-  dr_threshold: float = 0.0,
+  r_cutoff: ArrayLike,
+  dr_threshold: ArrayLike = 0.0,
   capacity_multiplier: float = 1.25,
   disable_cell_list: bool = False,
   mask_self: bool = True,

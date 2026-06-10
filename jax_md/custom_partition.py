@@ -2,7 +2,7 @@ from functools import partial
 
 import jax
 import jax.numpy as jnp
-from jax_md import dataclasses, partition, space
+from jax_md import dataclasses, partition, space, util
 from jax_md.partition import NeighborListFormat
 from typing import Callable, Tuple, Union
 
@@ -792,8 +792,8 @@ def estimate_max_neighbors_from_box(
 
 def neighbor_list_multi_image(
   displacement_or_metric,  # Ignored, for API compatibility
-  box: Array,  # [dim, dim]
-  r_cutoff: float,
+  box: util.ArrayLike,  # [dim, dim]
+  r_cutoff: util.ArrayLike,
   dr_threshold: float = 0.0,
   capacity_multiplier: float = 1.25,
   pbc: Array | None = None,  # [dim]

@@ -60,6 +60,7 @@ static_cast = util.static_cast
 
 
 Array = util.Array
+ArrayLike = util.ArrayLike
 f32 = util.f32
 f64 = util.f64
 
@@ -138,7 +139,7 @@ def canonicalize_mass(state: T) -> T:
 
 
 @dispatch_by_state
-def initialize_momenta(state: T, key: Array, kT: float) -> T:
+def initialize_momenta(state: T, key: Array, kT: ArrayLike) -> T:
   """Initialize momenta with the Maxwell-Boltzmann distribution."""
   R, mass = state.position, state.mass
 
@@ -561,7 +562,7 @@ def nvt_nose_hoover(
   energy_or_force_fn: Callable[..., Array],
   shift_fn: ShiftFn,
   dt: float,
-  kT: float,
+  kT: ArrayLike,
   chain_length: int = 5,
   chain_steps: int = 2,
   sy_steps: int = 3,
@@ -663,7 +664,7 @@ def nvt_nose_hoover(
 def nvt_nose_hoover_invariant(
   energy_fn: Callable[..., Array],
   state: NVTNoseHooverState,
-  kT: float,
+  kT: ArrayLike,
   **kwargs,
 ) -> float:
   """The conserved quantity for the NVT ensemble with a Nose-Hoover thermostat.
@@ -762,7 +763,7 @@ def _npt_box_info(
   return V, lambda V: (V / V_0) ** (1 / dim) * ref
 
 
-def npt_box(state: NPTNoseHooverState) -> Box:
+def npt_box(state: NPTNoseHooverState) -> Array:
   """Get the current box from an NPT simulation."""
   dim = state.position.shape[1]
   ref = state.reference_box
@@ -776,7 +777,7 @@ def npt_nose_hoover(
   shift_fn: ShiftFn,
   dt: float,
   pressure: float,
-  kT: float,
+  kT: ArrayLike,
   barostat_kwargs: Dict | None = None,
   thermostat_kwargs: Dict | None = None,
 ) -> Simulator:
@@ -996,7 +997,7 @@ def npt_nose_hoover_invariant(
   energy_fn: Callable[..., Array],
   state: NPTNoseHooverState,
   pressure: float,
-  kT: float,
+  kT: ArrayLike,
   **kwargs,
 ) -> float:
   """The conserved quantity for the NPT ensemble with a Nose-Hoover thermostat.
@@ -1088,7 +1089,7 @@ class NVTLangevinState:
 
 @dispatch_by_state
 def stochastic_step(
-  state: NVTLangevinState, dt: float, kT: float, gamma: float
+  state: NVTLangevinState, dt: float, kT: ArrayLike, gamma: float
 ):
   """A single stochastic step (the `O` step)."""
   c1 = jnp.exp(-gamma * dt)
@@ -1102,7 +1103,7 @@ def nvt_langevin(
   energy_or_force_fn: Callable[..., Array],
   shift_fn: ShiftFn,
   dt: float,
-  kT: float,
+  kT: ArrayLike,
   gamma: float = 0.1,
   center_velocity: bool = True,
   **sim_kwargs,
@@ -1197,7 +1198,7 @@ def brownian(
   energy_or_force: Callable[..., Array],
   shift: ShiftFn,
   dt: float,
-  kT: float,
+  kT: ArrayLike,
   gamma: float = 0.1,
 ) -> Simulator:
   """Simulation of Brownian dynamics.
@@ -1289,7 +1290,7 @@ def hybrid_swap_mc(
   energy_fn: Callable[[Array, Array], Array],
   neighbor_fn: partition.NeighborFn,
   dt: float,
-  kT: float,
+  kT: ArrayLike,
   t_md: float,
   N_swap: int,
   sigma_fn: Callable[[Array, Array], Array] | None = None,
@@ -1423,7 +1424,7 @@ def temp_rescale(
   energy_or_force_fn: Callable[..., Array],
   shift_fn: ShiftFn,
   dt: float,
-  kT: float,
+  kT: ArrayLike,
   window: float,
   fraction: float,
   **sim_kwargs,
@@ -1491,7 +1492,7 @@ def temp_berendsen(
   energy_or_force_fn: Callable[..., Array],
   shift_fn: ShiftFn,
   dt: float,
-  kT: float,
+  kT: ArrayLike,
   tau: float,
   **sim_kwargs,
 ) -> Simulator:
@@ -1555,7 +1556,7 @@ def nvk(
   energy_or_force_fn: Callable[..., Array],
   shift_fn: ShiftFn,
   dt: float,
-  kT: float,
+  kT: ArrayLike,
   **sim_kwargs,
 ) -> Simulator:
   """Simulation in the NVK (isokinetic) ensemble using the Gaussian thermostat.
@@ -1671,7 +1672,7 @@ def temp_csvr(
   energy_or_force_fn: Callable[..., Array],
   shift_fn: ShiftFn,
   dt: float,
-  kT: float,
+  kT: ArrayLike,
   tau: float,
   **sim_kwargs,
 ) -> Simulator:

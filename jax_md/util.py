@@ -16,6 +16,7 @@
 
 from typing import Iterable, Union, Optional, Any
 
+import jax
 from jax.tree_util import register_pytree_node
 import jax.numpy as jnp
 from jax import jit
@@ -27,6 +28,8 @@ import numpy as onp
 from jax.extend.backend import get_backend
 
 Array = jnp.ndarray
+# Accepted for array inputs: jax/numpy arrays and python scalars.
+ArrayLike = jax.typing.ArrayLike
 PyTree = Any
 
 i16 = jnp.int16
