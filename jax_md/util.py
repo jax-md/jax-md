@@ -24,11 +24,7 @@ from functools import partial
 
 import numpy as onp
 
-# Backward compatible import for get_backend
-try:
-  from jax.extend.backend import get_backend
-except (ImportError, AttributeError):
-  from jax.lib.xla_bridge import get_backend
+from jax.extend.backend import get_backend
 
 Array = jnp.ndarray
 PyTree = Any

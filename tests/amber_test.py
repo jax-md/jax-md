@@ -92,6 +92,8 @@ from jax_md.mm_forcefields.nonbonded import electrostatics
 
 jax.config.parse_flags_with_absl()
 
+import pytest
+
 try:
   import openmm
   import openmm.app as app

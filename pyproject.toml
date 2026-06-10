@@ -48,6 +48,7 @@ dependencies = [
     "optax",
     "frozendict",
     "pymatgen>=2021.3.4",
+    "typing-extensions>=4.5",  # dataclass_transform
 ]
 
 [project.optional-dependencies]
@@ -80,6 +81,7 @@ docs = [
 testing = [
     "pytest",
     "ase",
+    "netCDF4",
 ]
 mace = [
     "mace_jax @ git+https://github.com/ACEsuit/mace-jax@fe19806 ; python_version >= '3.11'",
@@ -88,10 +90,13 @@ uma = [
     "torch>=2.0.0",           # Loading PyTorch UMA checkpoints
     "huggingface_hub",        # Downloading pretrained models
 ]
-dev = [
-    "pytest",
-    "ase",
+lint = [
     "ruff",
+    "ty==0.0.46",
+]
+dev = [
+    {include-group = "lint"},
+    {include-group = "testing"},
     "pre-commit",
     "torch>=2.0.0",
     "e3nn",                   # Exact grid matrix computation
@@ -221,3 +226,28 @@ src = { include = ["jax_md","tests"] }
 
 [tool.ty.environment]
 python-version = "3.10"
+
+[tool.ty.analysis]
+allowed-unresolved-imports = [
+    "mace_jax.**", "torch.**", "fairchem.**", "e3nn.**",
+    "huggingface_hub.**", "openmm.**", "openmmforcefields.**",
+    "parmed.**", "netCDF4.**", "google.colab.**", "IPython.**",
+]
+
+[tool.ty.rules]
+invalid-argument-type = "ignore"
+unresolved-attribute = "ignore"
+not-subscriptable = "ignore"
+invalid-parameter-default = "ignore"
+invalid-return-type = "ignore"
+invalid-assignment = "ignore"
+unsupported-operator = "ignore"
+# Useful but false-positive-prone (e.g. `energy_fn(R, **kwargs)`): warn only.
+unknown-argument = "warn"
+missing-argument = "warn"
+too-many-positional-arguments = "warn"
+index-out-of-bounds = "warn"
+no-matching-overload = "warn"
+not-iterable = "warn"
+call-non-callable = "warn"
+invalid-type-form = "warn"

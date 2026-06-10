@@ -1035,6 +1035,7 @@ def load_lammps_tersoff_parameters(file: TextIO) -> Array:
   # if the number of parameters in one line is less than params_per_line,
   # additional line is appended to match.
   skip = False
+  line_keep = ''
   for line in file.read().split('\n'):
     words = line.strip().split()
     nwords = len(words)

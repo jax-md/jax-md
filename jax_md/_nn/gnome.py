@@ -95,7 +95,7 @@ def scale_lr_on_plateau(
 
   def update_fn(updates, state, params=None):
     del params
-    updates = jax.tree_util.tree_map(lambda g: g * state.step_size, updates)
+    updates = tree_map(lambda g: g * state.step_size, updates)
     return updates, state
 
   return optax.GradientTransformation(init_fn, update_fn)

@@ -22,16 +22,14 @@ jobs:
       uses: astral-sh/setup-uv@v5
     - name: Set up Python
       run: uv python install 3.12
-    - name: Create virtual environment
-      run: uv venv --python 3.12
     - name: Install dependencies
-      run: |
-        uv pip install .
-        uv pip install ruff
+      run: uv sync --python 3.12 --no-default-groups --group lint --group testing
     - name: Run ruff check
-      run: uv run ruff check .
+      run: uv run --no-sync ruff check .
     - name: Run ruff format check
-      run: uv run ruff format --check .
+      run: uv run --no-sync ruff format --check .
+    - name: Run ty check
+      run: uv run --no-sync ty check
 
   test:
     runs-on: ubuntu-latest
