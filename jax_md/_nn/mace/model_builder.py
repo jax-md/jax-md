@@ -8,10 +8,10 @@ from e3nn_jax import Irreps
 
 from flax import nnx
 
-from mace_jax.adapters.nnx import resolve_gate_callable
-from mace_jax.modules import interaction_classes, readout_classes
-from mace_jax.modules.models import MACE, ScaleShiftMACE
-from mace_jax.modules.wrapper_ops import CuEquivarianceConfig
+from mace_jax.adapters.nnx import resolve_gate_callable  # ty: ignore[unresolved-import]
+from mace_jax.modules import interaction_classes, readout_classes  # ty: ignore[unresolved-import]
+from mace_jax.modules.models import MACE, ScaleShiftMACE  # ty: ignore[unresolved-import]
+from mace_jax.modules.wrapper_ops import CuEquivarianceConfig  # ty: ignore[unresolved-import]
 
 
 def normalize_cueq_config(

@@ -271,7 +271,7 @@ class FullyConnectedTensorProductE3nn(nn.Module):
           f'{tp.irreps_in1[ins.i_in1]},'
           f'{tp.irreps_in2[ins.i_in2]},{tp.irreps_out[ins.i_out]}'
         ),
-        nn.initializers.normal(stddev=ins.weight_std),
+        initializers.normal(stddev=ins.weight_std),
         ins.path_shape,
       )
       for ins in tp.instructions
@@ -302,7 +302,8 @@ class Linear(nn.Module):
       )
 
     if irreps_in is not None:
-      x = IrrepsArray(irreps_in, x)
+      # If `irreps_in` is specified, `x` may be a plain array at runtime.
+      x = IrrepsArray(irreps_in, x)  # ty: ignore[invalid-argument-type]
 
     x = x.remove_nones().simplify()
 
@@ -311,14 +312,14 @@ class Linear(nn.Module):
     w = [
       self.param(
         f'b[{ins.i_out}] {lin.irreps_out[ins.i_out]}',
-        nn.initializers.normal(stddev=ins.weight_std),
+        initializers.normal(stddev=ins.weight_std),
         ins.path_shape,
       )
       if ins.i_in == -1
       else self.param(
         f'w[{ins.i_in},{ins.i_out}] {lin.irreps_in[ins.i_in]},'
         f'{lin.irreps_out[ins.i_out]}',
-        nn.initializers.normal(stddev=ins.weight_std),
+        initializers.normal(stddev=ins.weight_std),
         ins.path_shape,
       )
       for ins in lin.instructions

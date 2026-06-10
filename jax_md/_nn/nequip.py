@@ -122,7 +122,7 @@ class NequIPConvolution(nn.Module):
     self,
     node_features: IrrepsArray,
     node_attributes: IrrepsArray,
-    edge_sh: Array,
+    edge_sh: IrrepsArray,
     edge_src: Array,
     edge_dst: Array,
     edge_embedded: Array,
