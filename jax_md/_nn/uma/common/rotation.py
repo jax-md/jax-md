@@ -68,7 +68,7 @@ def _safe_atan2_jvp(primals, tangents):
 
 def init_edge_rot_euler_angles(
   edge_distance_vec: jnp.ndarray,
-  rng_key: jax.random.PRNGKey | None = None,
+  rng_key: jax.Array | None = None,
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
   """Compute Euler angles for rotating to edge-aligned frame.
 
@@ -372,7 +372,7 @@ def get_wigner_and_mapping(
   Jd_list: List[jnp.ndarray],
   to_m: jnp.ndarray,
   coefficient_index: jnp.ndarray,
-  rng_key: jax.random.PRNGKey | None = None,
+  rng_key: jax.Array | None = None,
 ) -> Tuple[jnp.ndarray, jnp.ndarray]:
   """Compute Wigner matrices with M-mapping for SO(2) convolutions.
 

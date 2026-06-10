@@ -103,7 +103,9 @@ class CellList:
   did_buffer_overflow: Array
 
   cell_capacity: int = dataclasses.static_field()
-  cell_size: dataclasses.static_field()
+  # NOTE: annotated without `= static_field()` historically, so this is a
+  # dynamic (pytree) field; marking it static would change tree structure.
+  cell_size: float | Array
 
   update_fn: Callable[..., 'CellList'] = dataclasses.static_field()
 
