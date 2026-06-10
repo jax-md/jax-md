@@ -2,6 +2,7 @@ import os
 
 import jax
 import pymatgen as mg
+import pymatgen.core
 from absl.testing import absltest, parameterized
 
 from jax_md.a2c.crystallizer_utils import (

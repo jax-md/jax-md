@@ -61,10 +61,9 @@ def energy(
   """
   displacement_fn, shift_fn = space.periodic(box)
 
-  # TODO fix type error
   neighbor_fn: NeighborListFns = neighbor.create_neighbor_list(
     displacement_fn, box, nb_options.r_cut, nb_options.dr_threshold
-  )  # type: ignore
+  )
 
   # Extract parameters for convenience
   bonded = params.bonded

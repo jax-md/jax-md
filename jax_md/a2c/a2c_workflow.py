@@ -28,6 +28,7 @@ from jax_md import space, energy, quantity, simulate
 from jax_md.minimize import fire_descent
 
 import pymatgen as mg
+import pymatgen.core
 from pymatgen.analysis.structure_analyzer import SpacegroupAnalyzer
 from pymatgen.analysis.structure_matcher import StructureMatcher
 

@@ -14,21 +14,21 @@ import numpy as np
 
 # TODO convert these to use sentinel variable to avoid type checking issues
 try:
-  import openmm  # type: ignore
-  import openmm.app as app  # type: ignore
-  import openmm.unit as unit  # type: ignore
+  import openmm
+  import openmm.app as app
+  import openmm.unit as unit
 except ImportError:  # pragma: no cover
   openmm = None
   app = None
   unit = None
 
 try:
-  from openmmforcefields.generators import SystemGenerator  # type: ignore
+  from openmmforcefields.generators import SystemGenerator
 except ImportError:  # pragma: no cover
   SystemGenerator = None
 
 try:
-  import parmed  # type: ignore
+  import parmed
 except ImportError:  # pragma: no cover
   parmed = None
 
@@ -350,7 +350,7 @@ def load_parmed_system(
 
   # Normalize to a ParmEd Structure.
   if isinstance(structure, str):
-    structure = parmed.load_file(structure, param_files)  # type: ignore
+    structure = parmed.load_file(structure, param_files)
 
   box_vectors = getattr(structure, 'box_vectors', None)
   if nb_method is None:
