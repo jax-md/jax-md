@@ -54,7 +54,7 @@ class BetaSwish(nn.Module):
   @nn.compact
   def __call__(self, x):
     features = x.shape[-1]
-    beta = self.param('Beta', nn.initializers.ones, (features,))
+    beta = self.param('Beta', initializers.ones, (features,))
     return x * nn.sigmoid(beta * x)
 
 

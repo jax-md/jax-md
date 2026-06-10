@@ -189,7 +189,9 @@ class NequIPTest(test_util.JAXMDTestCase):
     @jax.jit
     def apply_fn(params, atoms, position, nbrs):
       f = nn_util.neighbor_list_featurizer(displacement)
-      return net.apply(params, f(atoms, pos, nbrs))[0, 0]
+      # `net.apply` returns the model output array here, not the
+      # `(output, variables)` tuple flax's overloads suggest.
+      return net.apply(params, f(atoms, pos, nbrs))[0, 0]  # ty: ignore[invalid-argument-type]
 
     nbrs = neighbor.allocate(pos)
     params = init_fn(random.PRNGKey(c.seed), atoms, pos, nbrs)
@@ -266,7 +268,9 @@ class NequIPTest(test_util.JAXMDTestCase):
     @jax.jit
     def apply_fn(params, atoms, position, nbrs):
       f = nn_util.neighbor_list_featurizer(displacement)
-      return net.apply(params, f(atoms, pos, nbrs))[0, 0]
+      # `net.apply` returns the model output array here, not the
+      # `(output, variables)` tuple flax's overloads suggest.
+      return net.apply(params, f(atoms, pos, nbrs))[0, 0]  # ty: ignore[invalid-argument-type]
 
     nbrs = neighbor.allocate(pos)
     params = init_fn(random.PRNGKey(c.seed), atoms, pos, nbrs)

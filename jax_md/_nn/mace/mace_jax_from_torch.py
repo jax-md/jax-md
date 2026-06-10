@@ -157,8 +157,8 @@ def convert_model(
     callable model via ``nnx.merge(graphdef, state)``.
   """
   from flax import nnx
-  from mace_jax.nnx_utils import state_to_serializable_dict
-  from mace_jax.tools.import_from_torch import import_from_torch
+  from mace_jax.nnx_utils import state_to_serializable_dict  # ty: ignore[unresolved-import]
+  from mace_jax.tools.import_from_torch import import_from_torch  # ty: ignore[unresolved-import]
   from jax_md._nn.mace.model_builder import build_jax_model
 
   config = dict(config)
@@ -199,7 +199,7 @@ def save_model(state, config, path):
   Writes parameters to ``path`` (msgpack) and config to ``path.json``.
   """
   from flax import serialization
-  from mace_jax.nnx_utils import state_to_pure_dict
+  from mace_jax.nnx_utils import state_to_pure_dict  # ty: ignore[unresolved-import]
 
   path = Path(path)
   variables = state_to_pure_dict(state)
