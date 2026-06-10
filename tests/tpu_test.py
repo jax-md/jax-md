@@ -86,10 +86,10 @@ def get_test_grid(
   for _bs in box_size:
     points.append(onp.linspace(0.0, _bs - 1, num=int(np.ceil(_bs * 2))))
   if num_dims == 3:
-    X, Y, Z = onp.meshgrid(*points)
+    X, Y, Z = onp.meshgrid(*points)  # ty: ignore[invalid-assignment]
     R = onp.stack((X.ravel(), Y.ravel(), Z.ravel()), axis=1) + 0.1
   elif num_dims == 2:
-    X, Y = onp.meshgrid(*points)
+    X, Y = onp.meshgrid(*points)  # ty: ignore[invalid-assignment]
     R = onp.stack((X.ravel(), Y.ravel()), axis=1) + 0.1
   elif num_dims == 1:
     R = points[0].reshape((-1, 1)) + 0.1

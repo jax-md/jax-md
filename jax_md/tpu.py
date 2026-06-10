@@ -36,7 +36,7 @@ import functools
 
 import math
 
-from typing import Optional, Union, Any, Tuple, Callable
+from typing import Optional, Union, Any, Tuple, Callable, TypeVar, overload
 
 import einops
 
@@ -68,6 +68,8 @@ Array = space.Array
 PyTree = Any
 TreeDef = Any
 Simulator = simulate.Simulator
+
+F = TypeVar('F', bound=Callable)
 
 # TPU Grid Type
 # -----------------------------------------------------------------------------
@@ -121,16 +123,40 @@ class TPUGrid:
 
   cell_data: Array
 
-  topology: Tuple[int, ...] = dataclasses.static_field()
-  factors: Tuple[int, ...] = dataclasses.static_field()
-  box_size_in_cells: Union[int, Tuple[int, ...]] = dataclasses.static_field()
-  cell_size: float = dataclasses.static_field()
-  max_grid_distance: int = dataclasses.static_field()
-  num_dims: int = dataclasses.static_field()
+  topology: Tuple[int, ...] = dataclasses.static_field()  # ty: ignore[invalid-assignment]
+  factors: Tuple[int, ...] = dataclasses.static_field()  # ty: ignore[invalid-assignment]
+  box_size_in_cells: Union[int, Tuple[int, ...]] = dataclasses.static_field()  # ty: ignore[invalid-assignment]
+  cell_size: float = dataclasses.static_field()  # ty: ignore[invalid-assignment]
+  max_grid_distance: int = dataclasses.static_field()  # ty: ignore[invalid-assignment]
+  num_dims: int = dataclasses.static_field()  # ty: ignore[invalid-assignment]
 
 
 # Core Public API
 # -----------------------------------------------------------------------------
+
+
+@overload
+def to_grid(
+  positions: Array,
+  box_size_in_cells: Union[int, Tuple[int, ...]],
+  cell_size: float,
+  max_interaction_distance: float,
+  topology: Tuple[int, ...] | None = None,
+  aux: None = None,
+  strategy: str = 'closest',
+) -> TPUGrid: ...
+
+
+@overload
+def to_grid(
+  positions: Array,
+  box_size_in_cells: Union[int, Tuple[int, ...]],
+  cell_size: float,
+  max_interaction_distance: float,
+  topology: Tuple[int, ...] | None = None,
+  aux: PyTree = ...,
+  strategy: str = 'closest',
+) -> Tuple[TPUGrid, PyTree]: ...
 
 
 def to_grid(
@@ -194,7 +220,7 @@ def to_grid(
     )
 
   # Function to fold the grid on each device separately.
-  inner_fold_fn = lambda grid: _fold_grid(grid, max_grid_distance, batch_size)
+  inner_fold_fn = lambda grid: _fold_grid(grid, max_grid_distance, batch_size)  # ty: ignore[invalid-argument-type]
 
   if aux is not None:
     aux_tree, aux_sizes = _get_aux_spec(num_dims, aux)
@@ -292,7 +318,7 @@ def random_grid(
   box_size_in_cells: Union[int, Tuple[int, ...]],
   cell_size: float,
   max_interaction_distance: float,
-  topology: Tuple[int, ...] | None = None,
+  topology: Tuple[int, ...] = None,  # ty: ignore[invalid-parameter-default]
 ) -> TPUGrid:
   """Place particles, and optionally auxiliary data, into a TPUGrid.
 
@@ -339,7 +365,7 @@ def random_grid(
   assert np.all(np.isclose(arr_box_size, np.round(arr_box_size)))
   arr_box_size = tuple(arr_box_size.astype(np.int32))
 
-  pkeys = random.split(key, onp.prod(topology))
+  pkeys = random.split(key, onp.prod(topology))  # ty: ignore[invalid-argument-type]
   pkeys = np.reshape(pkeys, topology + (2,))
 
   def create_instance_by_key(key):
@@ -367,7 +393,7 @@ def random_grid(
   )
 
   # Function to fold the grid on each device separately.
-  inner_fold_fn = lambda grid: _fold_grid(grid, max_grid_distance, batch_size)
+  inner_fold_fn = lambda grid: _fold_grid(grid, max_grid_distance, batch_size)  # ty: ignore[invalid-argument-type]
   inner_fold_fn = parallelize(inner_fold_fn, topology)
 
   cell_data, factors = inner_fold_fn(cell_data)
@@ -486,7 +512,7 @@ def mesh_and_axes(topology):
   return mesh, P(*labels)
 
 
-def parallelize(f: Callable, topology: Tuple[int]) -> Callable:
+def parallelize(f: F, topology: Tuple[int, ...]) -> F:
   """Apply pmap for each axis over which the computation is distributed."""
 
   if not topology:
@@ -500,7 +526,7 @@ def parallelize(f: Callable, topology: Tuple[int]) -> Callable:
   mesh = Mesh(devs, labels)
 
   return mesh(
-    shard_map(
+    shard_map(  # ty: ignore[call-non-callable]
       f,
       in_axes=labels + [...],
       out_axes=labels + [...],
@@ -509,7 +535,7 @@ def parallelize(f: Callable, topology: Tuple[int]) -> Callable:
   )
 
 
-def _psum(x: Array, topology: Tuple[int]) -> Array:
+def _psum(x: Array, topology: Tuple[int, ...]) -> Array:
   labels = ['X', 'Y', 'Z']
   n = len(topology)
   labels = labels[:n]
@@ -544,6 +570,16 @@ def unfold_mesh(cell_data: Array, grid: TPUGrid) -> Array:
     cell_data = _unfold_grid(cell_data, grid, False)
 
   return cell_data
+
+
+@overload
+def shift(grid: TPUGrid, displacement: Array, aux: None = None) -> TPUGrid: ...
+
+
+@overload
+def shift(
+  grid: TPUGrid, displacement: Array, aux: PyTree = ...
+) -> Tuple[TPUGrid, PyTree]: ...
 
 
 def shift(
@@ -597,7 +633,7 @@ def shift(
 
 def nearest_valid_grid_size(
   target_box_size_in_cells: Union[int, Tuple[int, ...]],
-  topology: Union[int, Tuple],
+  topology: Tuple[int, ...] | None,
   max_grid_distance: int,
   factors: Tuple[int, ...] | None = None,
   dimension: int | None = None,
@@ -607,7 +643,7 @@ def nearest_valid_grid_size(
       if topology:
         dimension = len(topology)
       elif not np.isscalar(target_box_size_in_cells):
-        dimension = len(target_box_size_in_cells)
+        dimension = len(target_box_size_in_cells)  # ty: ignore[invalid-argument-type]
       else:
         raise ValueError(
           'Need to (implicitly) specify dimension of space, by '
@@ -764,7 +800,7 @@ def nve(force_fn: GridFn, dt: float) -> Simulator:
   return init_fn, apply_fn
 
 
-def kinetic_energy(state: NVEState) -> float:
+def kinetic_energy(state: NVEState) -> Array:
   grid = state.position
   if grid.topology and len(grid.cell_data.shape) > grid.num_dims + 2:
     return 0.5 * np.sum(unfold_mesh(state.velocity, grid) ** 2)
@@ -929,7 +965,7 @@ def _generate_offset_kernel_channel_last(
   num_dims = grid.num_dims
   input_channels = num_dims + 1
 
-  axis = ord(axis) - ord('X')
+  axis = ord(axis) - ord('X')  # ty: ignore[invalid-assignment]
 
   kernel_width = max_grid_distance * 2 + 1
 
@@ -943,7 +979,7 @@ def _generate_offset_kernel_channel_last(
 
   for offset in offsets:
     shift = [0] * (1 + num_dims)
-    shift[axis] = cell_size * offset
+    shift[axis] = cell_size * offset  # ty: ignore[invalid-assignment]
     shift = onp.reshape(shift, (1,) * (num_dims + 1) + (input_channels,))
     bias.append(shift)
 
@@ -1003,7 +1039,7 @@ def _generate_offset_kernel(axis: str, grid: TPUGrid) -> Tuple[Array, Array]:
   num_dims = grid.num_dims
   input_channels = num_dims + 1
 
-  axis = ord(axis) - ord('X')
+  axis = ord(axis) - ord('X')  # ty: ignore[invalid-assignment]
 
   kernel_width = max_grid_distance * 2 + 1
 
@@ -1017,7 +1053,7 @@ def _generate_offset_kernel(axis: str, grid: TPUGrid) -> Tuple[Array, Array]:
 
   for offset in offsets:
     shift = [0] * (1 + num_dims)
-    shift[axis] = cell_size * offset
+    shift[axis] = cell_size * offset  # ty: ignore[invalid-assignment]
     shift = onp.reshape(shift, (1,) + (input_channels,) + (1,) * num_dims)
     bias.append(shift)
 
@@ -1371,7 +1407,7 @@ def _fold_factors(
     )
     raise ValueError(msg)
 
-  return factors
+  return factors  # ty: ignore[invalid-return-type]
 
 
 def _order_grid_by_factors(num_dims: int) -> Tuple[int, ...]:
@@ -1416,7 +1452,7 @@ def _fold_grid(
   num_dims = cell_data.ndim - 1
 
   if factors is None:
-    factors = _fold_factors(batch_size, cell_data.shape[:-1], max_grid_distance)
+    factors = _fold_factors(batch_size, cell_data.shape[:-1], max_grid_distance)  # ty: ignore[invalid-argument-type]
 
   data_shape = []
   for i in range(num_dims):
