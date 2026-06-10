@@ -65,6 +65,7 @@ def segment_mm_fwd_kernel(
   init_ref,  # [N, O]
   out_ref,  # [N, O]
   *,
+  num_k_blocks: int,
   block_m: int,
   block_n: int,
   block_k: int,
@@ -73,35 +74,39 @@ def segment_mm_fwd_kernel(
   del init_ref
   row_block = pl.program_id(1)
   out_block = pl.program_id(2)
-  k_block = pl.program_id(3)
 
   rows = row_block * block_m + jnp.arange(block_m)  # [block_m]
   outs = out_block * block_n + jnp.arange(block_n)  # [block_n]
-  ks = k_block * block_k + jnp.arange(block_k)  # [block_k]
   start = plt.load(starts_ref.at[system])
   size = plt.load(sizes_ref.at[system])
   row_idx = start + rows  # [block_m]
   row_idx_safe = jnp.minimum(row_idx, x_ref.shape[0] - 1)  # [block_m]
   outs_safe = jnp.minimum(outs, weights_ref.shape[1] - 1)  # [block_n]
 
-  x = plt.load(
-    x_ref.at[row_idx_safe[:, None], ks[None, :]],
-    mask=(rows[:, None] < size) & (ks[None, :] < x_ref.shape[1]),
-    other=0.0,
-  )  # [block_m, block_k]
-  w = plt.load(
-    weights_ref.at[system, outs_safe[:, None], ks[None, :]],
-    mask=(outs[:, None] < weights_ref.shape[1])
-    & (ks[None, :] < x_ref.shape[1]),
-    other=0.0,
-  )  # [block_n, block_k]
-  acc = jnp.dot(
-    x, w.T, precision=jax.lax.Precision.HIGHEST
+  def body(k_block, acc):
+    ks = k_block * block_k + jnp.arange(block_k)  # [block_k]
+    x = plt.load(
+      x_ref.at[row_idx_safe[:, None], ks[None, :]],
+      mask=(rows[:, None] < size) & (ks[None, :] < x_ref.shape[1]),
+      other=0.0,
+    )  # [block_m, block_k]
+    w = plt.load(
+      weights_ref.at[system, outs_safe[:, None], ks[None, :]],
+      mask=(outs[:, None] < weights_ref.shape[1])
+      & (ks[None, :] < x_ref.shape[1]),
+      other=0.0,
+    )  # [block_n, block_k]
+    return acc + jnp.dot(x, w.T, precision=jax.lax.Precision.HIGHEST)
+
+  acc = jax.lax.fori_loop(
+    0,
+    num_k_blocks,
+    body,
+    jnp.zeros((block_m, block_n), dtype=out_ref.dtype),
   )  # [block_m, block_n]
 
-  plt.atomic_add(
-    out_ref,
-    (row_idx_safe[:, None], outs_safe[None, :]),
+  plt.store(
+    out_ref.at[row_idx_safe[:, None], outs_safe[None, :]],
     acc.astype(out_ref.dtype),
     mask=(rows[:, None] < size) & (outs[None, :] < weights_ref.shape[1]),
   )
@@ -113,22 +118,29 @@ def segment_mm_fwd(
   sizes,  # [B]
   starts,  # [B]
   max_size=None,
-  block_m=16,
-  block_n=16,
-  block_k=128,
+  block_m=32,
+  block_n=32,
+  block_k=64,
 ):
-  """Pallas/Triton forward segmented matmul."""
+  """Pallas/Triton forward segmented matmul.
+
+  Each program owns one ``[block_m, block_n]`` output tile of a segment and
+  accumulates the full reduction dimension in-register over ``num_k_blocks``
+  steps, storing the tile exactly once. Rows not covered by any segment keep
+  the zeros from the aliased ``init`` buffer.
+  """
   max_size = x.shape[0] if max_size is None else max_size
   init = jnp.zeros((x.shape[0], weights.shape[1]), dtype=x.dtype)  # [N, O]
   grid = (
     sizes.shape[0],
     max(1, ceil_div(max_size, block_m)),
     ceil_div(weights.shape[1], block_n),
-    ceil_div(x.shape[1], block_k),
   )
+  num_k_blocks = ceil_div(x.shape[1], block_k)
   return pl.pallas_call(
     partial(
       segment_mm_fwd_kernel,
+      num_k_blocks=num_k_blocks,
       block_m=block_m,
       block_n=block_n,
       block_k=block_k,
@@ -148,6 +160,7 @@ def segment_mm_bwd_dx_kernel(
   init_ref,  # [N, I]
   out_ref,  # [N, I]
   *,
+  num_out_blocks: int,
   block_m: int,
   block_n: int,
   block_k: int,
@@ -155,37 +168,41 @@ def segment_mm_bwd_dx_kernel(
   system = pl.program_id(0)
   row_block = pl.program_id(1)
   in_block = pl.program_id(2)
-  out_block = pl.program_id(3)
   del init_ref
 
   rows = row_block * block_m + jnp.arange(block_m)  # [block_m]
   ins = in_block * block_n + jnp.arange(block_n)  # [block_n]
-  outs = out_block * block_k + jnp.arange(block_k)  # [block_k]
   start = plt.load(starts_ref.at[system])
   size = plt.load(sizes_ref.at[system])
   row_idx = start + rows  # [block_m]
   row_idx_safe = jnp.minimum(row_idx, grad_y_ref.shape[0] - 1)  # [block_m]
   ins_safe = jnp.minimum(ins, weights_ref.shape[2] - 1)  # [block_n]
-  outs_safe = jnp.minimum(outs, weights_ref.shape[1] - 1)  # [block_k]
 
-  grad_y = plt.load(
-    grad_y_ref.at[row_idx_safe[:, None], outs_safe[None, :]],
-    mask=(rows[:, None] < size) & (outs[None, :] < weights_ref.shape[1]),
-    other=0.0,
-  )  # [block_m, block_k]
-  weights = plt.load(
-    weights_ref.at[system, outs_safe[None, :], ins_safe[:, None]],
-    mask=(outs[None, :] < weights_ref.shape[1])
-    & (ins[:, None] < weights_ref.shape[2]),
-    other=0.0,
-  )  # [block_n, block_k]
-  acc = jnp.dot(
-    grad_y, weights.T, precision=jax.lax.Precision.HIGHEST
+  def body(out_block, acc):
+    outs = out_block * block_k + jnp.arange(block_k)  # [block_k]
+    outs_safe = jnp.minimum(outs, weights_ref.shape[1] - 1)  # [block_k]
+    grad_y = plt.load(
+      grad_y_ref.at[row_idx_safe[:, None], outs_safe[None, :]],
+      mask=(rows[:, None] < size) & (outs[None, :] < weights_ref.shape[1]),
+      other=0.0,
+    )  # [block_m, block_k]
+    weights = plt.load(
+      weights_ref.at[system, outs_safe[None, :], ins_safe[:, None]],
+      mask=(outs[None, :] < weights_ref.shape[1])
+      & (ins[:, None] < weights_ref.shape[2]),
+      other=0.0,
+    )  # [block_n, block_k]
+    return acc + jnp.dot(grad_y, weights.T, precision=jax.lax.Precision.HIGHEST)
+
+  acc = jax.lax.fori_loop(
+    0,
+    num_out_blocks,
+    body,
+    jnp.zeros((block_m, block_n), dtype=out_ref.dtype),
   )  # [block_m, block_n]
 
-  plt.atomic_add(
-    out_ref,
-    (row_idx_safe[:, None], ins_safe[None, :]),
+  plt.store(
+    out_ref.at[row_idx_safe[:, None], ins_safe[None, :]],
     acc.astype(out_ref.dtype),
     mask=(rows[:, None] < size) & (ins[None, :] < weights_ref.shape[2]),
   )
@@ -197,9 +214,9 @@ def _segment_mm_bwd_dx(
   sizes,  # [B]
   starts,  # [B]
   max_size=None,
-  block_m=16,
-  block_n=16,
-  block_k=128,
+  block_m=32,
+  block_n=32,
+  block_k=64,
 ):
   max_size = grad_y.shape[0] if max_size is None else max_size
   init = jnp.zeros(
@@ -211,11 +228,12 @@ def _segment_mm_bwd_dx(
     sizes.shape[0],
     max(1, ceil_div(max_size, block_m)),
     ceil_div(weights.shape[2], block_n),
-    ceil_div(weights.shape[1], block_k),
   )
+  num_out_blocks = ceil_div(weights.shape[1], block_k)
   return pl.pallas_call(
     partial(
       segment_mm_bwd_dx_kernel,
+      num_out_blocks=num_out_blocks,
       block_m=block_m,
       block_n=block_n,
       block_k=block_k,
