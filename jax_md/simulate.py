@@ -714,7 +714,8 @@ class NPTNoseHooverState:
     box_velocity: A velocity degree of freedom for the box.
     box_mass: The mass assigned to the box.
     dUdV: The derivative of the potential energy with respect to an affine
-      perturbation of the box.
+      perturbation of the box. Like `force`, it is carried over from the
+      previous step's energy evaluation and the kwargs passed to it.
     barostat: The variables describing the Nose-Hoover chain coupled to the
       barostat.
     thermostat: The variables describing the Nose-Hoover chain coupled to the

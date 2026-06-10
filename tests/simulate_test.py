@@ -547,8 +547,12 @@ class SimulateTest(test_util.JAXMDTestCase):
       atol=P_tol,
       rtol=P_tol,
     )
+    H_tol = 2e-3
     self.assertAllClose(
-      buffers['H'], np.ones((DYNAMICS_STEPS,), dtype=dtype) * buffers['H']
+      buffers['H'],
+      np.ones((DYNAMICS_STEPS,), dtype=dtype) * buffers['H'][0],
+      rtol=H_tol,
+      atol=H_tol,
     )
 
   @parameterized.named_parameters(
