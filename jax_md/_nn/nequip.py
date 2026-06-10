@@ -277,7 +277,9 @@ class NequIPConvolution(nn.Module):
     h = h.astype(h_type)
 
     # normalize by the average (not local) number of neighbors
-    h = h / self.n_neighbors
+    # (e3nn's IrrepsArray.__truediv__ accepts scalars but is annotated
+    # to only take IrrepsArray | jax.Array)
+    h = h / self.n_neighbors  # ty: ignore[unsupported-operator]
 
     # second linear, now we create extra gate scalars by mapping to h-out
     h = Linear(h_out_irreps)(h)

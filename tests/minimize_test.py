@@ -605,6 +605,7 @@ class FireDescentBoxTest(test_util.JAXMDTestCase):
 
     def energy_fn(R, box=None, perturbation=None, **kwargs):
       del kwargs
+      assert box is not None
       box_eff = box
       if perturbation is not None:
         box_eff = perturbation @ box
@@ -692,6 +693,7 @@ class FireDescentBoxTest(test_util.JAXMDTestCase):
 
     def energy_fn(R, box=None, perturbation=None, **kwargs):
       del kwargs
+      assert box is not None
       box_eff = box
       if perturbation is not None:
         box_eff = perturbation @ box
@@ -795,6 +797,7 @@ class FireDescentBoxTest(test_util.JAXMDTestCase):
 
     def energy_fn(R, box=None, perturbation=None, **kwargs):
       del kwargs
+      assert box is not None
       box_eff = box
       if perturbation is not None:
         box_eff = perturbation @ box

@@ -200,6 +200,8 @@ def read_gromacs_potential_from_xvg(xvg_path: Path) -> float:
     if name.strip().lower() == 'potential':
       potential_series_idx = idx
       break
+  if potential_series_idx is None:
+    raise ValueError('No potential series found in xvg legend.')
   potential_col = potential_series_idx + 1
   return data_rows[-1][potential_col]
 

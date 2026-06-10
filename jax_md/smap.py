@@ -777,13 +777,13 @@ def _get_neighborhood_species_params(
     return p[species_a, species_b]
 
   if util.is_array(params):
-    lookup = partial(lookup, params)
+    p_lookup = partial(lookup, params)
     if len(params.shape) == 2:
       if partition.is_sparse(format):
-        return space.map_bond(lookup)(species[idx[0]], species[idx[1]])
+        return space.map_bond(p_lookup)(species[idx[0]], species[idx[1]])
       else:
-        lookup = vmap(vmap(lookup, (None, 0)))
-        return lookup(species, species[idx])
+        v_lookup = vmap(vmap(p_lookup, (None, 0)))
+        return v_lookup(species, species[idx])
     elif len(params.shape) == 0:
       return params
     else:

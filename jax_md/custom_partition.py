@@ -90,7 +90,9 @@ class NeighborListMultiImage:
     N = len(self.reference_position)
     if self.format is NeighborListFormat.Dense:
       # Count valid entries in Dense format
-      return int(jnp.sum(self.idx < N))
+      idx = self.idx
+      assert not isinstance(idx, tuple)
+      return int(jnp.sum(idx < N))
     return int(jnp.sum(self.idx[0] < N))
 
   @property

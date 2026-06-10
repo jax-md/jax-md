@@ -2,14 +2,14 @@
 
 import jax.numpy as jnp
 from jax_md import partition
-from jax_md.partition import NeighborFn
+from jax_md.partition import NeighborListFns
 from jax_md.util import Array
 from typing import Optional
 
 
 def create_neighbor_list(
   displacement_fn, box, r_cut: float, dr_threshold: float = 0.5, **kwargs
-) -> NeighborFn:
+) -> NeighborListFns:
   """Create a neighbor list function for MM forcefields.
 
   Wrapper around jax_md.partition.neighbor_list with MM-appropriate defaults.

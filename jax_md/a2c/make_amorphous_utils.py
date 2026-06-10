@@ -54,7 +54,7 @@ def get_diameter(composition) -> float:
 
 def random_packed_structure(
   composition: Composition,
-  lattice: Sequence[Sequence[onp.float32]],
+  lattice: jax_md_util.ArrayLike,
   seed: int = 42,
   diameter: float | None = None,
   auto_diameter: bool = False,

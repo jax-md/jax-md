@@ -8,7 +8,7 @@ Ported from FairChem's UMA implementation.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 import flax.linen as nn
 import jax.numpy as jnp
@@ -43,7 +43,9 @@ def get_normalization_layer(
   Returns:
       Normalization module.
   """
-  kwargs = dict(lmax=lmax, num_channels=num_channels, eps=eps, affine=affine)
+  kwargs: dict[str, Any] = dict(
+    lmax=lmax, num_channels=num_channels, eps=eps, affine=affine
+  )
   if name is not None:
     kwargs['name'] = name
 

@@ -277,8 +277,8 @@ class ConvolutionalMDTest(test_util.JAXMDTestCase):
 
       return lax.fori_loop(0, steps, do_sim, state)
 
-    sim = tpu.parallelize(sim, topology)
-    new_state = sim(tpu_state)
+    psim = tpu.parallelize(sim, topology)
+    new_state = psim(tpu_state)
 
     ## JAX-MD baseline
     jmd_init_fn, jmd_apply_fn = simulate.nve(energy_fn, shift_fn, step_size)

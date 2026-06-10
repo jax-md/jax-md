@@ -219,6 +219,7 @@ def pair_neighbor_list_multi_image(
       # Dense format: per-atom neighbor arrays
       # idx shape: [N, max_neighbors], shifts shape: [N, max_neighbors, dim]
       idx = neighbor.idx  # [N, max_neighbors]
+      assert not isinstance(idx, tuple)
       shifts = neighbor.shifts  # [N, max_neighbors, dim]
       mask = idx < N  # [N, max_neighbors]
 

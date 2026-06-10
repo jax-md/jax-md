@@ -237,5 +237,3 @@ allowed-unresolved-imports = [
 invalid-argument-type = "ignore"
 unresolved-attribute = "ignore"
 not-subscriptable = "ignore"
-invalid-assignment = "ignore"
-unsupported-operator = "ignore"

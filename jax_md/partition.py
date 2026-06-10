@@ -281,18 +281,20 @@ def unflatten_cell_buffer(arr: Array, cells_per_side: Array, dim: int) -> Array:
     or isinstance(cells_per_side, float)
     or (util.is_array(cells_per_side) and not cells_per_side.shape)
   ):
-    cells_per_side = (int(cells_per_side),) * dim
+    cells: Tuple[int, ...] = (int(cells_per_side),) * dim
   elif util.is_array(cells_per_side) and len(cells_per_side.shape) == 1:
-    cells_per_side = tuple([int(x) for x in cells_per_side[::-1]])
+    cells = tuple([int(x) for x in cells_per_side[::-1]])
   elif util.is_array(cells_per_side) and len(cells_per_side.shape) == 2:
-    cells_per_side = tuple([int(x) for x in cells_per_side[0][::-1]])
+    cells = tuple([int(x) for x in cells_per_side[0][::-1]])
   else:
     raise ValueError()
-  return jnp.reshape(arr, cells_per_side + (-1,) + arr.shape[1:])
+  return jnp.reshape(arr, cells + (-1,) + arr.shape[1:])
 
 
 def cell_list(
-  box_size: Box, minimum_cell_size: float, buffer_size_multiplier: float = 1.25
+  box_size: Box,
+  minimum_cell_size: ArrayLike,
+  buffer_size_multiplier: float = 1.25,
 ) -> CellListFns:
   r"""Returns a function that partitions point data spatially.
 
@@ -527,11 +529,11 @@ class PartitionError:
 
   code: Array
 
-  def update(self, bit: bytes, pred: Array) -> 'PartitionError':
+  def update(self, bit: PartitionErrorCode, pred: Array) -> 'PartitionError':
     """Possibly adds an error based on a predicate."""
     zero = jnp.zeros((), jnp.uint8)
-    bit = jnp.array(bit, dtype=jnp.uint8)
-    return PartitionError(self.code | jnp.where(pred, bit, zero))
+    bit_arr = jnp.array(bit, dtype=jnp.uint8)
+    return PartitionError(self.code | jnp.where(pred, bit_arr, zero))
 
   def __str__(self) -> str:
     """Produces a string representation of the error code."""
@@ -808,7 +810,7 @@ def neighbor_list(
   fractional_coordinates: bool = False,
   format: NeighborListFormat = NeighborListFormat.Dense,
   **static_kwargs,
-) -> NeighborFn:
+) -> NeighborListFns:
   """Returns a function that builds a list neighbors for collections of points.
 
   Neighbor lists must balance the need to be jit compatible with the fact that
@@ -1047,7 +1049,7 @@ def neighbor_list(
             err = err.update(PEC.MALFORMED_BOX, is_box_valid(_box))
             cell_size = _fractional_cell_size(_box, cutoff)
             _box = 1.0
-          if jnp.all(cell_size < _box / 3.0):
+          if jnp.all(jnp.asarray(cell_size) < _box / 3.0):
             cl_fn = cell_list(_box, cell_size, capacity_multiplier)
             cl = cl_fn.allocate(position, extra_capacity=extra_capacity)
         else:
@@ -1118,8 +1120,6 @@ def neighbor_list(
     if nbrs is None:
       return neighbor_fn((position, PartitionError(jnp.zeros((), jnp.uint8))))
 
-    neighbor_fn = partial(neighbor_fn, max_occupancy=nbrs.max_occupancy)
-
     # If the box has been updated, then check that fractional coordinates are
     # enabled and that the cell list has big enough cells.
     if 'box' in kwargs and not disable_cell_list:
@@ -1148,7 +1148,7 @@ def neighbor_list(
     return lax.cond(
       jnp.any(d(position, nbrs.reference_position) > threshold_sq),
       (position, nbrs.error),
-      neighbor_fn,
+      partial(neighbor_fn, max_occupancy=nbrs.max_occupancy),
       nbrs,
       lambda x: x,
     )

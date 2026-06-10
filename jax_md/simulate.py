@@ -778,8 +778,8 @@ def npt_nose_hoover(
   dt: float,
   pressure: float,
   kT: ArrayLike,
-  barostat_kwargs: Dict | None = None,
-  thermostat_kwargs: Dict | None = None,
+  barostat_kwargs: Dict[str, Any] | None = None,
+  thermostat_kwargs: Dict[str, Any] | None = None,
 ) -> Simulator:
   """Simulation in the NPT ensemble using a pair of Nose Hoover Chains.
 

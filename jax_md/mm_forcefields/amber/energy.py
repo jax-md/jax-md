@@ -713,9 +713,12 @@ def energy(
     if not _soft_lrc_ready:
       return jnp.asarray(0.0, dtype=jnp.float64)
 
-    rc = _soft_lrc_rc
-    x = _soft_lrc_tail_x
-    w = _soft_lrc_tail_w
+    # _soft_lrc_ready guarantees these are all set; jnp.asarray collapses
+    # the None unions and is a no-op on the stored float64 arrays.
+    rc = jnp.asarray(_soft_lrc_rc)
+    x = jnp.asarray(_soft_lrc_tail_x)
+    w = jnp.asarray(_soft_lrc_tail_w)
+    pair_weight = jnp.asarray(_soft_lrc_pair_weight)
 
     r_tail = rc / x[None, :]
     u_tail = lennard_jones_softcore(
@@ -729,8 +732,8 @@ def energy(
     i_switch = jnp.asarray(0.0, dtype=jnp.float64)
     if _soft_lrc_rs is not None:
       rs = _soft_lrc_rs
-      xs = _soft_lrc_sw_x
-      ws = _soft_lrc_sw_w
+      xs = jnp.asarray(_soft_lrc_sw_x)
+      ws = jnp.asarray(_soft_lrc_sw_w)
       r_sw = rs + xs[None, :] * (rc - rs)
       s = xs**3 * (10.0 + xs * (-15.0 + xs * 6.0))
       u_sw = lennard_jones_softcore(
@@ -744,7 +747,7 @@ def energy(
       )
 
     i_pair = i_tail + i_switch
-    sum_weighted = jnp.sum(_soft_lrc_pair_weight * i_pair)
+    sum_weighted = jnp.sum(pair_weight * i_pair)
     n_atoms_f = jnp.asarray(float(topology.n_atoms), dtype=jnp.float64)
     coeff = 2.0 * jnp.pi * n_atoms_f * n_atoms_f * sum_weighted
     return coeff / volume

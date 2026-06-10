@@ -19,7 +19,7 @@ import os
 import math
 from absl import logging
 from concurrent.futures import ProcessPoolExecutor
-from typing import Sequence, Any, List, Tuple, Optional, Union
+from typing import Sequence, Any, Collection, List, Tuple, Optional, Union
 import numpy as onp
 from pymatgen.core.structure import Structure
 from pymatgen.core.composition import Composition
@@ -55,7 +55,7 @@ def get_subcells_to_crystallize(
   d_frac: float = 0.05,
   nmin: int = 1,
   nmax: int = 48,
-  restrict_to_compositions: Sequence[str] | None = None,
+  restrict_to_compositions: Collection[str] | None = None,
   max_coef: int | None = None,
   elements: Sequence[str] | None = None,
 ) -> List[Tuple[Union[Sequence[int], onp.ndarray], onp.ndarray, onp.ndarray]]:
@@ -216,7 +216,7 @@ def get_subcells_to_crystallize_parallel(
   d_frac: float = 0.05,
   nmin: int = 1,
   nmax: int = 48,
-  restrict_to_compositions: Sequence[str] | None = None,
+  restrict_to_compositions: Collection[str] | None = None,
   max_coef: int | None = None,
   elements: Sequence[str] | None = None,
   n_workers: int | None = None,

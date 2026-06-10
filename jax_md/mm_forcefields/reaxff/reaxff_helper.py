@@ -4,6 +4,8 @@ Contains helper functions ReaxFF
 Author: Mehmet Cagri Kaymak
 """
 
+from typing import Any
+
 import jax
 import jax.numpy as jnp
 import numpy as onp
@@ -71,10 +73,10 @@ def read_force_field(
   num_params = int(f.readline().strip().split()[0])
   global_params = onp.zeros(shape=(num_params, 1), dtype=dtype)
   name_to_index = dict()
-  body_3_indices_src = [[], [], []]
-  body_3_indices_dst = [[], [], []]
-  body_4_indices_src = [[], [], [], []]
-  body_4_indices_dst = [[], [], [], []]
+  body_3_indices_src: list[Any] = [[], [], []]
+  body_3_indices_dst: list[Any] = [[], [], []]
+  body_4_indices_src: list[Any] = [[], [], [], []]
+  body_4_indices_dst: list[Any] = [[], [], [], []]
 
   for i in range(num_params):
     line = f.readline().strip()

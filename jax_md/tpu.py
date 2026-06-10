@@ -902,7 +902,7 @@ def _settle_particle_locations(grid: TPUGrid) -> TPUGrid:
     return lax.while_loop(cond_fn, body_fn, (grid, old_grid))[0]
 
   if grid.topology:
-    move_fn = parallelize(move_fn, grid.topology)
+    return parallelize(move_fn, grid.topology)(grid)
 
   return move_fn(grid)
 
@@ -934,7 +934,7 @@ def _generate_offset_kernel_channel_last(
   num_dims = grid.num_dims
   input_channels = num_dims + 1
 
-  axis = ord(axis) - ord('X')
+  axis_idx = ord(axis) - ord('X')
 
   kernel_width = max_grid_distance * 2 + 1
 
@@ -948,7 +948,7 @@ def _generate_offset_kernel_channel_last(
 
   for offset in offsets:
     shift = [0] * (1 + num_dims)
-    shift[axis] = cell_size * offset
+    shift[axis_idx] = cell_size * offset
     shift = onp.reshape(shift, (1,) * (num_dims + 1) + (input_channels,))
     bias.append(shift)
 
@@ -968,14 +968,14 @@ def _generate_offset_kernel_channel_last(
   if num_dims == 1:
     k_shape = kernel.shape
   if num_dims == 2:
-    if axis == 0:
+    if axis_idx == 0:
       k_shape = kernel.shape + (1,)
     else:
       k_shape = kernel.shape[:2] + (1,) + kernel.shape[2:]
   elif num_dims == 3:
-    if axis == 0:
+    if axis_idx == 0:
       k_shape = kernel.shape + (1, 1)
-    elif axis == 1:
+    elif axis_idx == 1:
       k_shape = kernel.shape[:2] + (1,) + kernel.shape[2:] + (1,)
     else:
       k_shape = kernel.shape[:2] + (1, 1) + kernel.shape[2:]
@@ -1010,7 +1010,7 @@ def _generate_offset_kernel(
   num_dims = grid.num_dims
   input_channels = num_dims + 1
 
-  axis = ord(axis) - ord('X')
+  axis_idx = ord(axis) - ord('X')
 
   kernel_width = max_grid_distance * 2 + 1
 
@@ -1024,7 +1024,7 @@ def _generate_offset_kernel(
 
   for offset in offsets:
     shift = [0] * (1 + num_dims)
-    shift[axis] = cell_size * offset
+    shift[axis_idx] = cell_size * offset
     shift = onp.reshape(shift, (1,) + (input_channels,) + (1,) * num_dims)
     bias.append(shift)
 
@@ -1044,14 +1044,14 @@ def _generate_offset_kernel(
   if num_dims == 1:
     k_shape = kernel.shape
   if num_dims == 2:
-    if axis == 0:
+    if axis_idx == 0:
       k_shape = kernel.shape + (1,)
     else:
       k_shape = kernel.shape[:2] + (1,) + kernel.shape[2:]
   elif num_dims == 3:
-    if axis == 0:
+    if axis_idx == 0:
       k_shape = kernel.shape + (1, 1)
-    elif axis == 1:
+    elif axis_idx == 1:
       k_shape = kernel.shape[:2] + (1,) + kernel.shape[2:] + (1,)
     else:
       k_shape = kernel.shape[:2] + (1, 1) + kernel.shape[2:]

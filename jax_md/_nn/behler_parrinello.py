@@ -128,7 +128,7 @@ def radial_symmetry_functions(
       _metric = space.map_product(_metric)
       return util.high_precision_sum(radial_fn(etas, _metric(R, R)), axis=1).T
   elif isinstance(species, jnp.ndarray):
-    species = onp.array(species)
+    species_arr = onp.array(species)
 
     def compute_fn(R: Array, **kwargs) -> Array:
       _metric = partial(metric, **kwargs)
@@ -136,15 +136,12 @@ def radial_symmetry_functions(
 
       def return_radial(atom_type):
         """Returns the radial symmetry functions for neighbor type atom_type."""
-        R_neigh = R[species == atom_type, :]
+        R_neigh = R[species_arr == atom_type, :]
         dr = _metric(R, R_neigh)
         return util.high_precision_sum(radial_fn(etas, dr), axis=1).T
 
       return jnp.hstack(
-        [
-          return_radial(atom_type)
-          for atom_type in onp.unique(species)  # ty: ignore[no-matching-overload]
-        ]
+        [return_radial(atom_type) for atom_type in onp.unique(species_arr)]
       )
 
   return compute_fn
@@ -192,8 +189,8 @@ def radial_symmetry_functions_neighbor_list(
     if neighbor.format is partition.Dense:
       _metric = space.map_neighbor(_metric)
       R_neigh = R[neighbor.idx]
-      mask = True if mask is None else mask[neighbor.idx]
-      mask = (neighbor.idx < R.shape[0])[None, :, :] & mask
+      edge_mask = (neighbor.idx < R.shape[0])[None, :, :]
+      mask = edge_mask if mask is None else edge_mask & mask[neighbor.idx]
       dr = _metric(R, R_neigh)
       return util.high_precision_sum(radial_fn(etas, dr) * mask, axis=2).T
     elif neighbor.format is partition.Sparse:
@@ -201,8 +198,8 @@ def radial_symmetry_functions_neighbor_list(
       dr = _metric(R[neighbor.idx[0]], R[neighbor.idx[1]])
       radial = radial_fn(etas, dr).T
       N = R.shape[0]
-      mask = True if mask is None else mask[neighbor.idx[1]]
-      mask = (neighbor.idx[0] < N) & mask
+      edge_mask = neighbor.idx[0] < N
+      mask = edge_mask if mask is None else edge_mask & mask[neighbor.idx[1]]
       return ops.segment_sum(radial * mask[:, None], neighbor.idx[0], N)
     else:
       raise ValueError()
@@ -309,14 +306,15 @@ def angular_symmetry_functions(
 
     return compute_fn
 
-  if isinstance(species, jnp.ndarray):
-    species = onp.array(species)
+  species_arr = (
+    onp.array(species) if isinstance(species, jnp.ndarray) else species
+  )
 
   def compute_fn(R, **kwargs):
-    atom_types = onp.unique(species)
+    atom_types = onp.unique(species_arr)
     D_fn = partial(displacement, **kwargs)
     D_fn = space.map_product(D_fn)
-    D_different_types = [D_fn(R[species == s, :], R) for s in atom_types]
+    D_different_types = [D_fn(R[species_arr == s, :], R) for s in atom_types]
     out = []
     for i in range(len(atom_types)):
       for j in range(i, len(atom_types)):
@@ -393,12 +391,10 @@ def angular_symmetry_functions_neighbor_list(
       )
       all_angular = _all_pairs_angular(dR, dR)
 
-      mask_i = True if mask_i is None else mask_i[neighbor.idx]
-      mask_j = True if mask_j is None else mask_j[neighbor.idx]
-
-      mask_i = (neighbor.idx < R.shape[0]) & mask_i
+      edge_mask = neighbor.idx < R.shape[0]
+      mask_i = edge_mask if mask_i is None else edge_mask & mask_i[neighbor.idx]
       mask_i = mask_i[:, :, jnp.newaxis, jnp.newaxis]
-      mask_j = (neighbor.idx < R.shape[0]) & mask_j
+      mask_j = edge_mask if mask_j is None else edge_mask & mask_j[neighbor.idx]
       mask_j = mask_j[:, jnp.newaxis, :, jnp.newaxis]
 
       return util.high_precision_sum(all_angular * mask_i * mask_j, axis=[1, 2])
@@ -409,10 +405,13 @@ def angular_symmetry_functions_neighbor_list(
       all_angular = _all_pairs_angular(dR, dR)
 
       N = R.shape[0]
-      mask_i = True if mask_i is None else mask_i[neighbor.idx[1]]
-      mask_j = True if mask_j is None else mask_j[neighbor.idx[1]]
-      mask_i = (neighbor.idx[0] < N) & mask_i
-      mask_j = (neighbor.idx[0] < N) & mask_j
+      edge_mask = neighbor.idx[0] < N
+      mask_i = (
+        edge_mask if mask_i is None else edge_mask & mask_i[neighbor.idx[1]]
+      )
+      mask_j = (
+        edge_mask if mask_j is None else edge_mask & mask_j[neighbor.idx[1]]
+      )
 
       mask = mask_i[:, None] & mask_j[None, :]
       mask = mask[:, :, None, None]
