@@ -239,6 +239,3 @@ unresolved-attribute = "ignore"
 not-subscriptable = "ignore"
 invalid-assignment = "ignore"
 unsupported-operator = "ignore"
-# Useful but false-positive-prone (flax `apply` output unions): warn only.
-index-out-of-bounds = "warn"
-no-matching-overload = "warn"

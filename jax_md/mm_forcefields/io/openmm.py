@@ -801,8 +801,8 @@ def convert_openmm_system(
           * n_atoms
           * np.pi
           * (
-            sum1 / (9 * np.power(r_cut, 9))
-            - sum2 / (3 * np.power(r_cut, 3))
+            sum1 / (9 * np.power(r_cut, 9))  # ty: ignore[no-matching-overload]
+            - sum2 / (3 * np.power(r_cut, 3))  # ty: ignore[no-matching-overload]
             + sum3
           )
         )

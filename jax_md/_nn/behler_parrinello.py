@@ -141,7 +141,10 @@ def radial_symmetry_functions(
         return util.high_precision_sum(radial_fn(etas, dr), axis=1).T
 
       return jnp.hstack(
-        [return_radial(atom_type) for atom_type in onp.unique(species)]
+        [
+          return_radial(atom_type)
+          for atom_type in onp.unique(species)  # ty: ignore[no-matching-overload]
+        ]
       )
 
   return compute_fn

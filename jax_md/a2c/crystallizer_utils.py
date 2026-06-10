@@ -86,7 +86,7 @@ def get_subcells_to_crystallize(
     stoichs.pop(0)
     comps = []
     for stoich in stoichs:
-      comp = dict(zip(elements, stoich))
+      comp = dict(zip(elements, stoich))  # ty: ignore[no-matching-overload]
       comps.append(Composition.from_dict(comp).reduced_formula)
     restrict_to_compositions = set(comps)
 
@@ -249,7 +249,7 @@ def get_subcells_to_crystallize_parallel(
     stoichs.pop(0)
     comps = []
     for stoich in stoichs:
-      comp = dict(zip(elements, stoich))
+      comp = dict(zip(elements, stoich))  # ty: ignore[no-matching-overload]
       comps.append(Composition.from_dict(comp).reduced_formula)
     restrict_to_compositions = set(comps)
 

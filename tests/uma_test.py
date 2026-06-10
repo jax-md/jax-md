@@ -660,7 +660,7 @@ class RadialMLPTest(test_util.JAXMDTestCase):
     d = jnp.array([0.0, 0.5, 0.99, 1.0, 1.5])
     # Flax modules with setup() need init/apply
     params = env.init(jax.random.PRNGKey(0), d)
-    out = env.apply(params, d)
+    out: jnp.ndarray = env.apply(params, d)
     # At d=0, envelope should be 1
     self.assertAlmostEqual(float(out[0]), 1.0, places=5)
     # At d>=1, envelope should be 0
@@ -1894,7 +1894,7 @@ class UMAKernelBackendTest(test_util.JAXMDTestCase):
       edge_envelope,
     )
 
-    actual = edgewise.apply(
+    actual: tuple[jnp.ndarray, ...] = edgewise.apply(
       params,
       x,
       x_edge,
@@ -1905,7 +1905,7 @@ class UMAKernelBackendTest(test_util.JAXMDTestCase):
       None,
       edge_envelope,
     )
-    actual_shifted = edgewise.apply(
+    actual_shifted: tuple[jnp.ndarray, ...] = edgewise.apply(
       params,
       x_shifted,
       x_edge,
@@ -1961,7 +1961,7 @@ class UMAKernelBackendTest(test_util.JAXMDTestCase):
       edge_batch,
     )
 
-    actual = edgewise.apply(
+    actual: tuple[jnp.ndarray, ...] = edgewise.apply(
       params,
       x,
       x_edge,
@@ -1974,7 +1974,7 @@ class UMAKernelBackendTest(test_util.JAXMDTestCase):
       expert_coefficients,
       edge_batch,
     )
-    actual_shifted = edgewise.apply(
+    actual_shifted: tuple[jnp.ndarray, ...] = edgewise.apply(
       params,
       x_shifted,
       x_edge,

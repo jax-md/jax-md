@@ -630,7 +630,7 @@ def pair(
   elif util.is_array(species):
     species = onp.array(species)
     _check_species_dtype(species)
-    species_count = int(onp.max(species))
+    species_count = int(onp.max(species))  # ty: ignore[no-matching-overload]
     if reduce_axis is not None or keepdims:
       # TODO(schsam): Support reduce_axis with static species.
       raise ValueError
