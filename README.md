@@ -177,7 +177,7 @@ There are three different formats of neighbor list supported: `Dense`, `Sparse`,
 
 # Development
 
-JAX MD is under active development. We have very limited development resources and so we typically focus on adding features that will have high impact to researchers using JAX MD (including us). Please don't hesitate to open feature requests to help us guide development. We more than welcome contributions!
+JAX MD is under active development. Please don't hesitate to open feature requests to help us guide development. We more than welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for how to get set up.
 
 ## Technical gotchas
 
