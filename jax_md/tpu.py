@@ -789,7 +789,7 @@ def _grid_centers(
   grid_centers = onp.zeros(tuple(box_size_in_cells) + (num_dims,))
 
   for i in range(num_dims):
-    cell_idx = onp.arange(box_size_in_cells[i])
+    cell_idx = onp.arange(int(box_size_in_cells[i]))
     new_shape = (1,) * i + (box_size_in_cells[i],) + (1,) * (num_dims - i - 1)
     grid_centers[..., i] = (onp.reshape(cell_idx, new_shape) + 0.5) * cell_size
 

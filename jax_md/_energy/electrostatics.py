@@ -119,7 +119,7 @@ def coulomb_recip_ewald(
 
     dg = 2 * onp.pi / side_length
     # Just to make the sum inclusive.
-    g_range = onp.arange(0, g_max + dg / 2, dg)
+    g_range = onp.arange(0.0, float(g_max + dg / 2), float(dg))
     g_range = onp.concatenate((-g_range[::-1], g_range[1:]))
 
     gx, gy, gz = jnp.meshgrid(g_range, g_range, g_range)
