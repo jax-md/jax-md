@@ -752,7 +752,7 @@ def nve(force_fn: GridFn, dt: float) -> Simulator:
     V = state.velocity
     F = state.force
 
-    R, (V, F) = shift(
+    R, (V, F) = shift(  # ty: ignore[not-iterable]
       R, V * dt + F * dt_2, (V, F)
     )  # pytype: disable=attribute-error
     F_new = force_fn(R)
@@ -1713,7 +1713,7 @@ def test_nve(force_fn, dt):
     V = state.velocity
     F = state.force
 
-    R, (V, F) = shift(
+    R, (V, F) = shift(  # ty: ignore[not-iterable]
       R, V * dt + F * dt_2, (V, F)
     )  # pytype: disable=attribute-error
     F_new = force_fn(R)

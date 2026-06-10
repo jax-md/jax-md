@@ -100,7 +100,7 @@ def get_test_grid(
     # these are used as velocities
     rng_key, subkey = random.split(rng_key)
     V = random.normal(subkey, R.shape)
-    R_grid, V_grid = tpu.to_grid(
+    R_grid, V_grid = tpu.to_grid(  # ty: ignore[not-iterable]
       R,
       box_size_in_cells,
       cell_size,

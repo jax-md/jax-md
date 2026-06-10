@@ -101,7 +101,7 @@ def scale_lr_on_plateau(
   return optax.GradientTransformation(init_fn, update_fn)
 
 
-def optimizer(cfg: ConfigDict) -> optax.OptState:
+def optimizer(cfg: ConfigDict) -> optax.GradientTransformation:
   epoch_size = cfg.epoch_size if hasattr(cfg, 'epoch_size') else -1
   # TODO:
   # if epoch_size < 0:
