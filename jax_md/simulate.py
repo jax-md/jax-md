@@ -713,9 +713,11 @@ class NPTNoseHooverState:
       is the spatial dimension.
     box_velocity: A velocity degree of freedom for the box.
     box_mass: The mass assigned to the box.
+    dUdV: The derivative of the potential energy with respect to an affine
+      perturbation of the box.
     barostat: The variables describing the Nose-Hoover chain coupled to the
       barostat.
-    thermostsat: The variables describing the Nose-Hoover chain coupled to the
+    thermostat: The variables describing the Nose-Hoover chain coupled to the
       thermostat.
   """
 
@@ -729,6 +731,7 @@ class NPTNoseHooverState:
   box_position: Array
   box_momentum: Array
   box_mass: Array
+  dUdV: Array
 
   barostat: NoseHooverChain
   thermostat: NoseHooverChain
@@ -814,13 +817,20 @@ def npt_nose_hoover(
   t = f32(dt)
   dt_2 = f32(dt / 2)
 
-  force_fn = quantity.force(energy_fn)
-
   barostat_kwargs = default_nhc_kwargs(1000 * dt, barostat_kwargs)
   barostat = nose_hoover_chain(dt, **barostat_kwargs)
 
   thermostat_kwargs = default_nhc_kwargs(100 * dt, thermostat_kwargs)
   thermostat = nose_hoover_chain(dt, **thermostat_kwargs)
+
+  def force_stress_fn(position, box, **kwargs) -> Tuple[Array, Array, Array]:
+    def U(position, eps):
+      return energy_fn(position, box=box, perturbation=(1 + eps), **kwargs)
+
+    E, grad = value_and_grad(U, argnums=(0, 1))(position, 0.0)
+    F = -grad[0]
+    dUdV = grad[1]
+    return E, F, dUdV
 
   def init_fn(key, R, box, mass=f32(1.0), momenta=None, **kwargs):
     N, dim = R.shape
@@ -839,15 +849,17 @@ def npt_nose_hoover(
       # TODO(schsam): This is necessary because of JAX issue #5849.
       box = jnp.eye(R.shape[-1]) * box
 
+    _, force, dUdV = force_stress_fn(R, box, **kwargs)
     state = NPTNoseHooverState(
       R,
       None,
-      force_fn(R, box=box, **kwargs),
+      force,
       mass,
       box,
       box_position,
       box_momentum,
       box_mass,
+      dUdV,
       barostat.initialize(1, KE_box, _kT),
       None,
     )  # pytype: disable=wrong-arg-count
@@ -866,22 +878,6 @@ def npt_nose_hoover(
     dtype = state.position.dtype
     box_mass = jnp.array(dim * (N + 1) * kT * state.barostat.tau**2, dtype)
     return state.set(box_mass=box_mass)
-
-  def stress_fn(position, box, **kwargs) -> Tuple[Array, Array]:
-    def U(eps):
-      return energy_fn(position, box=box, perturbation=(1 + eps), **kwargs)
-
-    E, dUdV = value_and_grad(U)(0.0)
-    return E, dUdV
-
-  def force_stress_fn(position, box, **kwargs) -> Tuple[Array, Array, Array]:
-    def U(position, eps):
-      return energy_fn(position, box=box, perturbation=(1 + eps), **kwargs)
-
-    E, grad = value_and_grad(U, argnums=(0, 1))(position, 0.0)
-    F = -grad[0]
-    dUdV = grad[1]
-    return E, F, dUdV
 
   def box_force(
     alpha,
@@ -928,13 +924,16 @@ def npt_nose_hoover(
 
     R, P, M, F = state.position, state.momentum, state.mass, state.force
     R_b, P_b, M_b = state.box_position, state.box_momentum, state.box_mass
+    # Since the positions and box are unchanged since the last force/stress
+    # evaluation (the thermostat and barostat only update momenta), the cached
+    # `force` and `dUdV` are reused for the first half step.
+    dUdV = state.dUdV
 
     N, dim = R.shape
 
     vol, box_fn = _npt_box_info(state)
 
     alpha = 1 + 1 / N
-    E, dUdV = stress_fn(R, box_fn(vol), **kwargs)
     G_e = box_force(alpha, vol, dUdV, R, P, M, _pressure)
     P_b = P_b + dt_2 * G_e
     P = exp_iL2(alpha, P, F, P_b / M_b)
@@ -946,7 +945,7 @@ def npt_nose_hoover(
 
     box = box_fn(vol)
     R = exp_iL1(box, R, P / M, P_b / M_b)
-    E, F, dUdV = force_stress_fn(R, box, **kwargs)
+    _, F, dUdV = force_stress_fn(R, box, **kwargs)
     P = exp_iL2(alpha, P, F, P_b / M_b)
     G_e = box_force(alpha, vol, dUdV, R, P, M, _pressure)
     P_b = P_b + dt_2 * G_e
@@ -956,6 +955,7 @@ def npt_nose_hoover(
       momentum=P,
       mass=M,
       force=F,
+      dUdV=dUdV,
       box_position=R_b,
       box_momentum=P_b,
       box_mass=M_b,
