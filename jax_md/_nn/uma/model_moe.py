@@ -56,6 +56,11 @@ class UMAMoEConfig(UMAConfig):
   """Configuration for UMA MoE model.
 
   Extends UMAConfig with MoE-specific parameters.
+
+  Attributes:
+      use_segment_mm_pallas: Use the Pallas segmented matmul.
+      max_edge_segment_size: Static upper bound on the number of edges
+        belonging to a single system.
   """
 
   num_experts: int = 32
@@ -67,6 +72,8 @@ class UMAMoEConfig(UMAConfig):
   spin_balanced_channels: Tuple[int, ...] = ()
   merged_mole: bool = False
   so2_block_gemm: bool = False
+  use_segment_mm_pallas: bool = True
+  max_edge_segment_size: int | None = None
 
 
 def channel_range(channels: Tuple[int, ...]) -> Tuple[int, int]:
@@ -156,6 +163,8 @@ class SO2MConvMoE(nn.Module):
   num_experts: int
   merged_mole: bool = False
   so2_block_gemm: bool = False
+  use_segment_mm_pallas: bool = True
+  max_edge_segment_size: int | None = None
 
   def _block_gemm(
     self,
@@ -232,6 +241,9 @@ class SO2MConvMoE(nn.Module):
       out_features=2 * out_channels_half,
       use_bias=False,
       merged=self.merged_mole,
+      use_segment_mm_pallas=self.use_segment_mm_pallas,
+      max_segment_size=self.max_edge_segment_size,
+      assume_segment_contiguous_batches=self.use_segment_mm_pallas,
       name='fc',
     )
 
@@ -284,6 +296,8 @@ class SO2ConvolutionMoE(nn.Module):
   extra_m0_output_channels: int | None = None
   merged_mole: bool = False
   so2_block_gemm: bool = False
+  use_segment_mm_pallas: bool = True
+  max_edge_segment_size: int | None = None
 
   @nn.compact
   def __call__(
@@ -313,6 +327,9 @@ class SO2ConvolutionMoE(nn.Module):
       out_features=m0_output_channels,
       use_bias=True,
       merged=self.merged_mole,
+      use_segment_mm_pallas=self.use_segment_mm_pallas,
+      max_segment_size=self.max_edge_segment_size,
+      assume_segment_contiguous_batches=self.use_segment_mm_pallas,
       name='fc_m0',
     )
 
@@ -352,6 +369,8 @@ class SO2ConvolutionMoE(nn.Module):
         num_experts=self.num_experts,
         merged_mole=self.merged_mole,
         so2_block_gemm=self.so2_block_gemm,
+        use_segment_mm_pallas=self.use_segment_mm_pallas,
+        max_edge_segment_size=self.max_edge_segment_size,
         name=f'so2_m_conv_{m}',
       )
 
@@ -433,6 +452,8 @@ class EdgewiseMoE(nn.Module):
   use_kernels: bool = False
   merged_mole: bool = False
   so2_block_gemm: bool = False
+  use_segment_mm_pallas: bool = True
+  max_edge_segment_size: int | None = None
 
   @nn.compact
   def __call__(
@@ -466,6 +487,8 @@ class EdgewiseMoE(nn.Module):
       extra_m0_output_channels=extra_m0,
       merged_mole=self.merged_mole,
       so2_block_gemm=self.so2_block_gemm,
+      use_segment_mm_pallas=self.use_segment_mm_pallas,
+      max_edge_segment_size=self.max_edge_segment_size,
       name='so2_conv_1',
     )
 
@@ -479,6 +502,8 @@ class EdgewiseMoE(nn.Module):
       internal_weights=True,
       merged_mole=self.merged_mole,
       so2_block_gemm=self.so2_block_gemm,
+      use_segment_mm_pallas=self.use_segment_mm_pallas,
+      max_edge_segment_size=self.max_edge_segment_size,
       name='so2_conv_2',
     )
 
@@ -578,6 +603,8 @@ class UMABlockMoE(nn.Module):
   use_kernels: bool = False
   merged_mole: bool = False
   so2_block_gemm: bool = False
+  use_segment_mm_pallas: bool = True
+  max_edge_segment_size: int | None = None
 
   @nn.compact
   def __call__(
@@ -625,6 +652,8 @@ class UMABlockMoE(nn.Module):
       use_kernels=self.use_kernels,
       merged_mole=self.merged_mole,
       so2_block_gemm=self.so2_block_gemm,
+      use_segment_mm_pallas=self.use_segment_mm_pallas,
+      max_edge_segment_size=self.max_edge_segment_size,
       name='edge_wise',
     )
     x = edgewise(
@@ -909,6 +938,8 @@ class UMAMoEBackbone(nn.Module):
         use_kernels=cfg.use_kernels,
         merged_mole=cfg.merged_mole,
         so2_block_gemm=cfg.so2_block_gemm,
+        use_segment_mm_pallas=cfg.use_segment_mm_pallas,
+        max_edge_segment_size=cfg.max_edge_segment_size,
         name=f'blocks_{i}',
       )
       x_message = block(
