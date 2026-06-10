@@ -30,6 +30,7 @@ from dataclasses import replace as _replace
 from typing import Any, Callable, Optional, TypeVar, overload
 
 import jax
+from typing_extensions import dataclass_transform
 
 __all__ = (
   'dataclass',
@@ -47,16 +48,35 @@ __all__ = (
 T = TypeVar('T', bound=type[Any])
 
 
+def static_field(
+  *, metadata: dict[str, Any] | None = None, **field_kwargs: Any
+) -> _Field[Any]:
+  """Create a field that is treated as static (non-pytree) by JAX."""
+  combined_metadata = dict(metadata or {})
+  combined_metadata.setdefault('static', True)
+  combined_metadata['pytree_node'] = False
+  return _field(metadata=combined_metadata, **field_kwargs)
+
+
+@dataclass_transform(
+  frozen_default=True, field_specifiers=(_field, static_field)
+)
 @overload
 def dataclass(clz: T, *, frozen: bool = True, **dataclass_kwargs: Any) -> T: ...
 
 
+@dataclass_transform(
+  frozen_default=True, field_specifiers=(_field, static_field)
+)
 @overload
 def dataclass(
   *, frozen: bool = True, **dataclass_kwargs: Any
 ) -> Callable[[T], T]: ...
 
 
+@dataclass_transform(
+  frozen_default=True, field_specifiers=(_field, static_field)
+)
 def dataclass(
   clz: T | None = None, *, frozen: bool = True, **dataclass_kwargs: Any
 ) -> T | Callable[[T], T]:
@@ -87,7 +107,7 @@ def dataclass(
   def decorate(target_clz: T) -> T:
     data_clz = dataclasses.dataclass(frozen=frozen, **dataclass_kwargs)(
       target_clz
-    )
+    )  # ty: ignore[call-non-callable]
     registered_clz = jax.tree_util.register_dataclass(data_clz)
 
     def _set(self, **kwargs):
@@ -100,16 +120,6 @@ def dataclass(
     return decorate
 
   return decorate(clz)
-
-
-def static_field(
-  *, metadata: dict[str, Any] | None = None, **field_kwargs: Any
-) -> _Field[Any]:
-  """Create a field that is treated as static (non-pytree) by JAX."""
-  combined_metadata = dict(metadata or {})
-  combined_metadata.setdefault('static', True)
-  combined_metadata['pytree_node'] = False
-  return _field(metadata=combined_metadata, **field_kwargs)
 
 
 def unpack(dc: Any) -> tuple[Any, ...]:

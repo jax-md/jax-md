@@ -48,6 +48,7 @@ dependencies = [
     "optax",
     "frozendict",
     "pymatgen>=2021.3.4",
+    "typing_extensions>=4.1",
 ]
 
 [project.optional-dependencies]

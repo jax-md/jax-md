@@ -33,6 +33,24 @@ jobs:
     - name: Run ruff format check
       run: uv run ruff format --check .
 
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+    - name: Set up Python
+      run: uv python install 3.12
+    - name: Create virtual environment
+      run: uv venv --python 3.12
+    - name: Install dependencies
+      run: |
+        uv pip install .
+        # ty is alpha; pin to keep CI stable as new rules land.
+        uv pip install 'ty==0.0.1a20'
+    - name: Run ty check
+      run: uv run ty check
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -119,13 +137,13 @@ jobs:
   # This is needed for copybara integration.
   build-status:
     runs-on: ubuntu-latest
-    needs: [lint, test]
+    needs: [lint, typecheck, test]
     if: always()
     steps:
     - name: Report success or failure as github status
       shell: bash
       run: |
-        status="${{ (needs.lint.result == 'success' && needs.test.result == 'success') && 'success' || 'failure' }}"
+        status="${{ (needs.lint.result == 'success' && needs.typecheck.result == 'success' && needs.test.result == 'success') && 'success' || 'failure' }}"
         curl -sS --request POST \
         --url https://api.github.com/repos/${{ github.repository }}/statuses/${{ github.sha }} \
         --header 'authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' \
