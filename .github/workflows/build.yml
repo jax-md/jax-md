@@ -27,8 +27,10 @@ jobs:
       uses: astral-sh/setup-uv@v5
     - name: Set up Python
       run: uv python install 3.12
+    - name: Create virtual environment
+      run: uv venv --python 3.12
     - name: Install dependencies
-      run: uv sync --python 3.12 --no-default-groups --group lint --group testing
+      run: uv pip install -r pyproject.toml --group lint --group testing
     - name: Run ruff check
       run: uv run --no-sync ruff check .
     - name: Run ruff format check
