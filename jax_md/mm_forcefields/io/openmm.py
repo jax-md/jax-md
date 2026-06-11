@@ -1208,8 +1208,8 @@ def virtual_site_fix_state(
   )
   safe_force = jnp.where(mask, jnp.zeros_like(state.force), state.force)
 
-  # `.set` is injected dynamically by jax_md.dataclasses.
-  state_any: Any = state
-  return state_any.set(
+  # `.set` is injected at runtime by jax_md.dataclasses.
+  state: Any = state
+  return state.set(
     position=pos, mass=safe_mass, momentum=safe_momentum, force=safe_force
   )
