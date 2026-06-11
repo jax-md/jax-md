@@ -63,12 +63,16 @@ class CutoffCoulomb(CoulombHandler):
   """Simple cutoff coulomb with optional complementary error function."""
 
   def __init__(
-    self, r_cut: float = 12.0, use_erfc: bool = False, alpha: float = 0.3
+    self,
+    r_cut: float | None = 12.0,
+    use_erfc: bool = False,
+    alpha: float = 0.3,
   ):
     """Initialize cutoff coulomb handler.
 
     Args:
-        r_cut: Cutoff distance (Å).
+        r_cut: Cutoff distance (Å). May be None for vacuum (no-cutoff)
+            systems, where the smap pipeline applies no cutoff wrapper.
         use_erfc: Whether to use erfc damping.
         alpha: Damping parameter for erfc (Å⁻¹).
     """
@@ -145,6 +149,9 @@ class CutoffCoulomb(CoulombHandler):
     scale_14: float | Array = 0.5,
   ) -> Array:
     """Compute cutoff coulomb energy."""
+    r_cut = self.r_cut
+    if r_cut is None:
+      raise ValueError('CutoffCoulomb.energy requires a finite r_cut.')
     n_atoms = positions.shape[0]
     max_neighbors = nlist.idx.shape[1]
 
@@ -178,7 +185,7 @@ class CutoffCoulomb(CoulombHandler):
     is_14 = vmap(lambda i, j: pair_14_mask[i, j])(idx_i_safe, idx_j_safe)
 
     # Include mask
-    include = valid & (~same) & (~excluded) & (r < self.r_cut)
+    include = valid & (~same) & (~excluded) & (r < r_cut)
 
     # Apply 1-4 scaling
     scale = jnp.where(is_14, scale_14, 1.0)

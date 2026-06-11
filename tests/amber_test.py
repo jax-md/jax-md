@@ -223,14 +223,18 @@ def _make_coulomb_handler(
   recip_grid: Any,
 ) -> electrostatics.CoulombHandler:
   """Pick a coulomb handler consistent with how we built the OpenMM system."""
-  if r_cut is None:
-    raise ValueError('The OpenMM system did not define a nonbonded cutoff.')
   if nb_method == app.PME:
+    if r_cut is None:
+      raise ValueError('PME requires a nonbonded cutoff.')
     return electrostatics.PMECoulomb(
       r_cut=r_cut, alpha=recip_alpha, grid_size=recip_grid
     )
   if nb_method == app.Ewald:
+    if r_cut is None:
+      raise ValueError('Ewald requires a nonbonded cutoff.')
     return electrostatics.EwaldCoulomb(r_cut=r_cut)
+  # NoCutoff (vacuum) systems carry r_cut=None; CutoffCoulomb tolerates it
+  # because the smap pipeline applies no cutoff wrapper in that case.
   return electrostatics.CutoffCoulomb(r_cut=r_cut)
 
 
