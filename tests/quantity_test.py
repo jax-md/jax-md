@@ -25,6 +25,7 @@ from jax import jit, grad, vmap
 from jax_md import space
 from jax_md import quantity
 from jax_md import test_util
+from jax_md import util
 from jax_md import energy
 from jax_md import partition
 from jax_md import smap
@@ -43,7 +44,7 @@ NEIGHBOR_LIST_FORMAT = [
   partition.OrderedSparse,
 ]
 
-DTYPES = [f32, f64] if jax.config.jax_enable_x64 else [f32]
+DTYPES = [f32, f64] if util.x64_enabled() else [f32]
 COORDS = ['fractional', 'real']
 
 
@@ -682,7 +683,7 @@ class QuantityTest(test_util.JAXMDTestCase):
       )
 
   def test_maybe_downcast(self):
-    if not jax.config.jax_enable_x64:
+    if not util.x64_enabled():
       self.skipTest('Maybe downcast only works for float32 mode.')
 
     x = np.array([1, 2, 3], np.float64)

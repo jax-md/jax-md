@@ -30,10 +30,11 @@ from jax_md._nn.util import convert_checkpoint_to_params
 
 from jax_md.util import f32, f64
 from jax_md import test_util
+from jax_md import util
 
 jax.config.parse_flags_with_absl()
 
-if jax.config.jax_enable_x64:
+if util.x64_enabled():
   DTYPES = [f32, f64]
 else:
   DTYPES = [f32]
@@ -114,7 +115,7 @@ class SymmetryFunctionTest(test_util.JAXMDTestCase):
     gr_exact = gr(R)
     gr_nbrs = gr_neigh(R, neighbor=nbrs)
 
-    tol = 1e-13 if jax.config.jax_enable_x64 else 1e-6
+    tol = 1e-13 if util.x64_enabled() else 1e-6
     self.assertAllClose(gr_exact, gr_nbrs, atol=tol, rtol=tol)
 
   @parameterized.named_parameters(
@@ -174,7 +175,7 @@ class SymmetryFunctionTest(test_util.JAXMDTestCase):
     gr_exact = gr(R)
     gr_nbrs = gr_neigh(R, neighbor=nbrs)
 
-    tol = 1e-13 if jax.config.jax_enable_x64 else 1e-6
+    tol = 1e-13 if util.x64_enabled() else 1e-6
     self.assertAllClose(gr_exact, gr_nbrs, atol=tol, rtol=tol)
 
   @parameterized.named_parameters(

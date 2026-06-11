@@ -29,6 +29,7 @@ from jax_md import space
 from jax_md import energy
 from jax_md import minimize
 from jax_md import quantity
+from jax_md import util
 from jax_md import partition
 from jax_md.util import *
 from jax_md import test_util
@@ -44,7 +45,7 @@ OPTIMIZATION_STEPS = 10
 STOCHASTIC_SAMPLES = 10
 SPATIAL_DIMENSION = [2, 3]
 
-if jax.config.jax_enable_x64:
+if util.x64_enabled():
   DTYPE = [f32, f64]
 else:
   DTYPE = [f32]
@@ -334,7 +335,7 @@ class DynamicsTest(test_util.JAXMDTestCase):
     self.assertAllClose(mu, expected)
 
   def test_precon_fire_descent_matches_ase_trajectory(self):
-    if not jax.config.jax_enable_x64:
+    if not util.x64_enabled():
       self.skipTest('ASE trajectory parity requires x64.')
 
     from ase import Atoms
@@ -746,7 +747,7 @@ class FireDescentBoxTest(test_util.JAXMDTestCase):
       )
 
   def test_precon_fire_descent_box_matches_ase_trajectory(self):
-    if not getattr(jax.config, 'jax_enable_x64', False):
+    if not util.x64_enabled():
       self.skipTest('ASE UnitCellFilter trajectory parity requires x64.')
 
     from ase import Atoms

@@ -33,6 +33,7 @@ from jax import jit, vmap
 from jax_md import smap, partition, space, energy, quantity
 from jax_md.util import *
 from jax_md import test_util
+from jax_md import util
 
 jax.config.parse_flags_with_absl()
 
@@ -41,7 +42,7 @@ PARTICLE_COUNT = 1000
 STOCHASTIC_SAMPLES = 10
 SPATIAL_DIMENSION = [2, 3]
 
-if jax.config.jax_enable_x64:
+if util.x64_enabled():
   POSITION_DTYPE = [f32, f64]
 else:
   POSITION_DTYPE = [f32]

@@ -27,6 +27,7 @@ from scipy.io import loadmat
 from jax_md import space
 from jax_md.util import *
 from jax_md import test_util
+from jax_md import util
 from jax_md import quantity
 
 from jax_md import energy
@@ -48,7 +49,7 @@ UNIT_CELL_SIZE = [7, 8]
 SOFT_SPHERE_ALPHA = [2.0, 2.5, 3.0]
 N_TYPES_TO_TEST = [1, 2]
 
-if jax.config.x64_enabled:
+if util.x64_enabled():
   POSITION_DTYPE = [f32, f64]
 else:
   POSITION_DTYPE = [f32]

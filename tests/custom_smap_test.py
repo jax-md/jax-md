@@ -20,6 +20,7 @@ from jax_md.custom_partition import (
 from jax_md.custom_smap import pair_neighbor_list_multi_image
 from jax_md.util import f32, f64, i32
 from jax_md import test_util
+from jax_md import util
 
 jax.config.parse_flags_with_absl()
 
@@ -36,7 +37,7 @@ NEIGHBOR_LIST_FORMAT = [
 # Smaller particle count for multi-image tests (small boxes)
 PARTICLE_COUNT = 50
 
-if jax.config.jax_enable_x64:
+if util.x64_enabled():
   POSITION_DTYPE = [f32, f64]
 else:
   POSITION_DTYPE = [f32]

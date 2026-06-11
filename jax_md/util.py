@@ -112,6 +112,15 @@ def maybe_downcast(x):
   return jnp.array(x, f32)
 
 
+def x64_enabled() -> bool:
+  """Whether JAX x64 mode is currently active.
+
+  Probes dtype canonicalization instead of reading the dynamic
+  `jax.config.jax_enable_x64` attribute, which static checkers can't see.
+  """
+  return bool(jax.dtypes.canonicalize_dtype(jnp.float64) == jnp.float64)
+
+
 def is_array(x: Any) -> TypeIs[Array | onp.ndarray[Any, Any]]:
   return isinstance(x, (jnp.ndarray, onp.ndarray))
 

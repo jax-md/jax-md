@@ -23,7 +23,7 @@ import jax.numpy as jnp
 
 from jax import grad, jit, jacfwd
 
-from jax_md import space, test_util, quantity, energy
+from jax_md import space, test_util, quantity, energy, util
 from jax_md.util import *
 
 from functools import partial
@@ -39,7 +39,7 @@ SHIFT_STEPS = 10
 SPATIAL_DIMENSION = [2, 3]
 BOX_FORMATS = ['scalar', 'vector', 'matrix']
 
-if jax.config.jax_enable_x64:
+if util.x64_enabled():
   POSITION_DTYPE = [f32, f64]
 else:
   POSITION_DTYPE = [f32]

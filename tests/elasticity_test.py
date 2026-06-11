@@ -30,6 +30,7 @@ from jax_md import space
 from jax_md import energy
 from jax_md import minimize
 from jax_md import quantity
+from jax_md import util
 from jax_md import elasticity
 from jax_md import test_util
 from jax_md.util import *
@@ -41,7 +42,7 @@ NUM_SAMPLES = 2
 SPATIAL_DIMENSION = [2, 3]
 LOWPRESSURE = [True, False]
 
-if jax.config.jax_enable_x64:
+if util.x64_enabled():
   DTYPE = [f32, f64]
 else:
   DTYPE = [f32]

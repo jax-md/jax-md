@@ -57,7 +57,7 @@ BROWNIAN_PARTICLE_COUNT = 24000
 BROWNIAN_DYNAMICS_STEPS = 8000
 
 DTYPE = [f32]
-if jax.config.jax_enable_x64:
+if util.x64_enabled():
   DTYPE += [f64]
 
 

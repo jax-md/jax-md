@@ -32,6 +32,7 @@ from jax import jit
 from jax import vmap
 
 from jax_md import dataclasses
+from jax_md import util
 
 FLAGS = flags.FLAGS
 
@@ -192,7 +193,7 @@ class JAXMDTestCase(parameterized.TestCase):
       self.assertDtypesMatch(x, y)
 
   def assertDtypesMatch(self, x, y, *, canonicalize_dtypes=True):
-    if not jax.config.x64_enabled and canonicalize_dtypes:
+    if not util.x64_enabled() and canonicalize_dtypes:
       self.assertEqual(
         _dtypes.canonicalize_dtype(_dtype(x)),
         _dtypes.canonicalize_dtype(_dtype(y)),
