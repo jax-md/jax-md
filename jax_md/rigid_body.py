@@ -300,7 +300,15 @@ class RigidBody:
   orientation: Union[Array, Quaternion, float]
 
   def __getitem__(self, idx):
-    return RigidBody(self.center[idx], self.orientation[idx])
+    center = self.center
+    orientation = self.orientation
+    if isinstance(center, (int, float)) or isinstance(
+      orientation, (int, float)
+    ):
+      raise TypeError(
+        'Cannot index a RigidBody whose center or orientation is a scalar.'
+      )
+    return RigidBody(center[idx], orientation[idx])
 
 
 util.register_custom_simulation_type(RigidBody)
@@ -948,7 +956,8 @@ def transform(body: RigidBody, shape: RigidPointUnion) -> Array:
     offset = quaternion_rotate(body.orientation, shape.points)
   else:
     offset = space.raw_transform(rotation2d(body.orientation), shape.points)
-  return body.center[None, :] + offset
+  center = jnp.asarray(body.center)
+  return center[None, :] + offset
 
 
 def union_to_points(
@@ -962,7 +971,7 @@ def union_to_points(
     position = vmap(transform, (0, None))(body, shape)
     point_species = shape.point_species
     if point_species is not None:
-      point_species = shape.point_species[None, :]
+      point_species = point_species[None, :]
       point_species = jnp.broadcast_to(point_species, position.shape[:-1])
       point_species = jnp.reshape(point_species, (-1,))
     position = jnp.reshape(position, (-1, position.shape[-1]))

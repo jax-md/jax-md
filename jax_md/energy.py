@@ -2795,6 +2795,11 @@ def uma_neighbor_list(
     moe_config, backbone_params, head_params = load_pretrained(
       checkpoint_path, head_dataset=head_dataset
     )
+    if head_params is None:
+      raise ValueError(
+        f'Checkpoint {checkpoint_path!r} provides no energy head for '
+        f'dataset {head_dataset!r}.'
+      )
     cfg = moe_config
     is_moe = True
     pretrained_params = {

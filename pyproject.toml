@@ -48,7 +48,7 @@ dependencies = [
     "optax",
     "frozendict",
     "pymatgen>=2021.3.4",
-    "typing-extensions>=4.5",  # dataclass_transform
+    "typing-extensions>=4.10",  # dataclass_transform, TypeIs
 ]
 
 [project.optional-dependencies]
@@ -235,4 +235,4 @@ allowed-unresolved-imports = [
 
 [tool.ty.rules]
 unresolved-attribute = "ignore"
-not-subscriptable = "ignore"
+unused-ignore-comment = "error"

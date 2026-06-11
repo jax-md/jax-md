@@ -57,7 +57,9 @@ ShiftFn = space.ShiftFn
 T = TypeVar('T')
 InitFn = Callable[..., T]
 ApplyFn = Callable[..., T]
-Minimizer = Tuple[InitFn, ApplyFn]
+# Parameterize the inner aliases so `Minimizer[X]` stays generic in T;
+# bare `InitFn` would collapse to `Callable[..., Unknown]`.
+Minimizer = Tuple[InitFn[T], ApplyFn[T]]
 
 
 def gradient_descent(

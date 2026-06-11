@@ -16,6 +16,8 @@
 
 from typing import Iterable, Sequence, Union, Optional, Any
 
+from typing_extensions import TypeIs
+
 import jax
 from jax.tree_util import register_pytree_node
 import jax.numpy as jnp
@@ -110,7 +112,7 @@ def maybe_downcast(x):
   return jnp.array(x, f32)
 
 
-def is_array(x: Any) -> bool:
+def is_array(x: Any) -> TypeIs[Array | onp.ndarray[Any, Any]]:
   return isinstance(x, (jnp.ndarray, onp.ndarray))
 
 

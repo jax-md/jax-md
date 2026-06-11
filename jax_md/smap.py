@@ -107,7 +107,7 @@ def _get_bond_type_parameters(params: Parameter, bond_type: Array) -> Parameter:
 
   if util.is_array(params):
     if len(params.shape) == 1:
-      return params[bond_type]
+      return jnp.asarray(params)[bond_type]
     elif len(params.shape) == 0:
       return params
     else:
@@ -297,7 +297,7 @@ def _get_species_parameters(
   # TODO(schsam): We should do better error checking here.
   if util.is_array(params):
     if len(params.shape) == 2:
-      return params[species]
+      return jnp.asarray(params)[species]
     elif len(params.shape) == 0:
       return params
     else:
@@ -326,7 +326,8 @@ def _get_matrix_parameters(
     if params.ndim == 1:
       if combinator is None:
         raise ValueError('A combinator is required for 1d parameters.')
-      return combinator(params[:, jnp.newaxis], params[jnp.newaxis, :])
+      p = jnp.asarray(params)
+      return combinator(p[:, jnp.newaxis], p[jnp.newaxis, :])
     elif params.ndim == 0 or params.ndim == 2:
       return params
     else:
@@ -700,28 +701,32 @@ def _get_neighborhood_matrix_params(
   combinator: Callable[[Array, Array], Array],
 ) -> Parameter:
   if util.is_array(params):
-    if params.ndim == 1:
+    # Collapse Array | onp.ndarray at the dispatch point; the `query`
+    # closure below also needs the binding since it sees the public type
+    # of `params`, not the flow-narrowed one.
+    p = jnp.asarray(params)
+    if p.ndim == 1:
       if partition.is_sparse(format):
-        return space.map_bond(combinator)(params[idx[0]], params[idx[1]])
+        return space.map_bond(combinator)(p[idx[0]], p[idx[1]])
       else:
-        return combinator(params[:, None], params[idx])
-        return space.map_neighbor(combinator)(params, params[idx])
-    elif params.ndim == 2:
+        return combinator(p[:, None], p[idx])
+        return space.map_neighbor(combinator)(p, p[idx])
+    elif p.ndim == 2:
 
       def query(id_a, id_b):
-        return params[id_a, id_b]
+        return p[id_a, id_b]
 
       if partition.is_sparse(format):
         return space.map_bond(query)(idx[0], idx[1])
       else:
         query = vmap(vmap(query, (None, 0)))
         return query(jnp.arange(idx.shape[0], dtype=jnp.int32), idx)
-    elif params.ndim == 0:
+    elif p.ndim == 0:
       return params
     else:
       raise ValueError(
         'Parameter array must be either a scalar, a vector, '
-        f'or a matrix. Found ndim={params.ndim}.'
+        f'or a matrix. Found ndim={p.ndim}.'
       )
   elif isinstance(params, ParameterTree):
     if params.mapping is ParameterTreeMapping.Global:

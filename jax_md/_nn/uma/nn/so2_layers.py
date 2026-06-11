@@ -214,8 +214,9 @@ class SO2Convolution(nn.Module):
       x_m = x_by_m[m].reshape(num_edges, 2, -1)
 
       # Apply radial weighting (broadcast over real/imag dim)
-      if x_edge_by_m[m] is not None:
-        x_m = x_m * x_edge_by_m[m][:, None, :]
+      x_edge_m = x_edge_by_m[m]
+      if x_edge_m is not None:
+        x_m = x_m * x_edge_m[:, None, :]
 
       # SO2 convolution for this m
       so2_m_conv = SO2MConv(

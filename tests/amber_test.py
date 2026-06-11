@@ -1668,6 +1668,8 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     # Constraint satisfaction: compare max distance violation.
     idx = mm.constraint_idx
     target = mm.constraint_dist
+    if idx is None:
+      raise AssertionError('Parsed system has no distance constraints.')
     i = idx[:, 0]
     j = idx[:, 1]
 

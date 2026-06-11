@@ -421,8 +421,9 @@ class SO2ConvolutionMoE(nn.Module):
     # m > 0 with MoE
     for m in range(1, self.mmax + 1):
       x_m = x_by_m[m].reshape(num_edges, 2, -1)
-      if x_edge_by_m[m] is not None:
-        x_m = x_m * x_edge_by_m[m][:, None, :]
+      x_edge_m = x_edge_by_m[m]
+      if x_edge_m is not None:
+        x_m = x_m * x_edge_m[:, None, :]
 
       x_m_r, x_m_i = so2_m_conv_modules[m](x_m, expert_coefficients, edge_batch)
       out.append(x_m_r)

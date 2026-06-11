@@ -727,12 +727,14 @@ def energy(
     x = jnp.asarray(_soft_lrc_tail_x)
     w = jnp.asarray(_soft_lrc_tail_w)
     pair_weight = jnp.asarray(_soft_lrc_pair_weight)
+    sigma = jnp.asarray(_soft_lrc_sigma)
+    epsilon = jnp.asarray(_soft_lrc_epsilon)
 
     r_tail = rc / x[None, :]
     u_tail = lennard_jones_softcore(
       r_tail,
-      _soft_lrc_sigma[:, None],
-      _soft_lrc_epsilon[:, None],
+      sigma[:, None],
+      epsilon[:, None],
       cl_lambda_val,
     )
     i_tail = jnp.sum(w[None, :] * u_tail * (rc**3) / (x[None, :] ** 4), axis=1)
@@ -746,8 +748,8 @@ def energy(
       s = xs**3 * (10.0 + xs * (-15.0 + xs * 6.0))
       u_sw = lennard_jones_softcore(
         r_sw,
-        _soft_lrc_sigma[:, None],
-        _soft_lrc_epsilon[:, None],
+        sigma[:, None],
+        epsilon[:, None],
         cl_lambda_val,
       )
       i_switch = jnp.sum(

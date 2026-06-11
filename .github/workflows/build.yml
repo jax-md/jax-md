@@ -36,7 +36,7 @@ jobs:
     - name: Run ruff format check
       run: uv run --no-sync ruff format --check .
     - name: Run ty check
-      run: uv run --no-sync ty check
+      run: uv run --no-sync ty check --error-on-warning
 
   test:
     runs-on: ubuntu-latest

@@ -193,7 +193,7 @@ def lattice(R_unit_cell, copies, lattice_vectors):
 
   Rs = []
   for indices in onp.ndindex(copies):
-    dR = 0.0
+    dR = onp.zeros((d,))
     for idx, i in enumerate(indices):
       dR += i * L[idx]
     R = R_unit_cell + dR[onp.newaxis, :]

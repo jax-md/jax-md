@@ -19,6 +19,7 @@ import base64
 from google.colab import output
 
 import IPython
+import IPython.display
 
 import jax.numpy as jnp
 

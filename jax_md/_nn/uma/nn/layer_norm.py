@@ -118,7 +118,7 @@ class EquivariantLayerNorm(nn.Module):
       feature_norm = jnp.mean(feature_norm, axis=2, keepdims=True)
       feature_norm = (feature_norm + self.eps) ** -0.5
 
-      if self.affine:
+      if affine_weight is not None:
         weight = affine_weight[l : l + 1, :].reshape(1, 1, -1)
         feature_norm = feature_norm * weight
 
@@ -192,7 +192,7 @@ class EquivariantLayerNormSH(nn.Module):
         length = 2 * l + 1
         feat = node_input[:, start_idx : start_idx + length, :]
 
-        if self.affine:
+        if affine_weight is not None:
           weight = affine_weight[l - 1 : l, :].reshape(1, 1, -1)
           feat_scale = feature_norm * weight
         else:
