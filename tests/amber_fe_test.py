@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import tarfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import jax
 from absl.testing import absltest, parameterized
@@ -18,14 +19,21 @@ import jax_md.mm_forcefields.amber as amber_energy
 from jax_md.mm_forcefields.io.openmm import convert_openmm_system
 from jax_md.mm_forcefields.nonbonded import electrostatics
 
-try:
+# Statically treated as always importable; at runtime the module is
+# skipped below when OpenMM is absent.
+if TYPE_CHECKING:
   import openmm as mm
   import openmm.app as app
   import openmm.unit as u
-except ImportError:
-  mm = None
-  app = None
-  u = None
+else:
+  try:
+    import openmm as mm
+    import openmm.app as app
+    import openmm.unit as u
+  except ImportError:
+    mm = None
+    app = None
+    u = None
 
 if mm is None:
   pytest.skip('OpenMM is not installed.', allow_module_level=True)

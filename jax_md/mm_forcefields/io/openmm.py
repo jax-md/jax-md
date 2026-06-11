@@ -6,31 +6,48 @@ values into NumPy/JAX arrays and then operate purely in JAX downstream.
 
 import os
 from functools import partial
-from typing import Any, Mapping, NamedTuple, Optional, Sequence, TypeAlias
+from typing import (
+  TYPE_CHECKING,
+  Any,
+  Mapping,
+  NamedTuple,
+  Optional,
+  Sequence,
+  TypeAlias,
+)
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
-# TODO convert these to use sentinel variable to avoid type checking issues
-try:
+# Optional OpenMM-stack imports. Statically these are treated as always
+# importable; at runtime missing modules leave None sentinels and all
+# consumers run behind `_maybe_import_omm`-style guards.
+if TYPE_CHECKING:
   import openmm
   import openmm.app as app
   import openmm.unit as unit
-except ImportError:  # pragma: no cover
-  openmm = None
-  app = None
-  unit = None
-
-try:
-  from openmmforcefields.generators import SystemGenerator
-except ImportError:  # pragma: no cover
-  SystemGenerator = None
-
-try:
   import parmed
-except ImportError:  # pragma: no cover
-  parmed = None
+  from openmmforcefields.generators import SystemGenerator
+else:
+  try:
+    import openmm
+    import openmm.app as app
+    import openmm.unit as unit
+  except ImportError:  # pragma: no cover
+    openmm = None
+    app = None
+    unit = None
+
+  try:
+    from openmmforcefields.generators import SystemGenerator
+  except ImportError:  # pragma: no cover
+    SystemGenerator = None
+
+  try:
+    import parmed
+  except ImportError:  # pragma: no cover
+    parmed = None
 
 from jax_md import partition, simulate, space, util
 from jax_md.mm_forcefields.base import (
@@ -697,7 +714,9 @@ def convert_openmm_system(
         # OpenMM supports triclinic periodic boxes (see 22.1 in the OMM manual)
         # have to convert lower triangular to upper triangular matrix e.g.
         # [[Lx, Ly, Lz], [0, Ly, Lz], [0, 0, Lz]]
-        box_vectors = np.array(box_vectors.value_in_unit(unit.angstrom)).T
+        # On this path the incoming value is an OpenMM Quantity.
+        box_quantity: Any = box_vectors
+        box_vectors = np.array(box_quantity.value_in_unit(unit.angstrom)).T
 
         # If matrix is diagonal, then unit cell is orthorhombic, otherwise
         # it is assumed to be triclinic according to OpenMM's conventions
@@ -1189,6 +1208,8 @@ def virtual_site_fix_state(
   )
   safe_force = jnp.where(mask, jnp.zeros_like(state.force), state.force)
 
-  return state.set(
+  # `.set` is injected dynamically by jax_md.dataclasses.
+  state_any: Any = state
+  return state_any.set(
     position=pos, mass=safe_mass, momentum=safe_momentum, force=safe_force
   )

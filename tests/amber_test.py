@@ -67,7 +67,7 @@ import os
 import sys
 import tarfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import jax
 from absl.testing import absltest, parameterized
@@ -94,14 +94,21 @@ jax.config.parse_flags_with_absl()
 
 import pytest
 
-try:
+# Statically treated as always importable; at runtime the module is
+# skipped below when OpenMM is absent.
+if TYPE_CHECKING:
   import openmm
   import openmm.app as app
   import openmm.unit as unit
-except ImportError:
-  openmm = None
-  app = None
-  unit = None
+else:
+  try:
+    import openmm
+    import openmm.app as app
+    import openmm.unit as unit
+  except ImportError:
+    openmm = None
+    app = None
+    unit = None
 
 if openmm is None:
   pytest.skip('OpenMM is not installed.', allow_module_level=True)
@@ -802,7 +809,10 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     )
 
     self.assertAllClose(first_step_jax, first_step_omm, rtol=1e-4, atol=0.0)
-    real_mask = ~jnp.asarray(mm.virtual_sites.is_virtual_site)
+    vsites = mm.virtual_sites
+    if vsites is None:
+      raise AssertionError('Converted system has no virtual sites.')
+    real_mask = ~jnp.asarray(vsites.is_virtual_site)
     frc = jnp.asarray(first_step_omm_grads, dtype=first_step_jax_grads.dtype)
     self.assertAllClose(
       first_step_jax_grads[real_mask],
@@ -920,8 +930,9 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
       format=partition.NeighborListFormat.OrderedSparse,
     )
 
-    self.assertIsNotNone(mm.virtual_sites)
     vs = mm.virtual_sites
+    if vs is None:
+      raise AssertionError('Converted system has no virtual sites.')
     vs_mask = np.asarray(jax.device_get(vs.is_virtual_site), dtype=bool)
     self.assertEqual(int(vs_mask.sum()), 1)
 

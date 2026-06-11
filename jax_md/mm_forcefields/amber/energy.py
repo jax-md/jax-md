@@ -205,7 +205,7 @@ def energy(
   dense_mask_format: bool = True,
 ) -> tuple[
   Callable[..., dict[str, Array]],
-  NeighborFn,
+  partition.NeighborListFns,
   space.DisplacementFn,
   space.ShiftFn,
 ]:
