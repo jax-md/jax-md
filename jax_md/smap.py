@@ -99,7 +99,7 @@ Parameter = Union[ParameterTree, Array, float]
 # Mapping potential functional forms to bonds.
 
 
-def _get_bond_type_parameters(params: Array, bond_type: Array) -> Array:
+def _get_bond_type_parameters(params: Parameter, bond_type: Array) -> Parameter:
   """Get parameters for interactions for bonds indexed by a bond-type."""
   # TODO(schsam): We should do better error checking here.
   assert util.is_array(bond_type)
@@ -135,8 +135,8 @@ def _get_bond_type_parameters(params: Array, bond_type: Array) -> Array:
 
 
 def _kwargs_to_bond_parameters(
-  bond_type: Array, kwargs: Dict[str, Array]
-) -> Dict[str, Array]:
+  bond_type: Array, kwargs: Dict[str, Parameter]
+) -> Dict[str, Parameter]:
   """Extract parameters from keyword arguments."""
   # NOTE(schsam): We could pull out the species case from the generic case.
   for k, v in kwargs.items():
@@ -290,7 +290,9 @@ def bond(
 # Mapping potential functional forms to pairwise interactions.
 
 
-def _get_species_parameters(params: Parameter, species: Array) -> Parameter:
+def _get_species_parameters(
+  params: Parameter, species: Array | Tuple[int, int]
+) -> Parameter:
   """Get parameters for interactions between species pairs."""
   # TODO(schsam): We should do better error checking here.
   if util.is_array(params):
@@ -317,11 +319,13 @@ def _get_species_parameters(params: Parameter, species: Array) -> Parameter:
 
 
 def _get_matrix_parameters(
-  params: Parameter, combinator: Callable[[Array, Array], Array]
+  params: Parameter, combinator: Callable[[Array, Array], Array] | None
 ) -> Parameter:
   """Get an NxN parameter matrix from per-particle parameters."""
   if util.is_array(params):
     if params.ndim == 1:
+      if combinator is None:
+        raise ValueError('A combinator is required for 1d parameters.')
       return combinator(params[:, jnp.newaxis], params[jnp.newaxis, :])
     elif params.ndim == 0 or params.ndim == 2:
       return params
@@ -336,6 +340,8 @@ def _get_matrix_parameters(
     if params.mapping in (M.Global, M.PerBond):
       return params.tree
     elif params.mapping is M.PerParticle:
+      if combinator is None:
+        raise ValueError('A combinator is required for PerParticle mapping.')
       return tree_map(
         lambda p: combinator(p[:, None, ...], p[None, :, ...]), params.tree
       )
@@ -361,7 +367,7 @@ def _get_matrix_parameters(
 
 
 def _kwargs_to_parameters(
-  species: Array | None,
+  species: Array | Tuple[int, int] | None,
   kwargs: Dict[str, Parameter],
   combinators: Dict[str, Callable],
 ) -> Dict[str, Parameter]:
@@ -689,7 +695,7 @@ def pair(
 
 def _get_neighborhood_matrix_params(
   format: partition.NeighborListFormat,
-  idx: Array,
+  idx: Array | onp.ndarray,
   params: Parameter,
   combinator: Callable[[Array, Array], Array],
 ) -> Parameter:
@@ -766,7 +772,7 @@ def _get_neighborhood_matrix_params(
 
 def _get_neighborhood_species_params(
   format: partition.NeighborListFormat,
-  idx: Array,
+  idx: Array | onp.ndarray,
   species: Array,
   params: Parameter,
 ) -> Parameter:
@@ -814,7 +820,7 @@ def _get_neighborhood_species_params(
 
 def _neighborhood_kwargs_to_params(
   format: partition.NeighborListFormat,
-  idx: Array,
+  idx: Array | onp.ndarray,
   species: Array,
   kwargs: Dict[str, Array],
   combinators: Dict[str, Callable],

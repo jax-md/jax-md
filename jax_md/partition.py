@@ -144,7 +144,7 @@ class CellListFns:
 
 
 def _cell_dimensions(
-  spatial_dimension: int, box_size: Box, minimum_cell_size: float
+  spatial_dimension: int, box_size: Box, minimum_cell_size: ArrayLike
 ) -> Tuple[Box, Array, onp.ndarray, int]:
   """Compute the number of cells-per-side and total number of cells in a box."""
   if isinstance(box_size, int) or isinstance(box_size, float):
@@ -189,7 +189,7 @@ def _cell_dimensions(
 
 
 def count_cell_filling(
-  position: Array, box_size: Box, minimum_cell_size: float
+  position: Array, box_size: Box, minimum_cell_size: ArrayLike
 ) -> Array:
   """Counts the number of particles per-cell in a spatial partition."""
   dim = int(position.shape[1])
@@ -210,7 +210,7 @@ def count_cell_filling(
 
 
 def _compute_hash_constants(
-  spatial_dimension: int, cells_per_side: Array
+  spatial_dimension: int, cells_per_side: Array | onp.ndarray
 ) -> Array:
   if cells_per_side.size == 1:
     return jnp.array(
@@ -243,7 +243,7 @@ def _neighboring_cells_arr(ndim: int, dist: int = 1) -> Array:
 def _estimate_cell_capacity(
   position: Array,
   box_size: Box,
-  cell_size: float,
+  cell_size: float | Array,
   buffer_size_multiplier: float,
 ) -> int:
   cell_capacity = onp.max(count_cell_filling(position, box_size, cell_size))
@@ -275,7 +275,9 @@ def shift_array(arr: Array, dindex: Array) -> Array:
   return arr
 
 
-def unflatten_cell_buffer(arr: Array, cells_per_side: Array, dim: int) -> Array:
+def unflatten_cell_buffer(
+  arr: Array, cells_per_side: Array | onp.ndarray, dim: int
+) -> Array:
   if (
     isinstance(cells_per_side, int)
     or isinstance(cells_per_side, float)
@@ -346,7 +348,7 @@ def cell_list(
 
   def cell_list_fn(
     position: Array,
-    capacity_overflow_update: Tuple[int, bool, Callable[..., CellList]]
+    capacity_overflow_update: Tuple[int, bool | Array, Callable[..., CellList]]
     | None = None,
     extra_capacity: int = 0,
     **kwargs,
@@ -711,10 +713,8 @@ class NeighborList:
   max_occupancy: int = dataclasses.static_field()
 
   format: NeighborListFormat = dataclasses.static_field()
-  cell_size: float | None = dataclasses.static_field()
-  cell_list_fn: Callable[[Array, CellList], CellList] = (
-    dataclasses.static_field()
-  )
+  cell_size: ArrayLike | None = dataclasses.static_field()
+  cell_list_fn: CellListFns | None = dataclasses.static_field()
   update_fn: Callable[[Array, 'NeighborList'], 'NeighborList'] = (
     dataclasses.static_field()
   )

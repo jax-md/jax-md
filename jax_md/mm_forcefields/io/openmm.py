@@ -139,9 +139,9 @@ class OpenMMSystem(NamedTuple):
   params: Parameters
   box_vectors: Array | None
   nb_options: NonbondedOptions
-  recip_alpha: float | None
+  recip_alpha: Array | float | None
   recip_grid: Array | None
-  ewald_error_tolerance: float | None
+  ewald_error_tolerance: Array | float | None
   masses: Array | None
   virtual_sites: VirtualSiteData | None
   constraint_idx: Array | None
@@ -762,7 +762,7 @@ def convert_openmm_system(
         # complicated and requires integrating both intervals for each unique pair
         use_switch = force.getUseSwitchingFunction()
         sum3 = 0.0
-        if use_switch:
+        if use_switch and r_cut is not None:
           r_switch_cur = force.getSwitchingDistance().value_in_unit(
             unit.angstrom
           )
@@ -782,7 +782,7 @@ def convert_openmm_system(
         denom = (n_atoms * (n_atoms + 1)) / 2
         sum1 = sum1 / denom
         sum2 = sum2 / denom
-        if use_switch:
+        if use_switch and r_cut is not None:
           sum3 = sum3 + np.sum(
             count_c
             * eps_c

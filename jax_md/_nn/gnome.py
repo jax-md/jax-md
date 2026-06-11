@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import NamedTuple, Tuple
+from typing import Any, NamedTuple, Tuple
 
 import os
 
@@ -71,11 +71,11 @@ def minimum_batch_size(cfg: ConfigDict) -> int:
 
 
 class ScaleLROnPlateau(NamedTuple):
-  step_size: Array
-  minimum_loss: Array
-  steps_without_reduction: Array
-  max_steps_without_reduction: Array
-  reduction_factor: Array
+  step_size: Array | float
+  minimum_loss: Array | float
+  steps_without_reduction: Array | int
+  max_steps_without_reduction: Array | int
+  reduction_factor: Array | float
 
 
 def scale_lr_on_plateau(
@@ -146,14 +146,18 @@ def load_model(directory: str) -> Tuple[ConfigDict, nn.Module, PyTree]:
   model = model_from_config(c)
   opt_init, _ = optimizer(c)
 
+  def _spec(shape, dtype) -> Any:
+    # Shape-only stand-in for an array, used to initialize parameters.
+    return ShapedArray(shape, dtype)
+
   graph = GraphsTuple(
-    ShapedArray((1, NUM_ELEMENTS), f32),  # Nodes     (nodes, features)
-    ShapedArray((1, 3), f32),  # dR        (edges, spatial)
-    ShapedArray((1,), i32),  # senders   (edges,)
-    ShapedArray((1,), i32),  # receivers (edges,)
-    ShapedArray((1, 1), f32),  # globals   (graphs,)
-    ShapedArray((1,), i32),  # n_node    (graphs,)
-    ShapedArray((1,), i32),
+    _spec((1, NUM_ELEMENTS), f32),  # Nodes     (nodes, features)
+    _spec((1, 3), f32),  # dR        (edges, spatial)
+    _spec((1,), i32),  # senders   (edges,)
+    _spec((1,), i32),  # receivers (edges,)
+    _spec((1, 1), f32),  # globals   (graphs,)
+    _spec((1,), i32),  # n_node    (graphs,)
+    _spec((1,), i32),
   )  # n_edge    (graphs,)
 
   def init_opt_and_model(graph):

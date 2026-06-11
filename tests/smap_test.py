@@ -904,8 +904,8 @@ class SMapTest(test_util.JAXMDTestCase):
 
     @dataclasses.dataclass
     class Parameter:
-      sigma: Array
-      shift: Array
+      sigma: Array | float
+      shift: Array | float
 
     def tree_fn(dr, p):
       return np.where(dr < p.sigma, dr**2 + p.shift, f32(0.0))

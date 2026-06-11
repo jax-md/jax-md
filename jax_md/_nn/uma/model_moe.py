@@ -17,7 +17,7 @@ from __future__ import annotations
 import ast
 import os
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Sequence, Tuple
 
 import flax.linen as nn
 import jax
@@ -109,7 +109,7 @@ def balance_channels(
   return emb.at[:, 0, start_idx:end_idx].set(channels - corrections[batch])
 
 
-def merge_mole_params(params: Dict, expert_coefficients: jnp.ndarray) -> Dict:
+def merge_mole_params(params: Any, expert_coefficients: jnp.ndarray) -> Any:
   """Return a params tree with MOLE expert weights pre-mixed.
 
   This is intended for single-system inference. Any parameter named
@@ -289,7 +289,7 @@ class SO2ConvolutionMoE(nn.Module):
   m_output_channels: int
   lmax: int
   mmax: int
-  m_size: List[int]
+  m_size: Sequence[int]
   num_experts: int
   internal_weights: bool = True
   edge_channels_list: List[int] | None = None
@@ -340,7 +340,7 @@ class SO2ConvolutionMoE(nn.Module):
 
     rad_func = None
     if not self.internal_weights:
-      edge_channels = list(self.edge_channels_list) + [num_channels_rad]
+      edge_channels = list(self.edge_channels_list or []) + [num_channels_rad]
       rad_func = RadialMLP(channels_list=edge_channels, name='rad_func')
 
     m_split_sizes = [self.m_size[m] for m in range(self.mmax + 1)]
@@ -443,7 +443,7 @@ class EdgewiseMoE(nn.Module):
   lmax: int
   mmax: int
   edge_channels_list: List[int]
-  m_size: List[int]
+  m_size: Sequence[int]
   num_experts: int
   act_type: str = 'gate'
   to_grid_mat: jnp.ndarray | None = None
@@ -519,8 +519,8 @@ class EdgewiseMoE(nn.Module):
       act = SeparableS2Activation(
         lmax=self.lmax,
         mmax=self.mmax,
-        to_grid_mat=self.to_grid_mat,
-        from_grid_mat=self.from_grid_mat,
+        to_grid_mat=jnp.asarray(self.to_grid_mat),
+        from_grid_mat=jnp.asarray(self.from_grid_mat),
         mapping_to_m=self.mapping_to_m,
         name='act',
       )
@@ -591,7 +591,7 @@ class UMABlockMoE(nn.Module):
   hidden_channels: int
   lmax: int
   mmax: int
-  m_size: List[int]
+  m_size: Sequence[int]
   edge_channels_list: List[int]
   num_experts: int
   norm_type: str = 'rms_norm_sh'
@@ -692,8 +692,8 @@ class UMABlockMoE(nn.Module):
       atomwise = GridAtomwise(
         sphere_channels=self.sphere_channels,
         hidden_channels=self.hidden_channels,
-        to_grid_mat=self.to_grid_mat,
-        from_grid_mat=self.from_grid_mat,
+        to_grid_mat=jnp.asarray(self.to_grid_mat),
+        from_grid_mat=jnp.asarray(self.from_grid_mat),
         name='atom_wise',
       )
     x = atomwise(x)
@@ -1002,7 +1002,7 @@ def _cache_native(model_name, config, params, metadata, ckpt):
 
     # Flatten and save params
     flat = jax.tree.leaves_with_path(params)
-    param_dict = {}
+    param_dict: Dict[str, Any] = {}
     for path, value in flat:
       key = '/'.join(
         str(p.key) if hasattr(p, 'key') else str(p.idx) for p in path
@@ -1271,7 +1271,11 @@ def load_pretrained(
     if isinstance(ckpt.model_config, dict)
     else ckpt.model_config
   )
-  get = mc.get if isinstance(mc, dict) else lambda k, d=None: getattr(mc, k, d)
+
+  def get(k: str, d: Any = None) -> Any:
+    if isinstance(mc, dict):
+      return mc.get(k, d)
+    return getattr(mc, k, d)
 
   config = UMAMoEConfig(
     max_num_elements=cfg_base.max_num_elements,

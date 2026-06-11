@@ -139,7 +139,7 @@ def coulomb_recip_ewald(
 def coulomb_recip_pme(
   charge: Array,
   box: Box,
-  grid_points: Array,
+  grid_points: Array | int,
   fractional_coordinates: bool = False,
   alpha: float = 0.34,
 ) -> Callable[[Array], Array]:
@@ -184,7 +184,7 @@ def coulomb_recip_pme(
 
 
 def coulomb_ewald_neighbor_list(
-  displacement_fn: Array,
+  displacement_fn: space.DisplacementFn,
   box: Array,
   charge: Array,
   species: Array | None = None,
@@ -206,7 +206,7 @@ def coulomb(
   displacement_fn: DisplacementOrMetricFn,
   box: Box,
   charge: Array,
-  grid_points: Array,
+  grid_points: Array | int,
   species: Array | None = None,
   alpha: float = 0.34,
   fractional_coordinates: bool = False,
@@ -228,7 +228,7 @@ def coulomb_neighbor_list(
   displacement_fn: DisplacementOrMetricFn,
   box: Box,
   charge: Array,
-  grid_points: Array,
+  grid_points: Array | int,
   species: Array | None = None,
   alpha: float = 0.34,
   cutoff: float = 9.0,
@@ -295,7 +295,7 @@ def map_charges_to_grid(
   position: Array,
   charge: Array,
   inverse_box: Box,
-  grid_dimensions: Array,
+  grid_dimensions: Array | onp.ndarray,
   fractional_coordinates: bool,
 ) -> Array:
   """Smears charges over a grid of specified dimensions."""

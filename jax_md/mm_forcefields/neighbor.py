@@ -8,7 +8,11 @@ from typing import Optional
 
 
 def create_neighbor_list(
-  displacement_fn, box, r_cut: float, dr_threshold: float = 0.5, **kwargs
+  displacement_fn,
+  box,
+  r_cut: float | Array,
+  dr_threshold: float = 0.5,
+  **kwargs,
 ) -> NeighborListFns:
   """Create a neighbor list function for MM forcefields.
 

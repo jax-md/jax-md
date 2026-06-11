@@ -134,7 +134,7 @@ class TPUGrid:
 
 
 def to_grid(
-  positions: Array,
+  positions: Array | onp.ndarray,
   box_size_in_cells: Union[int, Tuple[int, ...]],
   cell_size: float,
   max_interaction_distance: float,
@@ -208,8 +208,9 @@ def to_grid(
 
   cell_data, factors = inner_fold_fn(cell_data)
 
-  # Factors is static, and will be the same for each shard.
-  factors = factors[(0,) * len(topology)]
+  # Factors is static, and will be the same for each shard (the parallelized
+  # fold returns one copy per device).
+  factors = onp.asarray(factors)[(0,) * len(topology)]
   factors = tuple(int(f) for f in factors)
 
   grid = TPUGrid(
@@ -313,12 +314,12 @@ def random_grid(
     return a PyTree with the same strucutre as `aux` with each leaf array placed
     into the grid.
   """
+  if topology is None:
+    raise ValueError('random_grid requires a TPU mesh topology.')
+
   num_dims = len(topology)
   # Targetting batch_size = 128 always seems optimal on TPU.
   batch_size = 128
-
-  if topology is None:
-    topology = ()
 
   max_grid_distance = max_interaction_distance / cell_size
   if not onp.isclose(max_grid_distance, onp.round(max_grid_distance)):
@@ -339,7 +340,7 @@ def random_grid(
   assert np.all(np.isclose(arr_box_size, np.round(arr_box_size)))
   arr_box_size = tuple(arr_box_size.astype(np.int32))
 
-  pkeys = random.split(key, onp.prod(topology))
+  pkeys = random.split(key, int(onp.prod(topology)))
   pkeys = np.reshape(pkeys, topology + (2,))
 
   def create_instance_by_key(key):
@@ -372,8 +373,9 @@ def random_grid(
 
   cell_data, factors = inner_fold_fn(cell_data)
 
-  # Factors is static, and will be the same for each shard.
-  factors = factors[(0,) * len(topology)]
+  # Factors is static, and will be the same for each shard (the parallelized
+  # fold returns one copy per device).
+  factors = onp.asarray(factors)[(0,) * len(topology)]
   factors = tuple(int(f) for f in factors)
 
   grid = TPUGrid(
@@ -602,16 +604,16 @@ def shift(
 
 def nearest_valid_grid_size(
   target_box_size_in_cells: Union[int, Tuple[int, ...]],
-  topology: Union[int, Tuple],
+  topology: Union[int, Tuple, None],
   max_grid_distance: int,
   factors: Tuple[int, ...] | None = None,
   dimension: int | None = None,
 ):
   if factors is None:
     if dimension is None:
-      if topology:
+      if isinstance(topology, tuple) and topology:
         dimension = len(topology)
-      elif not np.isscalar(target_box_size_in_cells):
+      elif isinstance(target_box_size_in_cells, tuple):
         dimension = len(target_box_size_in_cells)
       else:
         raise ValueError(
@@ -783,7 +785,7 @@ def kinetic_energy(state: NVEState) -> Array:
 
 
 def _grid_centers(
-  box_size_in_cells: Array, cell_size: float, num_dims: int
+  box_size_in_cells: Array | onp.ndarray, cell_size: float, num_dims: int
 ) -> Array:
   """Computes the center position of each grid cell."""
   grid_centers = onp.zeros(tuple(box_size_in_cells) + (num_dims,))
@@ -1195,7 +1197,7 @@ def _get_pairwise_displacement(data: Array, grid: TPUGrid) -> Array:
 
     data = lax.conv_general_dilated(
       data,
-      w,
+      np.asarray(w),
       (1,) * num_dims,
       'VALID',
       dimension_numbers=dimension_numbers,
@@ -1260,7 +1262,7 @@ def _accumulate_recursion(
 
   data = lax.conv_general_dilated(
     data,
-    w,
+    np.asarray(w),
     (1,) * num_dims,
     'VALID',
     dimension_numbers=dimension_numbers,
@@ -1423,6 +1425,8 @@ def _fold_grid(
   num_dims = cell_data.ndim - 1
 
   if factors is None:
+    if batch_size is None:
+      raise ValueError('Either factors or batch_size must be provided.')
     factors = _fold_factors(batch_size, cell_data.shape[:-1], max_grid_distance)
 
   data_shape = []
@@ -1471,7 +1475,7 @@ def _unfold_grid(
   cell_data = np.reshape(cell_data, factors + cell_data.shape[1:])
 
   ordering = _order_grid_by_factors(num_dims)
-  cell_data = np.transpose(cell_data, onp.argsort(ordering))
+  cell_data = np.transpose(cell_data, tuple(onp.argsort(ordering)))
 
   data_shape = ()
   for i in range(num_dims):
@@ -1639,7 +1643,7 @@ def _update_grid_locations(cell_data: Array, grid: TPUGrid) -> Array:
 
 
 def _get_aux(
-  cell_data: Array, aux_tree: TreeDef, aux_sizes: Tuple[int, ...]
+  cell_data: Array, aux_tree: TreeDef, aux_sizes: onp.ndarray
 ) -> Tuple[Array, PyTree]:
   """Extract auxiliary data from a grid and shape it into a PyTree."""
   cell_data, *flat_aux_occupancy = np.split(cell_data, aux_sizes, axis=-1)

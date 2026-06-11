@@ -8,6 +8,7 @@ No pre-generated .npz files needed -- PT reference is computed on-the-fly."""
 import ast
 import inspect
 import sys
+from typing import Any
 
 import numpy as np
 from absl.testing import absltest
@@ -364,9 +365,12 @@ class EndToEndParityTest(test_util.JAXMDTestCase):
     cls.ema_sd = {
       k.replace('module.', '', 1): v for k, v in ckpt.ema_state_dict.items()
     }
-    get = (
-      mc.get if isinstance(mc, dict) else (lambda k, d=None: getattr(mc, k, d))
-    )
+
+    def get(k: str, d: Any = None) -> Any:
+      if isinstance(mc, dict):
+        return mc.get(k, d)
+      return getattr(mc, k, d)
+
     ds_list = dataset_names_from_config(mc)
     cls.ds_list = ds_list
     cls.cutoff = float(get('cutoff', 6.0))
@@ -456,7 +460,7 @@ class EndToEndParityTest(test_util.JAXMDTestCase):
 
     ds_idx = dataset_names_to_indices([task], self.config.dataset_list)
 
-    jax_out = self.jax_model.apply(
+    jax_out: Any = self.jax_model.apply(
       self.jax_params,
       jnp.array(atoms.get_positions().astype(np.float32)),
       jnp.array(atoms.get_atomic_numbers()),
@@ -469,8 +473,9 @@ class EndToEndParityTest(test_util.JAXMDTestCase):
     )
     jax_emb = np.array(jax_out['node_embedding'])
 
-    e_result = self.jax_head.apply(
-      self.jax_head_params_by_dataset[task],
+    head_params: Any = self.jax_head_params_by_dataset[task]
+    e_result: Any = self.jax_head.apply(
+      head_params,
       jax_out['node_embedding'],
       batch,
       1,

@@ -149,7 +149,7 @@ def radial_symmetry_functions(
 
 def radial_symmetry_functions_neighbor_list(
   displacement_or_metric: DisplacementOrMetricFn,
-  species: Array,
+  species: Array | None,
   etas: Array,
   cutoff_distance: float,
 ) -> Callable[..., Array]:
@@ -257,7 +257,7 @@ def single_pair_angular_symmetry_function(
 
 def angular_symmetry_functions(
   displacement: DisplacementFn,
-  species: Array,
+  species: Array | None,
   etas: Array,
   lambdas: Array,
   zetas: Array,
@@ -331,7 +331,7 @@ def angular_symmetry_functions(
 
 def angular_symmetry_functions_neighbor_list(
   displacement: DisplacementFn,
-  species: Array,
+  species: Array | None,
   etas: Array,
   lambdas: Array,
   zetas: Array,
@@ -444,7 +444,7 @@ def angular_symmetry_functions_neighbor_list(
 
 def symmetry_functions_neighbor_list(
   displacement: DisplacementFn,
-  species: Array,
+  species: Array | None,
   radial_etas: Array | None = None,
   angular_etas: Array | None = None,
   lambdas: Array | None = None,

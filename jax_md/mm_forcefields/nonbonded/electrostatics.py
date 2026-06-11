@@ -40,7 +40,7 @@ class CoulombHandler:
     exclusion_mask: Array,
     pair_14_mask: Array,
     nlist: NeighborList,
-    scale_14: float = 0.5,
+    scale_14: float | Array = 0.5,
   ) -> Array:
     """Compute coulomb energy.
 
@@ -142,7 +142,7 @@ class CutoffCoulomb(CoulombHandler):
     exclusion_mask: Array,
     pair_14_mask: Array,
     nlist: NeighborList,
-    scale_14: float = 0.5,
+    scale_14: float | Array = 0.5,
   ) -> Array:
     """Compute cutoff coulomb energy."""
     n_atoms = positions.shape[0]
@@ -242,7 +242,7 @@ class EwaldCoulomb(CoulombHandler):
     exclusion_mask: Array,
     pair_14_mask: Array,
     nlist: NeighborList,
-    scale_14: float,
+    scale_14: float | Array,
   ) -> Array:
     """Compute real-space energy."""
     n_atoms = positions.shape[0]
@@ -303,7 +303,7 @@ class EwaldCoulomb(CoulombHandler):
     exclusion_mask: Array,
     pair_14_mask: Array,
     nlist: NeighborList,
-    scale_14: float = 0.5,
+    scale_14: float | Array = 0.5,
   ) -> Array:
     """Compute total Ewald coulomb energy."""
     e_real = self.real_energy(
@@ -335,7 +335,10 @@ class PMECoulomb(CoulombHandler):
   """Particle Mesh Ewald for coulomb interactions."""
 
   def __init__(
-    self, grid_size: int = 32, alpha: float = 0.3, r_cut: float = 12.0
+    self,
+    grid_size: int | Array = 32,
+    alpha: float | Array = 0.3,
+    r_cut: float = 12.0,
   ):
     """Initialize PME coulomb handler.
 
@@ -445,7 +448,7 @@ class PMECoulomb(CoulombHandler):
     position: Array,
     charge: Array,
     inverse_box: space.Box,
-    grid_dimensions: Array,
+    grid_dimensions: Array | onp.ndarray,
     fractional_coordinates: bool,
     order: int,
   ) -> Array:
@@ -548,9 +551,9 @@ class PMECoulomb(CoulombHandler):
     self,
     charge: Array,
     box: space.Box,
-    grid_points: Array,
+    grid_points: Array | int,
     fractional_coordinates: bool = False,
-    alpha: float = 0.34,
+    alpha: float | Array = 0.34,
     order: int = 5,
   ) -> Callable[[Array], Array]:
     _ibox = space.inverse(box)
@@ -646,8 +649,8 @@ class PMECoulomb(CoulombHandler):
     """Compute reciprocal space energy from FFT of charge grid."""
     vol = jnp.prod(box)
 
-    # Frequency grids
-    freq = jnp.fft.fftfreq(self.grid_size) * self.grid_size
+    # Frequency grids (requires a concrete, cubic grid size)
+    freq = jnp.fft.fftfreq(int(self.grid_size)) * self.grid_size
     Gx, Gy, Gz = jnp.meshgrid(freq, freq, freq, indexing='ij')
     G2 = (2 * jnp.pi) ** 2 * (
       Gx**2 / box[0] ** 2 + Gy**2 / box[1] ** 2 + Gz**2 / box[2] ** 2
@@ -675,7 +678,7 @@ class PMECoulomb(CoulombHandler):
     exclusion_mask: Array,
     pair_14_mask: Array,
     nlist: NeighborList,
-    scale_14: float,
+    scale_14: float | Array,
   ) -> Array:
     """Compute real-space energy (same as Ewald)."""
     n_atoms = positions.shape[0]
@@ -824,7 +827,7 @@ class PMECoulomb(CoulombHandler):
     exclusion_mask: Array,
     pair_14_mask: Array,
     nlist: NeighborList,
-    scale_14: float = 0.5,
+    scale_14: float | Array = 0.5,
   ) -> Array:
     """Compute total PME coulomb energy."""
     # Real space

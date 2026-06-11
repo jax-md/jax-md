@@ -296,8 +296,8 @@ class RigidBody:
       dimensions this will be a set of quaternions.
   """
 
-  center: Array
-  orientation: Union[Array, Quaternion]
+  center: Array | float
+  orientation: Union[Array, Quaternion, float]
 
   def __getitem__(self, idx):
     return RigidBody(self.center[idx], self.orientation[idx])
@@ -408,7 +408,7 @@ def canonicalize_momentum(
   """Convert quaternion conjugate momentum to angular momentum."""
   orientation = position.orientation
   p = momentum.orientation
-  if isinstance(orientation, Quaternion):
+  if isinstance(orientation, Quaternion) and isinstance(p, Quaternion):
     p = conjugate_momentum_to_angular_momentum(orientation, p)
   return RigidBody(momentum.center, p)
 
@@ -799,7 +799,7 @@ class RigidPointUnion:
         'Rigid bodies are only defined in two- and three-dimensions.'
       )
 
-  def mass(self, shape_species: Array | None = None) -> RigidBody:
+  def mass(self, shape_species: Array | onp.ndarray | None = None) -> RigidBody:
     """Get a RigidBody with the mass and moment of inertia for each shape.
 
     Arguments:
@@ -886,7 +886,9 @@ def point_union_shape(
     A RigidPointUnion shape object specifying the shape rotated so that the
     moment of inertia tensor is diagonal.
   """
-  if jnp.isscalar(masses) or masses.shape == ():
+  points = jnp.asarray(points)
+  masses = jnp.asarray(masses)
+  if masses.shape == ():
     masses = masses * jnp.ones((len(points),), points.dtype)
   shape = RigidPointUnion(
     points=points,

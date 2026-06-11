@@ -63,7 +63,7 @@ class Filtration:
   candidate_fn: CandidateFn = dataclasses.static_field()
   mask_fn: MaskFn = dataclasses.static_field()
   is_dense: bool = dataclasses.static_field()
-  idx: Array
+  idx: Array | None
   did_buffer_overflow: Array
 
   def count(self, candidate_args):
@@ -249,9 +249,9 @@ class ReaxFFNeighborLists:
   filter3: Filtration
   filter34: Filtration
   filter4: Filtration
-  filter_hb_close: Filtration
-  filter_hb_far: Filtration
-  filter_hb: Filtration
+  filter_hb_close: Filtration | None
+  filter_hb_far: Filtration | None
+  filter_hb: Filtration | None
   did_buffer_overflow: Array
 
   def __iter__(self):

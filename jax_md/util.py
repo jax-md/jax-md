@@ -14,7 +14,7 @@
 
 """Defines utility functions."""
 
-from typing import Iterable, Union, Optional, Any
+from typing import Iterable, Sequence, Union, Optional, Any
 
 import jax
 from jax.tree_util import register_pytree_node
@@ -88,7 +88,7 @@ def safe_mask(mask, fn, operand, placeholder=0):
 
 def high_precision_sum(
   X: Array,
-  axis: Union[Iterable[int], int] | None = None,
+  axis: Union[Sequence[int], int] | None = None,
   keepdims: bool = False,
 ):
   """Sums over axes at 64-bit precision then casts back to original dtype."""

@@ -67,7 +67,7 @@ class ConversionMetadata:
   is_moe: bool
   num_experts: int
   num_layers: int
-  dataset_list: List[str]
+  dataset_list: List[str] | None
   tasks_config: Any
   head_params: Dict[str, Any]
   skipped_keys: List[str]
@@ -323,10 +323,10 @@ def extract_config(checkpoint) -> UMAConfig:
     else getattr(mc, 'backbone', mc)
   )
 
-  if isinstance(bb, dict):
-    get = bb.get
-  else:
-    get = lambda k, d=None: getattr(bb, k, d)
+  def get(k: str, d: Any = None) -> Any:
+    if isinstance(bb, dict):
+      return bb.get(k, d)
+    return getattr(bb, k, d)
 
   # Parse dataset_list (may be string, list, omegaconf, or missing)
   # Some models use dataset_mapping instead of dataset_list

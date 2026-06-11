@@ -234,6 +234,5 @@ allowed-unresolved-imports = [
 ]
 
 [tool.ty.rules]
-invalid-argument-type = "ignore"
 unresolved-attribute = "ignore"
 not-subscriptable = "ignore"

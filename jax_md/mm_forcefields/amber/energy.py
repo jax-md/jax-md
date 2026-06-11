@@ -102,6 +102,8 @@ def space_selector(
 
   if not use_pbc:
     disp_fn, shift_fn = space.free()
+  elif box_vectors is None:
+    raise ValueError('Periodic boundary conditions require box vectors.')
   elif use_periodic_general:
     disp_fn, shift_fn = space.periodic_general(
       box_vectors,
@@ -407,7 +409,7 @@ def energy(
 
   # Precompute CMAP coefficients with OpenMM's conventions
   cmap_precomp = None
-  if getattr(bonded.cmap_maps, 'size', 0) != 0:
+  if bonded.cmap_maps is not None and bonded.cmap_maps.size != 0:
     cmap_precomp = cmap_setup(bonded.cmap_maps)
 
   ### Mapped function creation
@@ -451,7 +453,7 @@ def energy(
     theta0=None,
   )
 
-  if nb_options.r_switch is not None:
+  if nb_options.r_switch is not None and nb_options.r_cut is not None:
     vdw_cutoff_fn = partial(
       force_switch, r_on=nb_options.r_switch, r_off=nb_options.r_cut
     )
@@ -465,7 +467,9 @@ def energy(
 
   # Create fused LJ + coulomb function to avoid 2 passes over smap
   # NOTE probably not the best way to flag if the ab form is used
-  use_ab = len(topology.nbfix_atom_type) != 0
+  use_ab = (
+    topology.nbfix_atom_type is not None and len(topology.nbfix_atom_type) != 0
+  )
   if use_softcore_vdw and use_ab:
     raise NotImplementedError(
       'Softcore vdW is currently implemented only for sigma/epsilon LJ (no NBFIX path yet).'
@@ -593,9 +597,13 @@ def energy(
   # to handle any case of dense, sparse, (N,N), orderedsparse, etc
   # TODO consider if forcing 32 bit here will improve performance
   if dense_mask_format:
-    mask_fn = _create_dense_mask(topology.n_atoms, topology.exc_pairs)
+    mask_fn = _create_dense_mask(
+      topology.n_atoms, jnp.asarray(topology.exc_pairs)
+    )
   else:
-    mask_fn = _create_sparse_mask(topology.n_atoms, topology.exc_pairs)
+    mask_fn = _create_sparse_mask(
+      topology.n_atoms, jnp.asarray(topology.exc_pairs)
+    )
 
   # NOTE It's desireable to still use the neighbor list machinery to handle
   # non periodic systems for uniform exclusion masking and smap use.
@@ -1136,7 +1144,7 @@ def lennard_jones_softcore(
   dr: Array,
   sigma: Array,
   epsilon: Array,
-  cl_lambda: float,
+  cl_lambda: Array | float,
   alpha: float = 0.5,
 ) -> Array:
   """

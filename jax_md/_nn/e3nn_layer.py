@@ -291,7 +291,7 @@ class Linear(nn.Module):
   irreps_in: Irreps | None = None
 
   @nn.compact
-  def __call__(self, x: IrrepsArray) -> IrrepsArray:
+  def __call__(self, x: IrrepsArray | jnp.ndarray) -> IrrepsArray:
     irreps_out = Irreps(self.irreps_out)
     irreps_in = Irreps(self.irreps_in) if self.irreps_in is not None else None
 
@@ -301,7 +301,7 @@ class Linear(nn.Module):
         '`irreps_in` must be specified'
       )
 
-    if irreps_in is not None:
+    if irreps_in is not None and not isinstance(x, IrrepsArray):
       x = IrrepsArray(irreps_in, x)
 
     x = x.remove_nones().simplify()

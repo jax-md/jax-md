@@ -129,7 +129,9 @@ def random_packed_structure(
   Cartesian
   """.format(
     composition=composition,
-    lattice=onp.array_str(lattice).replace('[', '').replace(']', ''),
+    lattice=onp.array_str(onp.asarray(lattice))
+    .replace('[', '')
+    .replace(']', ''),
     element_symbols=' '.join(element_symbols),
     element_counts=' '.join([str(i) for i in element_counts]),
   )

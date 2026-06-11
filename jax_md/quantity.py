@@ -204,7 +204,7 @@ def pressure(
   energy_fn: EnergyFn,
   position: Array,
   box: Box,
-  kinetic_energy: float = 0.0,
+  kinetic_energy: float | Array = 0.0,
   **kwargs,
 ) -> float:
   """Computes the internal pressure of a system.

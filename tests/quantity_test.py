@@ -662,7 +662,7 @@ class QuantityTest(test_util.JAXMDTestCase):
     Rb = 2.0 * np.ones((1, spatial_dim), dtype=dtype)
     half_window = window // 2
 
-    displacement_fn = lambda Ra, Rb: Ra - Rb
+    displacement_fn = lambda Ra, Rb, **kwargs: Ra - Rb
 
     init_fn, push_fn = quantity.phop(displacement_fn, window)
 

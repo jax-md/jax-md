@@ -61,13 +61,22 @@ def energy(
   """
   displacement_fn, shift_fn = space.periodic(box)
 
-  neighbor_fn: NeighborListFns = neighbor.create_neighbor_list(
-    displacement_fn, box, nb_options.r_cut, nb_options.dr_threshold
-  )
-
   # Extract parameters for convenience
   bonded = params.bonded
   nonbonded = params.nonbonded
+
+  # Non-optional views of schema fields this energy function requires
+  # (other loaders may legitimately leave them as None).
+  exclusion_mask = jnp.asarray(topology.exclusion_mask)
+  pair_14_mask = jnp.asarray(topology.pair_14_mask)
+  improper_n = jnp.asarray(bonded.improper_n)
+  r_cut = jnp.asarray(nb_options.r_cut)
+  scale_14_lj = jnp.asarray(nb_options.scale_14_lj)
+  scale_14_coul = jnp.asarray(nb_options.scale_14_coul)
+
+  neighbor_fn: NeighborListFns = neighbor.create_neighbor_list(
+    displacement_fn, box, r_cut, nb_options.dr_threshold
+  )
 
   # Bonded energy functions
   def bond_energy(positions: Array) -> Array:
@@ -169,7 +178,7 @@ def energy(
 
     return jnp.sum(
       bonded.improper_k
-      * (1 + jnp.cos(bonded.improper_n * psi - bonded.improper_gamma))
+      * (1 + jnp.cos(improper_n * psi - bonded.improper_gamma))
     )
 
   def lennard_jones_energy(positions: Array, nlist: NeighborList) -> Array:
@@ -213,9 +222,10 @@ def energy(
       lj_val = 4.0 * epsilon * (sr6**2 - sr6)
 
       if nb_options.use_soft_lj:
-        return nb_options.lj_cap * jnp.tanh(lj_val / nb_options.lj_cap)
+        lj_cap = jnp.asarray(nb_options.lj_cap)
+        return lj_cap * jnp.tanh(lj_val / lj_cap)
       elif nb_options.use_shift_lj:
-        sr_cut = sigma / nb_options.r_cut
+        sr_cut = sigma / r_cut
         sr6_cut = sr_cut**6
         lj_cut = 4.0 * epsilon * (sr6_cut**2 - sr6_cut)
         return lj_val - lj_cut
@@ -226,18 +236,14 @@ def energy(
 
     # Check exclusions and scaling
     same = idx_i_safe == idx_j_safe
-    excluded = vmap(lambda i, j: topology.exclusion_mask[i, j])(
-      idx_i_safe, idx_j_safe
-    )
-    is_14 = vmap(lambda i, j: topology.pair_14_mask[i, j])(
-      idx_i_safe, idx_j_safe
-    )
+    excluded = vmap(lambda i, j: exclusion_mask[i, j])(idx_i_safe, idx_j_safe)
+    is_14 = vmap(lambda i, j: pair_14_mask[i, j])(idx_i_safe, idx_j_safe)
 
     # Include mask
-    include = valid & (~same) & (~excluded) & (r < nb_options.r_cut)
+    include = valid & (~same) & (~excluded) & (r < r_cut)
 
     # Apply 1-4 scaling
-    scale = jnp.where(is_14, nb_options.scale_14_lj, 1.0)
+    scale = jnp.where(is_14, scale_14_lj, 1.0)
 
     # Compute energy
     energy = jnp.where(include, scale * lj_val, 0.0)
@@ -271,10 +277,10 @@ def energy(
       positions,
       nonbonded.charges,
       box,
-      topology.exclusion_mask,
-      topology.pair_14_mask,
+      exclusion_mask,
+      pair_14_mask,
       nlist,
-      nb_options.scale_14_coul,
+      scale_14_coul,
     )
 
     E_total = E_bond + E_angle + E_torsion + E_improper + E_lj + E_coulomb

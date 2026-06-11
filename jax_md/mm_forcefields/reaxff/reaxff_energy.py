@@ -121,8 +121,9 @@ def calculate_reaxff_energy(
   atom_inds = jnp.arange(N).reshape(-1, 1)
   close_nbr_inds = nbr_lists.close_nbrs.idx[atom_inds, nbr_lists.filter2.idx]
   close_nbr_inds = jnp.where(nbr_lists.filter2.idx != -1, close_nbr_inds, N)
-  body_3_inds = nbr_lists.filter3.idx
-  body_4_inds = nbr_lists.filter4.idx
+  # Filters are allocated by this point, so idx arrays are present.
+  body_3_inds = jnp.asarray(nbr_lists.filter3.idx)
+  body_4_inds = jnp.asarray(nbr_lists.filter4.idx)
   if nbr_lists.filter_hb != None:
     hb_inds = nbr_lists.filter_hb.idx
   else:

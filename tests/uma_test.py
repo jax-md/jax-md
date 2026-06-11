@@ -638,9 +638,9 @@ class SO3LinearTest(test_util.JAXMDTestCase):
     # Set weights to known values
     new_weight = jnp.ones_like(params['params']['weight'])
     new_params = {'params': {'weight': new_weight}}
-    out1 = linear.apply(new_params, x)
+    out1: Any = linear.apply(new_params, x)
     # Run again — should be identical (no cumulative shift)
-    out2 = linear.apply(new_params, x)
+    out2: Any = linear.apply(new_params, x)
     self.assertTrue(jnp.allclose(out1, out2))
     self.assertTrue(jnp.all(jnp.isfinite(out1)))
 
@@ -700,7 +700,7 @@ class EquivariantRMSNormTest(test_util.JAXMDTestCase):
     key = jax.random.PRNGKey(0)
     x = jax.random.normal(key, (5, 9, 32))
     params = norm.init(key, x)
-    out = norm.apply(params, x)
+    out: Any = norm.apply(params, x)
     self.assertEqual(out.shape, (5, 9, 32))
     self.assertTrue(jnp.all(jnp.isfinite(out)))
 
@@ -721,7 +721,7 @@ class UMAHeadsTest(test_util.JAXMDTestCase):
     node_emb = jax.random.normal(key, (8, 9, 32))
     batch = jnp.array([0, 0, 0, 0, 1, 1, 1, 1])
     params = head.init(key, node_emb, batch, 2)
-    output = head.apply(params, node_emb, batch, 2)
+    output: Any = head.apply(params, node_emb, batch, 2)
     self.assertEqual(output['energy'].shape, (2,))
     self.assertTrue(jnp.all(jnp.isfinite(output['energy'])))
 
@@ -740,7 +740,7 @@ class UMAHeadsTest(test_util.JAXMDTestCase):
     key = jax.random.PRNGKey(0)
     node_emb = jax.random.normal(key, (8, 9, 32))
     params = head.init(key, node_emb)
-    output = head.apply(params, node_emb)
+    output: Any = head.apply(params, node_emb)
     self.assertEqual(output['forces'].shape, (8, 3))
 
 
@@ -781,7 +781,7 @@ class UMABackboneForwardTest(test_util.JAXMDTestCase):
       data['dataset_idx'],
     )
 
-    output = model.apply(
+    output: Any = model.apply(
       params,
       data['positions'],
       data['atomic_numbers'],
@@ -831,7 +831,7 @@ class UMABackboneForwardTest(test_util.JAXMDTestCase):
       None,
     )
 
-    output = model.apply(
+    output: Any = model.apply(
       params,
       data['positions'],
       data['atomic_numbers'],
@@ -874,7 +874,7 @@ class UMABackboneForwardTest(test_util.JAXMDTestCase):
       None,
     )
 
-    out1 = model.apply(
+    out1: Any = model.apply(
       params,
       data['positions'],
       data['atomic_numbers'],
@@ -885,7 +885,7 @@ class UMABackboneForwardTest(test_util.JAXMDTestCase):
       data['spin'],
       None,
     )
-    out2 = model.apply(
+    out2: Any = model.apply(
       params,
       data['positions'],
       data['atomic_numbers'],
@@ -930,7 +930,7 @@ class UMABackboneForwardTest(test_util.JAXMDTestCase):
       None,
     )
 
-    output = model.apply(
+    output: Any = model.apply(
       params,
       data['positions'],
       data['atomic_numbers'],
@@ -975,7 +975,7 @@ class UMABackboneForwardTest(test_util.JAXMDTestCase):
       None,
     )
 
-    output = model.apply(
+    output: Any = model.apply(
       params,
       data['positions'],
       data['atomic_numbers'],
@@ -1027,7 +1027,7 @@ class UMAGradientTest(test_util.JAXMDTestCase):
       None,
     )
 
-    emb = model.apply(
+    emb: Any = model.apply(
       backbone_params,
       data['positions'],
       data['atomic_numbers'],
@@ -1045,7 +1045,7 @@ class UMAGradientTest(test_util.JAXMDTestCase):
       edge_vec = (
         positions[data['edge_index'][0]] - positions[data['edge_index'][1]]
       )
-      emb = model.apply(
+      emb: Any = model.apply(
         backbone_params,
         positions,
         data['atomic_numbers'],
@@ -1056,7 +1056,9 @@ class UMAGradientTest(test_util.JAXMDTestCase):
         data['spin'],
         None,
       )
-      result = head.apply(head_params, emb['node_embedding'], data['batch'], 1)
+      result: Any = head.apply(
+        head_params, emb['node_embedding'], data['batch'], 1
+      )
       return result['energy'].sum()
 
     # Compute gradient (forces = -grad)
@@ -1072,6 +1074,8 @@ def _load_pt_module(module_name, file_path):
   import importlib.util
 
   spec = importlib.util.spec_from_file_location(module_name, file_path)
+  if spec is None or spec.loader is None:
+    raise ImportError(f'Could not load module spec for {file_path}')
   mod = importlib.util.module_from_spec(spec)
   spec.loader.exec_module(mod)
   return mod
@@ -1446,7 +1450,7 @@ class EndToEndComparisonTest(test_util.JAXMDTestCase):
       spin,
       dataset_idx,
     )
-    output = model.apply(
+    output: Any = model.apply(
       params,
       positions,
       atomic_numbers,
@@ -2035,8 +2039,10 @@ class UMAKernelBackendTest(test_util.JAXMDTestCase):
     jax_model = UMABackbone(config=cfg)
     pallas_model = UMABackbone(config=replace(cfg, use_kernels=True))
     params = jax_model.init(jax.random.PRNGKey(17), *inputs)
-    jax_out = jax_model.apply(params, *inputs)['node_embedding']
-    pallas_out = pallas_model.apply(params, *inputs)['node_embedding']
+    jax_full: Any = jax_model.apply(params, *inputs)
+    pallas_full: Any = pallas_model.apply(params, *inputs)
+    jax_out = jax_full['node_embedding']
+    pallas_out = pallas_full['node_embedding']
     self.assertAllClose(pallas_out, jax_out, atol=TEST_TOL, rtol=TEST_TOL)
 
 

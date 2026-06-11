@@ -422,7 +422,10 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     )
 
     F = quantity.force(energy_fn)(body)
-    S = rigid_body.S(body.orientation)
+    orientation = body.orientation
+    if not isinstance(orientation, rigid_body.Quaternion):
+      raise TypeError('Expected a quaternion-valued orientation.')
+    S = rigid_body.S(orientation)
     F_body = jnp.einsum('nij,ni->nj', S, F.orientation.vec)
     self.assertAllClose(F_body[:, 0], jnp.zeros_like(F_body[:, 0]))
 

@@ -13,7 +13,7 @@
 # limitations under the License.
 """Tests for JAX MD TPU code."""
 
-from typing import Sequence
+from typing import Any, Sequence
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -58,6 +58,8 @@ def get_test_grid(
     elif num_dims == 3:
       box_size_in_cells = 32
       # box_size = 16.
+    else:
+      raise ValueError(f'Unsupported num_dims: {num_dims}')
   else:
     if num_dims == 1:
       box_size_in_cells = 512
@@ -65,6 +67,8 @@ def get_test_grid(
       box_size_in_cells = 80
     elif num_dims == 3:
       box_size_in_cells = 16
+    else:
+      raise ValueError(f'Unsupported num_dims: {num_dims}')
 
   box_size_in_cells = tpu.nearest_valid_grid_size(
     box_size_in_cells,
@@ -161,7 +165,8 @@ class ConvolutionalMDTest(test_util.JAXMDTestCase):
 
     (R_grid, tpu_energy_fn, tpu_force_fn) = sim_tpu
     (R, energy_fn, shift_fn) = sim_cpu
-    grid_positions = tpu.from_grid(R_grid)
+    # No aux is passed, so from_grid returns just the positions.
+    grid_positions: Any = tpu.from_grid(R_grid)
 
     displacement_fn, _ = space.periodic(
       onp.array(R_grid.box_size_in_cells) * R_grid.cell_size

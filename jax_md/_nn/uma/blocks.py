@@ -8,7 +8,7 @@ Ported from FairChem's UMA implementation.
 
 from __future__ import annotations
 
-from typing import List, Literal
+from typing import List, Literal, Sequence
 
 import flax.linen as nn
 import jax
@@ -44,8 +44,8 @@ class Edgewise(nn.Module):
   lmax: int
   mmax: int
   edge_channels_list: List[int]
-  m_size: List[int]
-  act_type: Literal['gate', 's2'] = 'gate'
+  m_size: Sequence[int]
+  act_type: str = 'gate'  # 'gate' or 's2'
   to_grid_mat: jnp.ndarray | None = None
   from_grid_mat: jnp.ndarray | None = None
   mapping_to_m: jnp.ndarray | None = None
@@ -123,8 +123,8 @@ class Edgewise(nn.Module):
       act = SeparableS2Activation(
         lmax=self.lmax,
         mmax=self.mmax,
-        to_grid_mat=self.to_grid_mat,
-        from_grid_mat=self.from_grid_mat,
+        to_grid_mat=jnp.asarray(self.to_grid_mat),
+        from_grid_mat=jnp.asarray(self.from_grid_mat),
         mapping_to_m=self.mapping_to_m,
         name='act',
       )
@@ -163,6 +163,9 @@ class Edgewise(nn.Module):
 
     # Second SO2 convolution
     x_message = so2_conv_2(x_message, x_edge)
+    if isinstance(x_message, tuple):
+      # Not reached: so2_conv_2 has no extra m0 outputs.
+      x_message = x_message[0]
 
     # Apply envelope
     x_message = x_message * edge_envelope
@@ -343,11 +346,11 @@ class UMABlock(nn.Module):
   hidden_channels: int
   lmax: int
   mmax: int
-  m_size: List[int]
+  m_size: Sequence[int]
   edge_channels_list: List[int]
   norm_type: str = 'rms_norm_sh'
-  act_type: Literal['gate', 's2'] = 'gate'
-  ff_type: Literal['spectral', 'grid'] = 'grid'
+  act_type: str = 'gate'  # 'gate' or 's2'
+  ff_type: str = 'grid'  # 'spectral' or 'grid'
   to_grid_mat: jnp.ndarray | None = None
   from_grid_mat: jnp.ndarray | None = None
   mapping_to_m: jnp.ndarray | None = None
@@ -450,8 +453,8 @@ class UMABlock(nn.Module):
       atomwise = GridAtomwise(
         sphere_channels=self.sphere_channels,
         hidden_channels=self.hidden_channels,
-        to_grid_mat=self.to_grid_mat,
-        from_grid_mat=self.from_grid_mat,
+        to_grid_mat=jnp.asarray(self.to_grid_mat),
+        from_grid_mat=jnp.asarray(self.from_grid_mat),
         name='atom_wise',
       )
     x = atomwise(x)

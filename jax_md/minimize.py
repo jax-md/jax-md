@@ -113,10 +113,10 @@ class FireDescentState:
   position: Array
   momentum: Array
   force: Array
-  mass: Array
-  dt: float
-  alpha: float
-  n_pos: int
+  mass: Array | float
+  dt: Array | float
+  alpha: Array | float
+  n_pos: Array | int
 
 
 def fire_descent(
@@ -252,13 +252,13 @@ class PreconFireDescentState:
   position: Array
   velocity: Array
   force: Array
-  dt: float
-  alpha: float
-  n_pos: int
-  initialized: bool
+  dt: Array | float
+  alpha: Array | float
+  n_pos: Array | int
+  initialized: Array | bool
   preconditioner_position: PyTree
   preconditioner_previous_position: PyTree
-  preconditioner_previous_initialized: bool
+  preconditioner_previous_initialized: Array | bool
 
   @property
   def momentum(self) -> Array:
@@ -801,7 +801,7 @@ class FireBoxDescentState:
   position: Array
   momentum: Array
   force: Array
-  mass: Array
+  mass: Array | float
   box: Array
   reference_box: Array
   box_position: Array
@@ -809,9 +809,9 @@ class FireBoxDescentState:
   box_force: Array
   box_mass: Array
   box_factor: Array
-  dt: float
-  alpha: float
-  n_pos: int
+  dt: Array | float
+  alpha: Array | float
+  n_pos: Array | int
 
 
 def fire_descent_box(
@@ -1042,13 +1042,13 @@ class PreconFireBoxDescentState:
   box_velocity: Array
   box_force: Array
   box_factor: Array
-  dt: float
-  alpha: float
-  n_pos: int
-  initialized: bool
+  dt: Array | float
+  alpha: Array | float
+  n_pos: Array | int
+  initialized: Array | bool
   preconditioner_position: PyTree
   preconditioner_previous_position: PyTree
-  preconditioner_previous_initialized: bool
+  preconditioner_previous_initialized: Array | bool
 
   @property
   def momentum(self) -> Array:

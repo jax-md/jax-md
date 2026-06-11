@@ -134,6 +134,8 @@ def _configure_nbforce_for_jax_conversion(
   if use_switch is not None:
     nbforce.setUseSwitchingFunction(bool(use_switch))
     if use_switch:
+      if switch_nm is None:
+        raise ValueError('switch_nm is required when use_switch is set.')
       nbforce.setSwitchingDistance(float(switch_nm) * u.nanometer)
   if use_dispersion_correction is not None:
     nbforce.setUseDispersionCorrection(bool(use_dispersion_correction))
@@ -331,7 +333,11 @@ def build_jax_alchemical_components(
     precision='double',
   )
 
-  if converted.recip_alpha is not None and converted.recip_grid is not None:
+  if (
+    converted.recip_alpha is not None
+    and converted.recip_grid is not None
+    and converted.nb_options.r_cut is not None
+  ):
     coul = electrostatics.PMECoulomb(
       r_cut=converted.nb_options.r_cut,
       alpha=converted.recip_alpha,

@@ -218,11 +218,13 @@ def _openmm_energy_force(
 
 def _make_coulomb_handler(
   nb_method: Any,
-  r_cut: float,
+  r_cut: float | None,
   recip_alpha: Any,
   recip_grid: Any,
 ) -> electrostatics.CoulombHandler:
   """Pick a coulomb handler consistent with how we built the OpenMM system."""
+  if r_cut is None:
+    raise ValueError('The OpenMM system did not define a nonbonded cutoff.')
   if nb_method == app.PME:
     return electrostatics.PMECoulomb(
       r_cut=r_cut, alpha=recip_alpha, grid_size=recip_grid
@@ -766,7 +768,9 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
 
     # If fractional coordinates are used, convert OMM positions
     if mm.nb_options.fractional_coordinates:
-      vs_pos_omm = space.transform(space.inverse(mm.box_vectors), vs_pos_omm)
+      vs_pos_omm = space.transform(
+        space.inverse(jnp.asarray(mm.box_vectors)), vs_pos_omm
+      )
       vs_pos_omm = jnp.mod(vs_pos_omm, 1.0)  # wrap into [0,1)
 
     self.assertAllClose(vs_pos_jax, vs_pos_omm, rtol=1e-10, atol=0.0)
@@ -1625,7 +1629,7 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     )
 
     # NOTE this only works in the case of an orthorhombic box
-    disp_fn, shift_fn = space.periodic(mm.box_vectors)
+    disp_fn, shift_fn = space.periodic(jnp.asarray(mm.box_vectors))
 
     settle_data, ccma_data = amber_constraints.prepare_settle_ccma(
       np.asarray(jax.device_get(mm.constraint_idx)),
@@ -1633,12 +1637,13 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
       np.asarray(jax.device_get(mm.masses)),
     )
 
+    masses = jnp.asarray(mm.masses)
     pos0 = mm.positions
     pos_jax = amber_constraints.settle(
       pos0,
       pos0,
       settle_data,
-      mm.masses,
+      masses,
       disp_fn,
       shift_fn,
       box=mm.box_vectors,
@@ -1647,7 +1652,7 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     pos_jax = amber_constraints.ccma(
       pos_jax,
       ccma_data,
-      mm.masses,
+      masses,
       disp_fn,
       shift_fn,
       box=mm.box_vectors,
@@ -1741,7 +1746,7 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
       pos_vel_ref,
       vel0,
       settle_data,
-      mm.masses,
+      masses,
       disp_fn,
       box=mm.box_vectors,
       use_periodic_general=mm.nb_options.use_periodic_general,
@@ -1751,7 +1756,7 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
       pos_vel_ref,
       vel_jax,
       ccma_data,
-      mm.masses,
+      masses,
       disp_fn,
       box=mm.box_vectors,
       use_periodic_general=mm.nb_options.use_periodic_general,
