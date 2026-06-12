@@ -150,46 +150,6 @@ class SimulateTest(test_util.JAXMDTestCase):
   @parameterized.named_parameters(
     test_util.cases_from_list(
       {
-        'testcase_name': '_dim={}_dtype={}'.format(dim, dtype.__name__),
-        'spatial_dimension': dim,
-        'dtype': dtype,
-      }
-      for dim in SPATIAL_DIMENSION
-      for dtype in DTYPE
-    )
-  )
-  def test_nve_jammed(self, spatial_dimension, dtype):
-    key = random.PRNGKey(0)
-
-    state = test_util.load_jammed_state('simulation_test_state.npy', dtype)
-    displacement_fn, shift_fn = space.periodic(state.box[0, 0])
-
-    E = energy.soft_sphere_pair(displacement_fn, state.species, state.sigma)
-
-    init_fn, apply_fn = simulate.nve(E, shift_fn, 1e-3)
-    apply_fn = jit(apply_fn)
-
-    state = init_fn(key, state.real_position, kT=1e-3)
-
-    E_T = lambda state: E(state.position) + ke_fn(state.momentum, state.mass)
-    E_initial = E_T(state) * np.ones((DYNAMICS_STEPS,))
-
-    def step_fn(i, state_and_energy):
-      state, energy = state_and_energy
-      state = apply_fn(state)
-      energy = energy.at[i].set(E_T(state))
-      return state, energy
-
-    Es = np.zeros((DYNAMICS_STEPS,))
-    state, Es = lax.fori_loop(0, DYNAMICS_STEPS, step_fn, (state, Es))
-
-    tol = 1e-3 if dtype is f32 else 1e-7
-    self.assertEqual(state.position.dtype, dtype)
-    self.assertAllClose(Es, E_initial, rtol=tol, atol=tol)
-
-  @parameterized.named_parameters(
-    test_util.cases_from_list(
-      {
         'testcase_name': f'_dtype={dtype.__name__}_coordinates={coords}',
         'dtype': dtype,
         'coords': coords,

@@ -188,7 +188,7 @@ def _encode(R):
 def _to_json(data):
   try:
     return IPython.display.JSON(data=data)
-  except:
+  except Exception:
     return IPython.display.JSON(data=json.dumps(data))
 
 

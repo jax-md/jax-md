@@ -64,7 +64,7 @@ COULOMB_CONSTANT = 332.06371  # kcal*A/(mol*e^2)
 # TODO rethink the cleanest way to format this with some enums
 # TODO also move this somewhere more suitable
 @dataclasses.dataclass
-class FEOptions(object):
+class FEOptions:
   """
   Free-energy (alchemical) options.
 

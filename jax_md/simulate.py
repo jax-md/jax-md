@@ -837,9 +837,9 @@ def npt_nose_hoover(
     def U(position, eps):
       return energy_fn(position, box=box, perturbation=(1 + eps), **kwargs)
 
-    E, grad = value_and_grad(U, argnums=(0, 1))(position, 0.0)
-    F = -grad[0]
-    dUdV = grad[1]
+    E, grads = value_and_grad(U, argnums=(0, 1))(position, 0.0)
+    F = -grads[0]
+    dUdV = grads[1]
     return E, F, dUdV
 
   def init_fn(key, R, box, mass=f32(1.0), momenta=None, **kwargs):

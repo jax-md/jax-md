@@ -1059,9 +1059,7 @@ def load_lammps_tersoff_parameters(file: TextIO) -> list[Dict[str, Any]]:
     nwords = len(words)
 
     if nwords != params_per_line:
-      raise ValueError(
-        'Incorrect format: %d not in %d' % (nwords, params_per_line)
-      )
+      raise ValueError(f'Incorrect format: {nwords} not in {params_per_line}')
     else:
       skip = False
 

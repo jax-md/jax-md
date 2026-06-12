@@ -214,7 +214,7 @@ def _charmm_read_box(psf: Any, filename: str) -> Any:
 
       sysinfo = json.load(f)
       boxlx, boxly, boxlz = map(float, sysinfo['dimensions'][:3])
-    except:
+    except Exception:
       for line in f:
         segments = line.split('=')
         if segments[0].strip() == 'BOXLX':

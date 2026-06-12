@@ -17,10 +17,6 @@
 This code was adapted from the way learning rate schedules are are built in JAX.
 """
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import jax.numpy as np
 from scipy.interpolate import splrep, PPoly
 

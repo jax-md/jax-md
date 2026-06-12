@@ -218,7 +218,7 @@ def calculate_all_angles_and_distances(R, nbr_lists, map_metric, map_disp):
     nbr_lists.filter4.idx, filtered_close_idx, close_nbr_disps
   )
 
-  if nbr_lists.filter_hb != None:
+  if nbr_lists.filter_hb is not None:
     hb_inds = nbr_lists.filter_hb.idx
     far_nbr_disps = map_disp(R, R[nbr_lists.far_nbrs.idx])
     hb_ang_dist = calculate_all_hbond_angles_and_dists(

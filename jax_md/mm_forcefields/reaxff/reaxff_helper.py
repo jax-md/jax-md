@@ -794,9 +794,9 @@ def read_force_field(
   FF_fields = ForceField.__dataclass_fields__
   for k in FF_field_dict:
     is_static = k in FF_fields and FF_fields[k].metadata.get('static', False)
-    if type(FF_field_dict[k]) == onp.ndarray:
+    if type(FF_field_dict[k]) is onp.ndarray:
       FF_field_dict[k] = jnp.array(FF_field_dict[k])
-    elif type(FF_field_dict[k]) == float:
+    elif type(FF_field_dict[k]) is float:
       FF_field_dict[k] = jnp.array(FF_field_dict[k], dtype=dtype)
 
   force_field = ForceField.init_from_arg_dict(FF_field_dict)

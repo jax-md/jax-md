@@ -13,7 +13,7 @@ Array = util.Array
 
 
 @dataclasses.dataclass
-class ForceField(object):
+class ForceField:
   """
   Container for ReaxFF parameters
   """

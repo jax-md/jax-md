@@ -135,7 +135,7 @@ def main(unused_argv):
     nmin=2,
     nmax=8,
   )
-  print('Created %d subcells from a-Si' % len(subcells))
+  print(f'Created {len(subcells)} subcells from a-Si')
 
   # To save time in this example, we (i) keep only the "cubic" subcells where a==b==c, and
   # (ii) keep if number of atoms in the subcell is 2, 4 or 8. This rreduces the number of
@@ -146,7 +146,7 @@ def main(unused_argv):
     if np.all((subcell[2] - subcell[1]) == (subcell[2] - subcell[1])[0])
     and len(subcell[0]) in (2, 4, 8)
   ]
-  print('Subcells kept for this example: %d' % len(subcells))
+  print(f'Subcells kept for this example: {len(subcells)}')
 
   structures = crystallizer_utils.subcells_to_structures(
     subcells,

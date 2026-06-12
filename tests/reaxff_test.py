@@ -431,12 +431,12 @@ class ReaxFFEnergyTest(JAXMDTestCase):
       triple_bond,
       self.ffields[i],
     )
-    if self.nbr_lists[i].filter_hb != None:
+    if self.nbr_lists[i].filter_hb is not None:
       hb_inds = self.nbr_lists[i].filter_hb.idx
     else:
       hb_inds = None
     hb_pot = 0.0
-    if hb_inds != None:
+    if hb_inds is not None:
       hb_ang_dist = self.angles_and_dists[i][4]
       hb_mask = (hb_inds[:, 1] != -1) & (hb_inds[:, 2] != -1)
       far_nbr_inds = self.nbr_lists[i].far_nbrs.idx

@@ -117,7 +117,7 @@ class MLP(nnx.Module):
 
 
 @dataclasses.dataclass
-class GraphsTuple(object):
+class GraphsTuple:
   """A struct containing graph data.
 
   Attributes:
