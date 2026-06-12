@@ -83,14 +83,20 @@ def validate_topology(topology: Topology) -> None:
     )
 
   # Check mask shapes
-  if topology.exclusion_mask.shape != (n, n):
+  exclusion_mask = topology.exclusion_mask
+  if exclusion_mask is None:
+    raise ValueError('exclusion_mask must be set on the topology')
+  if exclusion_mask.shape != (n, n):
     raise ValueError(
-      f'exclusion_mask must have shape ({n}, {n}), got {topology.exclusion_mask.shape}'
+      f'exclusion_mask must have shape ({n}, {n}), got {exclusion_mask.shape}'
     )
 
-  if topology.pair_14_mask.shape != (n, n):
+  pair_14_mask = topology.pair_14_mask
+  if pair_14_mask is None:
+    raise ValueError('pair_14_mask must be set on the topology')
+  if pair_14_mask.shape != (n, n):
     raise ValueError(
-      f'pair_14_mask must have shape ({n}, {n}), got {topology.pair_14_mask.shape}'
+      f'pair_14_mask must have shape ({n}, {n}), got {pair_14_mask.shape}'
     )
 
   # Check atom indices are in valid range

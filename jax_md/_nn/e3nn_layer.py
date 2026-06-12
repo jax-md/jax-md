@@ -295,13 +295,12 @@ class Linear(nn.Module):
     irreps_out = Irreps(self.irreps_out)
     irreps_in = Irreps(self.irreps_in) if self.irreps_in is not None else None
 
-    if self.irreps_in is None and not isinstance(x, IrrepsArray):
-      raise ValueError(
-        'the input of Linear must be an IrrepsArray, or '
-        '`irreps_in` must be specified'
-      )
-
-    if irreps_in is not None and not isinstance(x, IrrepsArray):
+    if not isinstance(x, IrrepsArray):
+      if irreps_in is None:
+        raise ValueError(
+          'the input of Linear must be an IrrepsArray, or '
+          '`irreps_in` must be specified'
+        )
       x = IrrepsArray(irreps_in, x)
 
     x = x.remove_nones().simplify()

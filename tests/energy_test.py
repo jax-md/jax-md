@@ -1303,7 +1303,7 @@ class EnergyTest(test_util.JAXMDTestCase):
     energy_fn = energy.graph_network(
       d, cutoff, key=params_key, spatial_dimension=spatial_dimension
     )
-    graphdef, state = nnx.split(energy_fn.model)
+    graphdef, state = nnx.split(getattr(energy_fn, 'model'))
 
     def apply(state, *args, **kwargs):
       out, _ = graphdef.apply(state)(*args, **kwargs)

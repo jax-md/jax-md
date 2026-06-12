@@ -144,6 +144,9 @@ class Filtration:
     """
     if self.idx is None:
       raise ValueError('Have to allocate first.')
+    # Bind the narrowed buffer; the lambda below sees the public
+    # `Array | None` type of `self.idx`, not the flow-narrowed one.
+    idx_buf = self.idx
 
     candidate_inds, candidate_vals = self.candidate_fn(*candidate_args)
     mask = self.mask_fn(candidate_vals)
@@ -152,13 +155,11 @@ class Filtration:
 
       mapped_argwhere = jax.vmap(
         lambda vec: jnp.argwhere(
-          vec, size=self.idx.shape[1], fill_value=-1
+          vec, size=idx_buf.shape[1], fill_value=-1
         ).flatten()
       )
       idx = mapped_argwhere(mask)
-      did_buffer_overflow = self.did_buffer_overflow | (
-        size > self.idx.shape[1]
-      )
+      did_buffer_overflow = self.did_buffer_overflow | (size > idx_buf.shape[1])
     else:
       selected_inds = jnp.argwhere(
         mask, size=len(self.idx), fill_value=-1

@@ -3,7 +3,18 @@ import jax
 jax.config.update('jax_enable_x64', True)
 import numpy as onp
 import jax.numpy as jnp
+from ase import Atoms
 from ase.io import read
+
+
+def read_atoms(path) -> Atoms:
+  """Read a single-frame geometry, narrowing ase.io.read's union."""
+  atoms = read(path)
+  if not isinstance(atoms, Atoms):
+    raise TypeError(f'Expected a single Atoms object from {path!r}.')
+  return atoms
+
+
 from jax_md import space
 from jax_md.mm_forcefields.reaxff.reaxff_interactions import reaxff_inter_list
 from jax_md.mm_forcefields.reaxff.reaxff_interactions import (
@@ -67,7 +78,7 @@ class ReaxFFEnergyTest(JAXMDTestCase):
       read_and_process_FF_file(test['ffield_path'], dtype=test['dtype'])
       for test in TEST_DATA
     ]
-    cls.geos = [read(test['geo_path']) for test in TEST_DATA]
+    cls.geos = [read_atoms(test['geo_path']) for test in TEST_DATA]
     cls.names = [test['name'] for test in TEST_DATA]
     cls.dtypes = [test['dtype'] for test in TEST_DATA]
     cls.nbr_lists = []

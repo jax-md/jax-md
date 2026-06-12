@@ -137,12 +137,12 @@ def raw_transform(box: Box, R: Array) -> Array:
   Returns:
     A transformed array positions of shape `(..., spatial_dimension)`.
   """
-  if jnp.isscalar(box) or box.size == 1:
+  if jnp.isscalar(box) or jnp.size(box) == 1:
     return R * box
-  elif box.ndim == 1:
+  elif jnp.ndim(box) == 1:
     indices = _get_free_indices(R.ndim - 1) + 'i'
     return jnp.einsum(f'i,{indices}->{indices}', box, R)
-  elif box.ndim == 2:
+  elif jnp.ndim(box) == 2:
     free_indices = _get_free_indices(R.ndim - 1)
     left_indices = free_indices + 'j'
     right_indices = free_indices + 'i'

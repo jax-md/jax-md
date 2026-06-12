@@ -125,7 +125,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     tol = 5e-8 if dtype == f64 else 5e-5
 
     self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
-    assert E_final.dtype == dtype
+    assert jnp.asarray(E_final).dtype == dtype
 
   @parameterized.named_parameters(
     test_util.cases_from_list(
@@ -172,7 +172,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     tol = 5e-8 if dtype == f64 else 5e-5
 
     self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
-    assert E_final.dtype == dtype
+    assert jnp.asarray(E_final).dtype == dtype
 
   @parameterized.named_parameters(
     test_util.cases_from_list(
@@ -218,7 +218,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     tol = 5e-8 if dtype == f64 else 5e-5
 
     self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
-    assert E_final.dtype == dtype
+    assert jnp.asarray(E_final).dtype == dtype
 
   @parameterized.named_parameters(
     test_util.cases_from_list(
@@ -273,7 +273,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     tol = 5e-8 if dtype == f64 else 5e-5
 
     self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
-    assert E_final.dtype == dtype
+    assert jnp.asarray(E_final).dtype == dtype
 
   @parameterized.named_parameters(
     test_util.cases_from_list(
@@ -328,7 +328,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     tol = 5e-8 if dtype == f64 else 5e-5
 
     self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
-    assert E_final.dtype == dtype
+    assert jnp.asarray(E_final).dtype == dtype
 
   @parameterized.named_parameters(
     test_util.cases_from_list(
@@ -392,7 +392,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     tol = 5e-8 if dtype == f64 else 5e-5
 
     self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
-    assert E_final.dtype == dtype
+    assert jnp.asarray(E_final).dtype == dtype
 
   @parameterized.named_parameters(
     test_util.cases_from_list(
@@ -422,11 +422,16 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     )
 
     F = quantity.force(energy_fn)(body)
+    if not isinstance(F, rigid_body.RigidBody):
+      raise TypeError('Expected a RigidBody-valued force.')
+    F_orientation = F.orientation
+    if not isinstance(F_orientation, rigid_body.Quaternion):
+      raise TypeError('Expected a quaternion-valued force orientation.')
     orientation = body.orientation
     if not isinstance(orientation, rigid_body.Quaternion):
       raise TypeError('Expected a quaternion-valued orientation.')
     S = rigid_body.S(orientation)
-    F_body = jnp.einsum('nij,ni->nj', S, F.orientation.vec)
+    F_body = jnp.einsum('nij,ni->nj', S, F_orientation.vec)
     self.assertAllClose(F_body[:, 0], jnp.zeros_like(F_body[:, 0]))
 
   @parameterized.named_parameters(
@@ -478,7 +483,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     tol = 5e-8 if dtype == f64 else 5e-5
 
     self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
-    assert E_final.dtype == dtype
+    assert jnp.asarray(E_final).dtype == dtype
 
   @parameterized.named_parameters(
     test_util.cases_from_list(
@@ -532,7 +537,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     tol = 5e-8 if dtype == f64 else 5e-5
 
     self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
-    assert E_final.dtype == dtype
+    assert jnp.asarray(E_final).dtype == dtype
 
   @parameterized.named_parameters(
     test_util.cases_from_list(
@@ -588,7 +593,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
 
     tol = 5e-5
     self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
-    assert E_final.dtype == dtype
+    assert jnp.asarray(E_final).dtype == dtype
 
   @parameterized.named_parameters(
     test_util.cases_from_list(
@@ -644,7 +649,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     tol = 5e-8 if dtype == f64 else 5e-5
 
     self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
-    assert E_final.dtype == dtype
+    assert jnp.asarray(E_final).dtype == dtype
 
   def test_shape_derivative_2d(self):
     def shape_energy_fn(points):
@@ -747,7 +752,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     tol = 5e-8 if dtype == f64 else 5e-5
 
     self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
-    assert E_final.dtype == dtype
+    assert jnp.asarray(E_final).dtype == dtype
 
   @parameterized.named_parameters(
     test_util.cases_from_list(
@@ -792,7 +797,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     tol = 5e-8 if dtype == f64 else 5e-5
 
     self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
-    assert E_final.dtype == dtype
+    assert jnp.asarray(E_final).dtype == dtype
 
   @parameterized.named_parameters(
     test_util.cases_from_list(
@@ -838,7 +843,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     tol = 5e-8 if dtype == f64 else 5e-5
 
     self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
-    assert E_final.dtype == dtype
+    assert jnp.asarray(E_final).dtype == dtype
 
   @parameterized.named_parameters(
     test_util.cases_from_list(
@@ -897,7 +902,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     tol = 5e-8 if dtype == f64 else 5e-5
 
     self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
-    assert E_final.dtype == dtype
+    assert jnp.asarray(E_final).dtype == dtype
 
   @parameterized.named_parameters(
     test_util.cases_from_list(
@@ -959,7 +964,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     tol = 5e-8 if dtype == f64 else 5e-5
 
     self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
-    assert E_final.dtype == dtype
+    assert jnp.asarray(E_final).dtype == dtype
 
   @parameterized.named_parameters(
     test_util.cases_from_list(
@@ -1026,7 +1031,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     tol = 5e-8 if dtype == f64 else 5e-5
 
     self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
-    assert E_final.dtype == dtype
+    assert jnp.asarray(E_final).dtype == dtype
 
   @parameterized.named_parameters(
     test_util.cases_from_list(
@@ -1075,7 +1080,7 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     tol = 5e-8 if dtype == f64 else 5e-5
 
     self.assertAllClose(E_initial, E_final, rtol=tol, atol=tol)
-    assert E_final.dtype == dtype
+    assert jnp.asarray(E_final).dtype == dtype
 
   def test_jit_shape(self):
     N = PARTICLE_COUNT

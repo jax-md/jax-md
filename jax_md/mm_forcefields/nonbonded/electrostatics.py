@@ -7,7 +7,7 @@ This module provides coulomb energy functions that support:
 """
 
 from functools import partial
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import jax.numpy as jnp
 import numpy as onp
@@ -32,6 +32,10 @@ CutoffWrapper = Callable[[EnergyFn], EnergyFn]  # TODO add to base.py
 class CoulombHandler:
   """Base class for coulomb energy handlers."""
 
+  # Erfc/Ewald damping parameter, set by the subclasses that screen
+  # interactions (CutoffCoulomb, EwaldCoulomb, PMECoulomb).
+  alpha: float | Array
+
   def energy(
     self,
     positions: Array,
@@ -55,6 +59,20 @@ class CoulombHandler:
 
     Returns:
         Coulomb energy in kcal/mol.
+    """
+    raise NotImplementedError
+
+  def prepare_smap(self, *args, **kwargs) -> Any:
+    """Build pairwise Coulomb callables for the neighbor-list smap path.
+
+    Concrete signatures differ between handlers; see the subclasses.
+    """
+    raise NotImplementedError
+
+  def energy_smap(self, *args, **kwargs) -> Any:
+    """Evaluate Coulomb energy via the neighbor-list smap path.
+
+    Concrete signatures differ between handlers; see the subclasses.
     """
     raise NotImplementedError
 

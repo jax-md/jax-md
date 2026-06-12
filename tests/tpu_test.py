@@ -130,6 +130,8 @@ def get_test_grid(
     topology,
     strategy='linear',
   )
+  if isinstance(R_grid, tuple):
+    raise TypeError('Expected a single TPUGrid when no velocities are given.')
   print(
     f'R.shape {R.shape}, grid shape {R_grid.cell_data.shape}, occupancy {R.shape[0] / float(onp.prod(R_grid.cell_data.shape[:-1]))}'
   )

@@ -174,7 +174,8 @@ class SO2MConvTest(test_util.JAXMDTestCase):
     # Input: (E, 2, num_coeffs * sphere_channels) = (5, 2, 64)
     x = jax.random.normal(key, (5, 2, 2 * 32))
     params = conv.init(key, x)
-    x_r, x_i = conv.apply(params, x)
+    out: Any = conv.apply(params, x)
+    x_r, x_i = out
     # Output: (E, num_coeffs, m_output_channels) = (5, 2, 16)
     self.assertEqual(x_r.shape, (5, 2, 16))
     self.assertEqual(x_i.shape, (5, 2, 16))
@@ -625,7 +626,7 @@ class SO3LinearTest(test_util.JAXMDTestCase):
     key = jax.random.PRNGKey(0)
     x = jax.random.normal(key, (5, 9, 32))  # (batch, (lmax+1)^2, in_features)
     params = linear.init(key, x)
-    out = linear.apply(params, x)
+    out: Any = linear.apply(params, x)
     self.assertEqual(out.shape, (5, 9, 16))
 
   def test_so3linear_no_weight_shift(self):
@@ -653,7 +654,7 @@ class RadialMLPTest(test_util.JAXMDTestCase):
     key = jax.random.PRNGKey(0)
     x = jax.random.normal(key, (10, 64))
     params = mlp.init(key, x)
-    out = mlp.apply(params, x)
+    out: Any = mlp.apply(params, x)
     self.assertEqual(out.shape, (10, 16))
 
   def test_polynomial_envelope(self):
@@ -1142,7 +1143,7 @@ class PyTorchComparisonTest(test_util.JAXMDTestCase):
     sys.modules.setdefault(
       'fairchem.core.models.uma.nn', __import__('types').ModuleType('nn')
     )
-    sys.modules['fairchem.core.models.uma.nn'].radial = radial_pt
+    setattr(sys.modules['fairchem.core.models.uma.nn'], 'radial', radial_pt)
 
   def test_z_rot_mat_matches_pytorch(self):
     """_z_rot_mat should match PyTorch for all l."""

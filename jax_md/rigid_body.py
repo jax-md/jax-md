@@ -635,7 +635,7 @@ def _(state, shift_fn, dt, m_rot=1, **kwargs):
 
 
 @simulate.stochastic_step.register(RigidBody)
-def _(state, dt: float, kT: float, gamma: float):
+def _(state, dt: float, kT: float, gamma: 'RigidBody'):
   key, center_key, orientation_key = random.split(state.rng, 3)
 
   rest, center, orientation = split_center_and_orientation(state)
@@ -647,6 +647,8 @@ def _(state, dt: float, kT: float, gamma: float):
   Pi = orientation.momentum.vec
   I = orientation.mass
   G = gamma.orientation
+  if isinstance(G, Quaternion):
+    raise TypeError('gamma.orientation must be array-valued, not a Quaternion.')
 
   M = 4 / jnp.sum(1 / I, axis=-1)
   Q = orientation.position.vec

@@ -103,7 +103,10 @@ class NeighborListMultiImage:
       raise ValueError(
         'max_neighbors property only available for Dense format.'
       )
-    return self.idx.shape[1]
+    idx = self.idx
+    if isinstance(idx, tuple):
+      raise ValueError('Dense neighbor lists store a single idx array.')
+    return idx.shape[1]
 
   @property
   def n_node(self) -> int:

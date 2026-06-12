@@ -76,7 +76,7 @@ def coulomb_direct_neighbor_list(
   alpha: float = 0.35,
   cutoff: float = 9.0,
   **neighbor_kwargs,
-) -> Tuple[NeighborFn, Callable[..., Array]]:
+) -> Tuple[partition.NeighborListFns, Callable[..., Array]]:
   neighbor_fn = partition.neighbor_list(
     space.canonicalize_displacement_or_metric(displacement_or_metric),
     box,
@@ -190,7 +190,7 @@ def coulomb_ewald_neighbor_list(
   species: Array | None = None,
   alpha: float = 0.34,
   g_max: float = 5.0,
-) -> Tuple[NeighborFn, Callable[..., Array]]:
+) -> Tuple[partition.NeighborListFns, Callable[..., Array]]:
   neighbor_fn, direct_fn = coulomb_direct_neighbor_list(
     displacement_fn, box, charge, species=species, alpha=alpha
   )
@@ -233,7 +233,7 @@ def coulomb_neighbor_list(
   alpha: float = 0.34,
   cutoff: float = 9.0,
   fractional_coordinates: bool = False,
-) -> Tuple[NeighborFn, Callable[..., Array]]:
+) -> Tuple[partition.NeighborListFns, Callable[..., Array]]:
   nbr_box = (
     jnp.diag(box) if (isinstance(box, jnp.ndarray) and box.ndim == 2) else box
   )

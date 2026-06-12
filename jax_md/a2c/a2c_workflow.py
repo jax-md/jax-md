@@ -144,7 +144,7 @@ def main(unused_argv):
     subcell
     for subcell in subcells
     if np.all((subcell[2] - subcell[1]) == (subcell[2] - subcell[1])[0])
-    and subcell[0].shape[0] in (2, 4, 8)
+    and len(subcell[0]) in (2, 4, 8)
   ]
   print('Subcells kept for this example: %d' % len(subcells))
 

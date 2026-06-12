@@ -124,7 +124,7 @@ class EquivariantLayerNorm(nn.Module):
 
       feature = feature * feature_norm
 
-      if self.affine and l == 0:
+      if affine_bias is not None and l == 0:
         bias = affine_bias.reshape(1, 1, -1)
         feature = feature + bias
 
@@ -296,7 +296,7 @@ class EquivariantRMSNorm(nn.Module):
     feature_norm = (feature_norm + self.eps) ** -0.5
 
     # Apply affine transformation
-    if self.affine:
+    if affine_weight is not None:
       weight = affine_weight.reshape(1, self.lmax + 1, self.num_channels)
       weight = weight[:, self.expand_index, :]
       feature_norm = feature_norm * weight

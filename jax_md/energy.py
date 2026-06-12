@@ -167,7 +167,7 @@ def soft_sphere(
   dr = dr / sigma
   fn = lambda dr: epsilon / alpha * (f32(1.0) - dr) ** alpha
 
-  if isinstance(alpha, int) or issubclass(type(alpha.dtype), jnp.integer):
+  if jnp.issubdtype(jnp.result_type(alpha), jnp.integer):
     return jnp.where(dr < 1.0, fn(dr), f32(0.0))
 
   return util.safe_mask(dr < 1.0, fn, dr, f32(0.0))
@@ -2005,7 +2005,7 @@ def behler_parrinello(
   def energy_fn(R, **kwargs):
     return model(R, **kwargs)
 
-  energy_fn.model = model
+  setattr(energy_fn, 'model', model)
 
   return energy_fn
 
@@ -2084,7 +2084,7 @@ def behler_parrinello_neighbor_list(
   def energy_fn(R, neighbor=None, **kwargs):
     return model(R, neighbor, **kwargs)
 
-  energy_fn.model = model
+  setattr(energy_fn, 'model', model)
 
   return neighbor_fn, energy_fn
 
@@ -2312,7 +2312,7 @@ def graph_network(
   def energy_fn(R, **kwargs):
     return model(R, **kwargs)
 
-  energy_fn.model = model
+  setattr(energy_fn, 'model', model)
 
   return energy_fn
 
@@ -2406,7 +2406,7 @@ def graph_network_neighbor_list(
   def energy_fn(R, neighbor=None, **kwargs):
     return model(R, neighbor, **kwargs)
 
-  energy_fn.model = model
+  setattr(energy_fn, 'model', model)
 
   return neighbor_fn, energy_fn
 
@@ -3046,7 +3046,10 @@ def uma_neighbor_list(
       dataset_idx=_dataset_idx,
       **kwargs,
     )
-    return model.apply(params, features).sum()
+    # flax apply returns a (output | variables) union; the model yields
+    # a per-atom energy array here.
+    out: Any = model.apply(params, features)
+    return out.sum()
 
   return neighbor_fn, init_fn, energy_fn
 
