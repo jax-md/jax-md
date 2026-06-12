@@ -48,6 +48,7 @@ dependencies = [
     "optax",
     "frozendict",
     "pymatgen>=2021.3.4",
+    "typing-extensions>=4.10",  # dataclass_transform, TypeIs
 ]
 
 [project.optional-dependencies]
@@ -56,7 +57,6 @@ amber = [
     "openmmforcefields",
     "parmed",
 ]
-
 [dependency-groups]
 docs = [
     "sphinx>=7.2.0",
@@ -80,6 +80,7 @@ docs = [
 testing = [
     "pytest",
     "ase",
+    "netCDF4",
 ]
 mace = [
     "mace_jax @ git+https://github.com/ACEsuit/mace-jax@fe19806 ; python_version >= '3.11'",
@@ -88,10 +89,13 @@ uma = [
     "torch>=2.0.0",           # Loading PyTorch UMA checkpoints
     "huggingface_hub",        # Downloading pretrained models
 ]
-dev = [
-    "pytest",
-    "ase",
+lint = [
     "ruff",
+    "ty==0.0.46",
+]
+dev = [
+    {include-group = "lint"},
+    {include-group = "testing"},
     "pre-commit",
     "torch>=2.0.0",
     "e3nn",                   # Exact grid matrix computation
@@ -184,33 +188,21 @@ select = [
     "UP",  # pyupgrade
 ]
 ignore = [
-    "E501",  # line too long (handled by formatter)
-    "UP032",  # use f-string (handled by formatter)
-    "UP035",
-    "E402",
-    "E721",
-    "E731",
-    "E741",
-    "E711",
-    "E712",
-    "E722",
-    "F821",
-    "F401",
-    "F403",
-    "F405",
-    "F811",
-    "F841",
-    "I001",
-    "UP004",
-    "UP006",
-    "UP007",
-    "UP008",
-    "UP010",
-    "UP015",
-    "UP020",
-    "UP031",
-    "UP034",
-    "UP037",
+    "E402",   # imports not at top of file (jax.config before imports)
+    "E501",   # line too long (handled by formatter)
+    "E731",   # lambda assignment (core jax-md idiom)
+    "E741",   # ambiguous names (l, I are physics symbols here)
+    "F401",   # unused imports (needs __init__ re-export strategy)
+    "F403",   # star imports
+    "F405",   # names used from star imports
+    "F841",   # unused locals (often intentional unpacking)
+    "I001",   # import sorting (one big --fix away)
+    "UP006",  # PEP 585 builtin generics
+    "UP007",  # PEP 604 unions
+    "UP015",  # redundant open() modes
+    "UP032",  # f-string conversions
+    "UP034",  # extraneous parentheses
+    "UP035",  # deprecated typing imports
 ]
 
 [tool.ruff.lint.isort]
@@ -221,3 +213,14 @@ src = { include = ["jax_md","tests"] }
 
 [tool.ty.environment]
 python-version = "3.10"
+
+[tool.ty.analysis]
+allowed-unresolved-imports = [
+    "mace_jax.**", "torch.**", "fairchem.**", "e3nn.**",
+    "huggingface_hub.**", "openmm.**", "openmmforcefields.**",
+    "parmed.**", "netCDF4.**", "google.colab.**", "IPython.**",
+]
+
+[tool.ty.rules]
+unresolved-attribute = "ignore"
+unused-ignore-comment = "error"

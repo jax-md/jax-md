@@ -33,8 +33,8 @@ class Topology(NamedTuple):
   angles: Array
   torsions: Array
   impropers: Array
-  exclusion_mask: Array
-  pair_14_mask: Array
+  exclusion_mask: Array | None
+  pair_14_mask: Array | None
   molecule_id: Array | None = None
   cmap_atoms: Array | None = None
   cmap_map_idx: Array | None = None
@@ -69,7 +69,7 @@ class BondedParameters(NamedTuple):
   torsion_n: Array
   torsion_gamma: Array
   improper_k: Array
-  improper_n: Array
+  improper_n: Array | None
   improper_gamma: Array
   cmap_maps: Array | None = None
 
@@ -118,13 +118,13 @@ class NonbondedOptions(NamedTuple):
       r_switch: Relevant switching distance if enabled, must be less than r_cut.
   """
 
-  r_cut: float = 12.0
+  r_cut: float | None = 12.0
   dr_threshold: float = 0.5
   use_soft_lj: bool = False
-  lj_cap: float = 1000.0
+  lj_cap: float | None = 1000.0
   use_shift_lj: bool = False
-  scale_14_lj: float = 0.5
-  scale_14_coul: float = 0.5
+  scale_14_lj: float | None = 0.5
+  scale_14_coul: float | None = 0.5
   nb_format: NeighborListFormat = (
     NeighborListFormat.Dense
   )  # TODO make all optional
@@ -133,7 +133,7 @@ class NonbondedOptions(NamedTuple):
   fractional_coordinates: bool = False
   wrapped_space: bool = True
   disp_coef: float = 0.0
-  r_switch: float = 0.0
+  r_switch: float | None = 0.0
 
 
 # Common combinators for nonbonded mixing

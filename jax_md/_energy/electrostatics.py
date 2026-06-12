@@ -56,7 +56,7 @@ def coulomb_direct(dr: Array, charge_sq: Array, alpha: float) -> Array:
 def coulomb_direct_pair(
   displacement_fn: DisplacementOrMetricFn,
   charge: Array,
-  species: Array = None,
+  species: Array | None = None,
   alpha: float = 0.35,
 ) -> Callable[[Array], Array]:
   return smap.pair(
@@ -72,11 +72,11 @@ def coulomb_direct_neighbor_list(
   displacement_or_metric: DisplacementOrMetricFn,
   box: Box,
   charge: Array,
-  species: Array = None,
+  species: Array | None = None,
   alpha: float = 0.35,
   cutoff: float = 9.0,
   **neighbor_kwargs,
-) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
+) -> Tuple[partition.NeighborListFns, Callable[..., Array]]:
   neighbor_fn = partition.neighbor_list(
     space.canonicalize_displacement_or_metric(displacement_or_metric),
     box,
@@ -119,7 +119,7 @@ def coulomb_recip_ewald(
 
     dg = 2 * onp.pi / side_length
     # Just to make the sum inclusive.
-    g_range = onp.arange(0, g_max + dg / 2, dg)
+    g_range = onp.arange(0.0, float(g_max + dg / 2), float(dg))
     g_range = onp.concatenate((-g_range[::-1], g_range[1:]))
 
     gx, gy, gz = jnp.meshgrid(g_range, g_range, g_range)
@@ -139,7 +139,7 @@ def coulomb_recip_ewald(
 def coulomb_recip_pme(
   charge: Array,
   box: Box,
-  grid_points: Array,
+  grid_points: Array | int,
   fractional_coordinates: bool = False,
   alpha: float = 0.34,
 ) -> Callable[[Array], Array]:
@@ -184,13 +184,13 @@ def coulomb_recip_pme(
 
 
 def coulomb_ewald_neighbor_list(
-  displacement_fn: Array,
+  displacement_fn: space.DisplacementFn,
   box: Array,
   charge: Array,
-  species: Array = None,
+  species: Array | None = None,
   alpha: float = 0.34,
   g_max: float = 5.0,
-) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
+) -> Tuple[partition.NeighborListFns, Callable[..., Array]]:
   neighbor_fn, direct_fn = coulomb_direct_neighbor_list(
     displacement_fn, box, charge, species=species, alpha=alpha
   )
@@ -206,8 +206,8 @@ def coulomb(
   displacement_fn: DisplacementOrMetricFn,
   box: Box,
   charge: Array,
-  grid_points: Array,
-  species: Array = None,
+  grid_points: Array | int,
+  species: Array | None = None,
   alpha: float = 0.34,
   fractional_coordinates: bool = False,
 ) -> Callable[[Array], Array]:
@@ -228,12 +228,12 @@ def coulomb_neighbor_list(
   displacement_fn: DisplacementOrMetricFn,
   box: Box,
   charge: Array,
-  grid_points: Array,
-  species: Array = None,
+  grid_points: Array | int,
+  species: Array | None = None,
   alpha: float = 0.34,
   cutoff: float = 9.0,
   fractional_coordinates: bool = False,
-) -> Tuple[NeighborFn, Callable[[Array, NeighborList], Array]]:
+) -> Tuple[partition.NeighborListFns, Callable[..., Array]]:
   nbr_box = (
     jnp.diag(box) if (isinstance(box, jnp.ndarray) and box.ndim == 2) else box
   )
@@ -295,7 +295,7 @@ def map_charges_to_grid(
   position: Array,
   charge: Array,
   inverse_box: Box,
-  grid_dimensions: Array,
+  grid_dimensions: Array | onp.ndarray,
   fractional_coordinates: bool,
 ) -> Array:
   """Smears charges over a grid of specified dimensions."""

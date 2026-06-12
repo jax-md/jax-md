@@ -32,6 +32,7 @@ from jax import jit
 from jax import vmap
 
 from jax_md import dataclasses
+from jax_md import util
 
 FLAGS = flags.FLAGS
 
@@ -96,10 +97,12 @@ def _assert_numpy_allclose(a, b, atol=None, rtol=None, err_msg=''):
     return
   a = a.astype(onp.float32) if a.dtype == _dtypes.bfloat16 else a
   b = b.astype(onp.float32) if b.dtype == _dtypes.bfloat16 else b
+  # NOTE: test explicitly for None so that zero tolerances are honored
+  # rather than silently replaced by numpy's defaults (rtol=1e-7).
   kw = {}
-  if atol:
+  if atol is not None:
     kw['atol'] = atol
-  if rtol:
+  if rtol is not None:
     kw['rtol'] = rtol
   with onp.errstate(invalid='ignore'):
     # TODO(phawkins): surprisingly, assert_allclose sometimes reports invalid
@@ -192,7 +195,7 @@ class JAXMDTestCase(parameterized.TestCase):
       self.assertDtypesMatch(x, y)
 
   def assertDtypesMatch(self, x, y, *, canonicalize_dtypes=True):
-    if not jax.config.x64_enabled and canonicalize_dtypes:
+    if not util.x64_enabled() and canonicalize_dtypes:
       self.assertEqual(
         _dtypes.canonicalize_dtype(_dtype(x)),
         _dtypes.canonicalize_dtype(_dtype(y)),

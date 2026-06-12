@@ -2,7 +2,8 @@ from functools import partial
 
 import jax
 import jax.numpy as jnp
-from jax_md import dataclasses, partition, space
+import numpy as onp
+from jax_md import dataclasses, partition, space, util
 from jax_md.partition import NeighborListFormat
 from typing import Callable, Tuple, Union
 
@@ -60,7 +61,7 @@ class NeighborListMultiImage:
   update_fn: Callable[..., 'NeighborListMultiImage'] = (
     dataclasses.static_field()
   )
-  did_buffer_overflow: bool = False
+  did_buffer_overflow: Array | bool = False
 
   def update(self, position: Array, **kwargs) -> 'NeighborListMultiImage':
     """Update neighbor list with new positions."""
@@ -90,7 +91,9 @@ class NeighborListMultiImage:
     N = len(self.reference_position)
     if self.format is NeighborListFormat.Dense:
       # Count valid entries in Dense format
-      return int(jnp.sum(self.idx < N))
+      idx = self.idx
+      assert not isinstance(idx, tuple)
+      return int(jnp.sum(idx < N))
     return int(jnp.sum(self.idx[0] < N))
 
   @property
@@ -100,7 +103,10 @@ class NeighborListMultiImage:
       raise ValueError(
         'max_neighbors property only available for Dense format.'
       )
-    return self.idx.shape[1]
+    idx = self.idx
+    if isinstance(idx, tuple):
+      raise ValueError('Dense neighbor lists store a single idx array.')
+    return idx.shape[1]
 
   @property
   def n_node(self) -> int:
@@ -140,7 +146,7 @@ class NeighborListMultiImageFns:
 
 def _compute_shift_ranges(
   box: Array,  # [dim, dim]
-  r_cutoff: float,
+  r_cutoff: util.ArrayLike,
   pbc: Array,  # [dim]
 ) -> Array:  # [num_shifts, dim]
   r"""Compute integer shift vectors for multi-image neighbor search.
@@ -193,7 +199,7 @@ def _compute_shift_ranges(
 
 def _compute_shift_n_max(
   box: Array,  # [dim, dim]
-  r_cutoff: float,
+  r_cutoff: util.ArrayLike,
   pbc: Array,  # [dim]
 ) -> Array:  # [dim]
   """Compute per-axis multi-image shift extents with fixed output shape."""
@@ -244,8 +250,8 @@ def _compute_pairwise_mask(
   position: Array,  # [N, dim]
   box: Array,  # [dim, dim]
   shifts_real: Array,  # [num_shifts, dim]
-  zero_shift_idx: int,
-  r_cutoff: float,
+  zero_shift_idx: int | Array,
+  r_cutoff: util.ArrayLike,
   fractional_coordinates: bool,
 ) -> Array:  # [num_shifts, N, N]
   r"""Compute boolean mask for pairs within cutoff across all shifts.
@@ -372,8 +378,8 @@ def _build_neighbor_list_sparse(
   box: Array,  # [dim, dim]
   shifts: Array,  # [num_shifts, dim]
   shifts_real: Array,  # [num_shifts, dim]
-  zero_shift_idx: int,
-  r_cutoff: float,
+  zero_shift_idx: int | Array,
+  r_cutoff: util.ArrayLike,
   capacity: int,
   fractional_coordinates: bool,
   update_fn: Callable,
@@ -429,8 +435,8 @@ def _build_neighbor_list_orderedsparse(
   box: Array,  # [dim, dim]
   shifts: Array,  # [num_shifts, dim]
   shifts_real: Array,  # [num_shifts, dim]
-  zero_shift_idx: int,
-  r_cutoff: float,
+  zero_shift_idx: int | Array,
+  r_cutoff: util.ArrayLike,
   capacity: int,
   fractional_coordinates: bool,
   update_fn: Callable,
@@ -517,8 +523,8 @@ def _build_neighbor_list_dense(
   box: Array,  # [dim, dim]
   shifts: Array,  # [num_shifts, dim]
   shifts_real: Array,  # [num_shifts, dim]
-  zero_shift_idx: int,
-  r_cutoff: float,
+  zero_shift_idx: int | Array,
+  r_cutoff: util.ArrayLike,
   max_neighbors: int,
   fractional_coordinates: bool,
   update_fn: Callable,
@@ -680,8 +686,8 @@ def estimate_max_neighbors(
 
 
 def estimate_max_neighbors_from_box(
-  box: Array,  # [dim, dim]
-  r_cutoff: float,
+  box: Array | onp.ndarray,  # [dim, dim]
+  r_cutoff: util.ArrayLike,
   n_atoms: int,
   safety_factor: float = 2.0,
   pbc: Array | None = None,  # [dim]
@@ -742,6 +748,7 @@ def estimate_max_neighbors_from_box(
   See Also:
     ``estimate_max_neighbors``: Quick estimation when box is not available.
   """
+  r_cutoff = jnp.asarray(r_cutoff)
   if r_cutoff <= 0:
     return 0
 
@@ -792,11 +799,11 @@ def estimate_max_neighbors_from_box(
 
 def neighbor_list_multi_image(
   displacement_or_metric,  # Ignored, for API compatibility
-  box: Array,  # [dim, dim]
-  r_cutoff: float,
+  box: util.ArrayLike,  # [dim, dim]
+  r_cutoff: util.ArrayLike,
   dr_threshold: float = 0.0,
   capacity_multiplier: float = 1.25,
-  pbc: Array | None = None,  # [dim]
+  pbc: Array | onp.ndarray | None = None,  # [dim]
   fractional_coordinates: bool = True,
   ordered: bool = False,
   format: NeighborListFormat = NeighborListFormat.Sparse,
@@ -985,7 +992,7 @@ def neighbor_list_multi_image(
   use_threshold = dr_threshold > 0
 
   def allocate_fn(
-    position: Array, extra_capacity: int = 0, box: Array = None, **kwargs
+    position: Array, extra_capacity: int = 0, box: Array | None = None, **kwargs
   ) -> NeighborListMultiImage:
     """Allocate a new neighbor list from positions [N, dim].
 
@@ -1163,7 +1170,8 @@ def graph_featurizer(displacement_fn=None):
     Returns:
       GraphsTuple with displacement vectors as edges.
     """
-    graph = partition.to_jraph(neighbor, nodes=atoms)
+    # NeighborListMultiImage duck-types partition.NeighborList here.
+    graph = partition.to_jraph(neighbor, nodes=atoms)  # ty: ignore[invalid-argument-type]
     mask = neighbor_list_multi_image_mask(neighbor)
 
     # Use box from kwargs if provided, else from neighbor list

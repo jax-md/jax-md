@@ -134,7 +134,7 @@ class TPUGrid:
 
 
 def to_grid(
-  positions: Array,
+  positions: Array | onp.ndarray,
   box_size_in_cells: Union[int, Tuple[int, ...]],
   cell_size: float,
   max_interaction_distance: float,
@@ -208,8 +208,9 @@ def to_grid(
 
   cell_data, factors = inner_fold_fn(cell_data)
 
-  # Factors is static, and will be the same for each shard.
-  factors = factors[(0,) * len(topology)]
+  # Factors is static, and will be the same for each shard (the parallelized
+  # fold returns one copy per device).
+  factors = onp.asarray(factors)[(0,) * len(topology)]
   factors = tuple(int(f) for f in factors)
 
   grid = TPUGrid(
@@ -313,12 +314,12 @@ def random_grid(
     return a PyTree with the same strucutre as `aux` with each leaf array placed
     into the grid.
   """
+  if topology is None:
+    raise ValueError('random_grid requires a TPU mesh topology.')
+
   num_dims = len(topology)
   # Targetting batch_size = 128 always seems optimal on TPU.
   batch_size = 128
-
-  if topology is None:
-    topology = ()
 
   max_grid_distance = max_interaction_distance / cell_size
   if not onp.isclose(max_grid_distance, onp.round(max_grid_distance)):
@@ -339,7 +340,7 @@ def random_grid(
   assert np.all(np.isclose(arr_box_size, np.round(arr_box_size)))
   arr_box_size = tuple(arr_box_size.astype(np.int32))
 
-  pkeys = random.split(key, onp.prod(topology))
+  pkeys = random.split(key, int(onp.prod(topology)))
   pkeys = np.reshape(pkeys, topology + (2,))
 
   def create_instance_by_key(key):
@@ -372,8 +373,9 @@ def random_grid(
 
   cell_data, factors = inner_fold_fn(cell_data)
 
-  # Factors is static, and will be the same for each shard.
-  factors = factors[(0,) * len(topology)]
+  # Factors is static, and will be the same for each shard (the parallelized
+  # fold returns one copy per device).
+  factors = onp.asarray(factors)[(0,) * len(topology)]
   factors = tuple(int(f) for f in factors)
 
   grid = TPUGrid(
@@ -486,7 +488,7 @@ def mesh_and_axes(topology):
   return mesh, P(*labels)
 
 
-def parallelize(f: Callable, topology: Tuple[int]) -> Callable:
+def parallelize(f: Callable, topology: Tuple[int, ...]) -> Callable:
   """Apply pmap for each axis over which the computation is distributed."""
 
   if not topology:
@@ -499,8 +501,13 @@ def parallelize(f: Callable, topology: Tuple[int]) -> Callable:
   devs = mesh_utils.create_device_mesh(topology)
   mesh = Mesh(devs, labels)
 
+  # TODO: dead xmap-era code (broken since the shard_map migration):
+  # `shard_map` here is the *module*, so this raises "TypeError: 'module'
+  # object is not callable", and the kwargs below are not accepted by the
+  # current API. Needs a rewrite against
+  # `jax.shard_map(f, mesh=..., in_specs=..., out_specs=...)`.
   return mesh(
-    shard_map(
+    shard_map(  # ty: ignore[call-non-callable]
       f,
       in_axes=labels + [...],
       out_axes=labels + [...],
@@ -509,7 +516,7 @@ def parallelize(f: Callable, topology: Tuple[int]) -> Callable:
   )
 
 
-def _psum(x: Array, topology: Tuple[int]) -> Array:
+def _psum(x: Array, topology: Tuple[int, ...]) -> Array:
   labels = ['X', 'Y', 'Z']
   n = len(topology)
   labels = labels[:n]
@@ -597,16 +604,16 @@ def shift(
 
 def nearest_valid_grid_size(
   target_box_size_in_cells: Union[int, Tuple[int, ...]],
-  topology: Union[int, Tuple],
+  topology: Union[int, Tuple, None],
   max_grid_distance: int,
   factors: Tuple[int, ...] | None = None,
   dimension: int | None = None,
 ):
   if factors is None:
     if dimension is None:
-      if topology:
+      if isinstance(topology, tuple) and topology:
         dimension = len(topology)
-      elif not np.isscalar(target_box_size_in_cells):
+      elif isinstance(target_box_size_in_cells, tuple):
         dimension = len(target_box_size_in_cells)
       else:
         raise ValueError(
@@ -747,7 +754,7 @@ def nve(force_fn: GridFn, dt: float) -> Simulator:
     V = state.velocity
     F = state.force
 
-    R, (V, F) = shift(
+    R, (V, F) = shift(  # ty: ignore[not-iterable]
       R, V * dt + F * dt_2, (V, F)
     )  # pytype: disable=attribute-error
     F_new = force_fn(R)
@@ -764,7 +771,7 @@ def nve(force_fn: GridFn, dt: float) -> Simulator:
   return init_fn, apply_fn
 
 
-def kinetic_energy(state: NVEState) -> float:
+def kinetic_energy(state: NVEState) -> Array:
   grid = state.position
   if grid.topology and len(grid.cell_data.shape) > grid.num_dims + 2:
     return 0.5 * np.sum(unfold_mesh(state.velocity, grid) ** 2)
@@ -778,13 +785,13 @@ def kinetic_energy(state: NVEState) -> float:
 
 
 def _grid_centers(
-  box_size_in_cells: Array, cell_size: float, num_dims: int
+  box_size_in_cells: Array | onp.ndarray, cell_size: float, num_dims: int
 ) -> Array:
   """Computes the center position of each grid cell."""
   grid_centers = onp.zeros(tuple(box_size_in_cells) + (num_dims,))
 
   for i in range(num_dims):
-    cell_idx = onp.arange(box_size_in_cells[i])
+    cell_idx = onp.arange(int(box_size_in_cells[i]))
     new_shape = (1,) * i + (box_size_in_cells[i],) + (1,) * (num_dims - i - 1)
     grid_centers[..., i] = (onp.reshape(cell_idx, new_shape) + 0.5) * cell_size
 
@@ -897,7 +904,7 @@ def _settle_particle_locations(grid: TPUGrid) -> TPUGrid:
     return lax.while_loop(cond_fn, body_fn, (grid, old_grid))[0]
 
   if grid.topology:
-    move_fn = parallelize(move_fn, grid.topology)
+    return parallelize(move_fn, grid.topology)(grid)
 
   return move_fn(grid)
 
@@ -907,7 +914,7 @@ def _settle_particle_locations(grid: TPUGrid) -> TPUGrid:
 
 def _generate_offset_kernel_channel_last(
   axis: str, grid: TPUGrid
-) -> Tuple[Array, Array]:
+) -> Tuple[onp.ndarray, onp.ndarray]:
   """Generates weights and biases to get displacements with convolutions.
 
   These will act on an array of shape [BL x X x Y ... x C] and are used in the
@@ -929,7 +936,7 @@ def _generate_offset_kernel_channel_last(
   num_dims = grid.num_dims
   input_channels = num_dims + 1
 
-  axis = ord(axis) - ord('X')
+  axis_idx = ord(axis) - ord('X')
 
   kernel_width = max_grid_distance * 2 + 1
 
@@ -943,7 +950,7 @@ def _generate_offset_kernel_channel_last(
 
   for offset in offsets:
     shift = [0] * (1 + num_dims)
-    shift[axis] = cell_size * offset
+    shift[axis_idx] = cell_size * offset
     shift = onp.reshape(shift, (1,) * (num_dims + 1) + (input_channels,))
     bias.append(shift)
 
@@ -963,14 +970,14 @@ def _generate_offset_kernel_channel_last(
   if num_dims == 1:
     k_shape = kernel.shape
   if num_dims == 2:
-    if axis == 0:
+    if axis_idx == 0:
       k_shape = kernel.shape + (1,)
     else:
       k_shape = kernel.shape[:2] + (1,) + kernel.shape[2:]
   elif num_dims == 3:
-    if axis == 0:
+    if axis_idx == 0:
       k_shape = kernel.shape + (1, 1)
-    elif axis == 1:
+    elif axis_idx == 1:
       k_shape = kernel.shape[:2] + (1,) + kernel.shape[2:] + (1,)
     else:
       k_shape = kernel.shape[:2] + (1, 1) + kernel.shape[2:]
@@ -979,7 +986,9 @@ def _generate_offset_kernel_channel_last(
   return kernel, bias
 
 
-def _generate_offset_kernel(axis: str, grid: TPUGrid) -> Tuple[Array, Array]:
+def _generate_offset_kernel(
+  axis: str, grid: TPUGrid
+) -> Tuple[onp.ndarray, onp.ndarray]:
   """Generates weights and biases to get displacements with convolutions.
 
   These will act on an array of shape [BL x C x H x W] and are used in the
@@ -1003,7 +1012,7 @@ def _generate_offset_kernel(axis: str, grid: TPUGrid) -> Tuple[Array, Array]:
   num_dims = grid.num_dims
   input_channels = num_dims + 1
 
-  axis = ord(axis) - ord('X')
+  axis_idx = ord(axis) - ord('X')
 
   kernel_width = max_grid_distance * 2 + 1
 
@@ -1017,7 +1026,7 @@ def _generate_offset_kernel(axis: str, grid: TPUGrid) -> Tuple[Array, Array]:
 
   for offset in offsets:
     shift = [0] * (1 + num_dims)
-    shift[axis] = cell_size * offset
+    shift[axis_idx] = cell_size * offset
     shift = onp.reshape(shift, (1,) + (input_channels,) + (1,) * num_dims)
     bias.append(shift)
 
@@ -1037,14 +1046,14 @@ def _generate_offset_kernel(axis: str, grid: TPUGrid) -> Tuple[Array, Array]:
   if num_dims == 1:
     k_shape = kernel.shape
   if num_dims == 2:
-    if axis == 0:
+    if axis_idx == 0:
       k_shape = kernel.shape + (1,)
     else:
       k_shape = kernel.shape[:2] + (1,) + kernel.shape[2:]
   elif num_dims == 3:
-    if axis == 0:
+    if axis_idx == 0:
       k_shape = kernel.shape + (1, 1)
-    elif axis == 1:
+    elif axis_idx == 1:
       k_shape = kernel.shape[:2] + (1,) + kernel.shape[2:] + (1,)
     else:
       k_shape = kernel.shape[:2] + (1, 1) + kernel.shape[2:]
@@ -1188,7 +1197,7 @@ def _get_pairwise_displacement(data: Array, grid: TPUGrid) -> Array:
 
     data = lax.conv_general_dilated(
       data,
-      w,
+      np.asarray(w),
       (1,) * num_dims,
       'VALID',
       dimension_numbers=dimension_numbers,
@@ -1253,7 +1262,7 @@ def _accumulate_recursion(
 
   data = lax.conv_general_dilated(
     data,
-    w,
+    np.asarray(w),
     (1,) * num_dims,
     'VALID',
     dimension_numbers=dimension_numbers,
@@ -1392,7 +1401,7 @@ def _fold_grid(
   batch_size: int | None = None,
   factors: Tuple[int, ...] | None = None,
   inner_fold: bool = True,
-) -> Array:
+) -> Tuple[Array, Tuple[int, ...]]:
   """Takes data from a contiguous grid and folds it into patches.
 
   This function takes data in a grid of shape (X, Y, Z, C) and folds it into
@@ -1416,6 +1425,8 @@ def _fold_grid(
   num_dims = cell_data.ndim - 1
 
   if factors is None:
+    if batch_size is None:
+      raise ValueError('Either factors or batch_size must be provided.')
     factors = _fold_factors(batch_size, cell_data.shape[:-1], max_grid_distance)
 
   data_shape = []
@@ -1464,7 +1475,7 @@ def _unfold_grid(
   cell_data = np.reshape(cell_data, factors + cell_data.shape[1:])
 
   ordering = _order_grid_by_factors(num_dims)
-  cell_data = np.transpose(cell_data, onp.argsort(ordering))
+  cell_data = np.transpose(cell_data, tuple(onp.argsort(ordering)))
 
   data_shape = ()
   for i in range(num_dims):
@@ -1496,7 +1507,9 @@ def _send_prev(x: Array, axis_name: str) -> Array:
   return lax.ppermute(x, perm=perm, axis_name=axis_name)
 
 
-def _extract_halo(grid_data_unfolded: Array, pad_size: int, axis: str) -> Array:
+def _extract_halo(
+  grid_data_unfolded: Array, pad_size: int, axis: str
+) -> Tuple[Array, Array]:
   """Extract the padding halo from an unfolded grid along a specific axis."""
 
   if axis == 'X':
@@ -1547,7 +1560,9 @@ def _mesh_transport(cell_data: Array, grid: TPUGrid) -> Array:
 # Dynamics utilities for updating particle cell occupancies.
 
 
-def _pairwise_exchange(cell_data: Array, axis: int, grid: TPUGrid) -> Array:
+def _pairwise_exchange(
+  cell_data: Array, axis: int, grid: TPUGrid
+) -> Tuple[Array, Array]:
   """Exchanges particles along an axis if the swap reduces frustration."""
   # `cell_data` has shape [X x Y x ... C]
 
@@ -1628,7 +1643,7 @@ def _update_grid_locations(cell_data: Array, grid: TPUGrid) -> Array:
 
 
 def _get_aux(
-  cell_data: Array, aux_tree: TreeDef, aux_sizes: Tuple[int, ...]
+  cell_data: Array, aux_tree: TreeDef, aux_sizes: onp.ndarray
 ) -> Tuple[Array, PyTree]:
   """Extract auxiliary data from a grid and shape it into a PyTree."""
   cell_data, *flat_aux_occupancy = np.split(cell_data, aux_sizes, axis=-1)
@@ -1640,7 +1655,7 @@ def _get_aux(
 
 def _set_aux(
   cell_data: Array, aux: PyTree
-) -> Tuple[Array, TreeDef, Tuple[int, ...]]:
+) -> Tuple[Array, TreeDef, onp.ndarray]:
   """Flattens a PyTree of auxiliary data and adds it to a grid."""
   flat_aux, aux_tree = tree_flatten(aux)
   aux_sizes = [x.shape[-1] for x in flat_aux]
@@ -1651,9 +1666,7 @@ def _set_aux(
   return cell_data, aux_tree, aux_sizes
 
 
-def _get_aux_spec(
-  num_dims: int, aux: PyTree
-) -> Tuple[TreeDef, Tuple[int, ...]]:
+def _get_aux_spec(num_dims: int, aux: PyTree) -> Tuple[TreeDef, onp.ndarray]:
   """Extract the structure of auxiliary data."""
   flat_aux, aux_tree = tree_flatten(aux)
   aux_sizes = [x.shape[-1] for x in flat_aux]
@@ -1704,7 +1717,7 @@ def test_nve(force_fn, dt):
     V = state.velocity
     F = state.force
 
-    R, (V, F) = shift(
+    R, (V, F) = shift(  # ty: ignore[not-iterable]
       R, V * dt + F * dt_2, (V, F)
     )  # pytype: disable=attribute-error
     F_new = force_fn(R)

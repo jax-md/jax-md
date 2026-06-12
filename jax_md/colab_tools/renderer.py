@@ -19,6 +19,7 @@ import base64
 from google.colab import output
 
 import IPython
+import IPython.display
 
 import jax.numpy as jnp
 
@@ -187,7 +188,7 @@ def _encode(R):
 def _to_json(data):
   try:
     return IPython.display.JSON(data=data)
-  except:
+  except Exception:
     return IPython.display.JSON(data=json.dumps(data))
 
 

@@ -2,6 +2,7 @@ import os
 
 import jax
 import pymatgen as mg
+import pymatgen.core
 from absl.testing import absltest, parameterized
 
 from jax_md.a2c.crystallizer_utils import (
@@ -26,7 +27,7 @@ class A2CTest(parameterized.TestCase):
     d_frac = 0.2
     nmin = 1
     nmax = 12
-    n_workers = os.cpu_count() - 1
+    n_workers = (os.cpu_count() or 2) - 1
 
     orig = get_subcells_to_crystallize(
       amorphous_structure, d_frac=d_frac, nmin=nmin, nmax=nmax

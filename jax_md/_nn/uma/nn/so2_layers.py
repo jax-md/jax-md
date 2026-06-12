@@ -8,7 +8,7 @@ Ported from FairChem's UMA implementation.
 
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import List, Sequence, Tuple
 
 import flax.linen as nn
 import jax.numpy as jnp
@@ -118,7 +118,7 @@ class SO2Convolution(nn.Module):
   m_output_channels: int
   lmax: int
   mmax: int
-  m_size: List[int]
+  m_size: Sequence[int]
   internal_weights: bool = True
   edge_channels_list: List[int] | None = None
   extra_m0_output_channels: int | None = None
@@ -164,7 +164,7 @@ class SO2Convolution(nn.Module):
     # Radial function (if using external weights)
     rad_func = None
     if not self.internal_weights:
-      edge_channels = list(self.edge_channels_list) + [num_channels_rad]
+      edge_channels = list(self.edge_channels_list or []) + [num_channels_rad]
       rad_func = RadialMLP(channels_list=edge_channels, name='rad_func')
 
     # m_size already includes both real and imaginary for m>0
@@ -214,8 +214,9 @@ class SO2Convolution(nn.Module):
       x_m = x_by_m[m].reshape(num_edges, 2, -1)
 
       # Apply radial weighting (broadcast over real/imag dim)
-      if x_edge_by_m[m] is not None:
-        x_m = x_m * x_edge_by_m[m][:, None, :]
+      x_edge_m = x_edge_by_m[m]
+      if x_edge_m is not None:
+        x_m = x_m * x_edge_m[:, None, :]
 
       # SO2 convolution for this m
       so2_m_conv = SO2MConv(

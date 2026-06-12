@@ -16,6 +16,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from jax_md import util
+
 EPS = 1e-7
 
 # Path to Jacobi matrices file (PyTorch format)
@@ -68,7 +70,7 @@ def _safe_atan2_jvp(primals, tangents):
 
 def init_edge_rot_euler_angles(
   edge_distance_vec: jnp.ndarray,
-  rng_key: jax.random.PRNGKey | None = None,
+  rng_key: jax.Array | None = None,
 ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
   """Compute Euler angles for rotating to edge-aligned frame.
 
@@ -134,7 +136,7 @@ def load_jacobi_matrices_from_file(lmax: int) -> List[jnp.ndarray]:
         path = os.path.join(_JD_NPY_DIR, f'Jd_{l}.npy')
         if os.path.exists(path):
           Jd = np.load(path)
-          if jax.config.jax_enable_x64 and Jd.dtype != np.float64:
+          if util.x64_enabled() and Jd.dtype != np.float64:
             cache_ok = False
             break
           Jd_list.append(jnp.array(Jd))
@@ -151,14 +153,14 @@ def load_jacobi_matrices_from_file(lmax: int) -> List[jnp.ndarray]:
     import torch
 
     Jd_torch = torch.load(_JD_FILE, map_location='cpu', weights_only=False)
-    dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
+    dtype = jnp.float64 if util.x64_enabled() else jnp.float32
     Jd_list = [
       jnp.array(Jd_torch[l].numpy(), dtype=dtype) for l in range(lmax + 1)
     ]
 
     # Keep the checked-in float32 cache stable. In x64 mode, use Jd.pt directly
     # so tests can compare at tight tolerances without rewriting cache files.
-    if not jax.config.jax_enable_x64:
+    if not util.x64_enabled():
       _save_jacobi_as_numpy(Jd_list)
 
     return Jd_list
@@ -372,7 +374,7 @@ def get_wigner_and_mapping(
   Jd_list: List[jnp.ndarray],
   to_m: jnp.ndarray,
   coefficient_index: jnp.ndarray,
-  rng_key: jax.random.PRNGKey | None = None,
+  rng_key: jax.Array | None = None,
 ) -> Tuple[jnp.ndarray, jnp.ndarray]:
   """Compute Wigner matrices with M-mapping for SO(2) convolutions.
 

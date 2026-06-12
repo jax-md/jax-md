@@ -13,7 +13,7 @@
 # limitations under the License.
 """Tests for JAX MD TPU code."""
 
-from typing import Sequence
+from typing import Any, Sequence
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -58,6 +58,8 @@ def get_test_grid(
     elif num_dims == 3:
       box_size_in_cells = 32
       # box_size = 16.
+    else:
+      raise ValueError(f'Unsupported num_dims: {num_dims}')
   else:
     if num_dims == 1:
       box_size_in_cells = 512
@@ -65,6 +67,8 @@ def get_test_grid(
       box_size_in_cells = 80
     elif num_dims == 3:
       box_size_in_cells = 16
+    else:
+      raise ValueError(f'Unsupported num_dims: {num_dims}')
 
   box_size_in_cells = tpu.nearest_valid_grid_size(
     box_size_in_cells,
@@ -100,7 +104,7 @@ def get_test_grid(
     # these are used as velocities
     rng_key, subkey = random.split(rng_key)
     V = random.normal(subkey, R.shape)
-    R_grid, V_grid = tpu.to_grid(
+    R_grid, V_grid = tpu.to_grid(  # ty: ignore[not-iterable]
       R,
       box_size_in_cells,
       cell_size,
@@ -126,6 +130,8 @@ def get_test_grid(
     topology,
     strategy='linear',
   )
+  if isinstance(R_grid, tuple):
+    raise TypeError('Expected a single TPUGrid when no velocities are given.')
   print(
     f'R.shape {R.shape}, grid shape {R_grid.cell_data.shape}, occupancy {R.shape[0] / float(onp.prod(R_grid.cell_data.shape[:-1]))}'
   )
@@ -161,7 +167,8 @@ class ConvolutionalMDTest(test_util.JAXMDTestCase):
 
     (R_grid, tpu_energy_fn, tpu_force_fn) = sim_tpu
     (R, energy_fn, shift_fn) = sim_cpu
-    grid_positions = tpu.from_grid(R_grid)
+    # No aux is passed, so from_grid returns just the positions.
+    grid_positions: Any = tpu.from_grid(R_grid)
 
     displacement_fn, _ = space.periodic(
       onp.array(R_grid.box_size_in_cells) * R_grid.cell_size
@@ -277,8 +284,8 @@ class ConvolutionalMDTest(test_util.JAXMDTestCase):
 
       return lax.fori_loop(0, steps, do_sim, state)
 
-    sim = tpu.parallelize(sim, topology)
-    new_state = sim(tpu_state)
+    psim = tpu.parallelize(sim, topology)
+    new_state = psim(tpu_state)
 
     ## JAX-MD baseline
     jmd_init_fn, jmd_apply_fn = simulate.nve(energy_fn, shift_fn, step_size)

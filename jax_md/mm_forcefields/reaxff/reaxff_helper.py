@@ -4,6 +4,8 @@ Contains helper functions ReaxFF
 Author: Mehmet Cagri Kaymak
 """
 
+from typing import Any
+
 import jax
 import jax.numpy as jnp
 import numpy as onp
@@ -71,10 +73,10 @@ def read_force_field(
   num_params = int(f.readline().strip().split()[0])
   global_params = onp.zeros(shape=(num_params, 1), dtype=dtype)
   name_to_index = dict()
-  body_3_indices_src = [[], [], []]
-  body_3_indices_dst = [[], [], []]
-  body_4_indices_src = [[], [], [], []]
-  body_4_indices_dst = [[], [], [], []]
+  body_3_indices_src: list[Any] = [[], [], []]
+  body_3_indices_dst: list[Any] = [[], [], []]
+  body_4_indices_src: list[Any] = [[], [], [], []]
+  body_4_indices_dst: list[Any] = [[], [], [], []]
 
   for i in range(num_params):
     line = f.readline().strip()
@@ -792,9 +794,9 @@ def read_force_field(
   FF_fields = ForceField.__dataclass_fields__
   for k in FF_field_dict:
     is_static = k in FF_fields and FF_fields[k].metadata.get('static', False)
-    if type(FF_field_dict[k]) == onp.ndarray:
+    if type(FF_field_dict[k]) is onp.ndarray:
       FF_field_dict[k] = jnp.array(FF_field_dict[k])
-    elif type(FF_field_dict[k]) == float:
+    elif type(FF_field_dict[k]) is float:
       FF_field_dict[k] = jnp.array(FF_field_dict[k], dtype=dtype)
 
   force_field = ForceField.init_from_arg_dict(FF_field_dict)

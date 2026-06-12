@@ -50,7 +50,7 @@ map_neighbor:
   `[n, neighbors, spatial_dim]`.
 """
 
-from typing import Callable, Union, Tuple, Any, Optional
+from typing import Callable, Union, Tuple, Any, Optional, Protocol
 
 from jax.core import ShapedArray
 
@@ -63,6 +63,7 @@ import jax
 import jax.numpy as jnp
 
 from jax_md.util import Array
+from jax_md.util import ArrayLike
 from jax_md.util import f32
 from jax_md.util import f64
 from jax_md.util import safe_mask
@@ -71,14 +72,29 @@ from jax_md.util import safe_mask
 # Types
 
 
-DisplacementFn = Callable[[Array, Array], Array]
-MetricFn = Callable[[Array, Array], float]
+class DisplacementFn(Protocol):
+  """Computes the displacement between two points, with optional kwargs."""
+
+  def __call__(self, Ra: Array, Rb: Array, /, **kwargs) -> Array: ...
+
+
+class MetricFn(Protocol):
+  """Computes the distance between two points, with optional kwargs."""
+
+  def __call__(self, Ra: Array, Rb: Array, /, **kwargs) -> Array: ...
+
+
 DisplacementOrMetricFn = Union[DisplacementFn, MetricFn]
 
-ShiftFn = Callable[[Array, Array], Array]
+
+class ShiftFn(Protocol):
+  """Moves points by a displacement, with optional kwargs (e.g. `box`)."""
+
+  def __call__(self, R: Array, dR: Array, /, **kwargs) -> Array: ...
+
 
 Space = Tuple[DisplacementFn, ShiftFn]
-Box = Array
+Box = ArrayLike
 
 
 # Exceptions
@@ -91,8 +107,9 @@ class UnexpectedBoxException(Exception):
 # Primitive Spatial Transforms
 
 
-def inverse(box: Box) -> Box:
+def inverse(box: Box) -> Array:
   """Compute the inverse of an affine transformation."""
+  box = jnp.asarray(box)
   if jnp.isscalar(box) or box.size == 1:
     return 1 / box
   elif box.ndim == 1:
@@ -120,12 +137,12 @@ def raw_transform(box: Box, R: Array) -> Array:
   Returns:
     A transformed array positions of shape `(..., spatial_dimension)`.
   """
-  if jnp.isscalar(box) or box.size == 1:
+  if jnp.isscalar(box) or jnp.size(box) == 1:
     return R * box
-  elif box.ndim == 1:
+  elif jnp.ndim(box) == 1:
     indices = _get_free_indices(R.ndim - 1) + 'i'
     return jnp.einsum(f'i,{indices}->{indices}', box, R)
-  elif box.ndim == 2:
+  elif jnp.ndim(box) == 2:
     free_indices = _get_free_indices(R.ndim - 1)
     left_indices = free_indices + 'j'
     right_indices = free_indices + 'i'
@@ -461,21 +478,21 @@ def metric(displacement: DisplacementFn) -> MetricFn:
 
 
 def map_product(
-  metric_or_displacement: DisplacementOrMetricFn,
+  metric_or_displacement: DisplacementOrMetricFn | Callable[..., Array],
 ) -> DisplacementOrMetricFn:
   """Vectorizes a metric or displacement function over all pairs."""
   return vmap(vmap(metric_or_displacement, (0, None), 0), (None, 0), 0)
 
 
 def map_bond(
-  metric_or_displacement: DisplacementOrMetricFn,
+  metric_or_displacement: DisplacementOrMetricFn | Callable[..., Array],
 ) -> DisplacementOrMetricFn:
   """Vectorizes a metric or displacement function over bonds."""
   return vmap(metric_or_displacement, (0, 0), 0)
 
 
 def map_neighbor(
-  metric_or_displacement: DisplacementOrMetricFn,
+  metric_or_displacement: DisplacementOrMetricFn | Callable[..., Array],
 ) -> DisplacementOrMetricFn:
   """Vectorizes a metric or displacement function over neighborhoods."""
 

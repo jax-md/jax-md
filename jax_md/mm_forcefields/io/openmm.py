@@ -6,31 +6,48 @@ values into NumPy/JAX arrays and then operate purely in JAX downstream.
 
 import os
 from functools import partial
-from typing import Any, Mapping, NamedTuple, Optional, Sequence, TypeAlias
+from typing import (
+  TYPE_CHECKING,
+  Any,
+  Mapping,
+  NamedTuple,
+  Optional,
+  Sequence,
+  TypeAlias,
+)
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
-# TODO convert these to use sentinel variable to avoid type checking issues
-try:
-  import openmm  # type: ignore
-  import openmm.app as app  # type: ignore
-  import openmm.unit as unit  # type: ignore
-except ImportError:  # pragma: no cover
-  openmm = None
-  app = None
-  unit = None
+# Optional OpenMM-stack imports. Statically these are treated as always
+# importable; at runtime missing modules leave None sentinels and all
+# consumers run behind `_maybe_import_omm`-style guards.
+if TYPE_CHECKING:
+  import openmm
+  import openmm.app as app
+  import openmm.unit as unit
+  import parmed
+  from openmmforcefields.generators import SystemGenerator
+else:
+  try:
+    import openmm
+    import openmm.app as app
+    import openmm.unit as unit
+  except ImportError:  # pragma: no cover
+    openmm = None
+    app = None
+    unit = None
 
-try:
-  from openmmforcefields.generators import SystemGenerator  # type: ignore
-except ImportError:  # pragma: no cover
-  SystemGenerator = None
+  try:
+    from openmmforcefields.generators import SystemGenerator
+  except ImportError:  # pragma: no cover
+    SystemGenerator = None
 
-try:
-  import parmed  # type: ignore
-except ImportError:  # pragma: no cover
-  parmed = None
+  try:
+    import parmed
+  except ImportError:  # pragma: no cover
+    parmed = None
 
 from jax_md import partition, simulate, space, util
 from jax_md.mm_forcefields.base import (
@@ -139,9 +156,9 @@ class OpenMMSystem(NamedTuple):
   params: Parameters
   box_vectors: Array | None
   nb_options: NonbondedOptions
-  recip_alpha: float | None
+  recip_alpha: Array | float | None
   recip_grid: Array | None
-  ewald_error_tolerance: float | None
+  ewald_error_tolerance: Array | float | None
   masses: Array | None
   virtual_sites: VirtualSiteData | None
   constraint_idx: Array | None
@@ -197,7 +214,7 @@ def _charmm_read_box(psf: Any, filename: str) -> Any:
 
       sysinfo = json.load(f)
       boxlx, boxly, boxlz = map(float, sysinfo['dimensions'][:3])
-    except:
+    except Exception:
       for line in f:
         segments = line.split('=')
         if segments[0].strip() == 'BOXLX':
@@ -350,7 +367,7 @@ def load_parmed_system(
 
   # Normalize to a ParmEd Structure.
   if isinstance(structure, str):
-    structure = parmed.load_file(structure, param_files)  # type: ignore
+    structure = parmed.load_file(structure, param_files)
 
   box_vectors = getattr(structure, 'box_vectors', None)
   if nb_method is None:
@@ -697,7 +714,9 @@ def convert_openmm_system(
         # OpenMM supports triclinic periodic boxes (see 22.1 in the OMM manual)
         # have to convert lower triangular to upper triangular matrix e.g.
         # [[Lx, Ly, Lz], [0, Ly, Lz], [0, 0, Lz]]
-        box_vectors = np.array(box_vectors.value_in_unit(unit.angstrom)).T
+        # On this path the incoming value is an OpenMM Quantity.
+        box_quantity: Any = box_vectors
+        box_vectors = np.array(box_quantity.value_in_unit(unit.angstrom)).T
 
         # If matrix is diagonal, then unit cell is orthorhombic, otherwise
         # it is assumed to be triclinic according to OpenMM's conventions
@@ -762,7 +781,7 @@ def convert_openmm_system(
         # complicated and requires integrating both intervals for each unique pair
         use_switch = force.getUseSwitchingFunction()
         sum3 = 0.0
-        if use_switch:
+        if use_switch and r_cut is not None:
           r_switch_cur = force.getSwitchingDistance().value_in_unit(
             unit.angstrom
           )
@@ -782,7 +801,7 @@ def convert_openmm_system(
         denom = (n_atoms * (n_atoms + 1)) / 2
         sum1 = sum1 / denom
         sum2 = sum2 / denom
-        if use_switch:
+        if use_switch and r_cut is not None:
           sum3 = sum3 + np.sum(
             count_c
             * eps_c
@@ -801,8 +820,8 @@ def convert_openmm_system(
           * n_atoms
           * np.pi
           * (
-            sum1 / (9 * np.power(r_cut, 9))
-            - sum2 / (3 * np.power(r_cut, 3))
+            sum1 / (9 * np.power(r_cut, 9))  # ty: ignore[no-matching-overload]
+            - sum2 / (3 * np.power(r_cut, 3))  # ty: ignore[no-matching-overload]
             + sum3
           )
         )
@@ -1189,6 +1208,8 @@ def virtual_site_fix_state(
   )
   safe_force = jnp.where(mask, jnp.zeros_like(state.force), state.force)
 
+  # `.set` is injected at runtime by jax_md.dataclasses.
+  state: Any = state
   return state.set(
     position=pos, mass=safe_mass, momentum=safe_momentum, force=safe_force
   )

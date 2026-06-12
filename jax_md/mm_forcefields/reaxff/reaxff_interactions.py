@@ -63,7 +63,7 @@ class Filtration:
   candidate_fn: CandidateFn = dataclasses.static_field()
   mask_fn: MaskFn = dataclasses.static_field()
   is_dense: bool = dataclasses.static_field()
-  idx: Array
+  idx: Array | None
   did_buffer_overflow: Array
 
   def count(self, candidate_args):
@@ -144,6 +144,9 @@ class Filtration:
     """
     if self.idx is None:
       raise ValueError('Have to allocate first.')
+    # Bind the narrowed buffer; the lambda below sees the public
+    # `Array | None` type of `self.idx`, not the flow-narrowed one.
+    idx_buf = self.idx
 
     candidate_inds, candidate_vals = self.candidate_fn(*candidate_args)
     mask = self.mask_fn(candidate_vals)
@@ -152,13 +155,11 @@ class Filtration:
 
       mapped_argwhere = jax.vmap(
         lambda vec: jnp.argwhere(
-          vec, size=self.idx.shape[1], fill_value=-1
+          vec, size=idx_buf.shape[1], fill_value=-1
         ).flatten()
       )
       idx = mapped_argwhere(mask)
-      did_buffer_overflow = self.did_buffer_overflow | (
-        size > self.idx.shape[1]
-      )
+      did_buffer_overflow = self.did_buffer_overflow | (size > idx_buf.shape[1])
     else:
       selected_inds = jnp.argwhere(
         mask, size=len(self.idx), fill_value=-1
@@ -217,7 +218,7 @@ def calculate_all_angles_and_distances(R, nbr_lists, map_metric, map_disp):
     nbr_lists.filter4.idx, filtered_close_idx, close_nbr_disps
   )
 
-  if nbr_lists.filter_hb != None:
+  if nbr_lists.filter_hb is not None:
     hb_inds = nbr_lists.filter_hb.idx
     far_nbr_disps = map_disp(R, R[nbr_lists.far_nbrs.idx])
     hb_ang_dist = calculate_all_hbond_angles_and_dists(
@@ -249,9 +250,9 @@ class ReaxFFNeighborLists:
   filter3: Filtration
   filter34: Filtration
   filter4: Filtration
-  filter_hb_close: Filtration
-  filter_hb_far: Filtration
-  filter_hb: Filtration
+  filter_hb_close: Filtration | None
+  filter_hb_far: Filtration | None
+  filter_hb: Filtration | None
   did_buffer_overflow: Array
 
   def __iter__(self):
@@ -603,8 +604,8 @@ def reaxff_inter_list(
   backprop_solve: bool = False,
   tors_2013: bool = False,
   solver_model: str = 'EEM',
-  short_inters_capacity_multiplier: int = 1.2,
-  long_inters_capacity_multiplier: int = 1.2,
+  short_inters_capacity_multiplier: float = 1.2,
+  long_inters_capacity_multiplier: float = 1.2,
 ) -> Tuple[ReaxFFNeighborListFns, Callable]:
   """Contains all the necessary logic to run a reaxff simulation and allocate, reallocate, update and energy_fn functions.
 

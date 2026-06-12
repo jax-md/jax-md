@@ -18,6 +18,8 @@ from absl.testing import parameterized
 
 from ml_collections import ConfigDict
 
+from typing import Any
+
 import jax
 import functools
 from absl.testing import absltest
@@ -189,7 +191,8 @@ class NequIPTest(test_util.JAXMDTestCase):
     @jax.jit
     def apply_fn(params, atoms, position, nbrs):
       f = nn_util.neighbor_list_featurizer(displacement)
-      return net.apply(params, f(atoms, pos, nbrs))[0, 0]
+      out: Any = net.apply(params, f(atoms, pos, nbrs))
+      return out[0, 0]
 
     nbrs = neighbor.allocate(pos)
     params = init_fn(random.PRNGKey(c.seed), atoms, pos, nbrs)
@@ -266,7 +269,8 @@ class NequIPTest(test_util.JAXMDTestCase):
     @jax.jit
     def apply_fn(params, atoms, position, nbrs):
       f = nn_util.neighbor_list_featurizer(displacement)
-      return net.apply(params, f(atoms, pos, nbrs))[0, 0]
+      out: Any = net.apply(params, f(atoms, pos, nbrs))
+      return out[0, 0]
 
     nbrs = neighbor.allocate(pos)
     params = init_fn(random.PRNGKey(c.seed), atoms, pos, nbrs)
@@ -296,7 +300,7 @@ class NequIPTest(test_util.JAXMDTestCase):
     scalar_dr_edge = jnp.expand_dims(jnp.array(4.1), 0)
 
     variables = bessel.init(random.PRNGKey(0), scalar_dr_edge)
-    embedded_dr_edge = bessel.apply(variables, scalar_dr_edge)
+    embedded_dr_edge: Any = bessel.apply(variables, scalar_dr_edge)
     self.assertAllClose(embedded_dr_edge, jnp.zeros_like(embedded_dr_edge))
 
   def test_radial_net_zero_to_zero(self):

@@ -27,6 +27,7 @@ from scipy.io import loadmat
 from jax_md import space
 from jax_md.util import *
 from jax_md import test_util
+from jax_md import util
 from jax_md import quantity
 
 from jax_md import energy
@@ -48,7 +49,7 @@ UNIT_CELL_SIZE = [7, 8]
 SOFT_SPHERE_ALPHA = [2.0, 2.5, 3.0]
 N_TYPES_TO_TEST = [1, 2]
 
-if jax.config.x64_enabled:
+if util.x64_enabled():
   POSITION_DTYPE = [f32, f64]
 else:
   POSITION_DTYPE = [f32]
@@ -193,7 +194,7 @@ def lattice(R_unit_cell, copies, lattice_vectors):
 
   Rs = []
   for indices in onp.ndindex(copies):
-    dR = 0.0
+    dR = onp.zeros((d,))
     for idx, i in enumerate(indices):
       dR += i * L[idx]
     R = R_unit_cell + dR[onp.newaxis, :]
@@ -1302,7 +1303,7 @@ class EnergyTest(test_util.JAXMDTestCase):
     energy_fn = energy.graph_network(
       d, cutoff, key=params_key, spatial_dimension=spatial_dimension
     )
-    graphdef, state = nnx.split(energy_fn.model)
+    graphdef, state = nnx.split(getattr(energy_fn, 'model'))
 
     def apply(state, *args, **kwargs):
       out, _ = graphdef.apply(state)(*args, **kwargs)

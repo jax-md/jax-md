@@ -8,7 +8,7 @@ Ported from FairChem's UMA implementation.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 import flax.linen as nn
 import jax.numpy as jnp
@@ -24,7 +24,7 @@ def get_l_to_all_m_expand_index(lmax: int) -> jnp.ndarray:
 
 
 def get_normalization_layer(
-  norm_type: Literal['layer_norm', 'layer_norm_sh', 'rms_norm_sh'],
+  norm_type: str,
   lmax: int,
   num_channels: int,
   eps: float = 1e-5,
@@ -43,7 +43,9 @@ def get_normalization_layer(
   Returns:
       Normalization module.
   """
-  kwargs = dict(lmax=lmax, num_channels=num_channels, eps=eps, affine=affine)
+  kwargs: dict[str, Any] = dict(
+    lmax=lmax, num_channels=num_channels, eps=eps, affine=affine
+  )
   if name is not None:
     kwargs['name'] = name
 
@@ -116,13 +118,13 @@ class EquivariantLayerNorm(nn.Module):
       feature_norm = jnp.mean(feature_norm, axis=2, keepdims=True)
       feature_norm = (feature_norm + self.eps) ** -0.5
 
-      if self.affine:
+      if affine_weight is not None:
         weight = affine_weight[l : l + 1, :].reshape(1, 1, -1)
         feature_norm = feature_norm * weight
 
       feature = feature * feature_norm
 
-      if self.affine and l == 0:
+      if affine_bias is not None and l == 0:
         bias = affine_bias.reshape(1, 1, -1)
         feature = feature + bias
 
@@ -190,7 +192,7 @@ class EquivariantLayerNormSH(nn.Module):
         length = 2 * l + 1
         feat = node_input[:, start_idx : start_idx + length, :]
 
-        if self.affine:
+        if affine_weight is not None:
           weight = affine_weight[l - 1 : l, :].reshape(1, 1, -1)
           feat_scale = feature_norm * weight
         else:
@@ -294,7 +296,7 @@ class EquivariantRMSNorm(nn.Module):
     feature_norm = (feature_norm + self.eps) ** -0.5
 
     # Apply affine transformation
-    if self.affine:
+    if affine_weight is not None:
       weight = affine_weight.reshape(1, self.lmax + 1, self.num_channels)
       weight = weight[:, self.expand_index, :]
       feature_norm = feature_norm * weight

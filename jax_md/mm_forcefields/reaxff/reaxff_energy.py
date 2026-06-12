@@ -40,14 +40,14 @@ dgrrdn = 1.0 / rdndgr
 def calculate_reaxff_energy(
   species: Array,
   atomic_numbers: Array,
-  nbr_lists: 'ReaxFFNeighborLists',
+  nbr_lists: ReaxFFNeighborLists,
   close_nbr_dists: Array,
   far_nbr_dists: Array,
   body_3_angles: Array,
   body_4_angles: Array,
   hb_ang_dist: Array,
   force_field: ForceField,
-  init_charges: Array = None,
+  init_charges: Array | None = None,
   total_charge: float = 0.0,
   tol: float = 1e-06,
   max_solver_iter: int = 500,
@@ -121,9 +121,10 @@ def calculate_reaxff_energy(
   atom_inds = jnp.arange(N).reshape(-1, 1)
   close_nbr_inds = nbr_lists.close_nbrs.idx[atom_inds, nbr_lists.filter2.idx]
   close_nbr_inds = jnp.where(nbr_lists.filter2.idx != -1, close_nbr_inds, N)
-  body_3_inds = nbr_lists.filter3.idx
-  body_4_inds = nbr_lists.filter4.idx
-  if nbr_lists.filter_hb != None:
+  # Filters are allocated by this point, so idx arrays are present.
+  body_3_inds = jnp.asarray(nbr_lists.filter3.idx)
+  body_4_inds = jnp.asarray(nbr_lists.filter4.idx)
+  if nbr_lists.filter_hb is not None:
     hb_inds = nbr_lists.filter_hb.idx
   else:
     hb_inds = None
@@ -290,7 +291,7 @@ def calculate_reaxff_energy(
   result_dict['E_torsion_conj'] = tor_conj
   result_dict['E_hbond'] = 0.0
 
-  if hb_inds != None:
+  if hb_inds is not None:
     hb_mask = (hb_inds[:, 1] != -1) & (hb_inds[:, 2] != -1)
 
     hb_pot = calculate_hb_pot(
@@ -330,7 +331,7 @@ def calculate_eem_charges(
   tapered_dists: Array,
   idempotential: Array,
   electronegativity: Array,
-  init_charges: Array = None,
+  init_charges: Array | None = None,
   total_charge: float = 0.0,
   backprop_solve: bool = False,
   tol: float = 1e-06,
@@ -345,7 +346,7 @@ def calculate_eem_charges(
     last entry is the electronegativity equalization value.
   """
 
-  if backprop_solve == False:
+  if not backprop_solve:
     tapered_dists = jax.lax.stop_gradient(tapered_dists)
     hulp2_mat = jax.lax.stop_gradient(hulp2_mat)
   prev_dtype = tapered_dists.dtype
@@ -414,7 +415,7 @@ def calculate_acks2_charges(
   backprop_solve: bool = False,
   tol: float = 1e-06,
 ):
-  if backprop_solve == False:
+  if not backprop_solve:
     tapered_dists = jax.lax.stop_gradient(tapered_dists)
     hulp2_mat = jax.lax.stop_gradient(hulp2_mat)
     bond_softness = jax.lax.stop_gradient(bond_softness)

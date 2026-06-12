@@ -122,7 +122,7 @@ class NequIPConvolution(nn.Module):
     self,
     node_features: IrrepsArray,
     node_attributes: IrrepsArray,
-    edge_sh: Array,
+    edge_sh: IrrepsArray,
     edge_src: Array,
     edge_dst: Array,
     edge_embedded: Array,
@@ -277,7 +277,9 @@ class NequIPConvolution(nn.Module):
     h = h.astype(h_type)
 
     # normalize by the average (not local) number of neighbors
-    h = h / self.n_neighbors
+    # (e3nn's IrrepsArray.__truediv__ accepts scalars but is annotated
+    # to only take IrrepsArray | jax.Array)
+    h = h / self.n_neighbors  # ty: ignore[unsupported-operator]
 
     # second linear, now we create extra gate scalars by mapping to h-out
     h = Linear(h_out_irreps)(h)
@@ -292,12 +294,15 @@ class NequIPConvolution(nn.Module):
     # b) gate scalars, and
     # c) non-scalars to be gated
     # in this order
+    nonlin = self.nonlinearities
+    if isinstance(nonlin, str):
+      nonlin = {'e': nonlin, 'o': nonlin}
     gate_fn = partial(
       e3nn.gate,
-      even_act=get_nonlinearity_by_name(self.nonlinearities['e']),
-      odd_act=get_nonlinearity_by_name(self.nonlinearities['o']),
-      even_gate_act=get_nonlinearity_by_name(self.nonlinearities['e']),
-      odd_gate_act=get_nonlinearity_by_name(self.nonlinearities['o']),
+      even_act=get_nonlinearity_by_name(nonlin['e']),
+      odd_act=get_nonlinearity_by_name(nonlin['o']),
+      even_gate_act=get_nonlinearity_by_name(nonlin['e']),
+      odd_gate_act=get_nonlinearity_by_name(nonlin['o']),
     )
 
     h = gate_fn(h)
@@ -373,7 +378,9 @@ class NequIPEnergyModel(nn.Module):
     # edge embedding
     dR = graph.edges
     scalar_dr_edge = space.distance(dR)
-    edge_sh = e3nn.spherical_harmonics(self.sh_irreps, dR, normalize=True)
+    edge_sh = e3nn.spherical_harmonics(
+      Irreps(self.sh_irreps), dR, normalize=True
+    )
 
     embedded_dr_edge = nn_util.BesselEmbedding(
       count=self.num_basis, inner_cutoff=r_max - 0.5, outer_cutoff=r_max
@@ -398,7 +405,7 @@ class NequIPEnergyModel(nn.Module):
 
     # output block, two Linears that decay dimensions from h to h//2 to 1
     for mul, ir in h_node.irreps:
-      if ir == Irrep('0e'):
+      if ir == Irrep((0, 1)):  # '0e'
         mul_second_to_final = mul // 2
 
     second_to_final_irreps = Irreps(f'{mul_second_to_final}x0e')

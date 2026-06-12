@@ -99,7 +99,7 @@ Parameter = Union[ParameterTree, Array, float]
 # Mapping potential functional forms to bonds.
 
 
-def _get_bond_type_parameters(params: Array, bond_type: Array) -> Array:
+def _get_bond_type_parameters(params: Parameter, bond_type: Array) -> Parameter:
   """Get parameters for interactions for bonds indexed by a bond-type."""
   # TODO(schsam): We should do better error checking here.
   assert util.is_array(bond_type)
@@ -107,7 +107,7 @@ def _get_bond_type_parameters(params: Array, bond_type: Array) -> Array:
 
   if util.is_array(params):
     if len(params.shape) == 1:
-      return params[bond_type]
+      return jnp.asarray(params)[bond_type]
     elif len(params.shape) == 0:
       return params
     else:
@@ -135,8 +135,8 @@ def _get_bond_type_parameters(params: Array, bond_type: Array) -> Array:
 
 
 def _kwargs_to_bond_parameters(
-  bond_type: Array, kwargs: Dict[str, Array]
-) -> Dict[str, Array]:
+  bond_type: Array, kwargs: Dict[str, Parameter]
+) -> Dict[str, Parameter]:
   """Extract parameters from keyword arguments."""
   # NOTE(schsam): We could pull out the species case from the generic case.
   for k, v in kwargs.items():
@@ -175,7 +175,7 @@ def _kwargs_to_interaction_parameters(
   interaction_type: Array | None,
   kwargs: Dict[str, Parameter],
   combinators: Dict[str, Callable],
-) -> Dict[str, Array]:
+) -> Dict[str, Parameter]:
   """Extract parameters for bond/angle/torsion with optional combinators."""
   for k, v in kwargs.items():
     if k in combinators:
@@ -290,12 +290,14 @@ def bond(
 # Mapping potential functional forms to pairwise interactions.
 
 
-def _get_species_parameters(params: Parameter, species: Array) -> Parameter:
+def _get_species_parameters(
+  params: Parameter, species: Array | Tuple[int, int]
+) -> Parameter:
   """Get parameters for interactions between species pairs."""
   # TODO(schsam): We should do better error checking here.
   if util.is_array(params):
     if len(params.shape) == 2:
-      return params[species]
+      return jnp.asarray(params)[species]
     elif len(params.shape) == 0:
       return params
     else:
@@ -317,12 +319,15 @@ def _get_species_parameters(params: Parameter, species: Array) -> Parameter:
 
 
 def _get_matrix_parameters(
-  params: Parameter, combinator: Callable[[Array, Array], Array]
+  params: Parameter, combinator: Callable[[Array, Array], Array] | None
 ) -> Parameter:
   """Get an NxN parameter matrix from per-particle parameters."""
   if util.is_array(params):
     if params.ndim == 1:
-      return combinator(params[:, jnp.newaxis], params[jnp.newaxis, :])
+      if combinator is None:
+        raise ValueError('A combinator is required for 1d parameters.')
+      p = jnp.asarray(params)
+      return combinator(p[:, jnp.newaxis], p[jnp.newaxis, :])
     elif params.ndim == 0 or params.ndim == 2:
       return params
     else:
@@ -336,6 +341,8 @@ def _get_matrix_parameters(
     if params.mapping in (M.Global, M.PerBond):
       return params.tree
     elif params.mapping is M.PerParticle:
+      if combinator is None:
+        raise ValueError('A combinator is required for PerParticle mapping.')
       return tree_map(
         lambda p: combinator(p[:, None, ...], p[None, :, ...]), params.tree
       )
@@ -361,8 +368,10 @@ def _get_matrix_parameters(
 
 
 def _kwargs_to_parameters(
-  species: Array, kwargs: Dict[str, Parameter], combinators: Dict[str, Callable]
-) -> Dict[str, Array]:
+  species: Array | Tuple[int, int] | None,
+  kwargs: Dict[str, Parameter],
+  combinators: Dict[str, Callable],
+) -> Dict[str, Parameter]:
   """Extract parameters from keyword arguments."""
   # NOTE(schsam): We could pull out the species case from the generic case.
   s_kwargs = {}
@@ -539,7 +548,7 @@ def torsion(
 def pair(
   fn: Callable[..., Array],
   displacement_or_metric: DisplacementOrMetricFn,
-  species: Array | None = None,
+  species: util.ArrayLike | None = None,
   reduce_axis: Tuple[int, ...] | None = None,
   keepdims: bool = False,
   ignore_unused_parameters: bool = False,
@@ -687,33 +696,37 @@ def pair(
 
 def _get_neighborhood_matrix_params(
   format: partition.NeighborListFormat,
-  idx: Array,
+  idx: Array | onp.ndarray,
   params: Parameter,
   combinator: Callable[[Array, Array], Array],
 ) -> Parameter:
   if util.is_array(params):
-    if params.ndim == 1:
+    # Collapse Array | onp.ndarray at the dispatch point; the `query`
+    # closure below also needs the binding since it sees the public type
+    # of `params`, not the flow-narrowed one.
+    p = jnp.asarray(params)
+    if p.ndim == 1:
       if partition.is_sparse(format):
-        return space.map_bond(combinator)(params[idx[0]], params[idx[1]])
+        return space.map_bond(combinator)(p[idx[0]], p[idx[1]])
       else:
-        return combinator(params[:, None], params[idx])
-        return space.map_neighbor(combinator)(params, params[idx])
-    elif params.ndim == 2:
+        return combinator(p[:, None], p[idx])
+        return space.map_neighbor(combinator)(p, p[idx])
+    elif p.ndim == 2:
 
       def query(id_a, id_b):
-        return params[id_a, id_b]
+        return p[id_a, id_b]
 
       if partition.is_sparse(format):
         return space.map_bond(query)(idx[0], idx[1])
       else:
         query = vmap(vmap(query, (None, 0)))
         return query(jnp.arange(idx.shape[0], dtype=jnp.int32), idx)
-    elif params.ndim == 0:
+    elif p.ndim == 0:
       return params
     else:
       raise ValueError(
         'Parameter array must be either a scalar, a vector, '
-        f'or a matrix. Found ndim={params.ndim}.'
+        f'or a matrix. Found ndim={p.ndim}.'
       )
   elif isinstance(params, ParameterTree):
     if params.mapping is ParameterTreeMapping.Global:
@@ -721,10 +734,16 @@ def _get_neighborhood_matrix_params(
     elif params.mapping is ParameterTreeMapping.PerParticle:
       if partition.is_sparse(format):
         c_fn = space.map_bond(combinator)
-        return tree_map(lambda p: c_fn(p[idx[0]], p[idx[1]]), params.tree)
+        return tree_map(
+          lambda p: c_fn(p[idx[0]], p[idx[1]]),  # ty: ignore[too-many-positional-arguments]
+          params.tree,
+        )
       else:
         c_fn = space.map_neighbor(combinator)
-        return tree_map(lambda p: c_fn(p, p[idx]), params.tree)
+        return tree_map(
+          lambda p: c_fn(p, p[idx]),  # ty: ignore[too-many-positional-arguments]
+          params.tree,
+        )
     elif params.mapping is ParameterTreeMapping.PerBond:
 
       def query(p, id_a, id_b):
@@ -758,7 +777,7 @@ def _get_neighborhood_matrix_params(
 
 def _get_neighborhood_species_params(
   format: partition.NeighborListFormat,
-  idx: Array,
+  idx: Array | onp.ndarray,
   species: Array,
   params: Parameter,
 ) -> Parameter:
@@ -769,13 +788,13 @@ def _get_neighborhood_species_params(
     return p[species_a, species_b]
 
   if util.is_array(params):
-    lookup = partial(lookup, params)
+    p_lookup = partial(lookup, params)
     if len(params.shape) == 2:
       if partition.is_sparse(format):
-        return space.map_bond(lookup)(species[idx[0]], species[idx[1]])
+        return space.map_bond(p_lookup)(species[idx[0]], species[idx[1]])
       else:
-        lookup = vmap(vmap(lookup, (None, 0)))
-        return lookup(species, species[idx])
+        v_lookup = vmap(vmap(p_lookup, (None, 0)))
+        return v_lookup(species, species[idx])
     elif len(params.shape) == 0:
       return params
     else:
@@ -806,11 +825,11 @@ def _get_neighborhood_species_params(
 
 def _neighborhood_kwargs_to_params(
   format: partition.NeighborListFormat,
-  idx: Array,
+  idx: Array | onp.ndarray,
   species: Array,
   kwargs: Dict[str, Array],
   combinators: Dict[str, Callable],
-) -> Dict[str, Array]:
+) -> Dict[str, Parameter]:
   out_dict = {}
   for k in kwargs:
     if species is None or (util.is_array(kwargs[k]) and kwargs[k].ndim == 1):

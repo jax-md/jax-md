@@ -148,7 +148,9 @@ def _quaternion_rotate(q: Array, v: Array) -> Array:
   return _quaternion_rotate_raw(q, v)
 
 
-def _quaternion_rotate_fwd(q: Array, v: Array) -> Array:
+def _quaternion_rotate_fwd(
+  q: Array, v: Array
+) -> Tuple[Array, Tuple[Array, Array]]:
   return _quaternion_rotate(q, v), (q, v)
 
 
@@ -198,7 +200,7 @@ class Quaternion:
     return 3 * reduce(operator.mul, self.vec.shape[:-1], 1)
 
   @property
-  def ndim(self) -> Tuple[int, ...]:
+  def ndim(self) -> int:
     return self.vec.ndim
 
   def conj(self):
@@ -294,11 +296,19 @@ class RigidBody:
       dimensions this will be a set of quaternions.
   """
 
-  center: Array
-  orientation: Union[Array, Quaternion]
+  center: Array | float
+  orientation: Union[Array, Quaternion, float]
 
   def __getitem__(self, idx):
-    return RigidBody(self.center[idx], self.orientation[idx])
+    center = self.center
+    orientation = self.orientation
+    if isinstance(center, (int, float)) or isinstance(
+      orientation, (int, float)
+    ):
+      raise TypeError(
+        'Cannot index a RigidBody whose center or orientation is a scalar.'
+      )
+    return RigidBody(center[idx], orientation[idx])
 
 
 util.register_custom_simulation_type(RigidBody)
@@ -406,14 +416,14 @@ def canonicalize_momentum(
   """Convert quaternion conjugate momentum to angular momentum."""
   orientation = position.orientation
   p = momentum.orientation
-  if isinstance(orientation, Quaternion):
+  if isinstance(orientation, Quaternion) and isinstance(p, Quaternion):
     p = conjugate_momentum_to_angular_momentum(orientation, p)
   return RigidBody(momentum.center, p)
 
 
 def kinetic_energy(
   position: RigidBody, momentum: RigidBody, mass: RigidBody
-) -> float:
+) -> Array | float:
   """Computes the kinetic energy of a system with some momenta."""
   momentum = canonicalize_momentum(position, momentum)
   ke = tree_map(
@@ -424,7 +434,7 @@ def kinetic_energy(
 
 def temperature(
   position: RigidBody, momentum: RigidBody, mass: RigidBody
-) -> float:
+) -> Array | float:
   """Computes the temperature of a system with some momenta."""
   dof = quantity.count_dof(momentum)
   momentum = canonicalize_momentum(position, momentum)
@@ -625,7 +635,7 @@ def _(state, shift_fn, dt, m_rot=1, **kwargs):
 
 
 @simulate.stochastic_step.register(RigidBody)
-def _(state, dt: float, kT: float, gamma: float):
+def _(state, dt: float, kT: float, gamma: 'RigidBody'):
   key, center_key, orientation_key = random.split(state.rng, 3)
 
   rest, center, orientation = split_center_and_orientation(state)
@@ -637,6 +647,8 @@ def _(state, dt: float, kT: float, gamma: float):
   Pi = orientation.momentum.vec
   I = orientation.mass
   G = gamma.orientation
+  if isinstance(G, Quaternion):
+    raise TypeError('gamma.orientation must be array-valued, not a Quaternion.')
 
   M = 4 / jnp.sum(1 / I, axis=-1)
   Q = orientation.position.vec
@@ -680,12 +692,12 @@ def _(state):
 
 
 @simulate.kinetic_energy.register(RigidBody)
-def _(state) -> Array:
+def _(state) -> Array | float:
   return kinetic_energy(state.position, state.momentum, state.mass)
 
 
 @simulate.temperature.register(RigidBody)
-def _(state) -> Array:
+def _(state) -> Array | float:
   return temperature(state.position, state.momentum, state.mass)
 
 
@@ -797,7 +809,7 @@ class RigidPointUnion:
         'Rigid bodies are only defined in two- and three-dimensions.'
       )
 
-  def mass(self, shape_species: Array | None = None) -> RigidBody:
+  def mass(self, shape_species: Array | onp.ndarray | None = None) -> RigidBody:
     """Get a RigidBody with the mass and moment of inertia for each shape.
 
     Arguments:
@@ -869,7 +881,9 @@ def _transform_to_diagonal_frame(shape: RigidPointUnion) -> RigidPointUnion:
   )
 
 
-def point_union_shape(points: Array, masses: Array) -> RigidPointUnion:
+def point_union_shape(
+  points: util.ArrayLike, masses: util.ArrayLike
+) -> RigidPointUnion:
   """Construct a rigid body out of points and masses.
 
   See :ref:`rigid_body_union` for details.
@@ -882,7 +896,9 @@ def point_union_shape(points: Array, masses: Array) -> RigidPointUnion:
     A RigidPointUnion shape object specifying the shape rotated so that the
     moment of inertia tensor is diagonal.
   """
-  if jnp.isscalar(masses) or masses.shape == ():
+  points = jnp.asarray(points)
+  masses = jnp.asarray(masses)
+  if masses.shape == ():
     masses = masses * jnp.ones((len(points),), points.dtype)
   shape = RigidPointUnion(
     points=points,
@@ -942,7 +958,8 @@ def transform(body: RigidBody, shape: RigidPointUnion) -> Array:
     offset = quaternion_rotate(body.orientation, shape.points)
   else:
     offset = space.raw_transform(rotation2d(body.orientation), shape.points)
-  return body.center[None, :] + offset
+  center = jnp.asarray(body.center)
+  return center[None, :] + offset
 
 
 def union_to_points(
@@ -956,7 +973,7 @@ def union_to_points(
     position = vmap(transform, (0, None))(body, shape)
     point_species = shape.point_species
     if point_species is not None:
-      point_species = shape.point_species[None, :]
+      point_species = point_species[None, :]
       point_species = jnp.broadcast_to(point_species, position.shape[:-1])
       point_species = jnp.reshape(point_species, (-1,))
     position = jnp.reshape(position, (-1, position.shape[-1]))

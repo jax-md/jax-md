@@ -7,7 +7,7 @@ This module provides coulomb energy functions that support:
 """
 
 from functools import partial
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 import jax.numpy as jnp
 import numpy as onp
@@ -32,6 +32,10 @@ CutoffWrapper = Callable[[EnergyFn], EnergyFn]  # TODO add to base.py
 class CoulombHandler:
   """Base class for coulomb energy handlers."""
 
+  # Erfc/Ewald damping parameter, set by the subclasses that screen
+  # interactions (CutoffCoulomb, EwaldCoulomb, PMECoulomb).
+  alpha: float | Array
+
   def energy(
     self,
     positions: Array,
@@ -40,7 +44,7 @@ class CoulombHandler:
     exclusion_mask: Array,
     pair_14_mask: Array,
     nlist: NeighborList,
-    scale_14: float = 0.5,
+    scale_14: float | Array = 0.5,
   ) -> Array:
     """Compute coulomb energy.
 
@@ -58,17 +62,35 @@ class CoulombHandler:
     """
     raise NotImplementedError
 
+  def prepare_smap(self, *args, **kwargs) -> Any:
+    """Build pairwise Coulomb callables for the neighbor-list smap path.
+
+    Concrete signatures differ between handlers; see the subclasses.
+    """
+    raise NotImplementedError
+
+  def energy_smap(self, *args, **kwargs) -> Any:
+    """Evaluate Coulomb energy via the neighbor-list smap path.
+
+    Concrete signatures differ between handlers; see the subclasses.
+    """
+    raise NotImplementedError
+
 
 class CutoffCoulomb(CoulombHandler):
   """Simple cutoff coulomb with optional complementary error function."""
 
   def __init__(
-    self, r_cut: float = 12.0, use_erfc: bool = False, alpha: float = 0.3
+    self,
+    r_cut: float | None = 12.0,
+    use_erfc: bool = False,
+    alpha: float = 0.3,
   ):
     """Initialize cutoff coulomb handler.
 
     Args:
-        r_cut: Cutoff distance (Å).
+        r_cut: Cutoff distance (Å). May be None for vacuum (no-cutoff)
+            systems, where the smap pipeline applies no cutoff wrapper.
         use_erfc: Whether to use erfc damping.
         alpha: Damping parameter for erfc (Å⁻¹).
     """
@@ -91,7 +113,7 @@ class CutoffCoulomb(CoulombHandler):
     displacement_fn: DisplacementFn,
     cutoff_fn: CutoffWrapper,
     fractional_coordinates: bool,
-  ) -> tuple[EnergyFn, EnergyFn]:
+  ) -> EnergyFn:
     def pair_energy_map(dr, charge_sq, **unused_kwargs):
       """Compute pairwise coulomb energy."""
       energy = COULOMB_CONSTANT * (charge_sq / dr)
@@ -122,9 +144,9 @@ class CutoffCoulomb(CoulombHandler):
     box_kwarg: BoxKwarg,
     exc_pairs: Array,
     exc_charge_prod: Array,
-    coulomb_fns: CoulombFns,
+    coulomb_fns: EnergyFn,
     return_components: bool = False,
-  ) -> Array:
+  ) -> tuple[Array | float, Array]:
     bond_coul_fn = coulomb_fns
 
     energy = 0.0
@@ -142,9 +164,12 @@ class CutoffCoulomb(CoulombHandler):
     exclusion_mask: Array,
     pair_14_mask: Array,
     nlist: NeighborList,
-    scale_14: float = 0.5,
+    scale_14: float | Array = 0.5,
   ) -> Array:
     """Compute cutoff coulomb energy."""
+    r_cut = self.r_cut
+    if r_cut is None:
+      raise ValueError('CutoffCoulomb.energy requires a finite r_cut.')
     n_atoms = positions.shape[0]
     max_neighbors = nlist.idx.shape[1]
 
@@ -178,7 +203,7 @@ class CutoffCoulomb(CoulombHandler):
     is_14 = vmap(lambda i, j: pair_14_mask[i, j])(idx_i_safe, idx_j_safe)
 
     # Include mask
-    include = valid & (~same) & (~excluded) & (r < self.r_cut)
+    include = valid & (~same) & (~excluded) & (r < r_cut)
 
     # Apply 1-4 scaling
     scale = jnp.where(is_14, scale_14, 1.0)
@@ -242,7 +267,7 @@ class EwaldCoulomb(CoulombHandler):
     exclusion_mask: Array,
     pair_14_mask: Array,
     nlist: NeighborList,
-    scale_14: float,
+    scale_14: float | Array,
   ) -> Array:
     """Compute real-space energy."""
     n_atoms = positions.shape[0]
@@ -303,7 +328,7 @@ class EwaldCoulomb(CoulombHandler):
     exclusion_mask: Array,
     pair_14_mask: Array,
     nlist: NeighborList,
-    scale_14: float = 0.5,
+    scale_14: float | Array = 0.5,
   ) -> Array:
     """Compute total Ewald coulomb energy."""
     e_real = self.real_energy(
@@ -335,7 +360,10 @@ class PMECoulomb(CoulombHandler):
   """Particle Mesh Ewald for coulomb interactions."""
 
   def __init__(
-    self, grid_size: int = 32, alpha: float = 0.3, r_cut: float = 12.0
+    self,
+    grid_size: int | Array = 32,
+    alpha: float | Array = 0.3,
+    r_cut: float = 12.0,
   ):
     """Initialize PME coulomb handler.
 
@@ -445,7 +473,7 @@ class PMECoulomb(CoulombHandler):
     position: Array,
     charge: Array,
     inverse_box: space.Box,
-    grid_dimensions: Array,
+    grid_dimensions: Array | onp.ndarray,
     fractional_coordinates: bool,
     order: int,
   ) -> Array:
@@ -548,9 +576,9 @@ class PMECoulomb(CoulombHandler):
     self,
     charge: Array,
     box: space.Box,
-    grid_points: Array,
+    grid_points: Array | int,
     fractional_coordinates: bool = False,
-    alpha: float = 0.34,
+    alpha: float | Array = 0.34,
     order: int = 5,
   ) -> Callable[[Array], Array]:
     _ibox = space.inverse(box)
@@ -646,8 +674,8 @@ class PMECoulomb(CoulombHandler):
     """Compute reciprocal space energy from FFT of charge grid."""
     vol = jnp.prod(box)
 
-    # Frequency grids
-    freq = jnp.fft.fftfreq(self.grid_size) * self.grid_size
+    # Frequency grids (requires a concrete, cubic grid size)
+    freq = jnp.fft.fftfreq(int(self.grid_size)) * self.grid_size
     Gx, Gy, Gz = jnp.meshgrid(freq, freq, freq, indexing='ij')
     G2 = (2 * jnp.pi) ** 2 * (
       Gx**2 / box[0] ** 2 + Gy**2 / box[1] ** 2 + Gz**2 / box[2] ** 2
@@ -675,7 +703,7 @@ class PMECoulomb(CoulombHandler):
     exclusion_mask: Array,
     pair_14_mask: Array,
     nlist: NeighborList,
-    scale_14: float,
+    scale_14: float | Array,
   ) -> Array:
     """Compute real-space energy (same as Ewald)."""
     n_atoms = positions.shape[0]
@@ -794,7 +822,7 @@ class PMECoulomb(CoulombHandler):
     exc_charge_prod: Array,
     coulomb_fns: CoulombFns,
     return_components: bool = False,
-  ) -> Array:
+  ) -> tuple[Array, Array]:
     recip_fn, bond_corr_fn, bond_coul_fn = coulomb_fns
 
     ### Reciprocal space contribution
@@ -824,7 +852,7 @@ class PMECoulomb(CoulombHandler):
     exclusion_mask: Array,
     pair_14_mask: Array,
     nlist: NeighborList,
-    scale_14: float = 0.5,
+    scale_14: float | Array = 0.5,
   ) -> Array:
     """Compute total PME coulomb energy."""
     # Real space

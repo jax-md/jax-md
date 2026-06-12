@@ -23,7 +23,6 @@ from jax.tree_util import tree_map, tree_reduce
 import jax.numpy as jnp
 from jax import ops
 from jax import ShapeDtypeStruct
-from jax.tree_util import tree_map, tree_reduce
 from jax.scipy.special import gammaln
 
 from jax_md import space, dataclasses, partition, util
@@ -49,7 +48,7 @@ ForceFn = Callable[..., Array]
 
 T = TypeVar('T')
 InitFn = Callable[..., T]
-ApplyFn = Callable[[T], T]
+ApplyFn = Callable[..., T]
 Simulator = Tuple[InitFn, ApplyFn]
 
 
@@ -110,6 +109,7 @@ def count_dof(position: Array) -> int:
 
 
 def volume(dimension: int, box: Box) -> Array:
+  box = jnp.asarray(box)
   if jnp.isscalar(box) or not box.ndim:
     return box**dimension
   elif box.ndim == 1:
@@ -123,10 +123,10 @@ def volume(dimension: int, box: Box) -> Array:
 
 def kinetic_energy(
   *unused_args,
-  momentum: Array = None,
-  velocity: Array = None,
-  mass: Array = 1.0,
-) -> float:
+  momentum: Array | None = None,
+  velocity: Array | None = None,
+  mass: Array | float = 1.0,
+) -> Array | float:
   """Computes the kinetic energy of a system.
 
   To avoid ambiguity, either momentum or velocity must be passed explicitly
@@ -161,10 +161,10 @@ def kinetic_energy(
 
 def temperature(
   *unused_args,
-  momentum: Array = None,
-  velocity: Array = None,
-  mass: Array = 1.0,
-) -> float:
+  momentum: Array | None = None,
+  velocity: Array | None = None,
+  mass: Array | float = 1.0,
+) -> Array | float:
   """Computes the temperature of a system.
 
   To avoid ambiguity, either momentum or velocity must be passed explicitly
@@ -203,7 +203,7 @@ def pressure(
   energy_fn: EnergyFn,
   position: Array,
   box: Box,
-  kinetic_energy: float = 0.0,
+  kinetic_energy: float | Array = 0.0,
   **kwargs,
 ) -> float:
   """Computes the internal pressure of a system.
@@ -239,7 +239,7 @@ def stress(
   energy_fn: EnergyFn,
   position: Array,
   box: Box,
-  mass: Array = 1.0,
+  mass: Array | float = 1.0,
   velocity: Array | None = None,
   **kwargs,
 ) -> Array:
@@ -352,7 +352,7 @@ def pair_correlation(
   displacement_or_metric: Union[DisplacementFn, MetricFn],
   radii: Array,
   sigma: float,
-  species: Array = None,
+  species: Array | None = None,
   eps: float = 1e-7,
   compute_average: bool = False,
 ):
@@ -442,7 +442,7 @@ def pair_correlation_neighbor_list(
   box_size: Box,
   radii: Array,
   sigma: float,
-  species: Array = None,
+  species: Array | None = None,
   dr_threshold: float = 0.5,
   eps: float = 1e-7,
   fractional_coordinates: bool = False,
@@ -589,7 +589,7 @@ def pair_correlation_neighbor_list(
   return neighbor_fn, g_fn
 
 
-def nball_unit_volume(spatial_dimension: int) -> float:
+def nball_unit_volume(spatial_dimension: int) -> Array:
   """Return the volume of a unit sphere in arbitrary dimensions"""
   return jnp.power(jnp.pi, spatial_dimension / 2) / jnp.exp(
     gammaln(spatial_dimension / 2 + 1)
@@ -599,9 +599,9 @@ def nball_unit_volume(spatial_dimension: int) -> float:
 def particle_volume(
   radii: Array,
   spatial_dimension: int,
-  particle_count: Array = 1,
-  species: Array = None,
-) -> float:
+  particle_count: Array | int = 1,
+  species: Array | None = None,
+) -> Array:
   """Calculate the volume of a collection of particles
 
   Args:
@@ -628,9 +628,9 @@ def volume_fraction(
   box: Box,
   radii: Array,
   spatial_dimension: int,
-  particle_count: Array = 1,
-  species: Array = None,
-) -> float:
+  particle_count: Array | int = 1,
+  species: Array | None = None,
+) -> Array:
   """Calculate the volume fraction
 
   See documentation for particle_volume for explanation of parameters
@@ -643,9 +643,9 @@ def box_size_at_volume_fraction(
   volume_fraction: float,
   radii: Array,
   spatial_dimension: int,
-  particle_count: Array = 1,
-  species: Array = None,
-) -> float:
+  particle_count: Array | int = 1,
+  species: Array | None = None,
+) -> Array:
   """Calculate box_size to obtain a desired volume fraction
 
   See documentation for particle_volume for explanation of parameters
@@ -656,13 +656,13 @@ def box_size_at_volume_fraction(
 
 def box_size_at_number_density(
   particle_count: int, number_density: float, spatial_dimension: int
-) -> float:
+) -> Array:
   return jnp.power(particle_count / number_density, 1 / spatial_dimension)
 
 
 def box_from_parameters(
   a: float, b: float, c: float, alpha: float, beta: float, gamma: float
-) -> Box:
+) -> Array:
   alpha = alpha * jnp.pi / 180
   beta = beta * jnp.pi / 180
   gamma = gamma * jnp.pi / 180
@@ -674,7 +674,7 @@ def box_from_parameters(
   return jnp.array([[a, xy, xz], [0, yy, yz], [0, 0, zz]])
 
 
-def bulk_modulus(elastic_tensor: Array) -> float:
+def bulk_modulus(elastic_tensor: Array) -> Array:
   return jnp.einsum('iijj->', elastic_tensor) / elastic_tensor.shape[0] ** 2
 
 

@@ -3,7 +3,18 @@ import jax
 jax.config.update('jax_enable_x64', True)
 import numpy as onp
 import jax.numpy as jnp
+from ase import Atoms
 from ase.io import read
+
+
+def read_atoms(path) -> Atoms:
+  """Read a single-frame geometry, narrowing ase.io.read's union."""
+  atoms = read(path)
+  if not isinstance(atoms, Atoms):
+    raise TypeError(f'Expected a single Atoms object from {path!r}.')
+  return atoms
+
+
 from jax_md import space
 from jax_md.mm_forcefields.reaxff.reaxff_interactions import reaxff_inter_list
 from jax_md.mm_forcefields.reaxff.reaxff_interactions import (
@@ -67,7 +78,7 @@ class ReaxFFEnergyTest(JAXMDTestCase):
       read_and_process_FF_file(test['ffield_path'], dtype=test['dtype'])
       for test in TEST_DATA
     ]
-    cls.geos = [read(test['geo_path']) for test in TEST_DATA]
+    cls.geos = [read_atoms(test['geo_path']) for test in TEST_DATA]
     cls.names = [test['name'] for test in TEST_DATA]
     cls.dtypes = [test['dtype'] for test in TEST_DATA]
     cls.nbr_lists = []
@@ -420,12 +431,12 @@ class ReaxFFEnergyTest(JAXMDTestCase):
       triple_bond,
       self.ffields[i],
     )
-    if self.nbr_lists[i].filter_hb != None:
+    if self.nbr_lists[i].filter_hb is not None:
       hb_inds = self.nbr_lists[i].filter_hb.idx
     else:
       hb_inds = None
     hb_pot = 0.0
-    if hb_inds != None:
+    if hb_inds is not None:
       hb_ang_dist = self.angles_and_dists[i][4]
       hb_mask = (hb_inds[:, 1] != -1) & (hb_inds[:, 2] != -1)
       far_nbr_inds = self.nbr_lists[i].far_nbrs.idx

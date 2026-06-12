@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import tarfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import jax
 from absl.testing import absltest, parameterized
@@ -18,14 +19,21 @@ import jax_md.mm_forcefields.amber as amber_energy
 from jax_md.mm_forcefields.io.openmm import convert_openmm_system
 from jax_md.mm_forcefields.nonbonded import electrostatics
 
-try:
+# Statically treated as always importable; at runtime the module is
+# skipped below when OpenMM is absent.
+if TYPE_CHECKING:
   import openmm as mm
   import openmm.app as app
   import openmm.unit as u
-except ImportError:
-  mm = None
-  app = None
-  u = None
+else:
+  try:
+    import openmm as mm
+    import openmm.app as app
+    import openmm.unit as u
+  except ImportError:
+    mm = None
+    app = None
+    u = None
 
 if mm is None:
   pytest.skip('OpenMM is not installed.', allow_module_level=True)
@@ -134,6 +142,8 @@ def _configure_nbforce_for_jax_conversion(
   if use_switch is not None:
     nbforce.setUseSwitchingFunction(bool(use_switch))
     if use_switch:
+      if switch_nm is None:
+        raise ValueError('switch_nm is required when use_switch is set.')
       nbforce.setSwitchingDistance(float(switch_nm) * u.nanometer)
   if use_dispersion_correction is not None:
     nbforce.setUseDispersionCorrection(bool(use_dispersion_correction))
@@ -200,6 +210,8 @@ def read_gromacs_potential_from_xvg(xvg_path: Path) -> float:
     if name.strip().lower() == 'potential':
       potential_series_idx = idx
       break
+  if potential_series_idx is None:
+    raise ValueError('No potential series found in xvg legend.')
   potential_col = potential_series_idx + 1
   return data_rows[-1][potential_col]
 
@@ -329,7 +341,11 @@ def build_jax_alchemical_components(
     precision='double',
   )
 
-  if converted.recip_alpha is not None and converted.recip_grid is not None:
+  if (
+    converted.recip_alpha is not None
+    and converted.recip_grid is not None
+    and converted.nb_options.r_cut is not None
+  ):
     coul = electrostatics.PMECoulomb(
       r_cut=converted.nb_options.r_cut,
       alpha=converted.recip_alpha,

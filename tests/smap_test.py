@@ -29,6 +29,7 @@ from jax import jit, vmap
 from jax_md import smap, space, energy, quantity, partition, dataclasses
 from jax_md.util import *
 from jax_md import test_util
+from jax_md import util
 
 jax.config.parse_flags_with_absl()
 
@@ -45,7 +46,7 @@ NEIGHBOR_LIST_FORMAT = [
 
 NEIGHBOR_LIST_PARTICLE_COUNT = 100
 
-if jax.config.jax_enable_x64:
+if util.x64_enabled():
   POSITION_DTYPE = [f32, f64]
 else:
   POSITION_DTYPE = [f32]
@@ -904,8 +905,8 @@ class SMapTest(test_util.JAXMDTestCase):
 
     @dataclasses.dataclass
     class Parameter:
-      sigma: Array
-      shift: Array
+      sigma: Array | float
+      shift: Array | float
 
     def tree_fn(dr, p):
       return np.where(dr < p.sigma, dr**2 + p.shift, f32(0.0))

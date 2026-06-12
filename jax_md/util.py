@@ -14,8 +14,11 @@
 
 """Defines utility functions."""
 
-from typing import Iterable, Union, Optional, Any
+from typing import Iterable, Sequence, Union, Optional, Any
 
+from typing_extensions import TypeIs
+
+import jax
 from jax.tree_util import register_pytree_node
 import jax.numpy as jnp
 from jax import jit
@@ -24,13 +27,11 @@ from functools import partial
 
 import numpy as onp
 
-# Backward compatible import for get_backend
-try:
-  from jax.extend.backend import get_backend
-except (ImportError, AttributeError):
-  from jax.lib.xla_bridge import get_backend
+from jax.extend.backend import get_backend
 
 Array = jnp.ndarray
+# Accepted for array inputs: jax/numpy arrays and python scalars.
+ArrayLike = jax.typing.ArrayLike
 PyTree = Any
 
 i16 = jnp.int16
@@ -49,7 +50,7 @@ def register_custom_simulation_type(t: Any):
   CUSTOM_SIMULATION_TYPE += [t]
 
 
-def check_custom_simulation_type(x: Any) -> bool:
+def check_custom_simulation_type(x: Any) -> None:
   if type(x) in CUSTOM_SIMULATION_TYPE:
     raise ValueError()
 
@@ -89,7 +90,7 @@ def safe_mask(mask, fn, operand, placeholder=0):
 
 def high_precision_sum(
   X: Array,
-  axis: Union[Iterable[int], int] | None = None,
+  axis: Union[Sequence[int], int] | None = None,
   keepdims: bool = False,
 ):
   """Sums over axes at 64-bit precision then casts back to original dtype."""
@@ -111,7 +112,16 @@ def maybe_downcast(x):
   return jnp.array(x, f32)
 
 
-def is_array(x: Any) -> bool:
+def x64_enabled() -> bool:
+  """Whether JAX x64 mode is currently active.
+
+  Probes dtype canonicalization instead of reading the dynamic
+  `jax.config.jax_enable_x64` attribute, which static checkers can't see.
+  """
+  return bool(jax.dtypes.canonicalize_dtype(jnp.float64) == jnp.float64)
+
+
+def is_array(x: Any) -> TypeIs[Array | onp.ndarray[Any, Any]]:
   return isinstance(x, (jnp.ndarray, onp.ndarray))
 
 

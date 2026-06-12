@@ -149,9 +149,12 @@ def validate_parameters(
     raise ValueError(
       f'improper_k has wrong length: {bonded.improper_k.shape[0]} != {n_impropers}'
     )
-  if bonded.improper_n.shape[0] != n_impropers:
+  improper_n = bonded.improper_n
+  if improper_n is None:
+    raise ValueError('improper_n must be set on the bonded parameters')
+  if improper_n.shape[0] != n_impropers:
     raise ValueError(
-      f'improper_n has wrong length: {bonded.improper_n.shape[0]} != {n_impropers}'
+      f'improper_n has wrong length: {improper_n.shape[0]} != {n_impropers}'
     )
   if bonded.improper_gamma.shape[0] != n_impropers:
     raise ValueError(

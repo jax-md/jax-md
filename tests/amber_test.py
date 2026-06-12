@@ -67,7 +67,7 @@ import os
 import sys
 import tarfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import jax
 from absl.testing import absltest, parameterized
@@ -92,14 +92,23 @@ from jax_md.mm_forcefields.nonbonded import electrostatics
 
 jax.config.parse_flags_with_absl()
 
-try:
+import pytest
+
+# Statically treated as always importable; at runtime the module is
+# skipped below when OpenMM is absent.
+if TYPE_CHECKING:
   import openmm
   import openmm.app as app
   import openmm.unit as unit
-except ImportError:
-  openmm = None
-  app = None
-  unit = None
+else:
+  try:
+    import openmm
+    import openmm.app as app
+    import openmm.unit as unit
+  except ImportError:
+    openmm = None
+    app = None
+    unit = None
 
 if openmm is None:
   pytest.skip('OpenMM is not installed.', allow_module_level=True)
@@ -216,17 +225,23 @@ def _openmm_energy_force(
 
 def _make_coulomb_handler(
   nb_method: Any,
-  r_cut: float,
+  r_cut: float | None,
   recip_alpha: Any,
   recip_grid: Any,
 ) -> electrostatics.CoulombHandler:
   """Pick a coulomb handler consistent with how we built the OpenMM system."""
   if nb_method == app.PME:
+    if r_cut is None:
+      raise ValueError('PME requires a nonbonded cutoff.')
     return electrostatics.PMECoulomb(
       r_cut=r_cut, alpha=recip_alpha, grid_size=recip_grid
     )
   if nb_method == app.Ewald:
+    if r_cut is None:
+      raise ValueError('Ewald requires a nonbonded cutoff.')
     return electrostatics.EwaldCoulomb(r_cut=r_cut)
+  # NoCutoff (vacuum) systems carry r_cut=None; CutoffCoulomb tolerates it
+  # because the smap pipeline applies no cutoff wrapper in that case.
   return electrostatics.CutoffCoulomb(r_cut=r_cut)
 
 
@@ -764,7 +779,9 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
 
     # If fractional coordinates are used, convert OMM positions
     if mm.nb_options.fractional_coordinates:
-      vs_pos_omm = space.transform(space.inverse(mm.box_vectors), vs_pos_omm)
+      vs_pos_omm = space.transform(
+        space.inverse(jnp.asarray(mm.box_vectors)), vs_pos_omm
+      )
       vs_pos_omm = jnp.mod(vs_pos_omm, 1.0)  # wrap into [0,1)
 
     self.assertAllClose(vs_pos_jax, vs_pos_omm, rtol=1e-10, atol=0.0)
@@ -792,7 +809,10 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     )
 
     self.assertAllClose(first_step_jax, first_step_omm, rtol=1e-4, atol=0.0)
-    real_mask = ~jnp.asarray(mm.virtual_sites.is_virtual_site)
+    vsites = mm.virtual_sites
+    if vsites is None:
+      raise AssertionError('Converted system has no virtual sites.')
+    real_mask = ~jnp.asarray(vsites.is_virtual_site)
     frc = jnp.asarray(first_step_omm_grads, dtype=first_step_jax_grads.dtype)
     self.assertAllClose(
       first_step_jax_grads[real_mask],
@@ -910,8 +930,9 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
       format=partition.NeighborListFormat.OrderedSparse,
     )
 
-    self.assertIsNotNone(mm.virtual_sites)
     vs = mm.virtual_sites
+    if vs is None:
+      raise AssertionError('Converted system has no virtual sites.')
     vs_mask = np.asarray(jax.device_get(vs.is_virtual_site), dtype=bool)
     self.assertEqual(int(vs_mask.sum()), 1)
 
@@ -1623,7 +1644,7 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     )
 
     # NOTE this only works in the case of an orthorhombic box
-    disp_fn, shift_fn = space.periodic(mm.box_vectors)
+    disp_fn, shift_fn = space.periodic(jnp.asarray(mm.box_vectors))
 
     settle_data, ccma_data = amber_constraints.prepare_settle_ccma(
       np.asarray(jax.device_get(mm.constraint_idx)),
@@ -1631,12 +1652,13 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
       np.asarray(jax.device_get(mm.masses)),
     )
 
+    masses = jnp.asarray(mm.masses)
     pos0 = mm.positions
     pos_jax = amber_constraints.settle(
       pos0,
       pos0,
       settle_data,
-      mm.masses,
+      masses,
       disp_fn,
       shift_fn,
       box=mm.box_vectors,
@@ -1645,7 +1667,7 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     pos_jax = amber_constraints.ccma(
       pos_jax,
       ccma_data,
-      mm.masses,
+      masses,
       disp_fn,
       shift_fn,
       box=mm.box_vectors,
@@ -1657,6 +1679,8 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
     # Constraint satisfaction: compare max distance violation.
     idx = mm.constraint_idx
     target = mm.constraint_dist
+    if idx is None:
+      raise AssertionError('Parsed system has no distance constraints.')
     i = idx[:, 0]
     j = idx[:, 1]
 
@@ -1739,7 +1763,7 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
       pos_vel_ref,
       vel0,
       settle_data,
-      mm.masses,
+      masses,
       disp_fn,
       box=mm.box_vectors,
       use_periodic_general=mm.nb_options.use_periodic_general,
@@ -1749,7 +1773,7 @@ class AMBEREnergyTest(jtu.JAXMDTestCase, parameterized.TestCase):
       pos_vel_ref,
       vel_jax,
       ccma_data,
-      mm.masses,
+      masses,
       disp_fn,
       box=mm.box_vectors,
       use_periodic_general=mm.nb_options.use_periodic_general,

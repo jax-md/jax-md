@@ -17,8 +17,10 @@
 import itertools
 import os
 import math
+from absl import logging
 from concurrent.futures import ProcessPoolExecutor
-from typing import Sequence, Any, List, Tuple, Optional, Union
+from typing import Sequence, Any, Collection, List, Tuple, Optional, Union
+import jax.numpy as jnp
 import numpy as onp
 from pymatgen.core.structure import Structure
 from pymatgen.core.composition import Composition
@@ -54,10 +56,10 @@ def get_subcells_to_crystallize(
   d_frac: float = 0.05,
   nmin: int = 1,
   nmax: int = 48,
-  restrict_to_compositions: Sequence[str] | None = None,
+  restrict_to_compositions: Collection[str] | None = None,
   max_coef: int | None = None,
   elements: Sequence[str] | None = None,
-) -> List[Tuple[Sequence[int], onp.ndarray, onp.ndarray]]:
+) -> List[Tuple[Union[Sequence[int], onp.ndarray], onp.ndarray, onp.ndarray]]:
   """Get subcell structures to relax out of a large structure (e.g. amorphous).
 
   Args:
@@ -81,6 +83,8 @@ def get_subcells_to_crystallize(
   # If max_coef is given in config, we will restrict formulas to
   # stoich. of max_coef e.g. for 2, A, B, AB2, A2B.
   if max_coef:
+    if elements is None:
+      raise ValueError('elements is required when max_coef is provided.')
     stoichs = list(itertools.product(range(max_coef + 1), repeat=len(elements)))
     stoichs.pop(0)
     comps = []
@@ -148,7 +152,7 @@ def _get_subcells_from_axis_triple_range(
     int,
     frozenset[str] | None,
   ],
-) -> List[Tuple[Sequence[int], onp.ndarray, onp.ndarray]]:
+) -> List[Tuple[Union[Sequence[int], onp.ndarray], onp.ndarray, onp.ndarray]]:
   """Scan axis-triple indices [start, end) and return matching subcells.
 
   Args:
@@ -182,7 +186,9 @@ def _get_subcells_from_axis_triple_range(
   n_axis_pairs = len(axis_pairs)
   n_sq = n_axis_pairs * n_axis_pairs
   frac = position % 1
-  candidates: List[Tuple[Sequence[int], onp.ndarray, onp.ndarray]] = []
+  candidates: List[
+    Tuple[Union[Sequence[int], onp.ndarray], onp.ndarray, onp.ndarray]
+  ] = []
   for idx in range(start, end):
     i0 = idx // n_sq
     rem = idx % n_sq
@@ -215,11 +221,11 @@ def get_subcells_to_crystallize_parallel(
   d_frac: float = 0.05,
   nmin: int = 1,
   nmax: int = 48,
-  restrict_to_compositions: Sequence[str] | None = None,
+  restrict_to_compositions: Collection[str] | None = None,
   max_coef: int | None = None,
   elements: Sequence[str] | None = None,
   n_workers: int | None = None,
-) -> List[Tuple[Sequence[int], onp.ndarray, onp.ndarray]]:
+) -> List[Tuple[Union[Sequence[int], onp.ndarray], onp.ndarray, onp.ndarray]]:
   """Get subcell structures to relax out of a large structure (e.g. amorphous)
   via parallelized search over valid subcell slices.
 
@@ -244,6 +250,8 @@ def get_subcells_to_crystallize_parallel(
   species = onp.array([i.symbol for i in structure.species])
 
   if max_coef:
+    if elements is None:
+      raise ValueError('elements is required when max_coef is provided.')
     stoichs = list(itertools.product(range(max_coef + 1), repeat=len(elements)))
     stoichs.pop(0)
     comps = []
@@ -290,7 +298,9 @@ def get_subcells_to_crystallize_parallel(
   ]
   tasks = [(start, end, *worker_args) for start, end in ranges]
 
-  candidates: List[Tuple[Sequence[int], onp.ndarray, onp.ndarray]] = []
+  candidates: List[
+    Tuple[Union[Sequence[int], onp.ndarray], onp.ndarray, onp.ndarray]
+  ] = []
   with ProcessPoolExecutor(max_workers=n_workers) as executor:
     for chunk in executor.map(_get_subcells_from_axis_triple_range, tasks):
       candidates.extend(chunk)
@@ -298,10 +308,12 @@ def get_subcells_to_crystallize_parallel(
 
 
 def subcells_to_structures(
-  candidates: List[Tuple[Sequence[int], onp.ndarray, onp.ndarray]],
+  candidates: Sequence[
+    Tuple[Union[Sequence[int], onp.ndarray], onp.ndarray, onp.ndarray]
+  ],
   position: onp.ndarray,
-  box: Union[BoxColumnMatrix, BoxRowMatrix],
-  species: Sequence[str],
+  box: Union[BoxColumnMatrix, BoxRowMatrix, onp.ndarray, jnp.ndarray],
+  species: Sequence[Any],
 ) -> List[Structure]:
   """Create pymatgen Structure objects from subcell slices.
 

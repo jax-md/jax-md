@@ -8,7 +8,7 @@ Ported from FairChem's UMA implementation.
 
 from __future__ import annotations
 
-from typing import List, Literal
+from typing import List, Literal, Sequence
 
 import flax.linen as nn
 import jax
@@ -40,7 +40,7 @@ def symmetric_uniform(scale):
   return init
 
 
-def dataset_name_to_idx(name: str, dataset_list: List[str]) -> int:
+def dataset_name_to_idx(name: str, dataset_list: List[str] | None) -> int:
   """Convert dataset name to integer index (call outside JIT).
 
   Args:
@@ -51,13 +51,13 @@ def dataset_name_to_idx(name: str, dataset_list: List[str]) -> int:
       Integer index into dataset_list.
   """
   resolved = _DATASET_ALIASES.get(name, name)
-  if resolved in dataset_list:
+  if dataset_list and resolved in dataset_list:
     return dataset_list.index(resolved)
   return 0  # Default to first dataset
 
 
 def dataset_names_to_indices(
-  names: List[str], dataset_list: List[str]
+  names: List[str], dataset_list: List[str] | None
 ) -> jnp.ndarray:
   """Convert a list of dataset names to integer indices (call outside JIT).
 
@@ -116,7 +116,7 @@ class ChgSpinEmbedding(nn.Module):
       scale: Scale factor for positional embedding.
   """
 
-  embedding_type: Literal['pos_emb', 'lin_emb', 'rand_emb']
+  embedding_type: str  # 'pos_emb', 'lin_emb', or 'rand_emb' (checked at call)
   embedding_target: Literal['charge', 'spin']
   embedding_size: int
   trainable: bool = False
@@ -245,7 +245,7 @@ class EdgeDegreeEmbedding(nn.Module):
   mmax: int
   edge_channels_list: List[int]
   rescale_factor: float
-  m_size: List[int]
+  m_size: Sequence[int]
 
   @nn.compact
   def __call__(

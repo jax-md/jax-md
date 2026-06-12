@@ -14,7 +14,7 @@
 
 """Neural Network Primitives."""
 
-from typing import Callable, Tuple
+from typing import Any, Callable, Dict, Tuple
 
 from flax import nnx
 import jax
@@ -117,7 +117,7 @@ class MLP(nnx.Module):
 
 
 @dataclasses.dataclass
-class GraphsTuple(object):
+class GraphsTuple:
   """A struct containing graph data.
 
   Attributes:
@@ -255,9 +255,9 @@ class GraphNetwork:
 
   def __init__(
     self,
-    edge_fn: Callable[[Array, Array, Array, Array], Array],
-    node_fn: Callable[[Array, Array, Array, Array], Array],
-    global_fn: Callable[[Array, Array, Array], Array],
+    edge_fn: Callable[[Array, Array, Array, Array], Array] | None,
+    node_fn: Callable[[Array, Array, Array, Array], Array] | None,
+    global_fn: Callable[[Array, Array, Array], Array] | None,
   ):
     self.node_fn = (
       None if node_fn is None else partial(apply_node_fn, node_fn=vmap(node_fn))
@@ -323,7 +323,7 @@ class GraphNetEncoder(nnx.Module):
     self.n_recurrences = n_recurrences
     self.format = format
 
-    kw = dict(
+    kw: Dict[str, Any] = dict(
       rngs=rngs,
       activation=activation,
       kernel_init=kernel_init,
@@ -332,9 +332,17 @@ class GraphNetEncoder(nnx.Module):
     )
     m = mlp_sizes[-1]
 
-    self.EdgeEncoder = MLP(in_edge_features, mlp_sizes, **kw)
-    self.NodeEncoder = MLP(in_node_features, mlp_sizes, **kw)
-    self.GlobalEncoder = MLP(in_global_features, mlp_sizes, **kw)
+    # Annotated as generic callables so they are accepted by both the
+    # jax_md and jraph GraphMapFeatures embed-fn signatures.
+    self.EdgeEncoder: Callable[..., Any] = MLP(
+      in_edge_features, mlp_sizes, **kw
+    )
+    self.NodeEncoder: Callable[..., Any] = MLP(
+      in_node_features, mlp_sizes, **kw
+    )
+    self.GlobalEncoder: Callable[..., Any] = MLP(
+      in_global_features, mlp_sizes, **kw
+    )
 
     for i in range(n_recurrences):
       setattr(self, f'edge_fns_{i}', MLP(8 * m, mlp_sizes, **kw))
