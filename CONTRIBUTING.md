@@ -33,14 +33,18 @@ and type checking with [ty](https://docs.astral.sh/ty/) (configuration for
 both lives in `pyproject.toml`). Before sending a change, run:
 
 ```sh
-uv run ruff check .
-uv run ruff format .
-uv run ty check
+uv run --no-sync ruff check .
+uv run --no-sync ruff format .
+uv run --no-sync ty check --error-on-warning
 ```
 
-`ty check` must exit cleanly: error-level diagnostics gate CI. Warnings come
-from rules that are still being ratcheted up (see `[tool.ty.rules]`) and do
-not block, but avoid adding new ones.
+(`--no-sync` keeps `uv run` from re-syncing the environment to the default
+`dev` group, which pulls in the heavy PyTorch reference stack.)
+
+`ty check --error-on-warning` must exit cleanly: CI treats warning-level
+diagnostics as failures, including stale `ty: ignore` comments. The one rule
+still being ratcheted up is listed in `[tool.ty.rules]`; avoid adding new
+suppressions.
 
 Or install the [pre-commit](https://pre-commit.com/) hooks once and let them
 run on every commit:
@@ -54,7 +58,7 @@ pre-commit install
 Tests live in `tests/` as one file per module and run in double precision:
 
 ```sh
-JAX_ENABLE_X64=1 uv run pytest tests/<suite>_test.py
+JAX_ENABLE_X64=1 uv run --no-sync pytest tests/<suite>_test.py
 ```
 
 Run the suites affected by your change (for example
