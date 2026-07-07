@@ -230,7 +230,7 @@ def _make_apply_vsites(
 
   def apply_vsites(positions, displacement_fn, shift_fn):
     if v_idx.shape[0] > 0:
-      positions = apply_linear_vsites(positions, v_idx, f_idx, wts)
+      positions = apply_linear_vsites(positions, v_idx, f_idx, wts, displacement_fn, shift_fn)
     if oop_vsites:
       positions = apply_out_of_plane_vsites(
         positions,
@@ -300,7 +300,7 @@ def build_linear_vsite_arrays(flat_vsites: dict, max_contributors=None):
   )
 
 
-def apply_linear_vsites(positions, vsite_indices, from_indices, weights):
+def apply_linear_vsites(positions, vsite_indices, from_indices, weights, displacement_fn, shift_fn):
   """
   Compute and apply linear (mass-weighted) virtual site positions.
 
@@ -316,8 +316,21 @@ def apply_linear_vsites(positions, vsite_indices, from_indices, weights):
   Returns:
     Updated positions with virtual sites overwritten.
   """
-  contributing = positions[from_indices]
-  new_positions = jnp.sum(weights[:, :, None] * contributing, axis=1)
+  # contributing = positions[from_indices]
+  # new_positions = jnp.sum(weights[:, :, None] * contributing, axis=1)
+  # return positions.at[vsite_indices].set(new_positions)
+
+  ref_idx = from_indices[:, 0]          # (V,)  anchor atom per vsite
+  r_ref = positions[ref_idx]            # (V, 3)
+  contributing = positions[from_indices]  # (V, K, 3)
+
+  disp = vmap(vmap(displacement_fn, in_axes=(0, None)), in_axes=(0, 0))(
+      contributing, r_ref
+  )  # (V, K, 3)
+
+  delta = jnp.sum(weights[:, :, None] * disp, axis=1)  # (V, 3)
+
+  new_positions = shift_fn(r_ref, delta)
   return positions.at[vsite_indices].set(new_positions)
 
 

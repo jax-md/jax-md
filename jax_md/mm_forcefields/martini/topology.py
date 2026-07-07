@@ -1003,7 +1003,7 @@ def _parse_lj(
     for _ in range(mol.count):
       for atom_idx, atom in enumerate(mol_type.atoms):
         atom_type = top._atomTypes[atom.type]
-        q = float(atom.q) if atom.q is not None else atom_type.q
+        q = float(atom.q) if atom.q is not None else atom_type.charge
         charges.append(q)
         atom_type_indices.append(lj_idx_list[atom_list_base_idx + atom_idx] - 1)
 
