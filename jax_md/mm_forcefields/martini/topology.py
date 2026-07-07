@@ -1113,12 +1113,12 @@ def _collect_exceptions(top, mol, base_atom_index, atom_types_mol, exceptions):
   """
   mol_charges = []
   for atom in mol.atoms:
-    params = top._atomTypes[atom.type]
-    q = atom.q if atom.q is not None else float(params[4])
+    atom_type = top._atomTypes[atom.type]
+    q = atom.q if atom.q is not None else float(atom_type.charge)
     mol_charges.append(q)
 
   def convert_params(v, w):
-    if top._defaults.comb_rule == '3':
+    if top._defaults.comb_rule == 3:
       sigma, epsilon = v, w
       return [4 * epsilon * sigma**6, 4 * epsilon * sigma**12]
     return v, w

@@ -375,10 +375,6 @@ def apply_lincs(
     R_old, R_unc, topo, real_disp_fn, nrec=4
   )
 
-  R_constrained_real, B, mlambda = lincs_positions(
-    R_old, R_unc, topo, real_disp_fn, nrec=4
-  )
-
   if fractional_coordinates and box is not None:
     inv_box = space.inverse(box)
     R_constrained = space.transform(inv_box, R_constrained_real)

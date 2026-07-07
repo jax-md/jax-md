@@ -398,13 +398,14 @@ class GromacsTopFile:
 
   def _processFile(self, file):
     append = ''
-    for line in open(file):
-      if line.strip().endswith('\\'):
-        trimmed = line[: line.rfind('\\')]
-        append = f'{append} {trimmed}'
-      else:
-        self._processLine(append + ' ' + line, file)
-        append = ''
+    with open(file) as f:
+      for line in f:
+        if line.strip().endswith('\\'):
+          trimmed = line[: line.rfind('\\')]
+          append = f'{append} {trimmed}'
+        else:
+          self._processLine(append + ' ' + line, file)
+          append = ''
 
   def _processLine(self, line, file):
     """Process one line from a file."""
