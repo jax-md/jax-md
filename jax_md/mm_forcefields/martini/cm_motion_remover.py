@@ -18,13 +18,18 @@ def remove_cm_motion(state):
   """
   mass = state.mass
   momentum = state.momentum
+  num_particles = momentum.shape[0]
 
-  if mass.ndim == 1:
+  if mass.ndim == 0:
+    mass_col = mass
+    total_mass = num_particles * mass
+  elif mass.ndim == 1:
     mass_col = mass[:, None]
+    total_mass = jnp.sum(mass_col)
   else:
     mass_col = mass
+    total_mass = jnp.sum(mass_col)
 
-  total_mass = jnp.sum(mass_col)
   p_com = jnp.sum(momentum, axis=0)
   v_com = p_com / total_mass
 

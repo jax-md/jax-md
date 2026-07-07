@@ -830,7 +830,7 @@ class GromacsTopFile:
     fields = line.split()
     if len(fields) < 6:
       raise ValueError('Too few fields in [ angletypes ] line: ' + line)
-    if fields[3] not in ('1', '2', '5'):
+    if fields[3] not in ('1', '2', '10'):
       raise ValueError(
         'Unsupported function type in [ angletypes ] line: ' + line
       )
