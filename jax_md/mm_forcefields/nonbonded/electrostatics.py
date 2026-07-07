@@ -869,3 +869,205 @@ class PMECoulomb(CoulombHandler):
     e_self = self.self_energy(charges)
 
     return e_real + e_recip + e_self
+
+
+class RFCoulomb(CoulombHandler):
+  """Reaction field coulomb energy.
+
+  Approximates long-range electrostatics beyond the cutoff as a dielectric
+  continuum.
+  The alpha attribute is unused but added for interface compatibility.
+  """
+
+  def __init__(
+    self,
+    r_cut: float = 12.0,
+    epsilon_r: float = 1.0,
+    exception_pairs: Array | None = None,
+    exclusion_pairs: Array | None = None,
+    exception_q: Array | None = None,
+    exception_c6: Array | None = None,
+    exception_c12: Array | None = None,
+  ):
+    """Initialize reaction field coulomb handler.
+
+    Args:
+        r_cut: Cutoff distance (Å).
+        epsilon_r: Relative permittivity of the continuum beyond r_cut.
+        exception_pairs: Indices of exception pairs, shape (n_exc, 2).
+        exclusion_pairs: Indices of exclusion pairs, shape (n_excl, 2).
+        exception_q: Charge products for exception pairs, shape (n_exc,).
+        exception_c6: C6 coefficients for exception pairs, shape (n_exc,).
+        exception_c12: C12 coefficients for exception pairs, shape (n_exc,).
+    """
+    self.r_cut = r_cut
+    self.epsilon_r = epsilon_r
+    self.alpha = 0.0  # unused; required for interface compatibility
+    self.exception_pairs = (
+      exception_pairs
+      if exception_pairs is not None
+      else jnp.zeros((0, 2), dtype=jnp.int32)
+    )
+    self.exclusion_pairs = (
+      exclusion_pairs
+      if exclusion_pairs is not None
+      else jnp.zeros((0, 2), dtype=jnp.int32)
+    )
+    self.exception_q = (
+      exception_q if exception_q is not None else jnp.zeros((0,))
+    )
+    self.exception_c6 = (
+      exception_c6 if exception_c6 is not None else jnp.zeros((0,))
+    )
+    self.exception_c12 = (
+      exception_c12 if exception_c12 is not None else jnp.zeros((0,))
+    )
+    self.krf = 1.0 / (2.0 * r_cut**3)
+    self.crf = 1.0 / r_cut + self.krf * r_cut**2
+
+  def pair_energy(
+    self,
+    qi: Array,
+    qj: Array,
+    r: Array,
+    krf: float | Array,
+    crf: float | Array,
+  ) -> Array:
+    """Compute pairwise reaction field energy in kcal/mol."""
+    return (
+      COULOMB_CONSTANT / self.epsilon_r * qi * qj * (1.0 / r + krf * r**2 - crf)
+    )
+
+  def prepare_smap(
+    self,
+    charges: Array,
+    box: Array | None,
+    exc_charge_prod: Array | None,
+    displacement_fn: DisplacementFn,
+    cutoff_fn: CutoffWrapper,
+    fractional_coordinates: bool,
+  ) -> EnergyFn:
+    raise NotImplementedError
+
+  def energy_smap(
+    self,
+    positions: Array,
+    charges: Array,
+    nlist: NeighborList,
+    box_kwarg: BoxKwarg,
+    exc_pairs: Array,
+    exc_charge_prod: Array,
+    coulomb_fns: EnergyFn,
+    return_components: bool = False,
+  ) -> tuple[Array | float, Array]:
+    raise NotImplementedError
+
+  def energy(
+    self,
+    positions: Array,
+    charges: Array,
+    box: Array,
+    exclusion_mask: Array,
+    pair_14_mask: Array,
+    nlist: NeighborList,
+    scale_14: float | Array = 0.5,
+  ) -> Array:
+    """Compute reaction field coulomb energy in kcal/mol.
+
+    Args:
+        positions: Atomic positions, shape (n_atoms, 3).
+        charges: Partial charges, shape (n_atoms,).
+        box: Simulation box (scalar or array).
+        exclusion_mask: Boolean mask for excluded pairs, shape (n_atoms, n_atoms).
+        pair_14_mask: Boolean mask for 1-4 pairs, shape (n_atoms, n_atoms).
+        nlist: Neighbor list.
+        scale_14: Scaling factor for 1-4 interactions.
+
+    Returns:
+        Reaction field coulomb energy in kcal/mol.
+    """
+    r_cut = self.r_cut
+    krf = self.krf
+    crf = self.crf
+
+    n_atoms = positions.shape[0]
+    max_neighbors = nlist.idx.shape[1]
+
+    displacement_fn, _ = space.periodic(box)
+
+    # Prepare neighbor indices
+    idx_i = jnp.repeat(jnp.arange(n_atoms)[:, None], max_neighbors, axis=1)
+    idx_j = nlist.idx
+
+    # Valid neighbor mask
+    valid = (idx_j >= 0) & (idx_j < n_atoms)
+    idx_j_safe = jnp.where(valid, idx_j, 0)
+    idx_i_safe = jnp.where(valid, idx_i, 0)
+
+    # Get charges and positions
+    qi = charges[idx_i_safe]
+    qj = charges[idx_j_safe]
+    ri = positions[idx_i_safe]
+    rj = positions[idx_j_safe]
+
+    # Compute distances
+    batched_disp = vmap(vmap(displacement_fn, in_axes=(0, 0)), in_axes=(0, 0))
+    dr = batched_disp(ri, rj)
+    r = space.distance(dr)
+
+    # Check exclusions and scaling
+    same = idx_i_safe == idx_j_safe
+    excluded = vmap(lambda i, j: exclusion_mask[i, j])(idx_i_safe, idx_j_safe)
+
+    # Include mask
+    include = valid & (~same) & (~excluded) & (r < r_cut)
+
+    energy_raw = self.pair_energy(qi, qj, r, krf, crf)
+    energy = jnp.where(include, energy_raw, 0.0)
+
+    # Factor of 0.5 to avoid double counting
+    total_es = 0.5 * jnp.sum(energy)
+
+    # Exception pairs: use stored charge products and only include pairs
+    # where both C6 and C12 are nonzero
+    exc_es = jnp.zeros(())
+    if self.exception_pairs.shape[0] > 0:
+      ep = jnp.array(self.exception_pairs)
+      ri_exc = positions[ep[:, 0]]
+      rj_exc = positions[ep[:, 1]]
+      r_exc = vmap(displacement_fn)(ri_exc, rj_exc)
+      r_exc = space.distance(r_exc)
+      r_exc_safe = jnp.where(r_exc == 0.0, 1.0, r_exc)
+
+      valid_nb = (self.exception_c12 != 0) & (self.exception_c6 != 0)
+      exc_es = jnp.sum(
+        jnp.where(
+          valid_nb & (r_exc < r_cut),
+          self.pair_energy(
+            jnp.array([1.0]), self.exception_q, r_exc_safe, krf, crf
+          ),
+          0.0,
+        )
+      )
+
+    # Reaction field correction for excluded pairs
+    rf_corr = jnp.zeros(())
+    if self.exclusion_pairs.shape[0] > 0:
+      ep = self.exclusion_pairs
+      qi_e = charges[ep[:, 0]]
+      qj_e = charges[ep[:, 1]]
+      ri_e = positions[ep[:, 0]]
+      rj_e = positions[ep[:, 1]]
+      disp_e = vmap(displacement_fn)(ri_e, rj_e)
+      r_e = space.distance(disp_e)
+      rf_corr_term = (
+        COULOMB_CONSTANT / self.epsilon_r * qi_e * qj_e * (krf * r_e**2 - crf)
+      )
+      rf_corr = jnp.sum(jnp.where(r_e < r_cut, rf_corr_term, 0.0))
+
+    # Self-energy correction
+    rf_self = jnp.sum(
+      COULOMB_CONSTANT / self.epsilon_r * 0.5 * charges**2 * (-crf)
+    )
+
+    return total_es + exc_es + rf_corr + rf_self

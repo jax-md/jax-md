@@ -1,0 +1,41 @@
+integrator      = md
+nsteps          = 0
+nstcomm         = 10
+
+nstxout         = 1
+nstvout         = 1
+nstfout         = 1
+nstlog          = 1
+nstenergy       = 1
+nstcalcenergy	= 1
+
+energygrps = System
+
+; Neighbor searching
+cutoff-scheme   = Verlet
+nstlist         = 1
+ns_type         = grid
+pbc             = xyz
+
+coulombtype              = reaction-field
+rcoulomb                 = 1.1
+epsilon_r                = 15 
+epsilon_rf               = 0
+vdw_type                 = cutoff
+vdw-modifier             = Potential-shift-verlet
+rvdw                     = 1.1
+
+tcoupl                   = v-rescale
+tc-grps                  = System
+tau_t                    = 1.0 
+ref_t                    = 310
+Pcoupl                   = Parrinello-Rahman
+Pcoupltype               = isotropic
+tau_p                    = 8.0
+compressibility          = 3e-4
+ref_p                    = 1.0
+
+gen_vel                  = no
+gen_temp                 = 310
+gen_seed                 = -1
+constraints              = none

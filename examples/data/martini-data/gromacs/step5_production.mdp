@@ -1,0 +1,41 @@
+integrator               = md
+tinit                    = 0.0
+dt                       = 0.020
+nsteps                   = 1000000
+
+nstxout                  = 5000
+nstvout                  = 5000
+nstfout                  = 5000
+nstlog                   = 5000
+nstenergy                = 5000
+nstxout-compressed       = 5000
+compressed-x-precision   = 100
+
+cutoff-scheme            = Verlet
+nstlist                  = 20
+ns_type                  = grid
+pbc                      = xyz
+verlet-buffer-tolerance  = 0.005
+
+epsilon_r                = 15
+coulombtype              = reaction-field
+rcoulomb                 = 1.1
+vdw_type                 = cutoff
+vdw-modifier             = Potential-shift-verlet
+rvdw                     = 1.1
+
+tcoupl                   = v-rescale
+tc-grps                  = protein solute
+tau_t                    = 1.0 1.0
+ref_t                    = 450 450
+
+; Pressure coupling:
+Pcoupl                   = Parrinello-rahman
+Pcoupltype               = isotropic
+tau_p                    = 12.0
+compressibility          = 4.5e-5
+ref_p                    = 1.0
+
+; GENERATE VELOCITIES FOR STARTUP RUN:
+gen_vel                  = no
+refcoord_scaling         = all

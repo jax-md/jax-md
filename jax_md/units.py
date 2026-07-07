@@ -145,3 +145,45 @@ def real_unit_system(constants: Dict = constants_CONDATA_2014):
   }
 
   return real_units
+
+
+def gromacs_unit_system(constants: Dict = constants_CONDATA_2014):
+  """GROMACS unit system: nm, kJ/mol, ps"""
+
+  Nanometer = 1  # Default length scale
+  kJ_per_mol = 1  # Default energy scale
+  grams_per_mol = 1  # Default mass scale
+  charge = 1  # Default charge
+
+  nm_conv_factor = 1e-9  # meters
+
+  second = jnp.sqrt(
+    kJ_per_mol
+    / (
+      constants['_amu']
+      * nm_conv_factor
+      * nm_conv_factor
+      * constants['_Nav']
+      * 1e-3  # g/mol -> kg/mol
+    )
+  )
+  picosecond = 1e-12 * second
+
+  kB = constants['_k'] * constants['_Nav'] / 1e3  # kJ/(mol·K)
+
+  pascal = (nm_conv_factor**3) * (constants['_Nav'] * 1e-3)
+  bar = 1e5 * pascal
+
+  return {
+    'mass': f64(grams_per_mol),
+    'distance': f64(Nanometer),
+    'time': f64(picosecond),
+    'energy': f64(kJ_per_mol),
+    'velocity': f64(Nanometer / picosecond),
+    'force': f64(kJ_per_mol / Nanometer),
+    'torque ': f64(kJ_per_mol),
+    'temperature': f64(kB),  # kJ/(mol·K), since JAX MD uses kT
+    'pressure': f64(bar),
+    'charge ': f64(charge),
+    'electric field': f64(charge * Nanometer),
+  }

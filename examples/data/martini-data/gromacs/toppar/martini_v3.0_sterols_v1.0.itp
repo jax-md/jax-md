@@ -1,0 +1,126 @@
+; MARTINI 3 Cholesterol Version 1.0 (April 2023)
+; by Luís Borges-Araújo; Ana C. Borges-Araújo; Tugba Nur Ozturk; Daniel P. Ramirez-Echemendia,
+; Balázs Fábián, Timothy S. Carpenter; Sebastian Thallmair, Jonathan Barnoud; Helgi I. Ingólfsson;
+; Gerhard Hummer; D. Peter Tieleman; Siewert J. Marrink; Paulo C. T. Souza; Manuel N. Melo.
+;
+; Martini 3 topology of Cholesterol.
+; New Martini 3 cholesterol model, addressing issues related to its shape, volume,
+; hydrophobicity, and temperature divergence resulting from the bonded setup.
+; The proposed model mitigates some limitations of its Martini 2predecessor 
+; while maintaining or improving overall behavior as much as possible.
+;
+; Warning(s)/Note(s):
+;   Add define=-DFLEXIBLE to select harmonic bonds for minimization purposes.
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+; When using these parameters please read and cite the parameterization article:
+;   Borges-Araújo, L. et al. Martini 3 Coarse-Grained Force Field for cholesterol. (2023) doi: https://doi.org/10.1021/acs.jctc.3c00547
+;
+; Also be sure to check https://github.com/Martini-Force-Field-Initiative/M3-Sterol-Parameters
+; for updates to these parameters.
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+[ moleculetype ]
+; molname  nrexcl
+  CHOL     1
+
+[ atoms ]
+; i type resnr residue atom cgnr charge  mass    
+  1  P1  1     CHOL    ROH  1    0.0     0.0
+  2 SC4  1     CHOL    R1   2    0.0   159.8
+  3 SC3  1     CHOL    R2   3    0.0   157.0
+  4 SC3  1     CHOL    R3   4    0.0     0.0
+  5 SC3  1     CHOL    R4   5    0.0     0.0 
+  6 TC2  1     CHOL    R5   6    0.0     0.0
+  7 TC2  1     CHOL    R6   7    0.0     0.0
+  8  C2  1     CHOL    C1   8    0.0   115.2
+  9  C2  1     CHOL    C2   9    0.0    72.0
+
+[ bonds ]
+; i  j  funct  length  force
+  8  9  1     0.440   15000
+#ifdef FLEXIBLE
+ 8  3   1  0.75012  100000
+ 8  2   1  0.78504  100000
+ 3  2   1  0.34797  100000
+#else
+[ constraints ]
+ 8  3   1  0.75012
+ 8  2   1  0.78504
+ 3  2   1  0.34797
+#endif
+
+[ angles ]
+; i  j  k  funct  angle  force
+; Cholesterol acyl chain angle
+  5  4  9     1    99.0   250    ;R4-R3-C2
+
+[ dihedrals ]
+; i  j  k  l funct  angle  force
+; Cholesterol acyl chain tortion
+  7  5  4  9   2    -70.0   50  ;R6-R4-R3-C2
+
+[ virtual_sites3 ]
+ 1   8  3  2  4   1.08999   0.35891   0.22947
+ 4   8  3  2  4  -0.41067   0.83597  -0.05311
+ 5   8  3  2  4   0.69138  -0.10352   0.17476
+ 6   8  3  2  4   0.77524   0.22413   0.92700
+ 7   8  3  2  4   0.06219   0.32398   0.76967
+ 
+[ exclusions ]
+; i  j  k  ...
+  1  2  3  4  5  6  7  8
+  2  3  4  5  6  7  8
+  3  4  5  6  7  8
+  4  5  6  7  8 
+  5  6  7  8 
+  6  7  8 
+  7  8 
+
+#ifdef BILAYER_LIPIDHEAD_FC
+    [ position_restraints ]
+    ;to fix Z postion of head grop in bilayer simulation
+      1     1.0      0.0      0.0     BILAYER_LIPIDHEAD_FC
+#endif
+
+
+#ifdef MICELLE_LIPIDHEAD_FC
+    [ position_restraints ]
+    ;to fix postion of head grop in micelle simulation
+      1     1.0      1.0      1.0     MICELLE_LIPIDHEAD_FC
+#endif
+
+
+;keep lipid tails out of a cylinder along X Y Z axis to maintain the waterpore:
+#ifdef  VESICLE_LIPIDTAIL_R
+    #ifndef VESICLE_LIPIDTAIL_FC
+        #define VESICLE_LIPIDTAIL_FC 1000
+    #endif
+    [ position_restraints ]
+      2     2    2   -VESICLE_LIPIDTAIL_R  VESICLE_LIPIDTAIL_FC
+      2     2    6   -VESICLE_LIPIDTAIL_R  VESICLE_LIPIDTAIL_FC
+      2     2    7   -VESICLE_LIPIDTAIL_R  VESICLE_LIPIDTAIL_FC
+      3     2    2   -VESICLE_LIPIDTAIL_R  VESICLE_LIPIDTAIL_FC
+      3     2    6   -VESICLE_LIPIDTAIL_R  VESICLE_LIPIDTAIL_FC
+      3     2    7   -VESICLE_LIPIDTAIL_R  VESICLE_LIPIDTAIL_FC
+      4     2    2   -VESICLE_LIPIDTAIL_R  VESICLE_LIPIDTAIL_FC
+      4     2    6   -VESICLE_LIPIDTAIL_R  VESICLE_LIPIDTAIL_FC
+      4     2    7   -VESICLE_LIPIDTAIL_R  VESICLE_LIPIDTAIL_FC
+      5     2    2   -VESICLE_LIPIDTAIL_R  VESICLE_LIPIDTAIL_FC
+      5     2    6   -VESICLE_LIPIDTAIL_R  VESICLE_LIPIDTAIL_FC
+      5     2    7   -VESICLE_LIPIDTAIL_R  VESICLE_LIPIDTAIL_FC
+      6     2    2   -VESICLE_LIPIDTAIL_R  VESICLE_LIPIDTAIL_FC
+      6     2    6   -VESICLE_LIPIDTAIL_R  VESICLE_LIPIDTAIL_FC
+      6     2    7   -VESICLE_LIPIDTAIL_R  VESICLE_LIPIDTAIL_FC
+      7     2    2   -VESICLE_LIPIDTAIL_R  VESICLE_LIPIDTAIL_FC
+      7     2    6   -VESICLE_LIPIDTAIL_R  VESICLE_LIPIDTAIL_FC
+      7     2    7   -VESICLE_LIPIDTAIL_R  VESICLE_LIPIDTAIL_FC
+      8     2    2   -VESICLE_LIPIDTAIL_R  VESICLE_LIPIDTAIL_FC
+      8     2    6   -VESICLE_LIPIDTAIL_R  VESICLE_LIPIDTAIL_FC
+      8     2    7   -VESICLE_LIPIDTAIL_R  VESICLE_LIPIDTAIL_FC
+      9     2    2   -VESICLE_LIPIDTAIL_R  VESICLE_LIPIDTAIL_FC
+      9     2    6   -VESICLE_LIPIDTAIL_R  VESICLE_LIPIDTAIL_FC
+      9     2    7   -VESICLE_LIPIDTAIL_R  VESICLE_LIPIDTAIL_FC
+#endif

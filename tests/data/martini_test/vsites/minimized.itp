@@ -1,0 +1,54 @@
+[ moleculetype ]
+; name  nrexcl
+VSITES    1
+
+[ atoms ]
+;  nr   type  resnr residue  atom  cgnr  charge  mass
+    1    TC5    1    VSITES  SC1     1     0.0    45.0
+    2    TC5    1    VSITES  SC2     2     0.0    60.0
+    3    TC5    1    VSITES  SC3     3     0.0    75.0
+    4    vTC5   1    VSITES  V2F1    4     0.0     0.0   ; virtual_sites2 func 1
+    5    vTC5   1    VSITES  V2F2    5     0.0     0.0   ; virtual_sites2 func 2
+    6    vTC5   1    VSITES  V3F1    6     0.0     0.0   ; virtual_sites3 func 1
+    7    vTC5   1    VSITES  V3F2    7     0.0     0.0   ; virtual_sites3 func 2
+    8    vTC5   1    VSITES  V3F4    8     0.0     0.0   ; virtual_sites3 func 4
+    9    vTC5   1    VSITES  VNF1    9     0.0     0.0   ; virtual_sitesn func 1
+   10    vTC5   1    VSITES  VNF2   10     0.0     0.0   ; virtual_sitesn func 2
+
+[ bonds ]
+;  ai   aj  funct  r0(nm)  kb
+    1    2    1     0.240  5000
+    2    3    1     0.240  5000
+    1    3    1     0.240  5000
+
+[ virtual_sites2 ]
+; vsite  atom1  atom2  funct  param
+;  func 1: r = (1-a)*r1 + a*r2, a=0.3 → 30% toward SC2
+    4      1      2      1    0.3
+;  func 2: r = r1 + a*normalize(r2-r1), a=0.1nm
+    5      1      2      2    0.1
+
+[ virtual_sites3 ]
+; vsite  atom1  atom2  atom3  funct  params
+;  func 1 (type 3): r = (1-a-b)*r1 + a*r2 + b*r3
+    6      1      2      3      1    0.3    0.3
+;  func 2 (type 3fd): r = r1 + d*normalize(a*(r2-r1) + (1-a)*(r3-r1))
+    7      1      2      3      2    0.5    0.1
+;  func 4 (type 3out): r = r1 + a*(r2-r1) + b*(r3-r1) + c*cross(r2-r1, r3-r1)
+    8      1      2      3      4    0.5    0.5    1.0
+
+[ virtual_sitesn ]
+; vsite  funct  atoms...
+;  func 1: center of geometry of SC1, SC2, SC3
+    9      1      1      2      3
+;  func 2: center of mass of SC1, SC2, SC3
+   10      2      1      2      3
+
+[ exclusions ]
+4  1  2
+5  1  2
+6  1  2  3
+7  1  2  3
+8  1  2  3
+9  1  2  3
+10  1  2  3
