@@ -1039,10 +1039,9 @@ class RFCoulomb(CoulombHandler):
       r_exc = space.distance(r_exc)
       r_exc_safe = jnp.where(r_exc == 0.0, 1.0, r_exc)
 
-      valid_nb = (self.exception_c12 != 0) & (self.exception_c6 != 0)
       exc_es = jnp.sum(
         jnp.where(
-          valid_nb & (r_exc < r_cut),
+          r_exc < r_cut,
           self.pair_energy(
             jnp.array([1.0]), self.exception_q, r_exc_safe, krf, crf
           ),

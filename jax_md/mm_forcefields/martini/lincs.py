@@ -337,6 +337,7 @@ def apply_lincs(
   dt,
   box=None,
   fractional_coordinates=False,
+  nrec=4,
 ):
   """Calculate constrained positions and correct velocities to match new positions.
 
@@ -372,7 +373,7 @@ def apply_lincs(
     return displacement_fn(Ra, Rb, **kwargs)
 
   R_constrained_real, B, mlambda = lincs_positions(
-    R_old, R_unc, topo, real_disp_fn, nrec=4
+    R_old, R_unc, topo, real_disp_fn, nrec=nrec
   )
 
   if fractional_coordinates and box is not None:
@@ -438,7 +439,7 @@ def make_lincs_apply_fn(
     state = apply_fn(state, **kwargs)
 
     pos_con, dV = apply_lincs(
-      positions_old, state.position, topo, displacement_fn, dt
+      positions_old, state.position, topo, displacement_fn, dt, nrec=nrec
     )
     pos_con_wrapped = shift_fn(positions_old, pos_con - positions_old)
     return state.set(
