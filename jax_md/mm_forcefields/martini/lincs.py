@@ -77,7 +77,10 @@ class LincsTopology(NamedTuple):
       n_atoms = len(mol_type.atoms)
       for _ in range(mol.count):
         for constraint in mol_type.constraints:
-          constraint_pairs.append(constraint.atoms)
+          constraint_atoms = []
+          for atom in constraint.atoms:
+            constraint_atoms.append(base_atom_index + atom)
+          constraint_pairs.append(constraint_atoms)
           constraint_lengths.append(constraint.distance)
         base_atom_index += n_atoms
     constraint_pairs = np.asarray(constraint_pairs)

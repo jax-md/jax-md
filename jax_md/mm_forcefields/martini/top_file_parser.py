@@ -516,8 +516,6 @@ class GromacsTopFile:
         self._processPair(line)
       elif self._currentCategory == 'constraints':
         self._processConstraint(line)
-      elif self._currentCategory == 'settles':
-        self._processSettles(line)
       elif self._currentCategory == 'cmap':
         self._processCmap(line)
       elif self._currentCategory == 'atomtypes':
@@ -758,24 +756,6 @@ class GromacsTopFile:
       Constraint(
         atoms=[int(x) - 1 for x in fields[:2]], distance=float(fields[3])
       )
-    )
-
-  def _processSettles(self, line):
-    """Process a line in the [ settles ] category."""
-    if self._currentMoleculeType is None:
-      raise ValueError('Found [ settles ] section before [ moleculetype ]')
-    fields = line.split()
-    if len(fields) < 4:
-      raise ValueError('Too few fields in [ settles ] line: ' + line)
-    atom = int(fields[0])
-    self._currentMoleculeType.constraints.append(
-      [str(atom), str(atom + 1), fields[1], fields[2]]
-    )
-    self._currentMoleculeType.constraints.append(
-      [str(atom), str(atom + 2), fields[1], fields[2]]
-    )
-    self._currentMoleculeType.constraints.append(
-      [str(atom + 1), str(atom + 2), fields[1], fields[3]]
     )
 
   def _processCmap(self, line):
