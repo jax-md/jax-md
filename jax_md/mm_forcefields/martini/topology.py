@@ -698,7 +698,7 @@ def _parse_cmaps(
         types = tuple(bonded_types_mol[i] for i in atoms)
 
         if cmap.params is not None:
-          x_size, y_size, cmap_grid = cmap.x_size, cmap.y_size, cmap.grid
+          x_size, y_size, cmap_grid = cmap.params.x_size, cmap.params.y_size, cmap.params.grid
         elif types in top._cmapTypes:
           params = top._cmapTypes[types]
           x_size, y_size, cmap_grid = (
