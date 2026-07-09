@@ -45,6 +45,7 @@ dependencies = [
     "einops",
     "ml_collections",
     "e3nn-jax",
+    "equinox",
     "optax",
     "frozendict",
     "pymatgen>=2021.3.4",
