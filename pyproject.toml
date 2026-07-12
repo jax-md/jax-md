@@ -38,8 +38,9 @@ classifiers = [
 dependencies = [
     "absl-py",
     "numpy",
-    "jax>=0.5.0",
-    "jaxlib>=0.5.0",
+    # Exclude 0.10.2: https://github.com/jax-ml/jax/issues/39103
+    "jax>=0.5.0,!=0.10.2",
+    "jaxlib>=0.5.0,!=0.10.2",
     "flax",
     "jraph",
     "einops",
