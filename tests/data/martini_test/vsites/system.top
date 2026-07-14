@@ -1,9 +1,0 @@
-#include "../martini_v3.0.0.itp"
-#include "vsite.itp"
-#include "minimized.itp"
-
-[ system ]
-site test
-
-[ molecules ]
-VSITES    1

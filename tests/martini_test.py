@@ -44,6 +44,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 from __future__ import annotations
 
+import tarfile
 import time
 from pathlib import Path
 from typing import NamedTuple
@@ -67,6 +68,24 @@ jax.config.update('jax_enable_x64', True)
 
 from re import match
 import numpy as np
+
+_DATA_ROOT = Path(__file__).parent / 'data'
+_MARTINI_DATA_DIR = _DATA_ROOT / 'martini_test'
+_MARTINI_DATA_TARBALL = _DATA_ROOT / 'martini_data.tar.gz'
+
+
+def _ensure_martini_data_extracted() -> None:
+  if _MARTINI_DATA_DIR.exists():
+    return
+  if not _MARTINI_DATA_TARBALL.exists():
+    raise FileNotFoundError(
+      f'Missing martini test data and tarball: {_MARTINI_DATA_TARBALL}'
+    )
+  with tarfile.open(_MARTINI_DATA_TARBALL, 'r:gz') as tf:
+    tf.extractall(_DATA_ROOT)
+
+
+_ensure_martini_data_extracted()
 
 
 def _isint(word):

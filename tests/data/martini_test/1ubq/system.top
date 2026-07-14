@@ -1,9 +1,0 @@
-
-#include "../martini_v3.0.0.itp"
-#include "minimized.itp"
-
-[ system ]
-1ubq
-
-[ molecules ]
-molecule_0    1

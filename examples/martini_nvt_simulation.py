@@ -1,5 +1,6 @@
 """
-JaxMD Martini Coarse-Grained Simulation of Chignolin
+JaxMD Martini NVT Coarse-Grained Simulation. To run this script with
+example Chignolin system, unzip the martini_chignolin_data.tar.gz file.
 
 Usage: python martini_nvt_simulation.py pdb_file_location gromacs_directory_location output_directory_location
 Defaults are: 
