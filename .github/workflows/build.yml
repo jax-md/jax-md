@@ -43,7 +43,7 @@ jobs:
     strategy:
       matrix:
         python-version: ['3.10', '3.11', '3.12', '3.13']
-        test-suite: ['elasticity', 'rigid_body', 'energy', 'simulate', 'nequip', 'reaxff', 'tpu', 'uma', 'custom_partition', 'custom_smap', 'minimize', 'nn', 'oplsaa', 'partition', 'quantity', 'smap', 'space', 'amber', 'amber_fe']
+        test-suite: ['elasticity', 'rigid_body', 'energy', 'simulate', 'nequip', 'reaxff', 'tpu', 'uma', 'biomlff', 'custom_partition', 'custom_smap', 'minimize', 'nn', 'oplsaa', 'partition', 'quantity', 'smap', 'space', 'amber', 'amber_fe']
         include:
           - python-version: '3.11'
             test-suite: 'mace'
@@ -51,15 +51,20 @@ jobs:
             test-suite: 'mace'
           - python-version: '3.13'
             test-suite: 'mace'
-          - python-version: '3.12'
-            test-suite: 'biomlff'
     steps:
     - name: Install native dependencies
       run: |
         sudo apt-get -y install pandoc
     - uses: actions/checkout@v3
+    - name: Cache LFS checkpoints
+      if: matrix.test-suite == 'biomlff'
+      uses: actions/cache@v4
       with:
-        lfs: ${{ matrix.test-suite == 'biomlff' }}
+        path: .git/lfs
+        key: lfs-${{ hashFiles('jax_md/_nn/**/*.eqx') }}
+    - name: Fetch LFS checkpoints
+      if: matrix.test-suite == 'biomlff'
+      run: git lfs pull
     - name: Install uv
       uses: astral-sh/setup-uv@v5
     - name: Set up Python ${{ matrix.python-version }}

@@ -2584,7 +2584,7 @@ def orb_neighbor_list(
     **kwargs,
   ):
     if species is None:
-      raise ValueError('Orb requires per-atom species (atomic numbers).')
+      raise ValueError('Orb requires per-atom species.')
     return net(
       position,
       species,
@@ -2592,6 +2592,320 @@ def orb_neighbor_list(
       jnp.atleast_1d(jnp.asarray(total_spin)),
       displacement_fn=displacement_fn,
       neighbors=neighbor,
+    )
+
+  return neighbor_fn, energy_fn
+
+
+def aceff_neighbor_list(
+  displacement_fn=None,
+  box=None,
+  species=None,
+  model: str = 'aceff-jax-2.0',
+  model_path=None,
+  total_charge: float = 0.0,
+  dr_threshold: float = 0.0,
+  capacity_multiplier: float = 1.25,
+  disable_cell_list: bool = False,
+  neighbor_list_fn: Callable = partition.neighbor_list,
+  **nl_kwargs,
+):
+  """Convenience wrapper to compute AceFF energy using a neighbor list.
+
+  Args:
+    displacement_fn: Displacement function from `jax_md.space`. Defaults to
+      `space.periodic_general(box)`; pass `space.free()[0]` for free space.
+    box: Box matrix with columns as lattice vectors, shape (dim, dim).
+    species: Atomic numbers, shape (num_atoms,). May be overridden per call.
+    model: Pretrained checkpoint name passed to `aceff.load_model`.
+    model_path: Optional path to a local checkpoint, overriding `model`.
+    total_charge: Total charge. May be overridden per call.
+    dr_threshold: Skin distance added to the cutoff.
+    capacity_multiplier: Multiplier used to size the neighbor list buffer.
+    disable_cell_list: If True, search all atom pairs.
+    neighbor_list_fn: Neighbor list constructor.
+    **nl_kwargs: Extra neighbor list kwargs, e.g. `format`. Dense and Sparse
+      formats are both supported.
+
+  Returns:
+    A neighbor_fn and energy_fn pair. The energy is in eV.
+  """
+  from jax_md._nn import aceff
+
+  if box is None:
+    raise ValueError('aceff_neighbor_list requires a box.')
+  if displacement_fn is None:
+    displacement_fn, _ = space.periodic_general(
+      box, fractional_coordinates=False
+    )
+
+  net = aceff.load_model(model, model_path=model_path)
+  neighbor_fn = neighbor_list_fn(
+    displacement_fn,
+    box,
+    float(net.cutoff),
+    dr_threshold=dr_threshold,
+    capacity_multiplier=capacity_multiplier,
+    disable_cell_list=disable_cell_list,
+    **nl_kwargs,
+  )
+
+  def energy_fn(
+    position,
+    neighbor,
+    species=species,
+    total_charge=total_charge,
+    **kwargs,
+  ):
+    if species is None:
+      raise ValueError('AceFF requires per-atom species.')
+    return net(
+      position,
+      species,
+      displacement_fn=displacement_fn,
+      neighbors=neighbor,
+      total_charge=total_charge,
+    )
+
+  return neighbor_fn, energy_fn
+
+
+def ani_neighbor_list(
+  displacement_fn=None,
+  box=None,
+  species=None,
+  model: str = 'ani2x-jax-ensemble',
+  model_path=None,
+  dr_threshold: float = 0.0,
+  capacity_multiplier: float = 1.25,
+  disable_cell_list: bool = False,
+  neighbor_list_fn: Callable = partition.neighbor_list,
+  **nl_kwargs,
+):
+  """Convenience wrapper to compute ANI-2x energy using a neighbor list.
+
+  Args:
+    displacement_fn: Displacement function from `jax_md.space`. Defaults to
+      `space.periodic_general(box)`; pass `space.free()[0]` for free space.
+    box: Box matrix with columns as lattice vectors, shape (dim, dim).
+    species: Atomic numbers, shape (num_atoms,). May be overridden per call.
+    model: Pretrained checkpoint name passed to `ani.load_model`.
+    model_path: Optional path to a local checkpoint, overriding `model`.
+    dr_threshold: Skin distance added to the cutoff.
+    capacity_multiplier: Multiplier used to size the neighbor list buffer.
+    disable_cell_list: If True, search all atom pairs.
+    neighbor_list_fn: Neighbor list constructor.
+    **nl_kwargs: Extra neighbor list kwargs. The list is built at the radial
+      cutoff; the angular terms mask it to the smaller angular cutoff, so a
+      single Dense neighbor list serves both.
+
+  Returns:
+    A neighbor_fn and energy_fn pair. The energy is in eV.
+  """
+  from jax_md._nn import ani
+
+  if box is None:
+    raise ValueError('ani_neighbor_list requires a box.')
+  if displacement_fn is None:
+    displacement_fn, _ = space.periodic_general(
+      box, fractional_coordinates=False
+    )
+
+  net = ani.load_model(model, model_path=model_path)
+  neighbor_fn = neighbor_list_fn(
+    displacement_fn,
+    box,
+    float(net.radial_cutoff),
+    dr_threshold=dr_threshold,
+    capacity_multiplier=capacity_multiplier,
+    disable_cell_list=disable_cell_list,
+    **nl_kwargs,
+  )
+
+  def energy_fn(position, neighbor, species=species, **kwargs):
+    if species is None:
+      raise ValueError('ANI requires per-atom species.')
+    return net(
+      position,
+      species,
+      displacement_fn=displacement_fn,
+      neighbors=neighbor,
+    )
+
+  return neighbor_fn, energy_fn
+
+
+def so3lr_neighbor_list(
+  displacement_fn=None,
+  box=None,
+  species=None,
+  model: str = 'so3lr',
+  model_path=None,
+  total_charge: float = 0.0,
+  total_spin: float = 0.0,
+  dr_threshold: float = 0.0,
+  capacity_multiplier: float = 1.25,
+  disable_cell_list: bool = False,
+  neighbor_list_fn: Callable = partition.neighbor_list,
+  **nl_kwargs,
+):
+  """Convenience wrapper to compute SO3LR energy using neighbor lists.
+
+  SO3LR has a short-range and a long-range cutoff, so the neighbor_fn
+  allocates a paired list serving both; the energy_fn takes that pair.
+
+  Args:
+    displacement_fn: Displacement function from `jax_md.space`. Defaults to
+      `space.periodic_general(box)`; pass `space.free()[0]` for free space.
+    box: Box matrix with columns as lattice vectors, shape (dim, dim).
+    species: Atomic numbers, shape (num_atoms,). May be overridden per call.
+    model: Pretrained checkpoint name passed to `so3lr.load_model`.
+    model_path: Optional path to a local checkpoint, overriding `model`.
+    total_charge: Total charge. May be overridden per call.
+    total_spin: Total spin. May be overridden per call.
+    dr_threshold: Skin distance added to the cutoffs.
+    capacity_multiplier: Multiplier used to size the neighbor list buffers.
+    disable_cell_list: If True, search all atom pairs.
+    neighbor_list_fn: Neighbor list constructor.
+    **nl_kwargs: Extra neighbor list kwargs. SO3LR uses Sparse lists.
+
+  Returns:
+    A neighbor_fn and energy_fn pair. The energy is in eV.
+  """
+  from jax_md._nn import so3lr
+
+  if box is None:
+    raise ValueError('so3lr_neighbor_list requires a box.')
+  if displacement_fn is None:
+    displacement_fn, _ = space.periodic_general(
+      box, fractional_coordinates=False
+    )
+
+  net = so3lr.load_model(model, model_path=model_path)
+  neighbor_fn = partition.paired_neighbor_list(
+    displacement_fn,
+    box,
+    float(net.cutoff),
+    float(net.long_range_cutoff),
+    neighbor_list_fn=neighbor_list_fn,
+    dr_threshold=dr_threshold,
+    capacity_multiplier=capacity_multiplier,
+    disable_cell_list=disable_cell_list,
+    mask_self=True,
+    format=partition.Sparse,
+    **nl_kwargs,
+  )
+
+  def energy_fn(
+    position,
+    neighbor,
+    species=species,
+    total_charge=total_charge,
+    total_spin=total_spin,
+    **kwargs,
+  ):
+    if species is None:
+      raise ValueError('SO3LR requires per-atom species.')
+    return net(
+      position,
+      species,
+      displacement_fn=displacement_fn,
+      neighbors=neighbor.short,
+      neighbors_lr=neighbor.long_range,
+      total_charge=total_charge,
+      total_spin=total_spin,
+    )
+
+  return neighbor_fn, energy_fn
+
+
+def aimnet2_neighbor_list(
+  displacement_fn=None,
+  box=None,
+  species=None,
+  model: str = 'aimnet2-jax',
+  model_path=None,
+  total_charge: float = 0.0,
+  periodic: bool = True,
+  dr_threshold: float = 0.0,
+  capacity_multiplier: float = 1.25,
+  disable_cell_list: bool = False,
+  neighbor_list_fn: Callable = partition.neighbor_list,
+  **nl_kwargs,
+):
+  """Convenience wrapper to compute AIMNet2 energy using neighbor lists.
+
+  AIMNet2 has a short-range and a long-range cutoff, so the neighbor_fn
+  allocates a paired list serving both; the energy_fn takes that pair. The
+  Coulomb term is all-pairs for free space and a damped shifted force sum for
+  periodic systems, selected by `periodic`.
+
+  Args:
+    displacement_fn: Displacement function from `jax_md.space`. Defaults to
+      `space.periodic_general(box)`. For free space set `periodic=False` and
+      omit this; the wrapper builds `space.free()` and rejects a displacement.
+    box: Box matrix with columns as lattice vectors, shape (dim, dim).
+    species: Atomic numbers, shape (num_atoms,). Fixed at build time because
+      the D3 dispersion tables depend on it.
+    model: Pretrained checkpoint name passed to `aimnet2.load_model`.
+    model_path: Optional path to a local checkpoint, overriding `model`.
+    total_charge: Total charge. May be overridden per call.
+    periodic: If True, use the periodic damped shifted force Coulomb sum.
+    dr_threshold: Skin distance added to the cutoffs.
+    capacity_multiplier: Multiplier used to size the neighbor list buffers.
+    disable_cell_list: If True, search all atom pairs.
+    neighbor_list_fn: Neighbor list constructor.
+    **nl_kwargs: Extra neighbor list kwargs. AIMNet2 uses Dense lists.
+
+  Returns:
+    A neighbor_fn and energy_fn pair. The energy is in eV.
+  """
+  import numpy as onp
+  from jax_md._nn import aimnet2
+
+  if box is None:
+    raise ValueError('aimnet2_neighbor_list requires a box.')
+  if not periodic:
+    if displacement_fn is not None:
+      raise ValueError(
+        'aimnet2_neighbor_list uses all-pairs Coulomb in free space and builds '
+        'its own displacement; omit displacement_fn when periodic=False.'
+      )
+    displacement_fn, _ = space.free()
+  elif displacement_fn is None:
+    displacement_fn, _ = space.periodic_general(
+      box, fractional_coordinates=False
+    )
+
+  net = aimnet2.load_model(model, model_path=model_path)
+  d3_data = None
+  if species is not None:
+    d3_data = net.prepare_d3_data(onp.asarray(species))
+  neighbor_fn = partition.paired_neighbor_list(
+    displacement_fn,
+    box,
+    float(net.cutoff),
+    float(net.lr_cutoff),
+    neighbor_list_fn=neighbor_list_fn,
+    dr_threshold=dr_threshold,
+    capacity_multiplier=capacity_multiplier,
+    disable_cell_list=disable_cell_list,
+    mask_self=True,
+    **nl_kwargs,
+  )
+
+  def energy_fn(position, neighbor, total_charge=total_charge, **kwargs):
+    if species is None or d3_data is None:
+      raise ValueError('AIMNet2 requires per-atom species.')
+    return net(
+      position,
+      species,
+      d3_data=d3_data,
+      displacement_fn=displacement_fn,
+      neighbors=neighbor.short,
+      lr_neighbors=neighbor.long_range,
+      periodic=periodic,
+      total_charge=total_charge,
     )
 
   return neighbor_fn, energy_fn

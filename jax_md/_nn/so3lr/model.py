@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import pickle
 from functools import partial
+from os import PathLike
 from pathlib import Path
 from typing import Any
 
@@ -13,13 +14,9 @@ import numpy as np
 from jax import Array
 from jax.ops import segment_sum
 from jax_md import partition
-from jax_md._nn.neighbors import get_neighbors, neighbor_displacement
+from jax_md.units import BOHR_ANGSTROM, EV_TO_KJMOL, HARTREE_EV
 
 jax.config.update('jax_default_matmul_precision', 'highest')
-
-EV_TO_KJMOL = 96.48533212331002
-BOHR_ANGSTROM = 0.529177210903
-HARTREE_EV = 27.211386245988
 
 SO3LR_MODEL_PATHS = {
   'so3lr': Path(__file__).resolve().with_name('so3lr.eqx'),
@@ -27,47 +24,21 @@ SO3LR_MODEL_PATHS = {
 SO3LR_MODEL_NAMES = tuple(SO3LR_MODEL_PATHS)
 
 
-def so3lr_sparse_edges(positions, neighbors, *, displacement):
-  """Convert a JAX-MD sparse neighbor list into SO3LR/GLP edge arrays."""
-  if not partition.is_sparse(neighbors.format):
-    raise ValueError('SO3LR requires a JAX-MD sparse neighbor list.')
-  idx_j, idx_i = jnp.asarray(neighbors.idx, dtype=jnp.int32)
-  num_atoms = positions.shape[0]
-  valid = (idx_i < num_atoms) & (idx_j < num_atoms)
-  safe_idx_i = jnp.where(valid, idx_i, 0)
-  safe_idx_j = jnp.where(valid, idx_j, 0)
-  edges = jax.vmap(displacement)(positions[safe_idx_j], positions[safe_idx_i])
-  edges = jnp.where(valid[:, None], edges, 0.0)
-  return idx_i, idx_j, edges
+def neighbor_list_featurizer(displacement_fn):
+  def featurize(position, neighbor, **kwargs):
+    if not partition.is_sparse(neighbor.format):
+      raise ValueError('SO3LR requires a JAX-MD sparse neighbor list.')
+    idx_j, idx_i = jnp.asarray(neighbor.idx, dtype=jnp.int32)
+    num_atoms = position.shape[0]
+    valid = (idx_i < num_atoms) & (idx_j < num_atoms)
+    safe_idx_i = jnp.where(valid, idx_i, 0)
+    safe_idx_j = jnp.where(valid, idx_j, 0)
+    d = jax.vmap(partial(displacement_fn, **kwargs))
+    edges = d(position[safe_idx_j], position[safe_idx_i])
+    edges = jnp.where(valid[:, None], edges, 0.0).astype(position.dtype)
+    return idx_i, idx_j, edges
 
-
-def get_sparse_edge_data(
-  positions,
-  box,
-  *,
-  cutoff: float,
-  cell_atom_threshold: int,
-  cell_capacity_multiplier: float,
-  neighbors,
-  periodic: bool,
-  displacement,
-):
-  neighbors = get_neighbors(
-    positions,
-    box,
-    cutoff=cutoff,
-    format=partition.NeighborListFormat.Sparse,
-    cell_atom_threshold=cell_atom_threshold,
-    cell_capacity_multiplier=cell_capacity_multiplier,
-    neighbors=neighbors,
-    periodic=periodic,
-  )
-  edge_data = so3lr_sparse_edges(
-    positions,
-    neighbors,
-    displacement=displacement,
-  )
-  return edge_data
+  return featurize
 
 
 def safe_mask(mask, fn, operand, placeholder=0.0):
@@ -816,8 +787,6 @@ class SO3LR(eqx.Module):
   long_range_cutoff: float = eqx.field(static=True)
   dispersion_energy_cutoff_lr_damping: float = eqx.field(static=True)
   ev_to_kjmol: float = eqx.field(static=True)
-  neighbor_cell_atom_threshold: int = eqx.field(static=True)
-  neighbor_cell_capacity_multiplier: float = eqx.field(static=True)
   num_layers: int = eqx.field(static=True)
   num_radial_basis_fn: int = eqx.field(static=True)
   avg_num_neighbors: float = eqx.field(static=True)
@@ -837,9 +806,6 @@ class SO3LR(eqx.Module):
     metadata: dict[str, Any],
     hyperparameters: dict[str, Any],
     params: dict[str, Any],
-    *,
-    neighbor_cell_atom_threshold: int | None = None,
-    neighbor_cell_capacity_multiplier: float | None = None,
   ):
     params = params['params'] if 'params' in params else params
     model_cfg = hyperparameters['model']
@@ -851,18 +817,6 @@ class SO3LR(eqx.Module):
       metadata['dispersion_energy_cutoff_lr_damping']
     )
     self.ev_to_kjmol = EV_TO_KJMOL
-    if neighbor_cell_atom_threshold is None:
-      neighbor_cell_atom_threshold = int(
-        metadata['neighbor_cell_atom_threshold']
-      )
-    if neighbor_cell_capacity_multiplier is None:
-      neighbor_cell_capacity_multiplier = float(
-        metadata['neighbor_cell_capacity_multiplier']
-      )
-    self.neighbor_cell_atom_threshold = int(neighbor_cell_atom_threshold)
-    self.neighbor_cell_capacity_multiplier = float(
-      neighbor_cell_capacity_multiplier
-    )
 
     self.num_layers = int(model_cfg['num_layers'])
     self.num_radial_basis_fn = int(model_cfg['num_radial_basis_fn'])
@@ -900,42 +854,22 @@ class SO3LR(eqx.Module):
     positions,
     species,
     *,
-    box_vectors=None,
+    displacement_fn=None,
     neighbors=None,
     neighbors_lr=None,
-    periodic=False,
     total_charge=0.0,
     total_spin=0.0,
   ):
+    if displacement_fn is None or neighbors is None or neighbors_lr is None:
+      raise ValueError(
+        'SO3LR requires a displacement_fn and short- and long-range neighbor '
+        'lists. Build them with energy.so3lr_neighbor_list.'
+      )
     positions = jnp.asarray(positions, dtype=jnp.float32)
     atomic_numbers = jnp.asarray(species, dtype=jnp.int32)
-    box_vectors = box_vectors if periodic else None
-    displacement, _ = neighbor_displacement(
-      positions,
-      box_vectors,
-      periodic=periodic,
-    )
-
-    idx_i, idx_j, displacements = get_sparse_edge_data(
-      positions,
-      box_vectors,
-      cutoff=float(self.cutoff),
-      cell_atom_threshold=int(self.neighbor_cell_atom_threshold),
-      cell_capacity_multiplier=float(self.neighbor_cell_capacity_multiplier),
-      neighbors=neighbors,
-      periodic=periodic,
-      displacement=displacement,
-    )
-    idx_i_lr, idx_j_lr, displacements_lr = get_sparse_edge_data(
-      positions,
-      box_vectors,
-      cutoff=float(self.long_range_cutoff),
-      cell_atom_threshold=int(self.neighbor_cell_atom_threshold),
-      cell_capacity_multiplier=float(self.neighbor_cell_capacity_multiplier),
-      neighbors=neighbors_lr,
-      periodic=periodic,
-      displacement=displacement,
-    )
+    featurize = neighbor_list_featurizer(displacement_fn)
+    idx_i, idx_j, displacements = featurize(positions, neighbors)
+    idx_i_lr, idx_j_lr, displacements_lr = featurize(positions, neighbors_lr)
     total_charge = jnp.asarray(total_charge, dtype=jnp.float32)
     total_spin = jnp.asarray(total_spin, dtype=jnp.float32)
 
@@ -1004,12 +938,14 @@ class SO3LR(eqx.Module):
 def load_model(
   model: str = 'so3lr',
   *,
-  neighbor_cell_atom_threshold: int | None = None,
-  neighbor_cell_capacity_multiplier: float | None = None,
+  model_path: str | PathLike | None = None,
 ):
-  if model not in SO3LR_MODEL_PATHS:
+  if model_path is not None:
+    path = Path(model_path)
+  elif model in SO3LR_MODEL_PATHS:
+    path = SO3LR_MODEL_PATHS[model]
+  else:
     raise ValueError(f'Unsupported SO3LR model: {model}')
-  path = SO3LR_MODEL_PATHS[model]
 
   with path.open('rb') as handle:
     header = json.loads(handle.readline().decode())
@@ -1020,10 +956,4 @@ def load_model(
     lambda x: jnp.asarray(x) if hasattr(x, 'shape') else x,
     params,
   )
-  return SO3LR(
-    metadata,
-    hyperparameters,
-    params,
-    neighbor_cell_atom_threshold=neighbor_cell_atom_threshold,
-    neighbor_cell_capacity_multiplier=neighbor_cell_capacity_multiplier,
-  )
+  return SO3LR(metadata, hyperparameters, params)

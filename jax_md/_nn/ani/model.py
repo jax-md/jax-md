@@ -1,6 +1,5 @@
-from __future__ import annotations
-
 import json
+from functools import partial
 from os import PathLike
 from pathlib import Path
 
@@ -8,8 +7,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax_md import space
-from jax_md._nn.neighbors import get_neighbors
+from jax_md import partition, space
 
 jax.config.update('jax_default_matmul_precision', 'highest')
 
@@ -26,31 +24,19 @@ ANI2X_MODEL_PATHS = {
 ANI2X_MODEL_NAMES = tuple(ANI2X_MODEL_PATHS)
 
 
-def dense_neighbor_edges(
-  positions,
-  neighbors,
-  *,
-  box_vectors=None,
-):
-  num_atoms = positions.shape[0]
-  atom_ids = jnp.arange(num_atoms, dtype=jnp.int32)
-  neighbors = jnp.asarray(neighbors, dtype=jnp.int32)
-  neighbor_mask = (neighbors >= 0) & (neighbors < num_atoms)
-  safe_neighbors = jnp.where(neighbor_mask, neighbors, atom_ids[:, None])
+def neighbor_list_featurizer(displacement_fn):
+  def featurize(position, neighbor, **kwargs):
+    num_atoms = position.shape[0]
+    atom_ids = jnp.arange(num_atoms, dtype=jnp.int32)
+    idx = jnp.asarray(neighbor.idx, dtype=jnp.int32)
+    mask = partition.neighbor_list_mask(neighbor)
+    safe_idx = jnp.where(mask, idx, atom_ids[:, None])
+    d = space.map_neighbor(partial(displacement_fn, **kwargs))
+    edge_vectors = d(position, position[safe_idx])
+    edge_vectors = jnp.where(mask[..., None], edge_vectors, 0.0)
+    return edge_vectors, safe_idx, mask
 
-  neighbor_positions = positions[safe_neighbors]
-  if box_vectors is None:
-    edge_vectors = neighbor_positions - positions[:, None, :]
-  else:
-    displacement, _ = space.periodic_general(
-      jnp.swapaxes(jnp.asarray(box_vectors, dtype=positions.dtype), -1, -2),
-      fractional_coordinates=False,
-    )
-    edge_vectors = space.map_neighbor(displacement)(
-      positions, neighbor_positions
-    )
-  edge_vectors = jnp.where(neighbor_mask[..., None], edge_vectors, 0.0)
-  return edge_vectors, safe_neighbors, neighbor_mask
+  return featurize
 
 
 def piecewise_cutoff(distance, cutoff: float):
@@ -142,8 +128,6 @@ class ANI2x(eqx.Module):
   layer_weights: list
   layer_biases: list
 
-  neighbor_cell_atom_threshold: int = eqx.field(static=True)
-  neighbor_cell_capacity_multiplier: float = eqx.field(static=True)
   radial_eta: float = eqx.field(static=True)
   angular_eta: float = eqx.field(static=True)
   zeta: float = eqx.field(static=True)
@@ -170,10 +154,6 @@ class ANI2x(eqx.Module):
     checkpoint: ANI2xCheckpoint,
     active_species: tuple[int, ...] | None = None,
   ):
-    self.neighbor_cell_atom_threshold = config['neighbor_cell_atom_threshold']
-    self.neighbor_cell_capacity_multiplier = config[
-      'neighbor_cell_capacity_multiplier'
-    ]
     self.radial_eta = config['radial_eta']
     self.angular_eta = config['angular_eta']
     self.radial_divisions = config['radial_divisions']
@@ -243,9 +223,8 @@ class ANI2x(eqx.Module):
     positions,
     species,
     *,
-    radial_neighbor_idx,
-    angular_neighbor_idx,
-    box_vectors,
+    neighbor,
+    displacement_fn,
   ):
     species = jnp.asarray(species, dtype=jnp.int32)
     num_atoms = species.shape[0]
@@ -262,13 +241,15 @@ class ANI2x(eqx.Module):
 
     local_species = species_lookup[species]
 
-    radial_displacements, radial_safe_neighbors, radial_neighbor_mask = (
-      dense_neighbor_edges(
-        positions,
-        radial_neighbor_idx,
-        box_vectors=box_vectors,
-      )
+    # One list at the radial cutoff also feeds the angular terms; neighbors
+    # outside the smaller angular cutoff are masked out below.
+    featurize = neighbor_list_featurizer(displacement_fn)
+    edge_displacements, safe_neighbors, edge_mask = featurize(
+      positions, neighbor
     )
+    radial_displacements = angular_displacements = edge_displacements
+    radial_safe_neighbors = angular_safe_neighbors = safe_neighbors
+    radial_neighbor_mask = angular_neighbor_mask = edge_mask
     local_radial_neighbor_species = local_species[radial_safe_neighbors]
 
     # R_ij is the distance between atom i and radial neighbor j.
@@ -304,13 +285,6 @@ class ANI2x(eqx.Module):
       self.num_active_species * self.radial_divisions,
     )
 
-    angular_displacements, angular_safe_neighbors, angular_neighbor_mask = (
-      dense_neighbor_edges(
-        positions,
-        angular_neighbor_idx,
-        box_vectors=box_vectors,
-      )
-    )
     angular_neighbor_species = species[angular_safe_neighbors]
 
     # Eq. 4/5: angular symmetry terms over unique neighbor pairs around atom i.
@@ -330,7 +304,7 @@ class ANI2x(eqx.Module):
     )
 
     neighbor_i_np, neighbor_j_np = np.triu_indices(
-      int(angular_neighbor_idx.shape[1]), k=1
+      int(neighbor.idx.shape[1]), k=1
     )
     neighbor_i = jnp.asarray(neighbor_i_np, dtype=jnp.int32)
     neighbor_j = jnp.asarray(neighbor_j_np, dtype=jnp.int32)
@@ -421,42 +395,19 @@ class ANI2x(eqx.Module):
     positions,
     species,
     *,
-    box_vectors=None,
-    radial_neighbors=None,
-    angular_neighbors=None,
-    radial_neighbor_idx=None,
-    angular_neighbor_idx=None,
-    periodic: bool | None = False,
+    displacement_fn=None,
+    neighbors=None,
   ):
-    periodic = bool(periodic)
-    if radial_neighbor_idx is None:
-      radial_neighbors = get_neighbors(
-        positions,
-        box_vectors,
-        cell_atom_threshold=int(self.neighbor_cell_atom_threshold),
-        cutoff=float(self.radial_cutoff),
-        cell_capacity_multiplier=float(self.neighbor_cell_capacity_multiplier),
-        neighbors=radial_neighbors,
-        periodic=periodic,
+    if displacement_fn is None or neighbors is None:
+      raise ValueError(
+        'ANI requires a displacement_fn and a neighbor list. Build them '
+        'with energy.ani_neighbor_list.'
       )
-      radial_neighbor_idx = radial_neighbors.idx
-    if angular_neighbor_idx is None:
-      angular_neighbors = get_neighbors(
-        positions,
-        box_vectors,
-        cell_atom_threshold=int(self.neighbor_cell_atom_threshold),
-        cutoff=float(self.angular_cutoff),
-        cell_capacity_multiplier=float(self.neighbor_cell_capacity_multiplier),
-        neighbors=angular_neighbors,
-        periodic=periodic,
-      )
-      angular_neighbor_idx = angular_neighbors.idx
     node_energies = self.local_node_energies(
       positions,
       species,
-      radial_neighbor_idx=radial_neighbor_idx,
-      angular_neighbor_idx=angular_neighbor_idx,
-      box_vectors=box_vectors if periodic else None,
+      neighbor=neighbors,
+      displacement_fn=displacement_fn,
     )
     local_energy = jnp.sum(node_energies)
     return local_energy
@@ -467,8 +418,6 @@ def load_model(
   *,
   atomic_numbers=None,
   model_path: str | PathLike | None = None,
-  neighbor_cell_atom_threshold: int | None = None,
-  neighbor_cell_capacity_multiplier: float | None = None,
 ) -> ANI2x:
   """Load an ANI-2x checkpoint, optionally specialized to a fixed atomic-number set."""
 
@@ -484,12 +433,6 @@ def load_model(
   with path.open('rb') as handle:
     config = json.loads(handle.readline().decode())
     config = dict(config)
-    if neighbor_cell_atom_threshold is not None:
-      config['neighbor_cell_atom_threshold'] = int(neighbor_cell_atom_threshold)
-    if neighbor_cell_capacity_multiplier is not None:
-      config['neighbor_cell_capacity_multiplier'] = float(
-        neighbor_cell_capacity_multiplier
-      )
     active_species = None
     if atomic_numbers is not None:
       species = jnp.asarray(config['species_to_index'], dtype=jnp.int32)[

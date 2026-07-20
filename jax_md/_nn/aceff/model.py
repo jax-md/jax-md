@@ -2,6 +2,7 @@
 
 import json
 import pickle
+from functools import partial
 from os import PathLike
 from pathlib import Path
 from typing import Any
@@ -10,8 +11,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax_md import space
-from jax_md._nn.neighbors import get_neighbors
+from jax_md import partition
 
 jax.config.update('jax_default_matmul_precision', 'highest')
 
@@ -22,42 +22,35 @@ ACEFF_MODEL_PATHS = {
 ACEFF_MODEL_NAMES = tuple(ACEFF_MODEL_PATHS)
 
 
-def dense_neighbor_edges(
-  positions, neighbors, *, cutoff: float, box_vectors=None
-):
-  num_atoms = int(positions.shape[0])
-  atom_ids = jnp.arange(num_atoms, dtype=jnp.int32)
-  neighbor_idx = jnp.asarray(
-    neighbors.idx if hasattr(neighbors, 'idx') else neighbors,
-    dtype=jnp.int32,
-  )
-  valid = (neighbor_idx >= 0) & (neighbor_idx < num_atoms)
-  valid = valid & (neighbor_idx != atom_ids[:, None])
-  fallback_dst = jnp.where(num_atoms > 1, (atom_ids + 1) % num_atoms, atom_ids)
-  safe_dst = jnp.where(valid, neighbor_idx, fallback_dst[:, None])
+def neighbor_list_featurizer(displacement_fn, *, cutoff: float):
+  def featurize(position, neighbor, **kwargs):
+    num_atoms = position.shape[0]
+    atom_ids = jnp.arange(num_atoms, dtype=jnp.int32)
+    mask = partition.neighbor_list_mask(neighbor, True)
+    if partition.is_sparse(neighbor.format):
+      receivers, senders = jnp.asarray(neighbor.idx, dtype=jnp.int32)
+      src = jnp.where(mask, senders, 0)
+      dst_raw = receivers
+    else:
+      idx = jnp.asarray(neighbor.idx, dtype=jnp.int32)
+      src = jnp.repeat(atom_ids, idx.shape[1])
+      dst_raw = idx.reshape(-1)
+      mask = mask.reshape(-1)
+    fallback = jnp.where(num_atoms > 1, (src + 1) % num_atoms, src)
+    dst = jnp.where(mask, dst_raw, fallback)
 
-  edge_src = jnp.concatenate(
-    [atom_ids, jnp.repeat(atom_ids, neighbor_idx.shape[1])]
-  )
-  edge_dst = jnp.concatenate([atom_ids, safe_dst.reshape((-1,))])
-  edge_mask = jnp.concatenate(
-    [jnp.ones((num_atoms,), dtype=bool), valid.reshape((-1,))]
-  )
+    edge_src = jnp.concatenate([atom_ids, src])
+    edge_dst = jnp.concatenate([atom_ids, dst])
+    edge_mask = jnp.concatenate([jnp.ones((num_atoms,), dtype=bool), mask])
 
-  raw_vec = positions[edge_src] - positions[edge_dst]
-  if box_vectors is None:
-    pbc_shifts = jnp.zeros_like(raw_vec)
-  else:
-    displacement, _ = space.periodic_general(
-      jnp.swapaxes(jnp.asarray(box_vectors, dtype=positions.dtype), -1, -2),
-      fractional_coordinates=False,
-    )
-    edge_vec = jax.vmap(displacement)(positions[edge_src], positions[edge_dst])
-    pbc_shifts = edge_vec - raw_vec
+    raw_vec = position[edge_src] - position[edge_dst]
+    d = jax.vmap(partial(displacement_fn, **kwargs))
+    pbc_shifts = d(position[edge_src], position[edge_dst]) - raw_vec
+    far_shift = jnp.zeros_like(raw_vec).at[:, 0].set(float(cutoff) + 1.0)
+    pbc_shifts = jnp.where(edge_mask[:, None], pbc_shifts, far_shift - raw_vec)
+    return edge_src, edge_dst, pbc_shifts, edge_mask
 
-  far_shift = jnp.zeros_like(pbc_shifts).at[:, 0].set(float(cutoff) + 1.0)
-  pbc_shifts = jnp.where(edge_mask[:, None], pbc_shifts, far_shift - raw_vec)
-  return edge_src, edge_dst, pbc_shifts, edge_mask
+  return featurize
 
 
 def unique_pairs(num_atoms: int):
@@ -533,20 +526,13 @@ class CoulombHead(eqx.Module):
     positions,
     partial_charges,
     *,
-    box_vectors=None,
+    displacement_fn,
   ):
     partial_charges = jnp.concatenate(partial_charges, axis=-1)
     pair_src, pair_dst = unique_pairs(int(positions.shape[0]))
-    if box_vectors is None:
-      pair_vectors = positions[pair_src] - positions[pair_dst]
-    else:
-      displacement, _ = space.periodic_general(
-        jnp.swapaxes(jnp.asarray(box_vectors, dtype=positions.dtype), -1, -2),
-        fractional_coordinates=False,
-      )
-      pair_vectors = jax.vmap(displacement)(
-        positions[pair_src], positions[pair_dst]
-      )
+    pair_vectors = jax.vmap(displacement_fn)(
+      positions[pair_src], positions[pair_dst]
+    )
 
     distances = safe_norm(pair_vectors, axis=-1)
     damping_x = jnp.clip(
@@ -601,8 +587,6 @@ class AceFF(eqx.Module):
   coulomb_cutoff: float | None = eqx.field(static=True)
   coulomb_epsilon_solvent: float = eqx.field(static=True)
   exp_minus_1: float = eqx.field(static=True)
-  neighbor_cell_atom_threshold: int = eqx.field(static=True)
-  neighbor_cell_capacity_multiplier: float = eqx.field(static=True)
 
   def __init__(self, params, config):
     self.name = str(config['name'])
@@ -628,12 +612,6 @@ class AceFF(eqx.Module):
       config.get('coulomb_epsilon_solvent', 78.3)
     )
     self.exp_minus_1 = float(config['exp_minus_1'])
-    self.neighbor_cell_atom_threshold = int(
-      config['neighbor_cell_atom_threshold']
-    )
-    self.neighbor_cell_capacity_multiplier = float(
-      config['neighbor_cell_capacity_multiplier']
-    )
     self.rbf_betas = params['rbf_betas']
     self.rbf_means = params['rbf_means']
     self.tensor_embedding = TensorEmbedding(
@@ -778,31 +756,19 @@ class AceFF(eqx.Module):
     positions,
     species,
     *,
-    box_vectors=None,
+    displacement_fn=None,
     neighbors=None,
-    neighbor_idx=None,
-    periodic=False,
     total_charge=0.0,
   ):
-    periodic = bool(periodic)
-    if neighbor_idx is None:
-      neighbors = get_neighbors(
-        positions,
-        box_vectors if periodic else None,
-        cutoff=float(self.cutoff),
-        cell_atom_threshold=int(self.neighbor_cell_atom_threshold),
-        cell_capacity_multiplier=float(self.neighbor_cell_capacity_multiplier),
-        neighbors=neighbors,
-        periodic=periodic,
+    if displacement_fn is None or neighbors is None:
+      raise ValueError(
+        'AceFF requires a displacement_fn and a neighbor list. Build them '
+        'with energy.aceff_neighbor_list.'
       )
-      neighbor_idx = neighbors.idx
-
-    edge_src, edge_dst, pbc_shifts, edge_mask = dense_neighbor_edges(
-      positions,
-      neighbor_idx,
-      cutoff=float(self.cutoff),
-      box_vectors=box_vectors if periodic else None,
+    featurize = neighbor_list_featurizer(
+      displacement_fn, cutoff=float(self.cutoff)
     )
+    edge_src, edge_dst, pbc_shifts, edge_mask = featurize(positions, neighbors)
     node_energies, partial_charges = self.local_node_energies_and_charges(
       positions,
       species,
@@ -819,7 +785,7 @@ class AceFF(eqx.Module):
     coulomb_energy = self.coulomb_head(
       positions,
       partial_charges,
-      box_vectors=box_vectors if periodic else None,
+      displacement_fn=displacement_fn,
     )
     total_energy = local_energy + coulomb_energy
     return total_energy
@@ -830,8 +796,6 @@ def load_model(
   *,
   model_path: str | PathLike | None = None,
   dtype: Any = jnp.float32,
-  neighbor_cell_atom_threshold: int | None = None,
-  neighbor_cell_capacity_multiplier: float | None = None,
 ):
   if model_path is not None:
     path = Path(model_path)
@@ -844,12 +808,6 @@ def load_model(
 
   with path.open('rb') as handle:
     config = dict(json.loads(handle.readline().decode()))
-    if neighbor_cell_atom_threshold is not None:
-      config['neighbor_cell_atom_threshold'] = int(neighbor_cell_atom_threshold)
-    if neighbor_cell_capacity_multiplier is not None:
-      config['neighbor_cell_capacity_multiplier'] = float(
-        neighbor_cell_capacity_multiplier
-      )
     loaded = pickle.load(handle)
     loaded = AceFF(loaded, config)
   if dtype == jnp.float32:

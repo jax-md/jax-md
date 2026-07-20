@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+from functools import partial
 from os import PathLike
 from pathlib import Path
 from typing import Any
@@ -14,8 +15,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax import Array
 from jax.scipy.special import erfc
-from jax_md import space
-from jax_md._nn.neighbors import get_neighbors
+from jax_md import partition, space
 
 jax.config.update('jax_default_matmul_precision', 'highest')
 
@@ -25,39 +25,26 @@ AIMNET2_MODEL_PATHS = {
 AIMNET2_MODEL_NAMES = tuple(AIMNET2_MODEL_PATHS)
 
 
-def dense_neighbor_edges(
-  positions,
-  neighbors,
-  *,
-  box_vectors=None,
-  cutoff: float | None = None,
-):
-  num_atoms = positions.shape[0]
-  atom_ids = jnp.arange(num_atoms, dtype=jnp.int32)
-  neighbors = jnp.asarray(neighbors, dtype=jnp.int32)
-  neighbor_mask = (neighbors >= 0) & (neighbors < num_atoms)
-  safe_neighbors = jnp.where(neighbor_mask, neighbors, atom_ids[:, None])
-
-  neighbor_positions = positions[safe_neighbors]
-  if box_vectors is None:
-    edge_vectors = neighbor_positions - positions[:, None, :]
-  else:
-    displacement, _ = space.periodic_general(
-      jnp.swapaxes(jnp.asarray(box_vectors, dtype=positions.dtype), -1, -2),
-      fractional_coordinates=False,
+def neighbor_list_featurizer(displacement_fn, *, cutoff: float):
+  def featurize(position, neighbor, **kwargs):
+    num_atoms = position.shape[0]
+    atom_ids = jnp.arange(num_atoms, dtype=jnp.int32)
+    idx = jnp.asarray(neighbor.idx, dtype=jnp.int32)
+    valid = partition.neighbor_list_mask(neighbor)
+    safe_neighbors = jnp.where(valid, idx, atom_ids[:, None])
+    d = space.map_neighbor(partial(displacement_fn, **kwargs))
+    edge_vectors = d(position, position[safe_neighbors]).astype(position.dtype)
+    distances = safe_norm(edge_vectors, axis=-1)
+    edge_mask = (
+      valid
+      & (safe_neighbors != atom_ids[:, None])
+      & (distances > 1.0e-8)
+      & (distances < float(cutoff))
     )
-    edge_vectors = space.map_neighbor(displacement)(
-      positions, neighbor_positions
-    )
+    edge_vectors = jnp.where(edge_mask[..., None], edge_vectors, 0.0)
+    return edge_vectors, safe_neighbors, edge_mask
 
-  distances = safe_norm(edge_vectors, axis=-1)
-  edge_mask = (
-    neighbor_mask & (safe_neighbors != atom_ids[:, None]) & (distances > 1.0e-8)
-  )
-  if cutoff is not None:
-    edge_mask = edge_mask & (distances < cutoff)
-  edge_vectors = jnp.where(edge_mask[..., None], edge_vectors, 0.0)
-  return edge_vectors, safe_neighbors, edge_mask
+  return featurize
 
 
 def safe_norm(
@@ -128,18 +115,14 @@ class Linear(eqx.Module):
 def d3bj_energy_neighbors(
   positions: Array,
   d3_pre: dict[str, Array],
-  neighbor_idx: Array,
-  box_vectors: Array | None = None,
+  neighbor,
+  displacement_fn,
   *,
   cutoff: float,
   smoothing_fraction: float,
 ) -> Array:
-  edge_vectors, safe_neighbors, edge_mask = dense_neighbor_edges(
-    positions,
-    neighbor_idx,
-    box_vectors=box_vectors,
-    cutoff=float(cutoff),
-  )
+  featurize = neighbor_list_featurizer(displacement_fn, cutoff=float(cutoff))
+  edge_vectors, safe_neighbors, edge_mask = featurize(positions, neighbor)
   distances = safe_norm(edge_vectors, axis=-1)
   rij = distances / float(d3_pre['bohr_a'])
   sp_idx = d3_pre['species_idx']
@@ -281,19 +264,15 @@ def _short_range_coulomb_dense(
 def _dsf_coulomb_dense(
   charges: Array,
   positions: Array,
-  neighbor_idx: Array,
+  neighbor,
+  displacement_fn,
   *,
-  box_vectors: Array,
   cutoff: float,
   alpha: float,
   coulomb_factor: float,
 ) -> Array:
-  edge_vectors, safe_neighbors, edge_mask = dense_neighbor_edges(
-    positions,
-    neighbor_idx,
-    box_vectors=box_vectors,
-    cutoff=float(cutoff),
-  )
+  featurize = neighbor_list_featurizer(displacement_fn, cutoff=float(cutoff))
+  edge_vectors, safe_neighbors, edge_mask = featurize(positions, neighbor)
   d = safe_norm(edge_vectors, axis=-1)
   rc = float(cutoff)
   erfc_alpha_rc = float(math.erfc(float(alpha) * rc))
@@ -608,8 +587,6 @@ class AIMNet2(eqx.Module):
   d3_s8: float = eqx.field(static=True)
   d3_a1: float = eqx.field(static=True)
   d3_a2: float = eqx.field(static=True)
-  neighbor_cell_atom_threshold: int = eqx.field(static=True)
-  neighbor_cell_capacity_multiplier: float = eqx.field(static=True)
   lr_cutoff: float = eqx.field(static=True)
   d3_smoothing_fraction: float = eqx.field(static=True)
   dsf_alpha: float = eqx.field(static=True)
@@ -650,12 +627,6 @@ class AIMNet2(eqx.Module):
     self.d3_s8 = float(config['d3_s8'])
     self.d3_a1 = float(config['d3_a1'])
     self.d3_a2 = float(config['d3_a2'])
-    self.neighbor_cell_atom_threshold = int(
-      config['neighbor_cell_atom_threshold']
-    )
-    self.neighbor_cell_capacity_multiplier = float(
-      config['neighbor_cell_capacity_multiplier']
-    )
     self.lr_cutoff = float(config['lr_cutoff'])
     self.d3_smoothing_fraction = float(config['d3_smoothing_fraction'])
     self.dsf_alpha = float(config['dsf_alpha'])
@@ -722,8 +693,9 @@ class AIMNet2(eqx.Module):
     r_ij,
     neighbors,
     edge_mask,
-    lr_neighbor_idx,
-    box_vectors,
+    lr_neighbor,
+    displacement_fn,
+    periodic,
   ):
     partial_charges = partial_charges.squeeze(-1)
     local_coulomb = _short_range_coulomb_dense(
@@ -735,7 +707,7 @@ class AIMNet2(eqx.Module):
       coulomb_factor=self.coulomb_factor,
       exp_minus_1=self.exp_minus_1,
     )
-    if box_vectors is None:
+    if not periodic:
       total_coulomb = _simple_coulomb_all_pairs(
         positions,
         partial_charges,
@@ -745,8 +717,8 @@ class AIMNet2(eqx.Module):
       total_coulomb = _dsf_coulomb_dense(
         partial_charges,
         positions,
-        lr_neighbor_idx,
-        box_vectors=box_vectors,
+        lr_neighbor,
+        displacement_fn,
         cutoff=float(self.lr_cutoff),
         alpha=float(self.dsf_alpha),
         coulomb_factor=self.coulomb_factor,
@@ -758,24 +730,20 @@ class AIMNet2(eqx.Module):
     positions: Array,
     species: Array,
     *,
-    neighbor_idx: Array,
+    neighbor,
+    displacement_fn,
     total_charge: Array | float = 0.0,
-    box_vectors: Array | None = None,
   ) -> tuple[Array, Array, Array, Array, Array]:
     """Return local node energies plus intermediates needed by global terms."""
 
     model_dtype = self.layer.afv.dtype
     positions = positions.astype(model_dtype)
-    if box_vectors is not None:
-      box_vectors = box_vectors.astype(model_dtype)
     total_charge = jnp.asarray(total_charge, dtype=model_dtype)
     species = jnp.asarray(species, dtype=jnp.int32)
-    local_vectors, neighbors, edge_mask = dense_neighbor_edges(
-      positions,
-      neighbor_idx,
-      box_vectors=box_vectors,
-      cutoff=float(self.cutoff),
+    featurize = neighbor_list_featurizer(
+      displacement_fn, cutoff=float(self.cutoff)
     )
+    local_vectors, neighbors, edge_mask = featurize(positions, neighbor)
     r_ij = safe_norm(local_vectors, axis=-1)
     unit_vectors = local_vectors / jnp.maximum(r_ij[..., None], 1.0e-8)
     g_ijs = radial_symmetry_functions(
@@ -803,72 +771,48 @@ class AIMNet2(eqx.Module):
     species: Array,
     *,
     d3_data: dict[str, Array],
-    box_vectors: Array | None = None,
+    displacement_fn=None,
     neighbors=None,
-    neighbor_idx: Array | None = None,
     lr_neighbors=None,
-    lr_neighbor_idx: Array | None = None,
-    periodic: bool | None = False,
+    periodic: bool = True,
     total_charge: Array | float = 0.0,
   ) -> Array:
-    periodic = bool(periodic)
-    if neighbor_idx is None:
-      neighbors = get_neighbors(
-        positions,
-        box_vectors if periodic else None,
-        cutoff=float(self.cutoff),
-        cell_atom_threshold=int(self.neighbor_cell_atom_threshold),
-        cell_capacity_multiplier=float(self.neighbor_cell_capacity_multiplier),
-        neighbors=neighbors,
-        periodic=periodic,
+    if displacement_fn is None or neighbors is None or lr_neighbors is None:
+      raise ValueError(
+        'AIMNet2 requires a displacement_fn and short- and long-range '
+        'neighbor lists. Build them with energy.aimnet2_neighbor_list.'
       )
-      neighbor_idx = neighbors.idx
-    if lr_neighbor_idx is None:
-      lr_neighbors = get_neighbors(
-        positions,
-        box_vectors if periodic else None,
-        cutoff=float(self.lr_cutoff),
-        cell_atom_threshold=int(self.neighbor_cell_atom_threshold),
-        cell_capacity_multiplier=float(self.neighbor_cell_capacity_multiplier),
-        neighbors=lr_neighbors,
-        periodic=periodic,
-      )
-      lr_neighbor_idx = lr_neighbors.idx
-
-    box_vectors = box_vectors if periodic else None
     with jax.enable_x64(True):
       positions64 = positions.astype(jnp.float64)
-      box_vectors64 = (
-        box_vectors.astype(jnp.float64) if box_vectors is not None else None
-      )
       (
         node_energies,
         partial_charges,
         r_ij,
-        neighbors,
+        neighbor_ids,
         edge_mask,
       ) = self.local_node_energies_and_charges(
         positions64,
         species,
-        neighbor_idx=neighbor_idx,
+        neighbor=neighbors,
+        displacement_fn=displacement_fn,
         total_charge=total_charge,
-        box_vectors=box_vectors64,
       )
       local_energy = jnp.sum(node_energies)
       coulomb_energy = self.coulomb_energy(
         partial_charges,
         positions64,
         r_ij,
-        neighbors,
+        neighbor_ids,
         edge_mask,
-        lr_neighbor_idx,
-        box_vectors64,
+        lr_neighbors,
+        displacement_fn,
+        periodic,
       )
       dispersion_energy = d3bj_energy_neighbors(
         positions64,
         d3_data,
-        lr_neighbor_idx,
-        box_vectors=box_vectors64,
+        lr_neighbors,
+        displacement_fn,
         cutoff=float(self.lr_cutoff),
         smoothing_fraction=float(self.d3_smoothing_fraction),
       ).astype(jnp.float64)
@@ -881,8 +825,6 @@ def load_model(
   model: str | PathLike = 'aimnet2-jax',
   *,
   model_path: str | PathLike | None = None,
-  neighbor_cell_atom_threshold: int | None = None,
-  neighbor_cell_capacity_multiplier: float | None = None,
 ) -> AIMNet2:
   if model_path is not None:
     path = Path(model_path)
@@ -894,12 +836,6 @@ def load_model(
     path = Path(model)
   with path.open('rb') as handle:
     config = dict(json.loads(handle.readline().decode()))
-    if neighbor_cell_atom_threshold is not None:
-      config['neighbor_cell_atom_threshold'] = int(neighbor_cell_atom_threshold)
-    if neighbor_cell_capacity_multiplier is not None:
-      config['neighbor_cell_capacity_multiplier'] = float(
-        neighbor_cell_capacity_multiplier
-      )
     with jax.enable_x64(True):
       template = AIMNet2(config=config, dtype=jnp.float32)
       return eqx.tree_deserialise_leaves(handle, template)
