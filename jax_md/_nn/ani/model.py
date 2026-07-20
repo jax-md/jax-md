@@ -8,7 +8,8 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax_md import partition, space
+from jax_md import space
+from jax_md._nn.neighbors import get_neighbors
 
 jax.config.update('jax_default_matmul_precision', 'highest')
 
@@ -50,51 +51,6 @@ def dense_neighbor_edges(
     )
   edge_vectors = jnp.where(neighbor_mask[..., None], edge_vectors, 0.0)
   return edge_vectors, safe_neighbors, neighbor_mask
-
-
-def get_neighbors(
-  positions,
-  box=None,
-  *,
-  cell_atom_threshold: int,
-  cutoff: float,
-  cell_capacity_multiplier: float,
-  neighbors=None,
-  periodic: bool = False,
-):
-  num_atoms = int(positions.shape[0])
-  use_cell_list = periodic and num_atoms >= cell_atom_threshold
-  if periodic:
-    if box is None:
-      raise ValueError('periodic neighbor lists require OpenMM box vectors.')
-    jax_box = jnp.swapaxes(jnp.asarray(box, dtype=positions.dtype), -1, -2)
-    displacement, _ = space.periodic_general(
-      jax_box,
-      fractional_coordinates=False,
-    )
-    neighbor_kwargs = {'box': jax_box}
-  else:
-    displacement, _ = space.free()
-    neighbor_kwargs = {}
-
-  if neighbors is not None:
-    return neighbors.update(positions)
-
-  neighbor_fn = partition.neighbor_list(
-    displacement,
-    jnp.asarray(1.0, dtype=positions.dtype),
-    float(cutoff),
-    dr_threshold=0.0,
-    capacity_multiplier=float(cell_capacity_multiplier),
-    disable_cell_list=not use_cell_list,
-    mask_self=True,
-    fractional_coordinates=False,
-    format=partition.NeighborListFormat.Dense,
-  )
-  return neighbor_fn.allocate(
-    positions,
-    **neighbor_kwargs,
-  )
 
 
 def piecewise_cutoff(distance, cutoff: float):

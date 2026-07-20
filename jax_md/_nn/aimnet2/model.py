@@ -14,7 +14,8 @@ import jax.numpy as jnp
 import numpy as np
 from jax import Array
 from jax.scipy.special import erfc
-from jax_md import partition, space
+from jax_md import space
+from jax_md._nn.neighbors import get_neighbors
 
 jax.config.update('jax_default_matmul_precision', 'highest')
 
@@ -22,52 +23,6 @@ AIMNET2_MODEL_PATHS = {
   'aimnet2-jax': Path(__file__).resolve().with_name('aimnet2.eqx'),
 }
 AIMNET2_MODEL_NAMES = tuple(AIMNET2_MODEL_PATHS)
-
-
-def get_neighbors(
-  positions,
-  box=None,
-  *,
-  cutoff: float,
-  cell_atom_threshold: int = 64,
-  cell_capacity_multiplier: float = 1.5,
-  neighbors=None,
-  periodic: bool = False,
-  dr_threshold: float = 0.0,
-):
-  num_atoms = int(positions.shape[0])
-  use_cell_list = periodic and num_atoms >= cell_atom_threshold
-  if periodic:
-    if box is None:
-      raise ValueError('periodic neighbor lists require a box.')
-    jax_box = jnp.swapaxes(jnp.asarray(box, dtype=positions.dtype), -1, -2)
-    displacement, _ = space.periodic_general(
-      jax_box,
-      fractional_coordinates=False,
-    )
-    neighbor_kwargs = {'box': jax_box}
-  else:
-    displacement, _ = space.free()
-    neighbor_kwargs = {}
-
-  if neighbors is not None:
-    return neighbors.update(positions)
-
-  neighbor_fn = partition.neighbor_list(
-    displacement,
-    jnp.asarray(1.0, dtype=positions.dtype),
-    float(cutoff),
-    dr_threshold=float(dr_threshold),
-    capacity_multiplier=float(cell_capacity_multiplier),
-    disable_cell_list=not use_cell_list,
-    mask_self=True,
-    fractional_coordinates=False,
-    format=partition.NeighborListFormat.Dense,
-  )
-  return neighbor_fn.allocate(
-    positions,
-    **neighbor_kwargs,
-  )
 
 
 def dense_neighbor_edges(

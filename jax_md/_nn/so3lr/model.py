@@ -12,7 +12,8 @@ import jax.numpy as jnp
 import numpy as np
 from jax import Array
 from jax.ops import segment_sum
-from jax_md import partition, space
+from jax_md import partition
+from jax_md._nn.neighbors import get_neighbors, neighbor_displacement
 
 jax.config.update('jax_default_matmul_precision', 'highest')
 
@@ -24,58 +25,6 @@ SO3LR_MODEL_PATHS = {
   'so3lr': Path(__file__).resolve().with_name('so3lr.eqx'),
 }
 SO3LR_MODEL_NAMES = tuple(SO3LR_MODEL_PATHS)
-
-
-def _neighbor_displacement(positions, box=None, *, periodic: bool):
-  if not periodic:
-    displacement, _ = space.free()
-    return displacement, {}
-  if box is None:
-    raise ValueError('periodic SO3LR neighbor lists require a box.')
-  jax_box = jnp.swapaxes(jnp.asarray(box, dtype=positions.dtype), -1, -2)
-  displacement, _ = space.periodic_general(
-    jax_box,
-    fractional_coordinates=False,
-  )
-  return displacement, {'box': jax_box}
-
-
-def get_sparse_neighbors(
-  positions,
-  box=None,
-  *,
-  cutoff: float,
-  cell_atom_threshold: int = 64,
-  cell_capacity_multiplier: float = 1.5,
-  neighbors=None,
-  periodic: bool = False,
-):
-  num_atoms = int(positions.shape[0])
-  use_cell_list = periodic and num_atoms >= int(cell_atom_threshold)
-  displacement, neighbor_kwargs = _neighbor_displacement(
-    positions,
-    box,
-    periodic=periodic,
-  )
-
-  if neighbors is not None:
-    return neighbors.update(positions)
-
-  neighbor_fn = partition.neighbor_list(
-    displacement,
-    jnp.asarray(1.0, dtype=positions.dtype),
-    float(cutoff),
-    dr_threshold=0.0,
-    capacity_multiplier=float(cell_capacity_multiplier),
-    disable_cell_list=not use_cell_list,
-    mask_self=True,
-    fractional_coordinates=False,
-    format=partition.NeighborListFormat.Sparse,
-  )
-  return neighbor_fn.allocate(
-    positions,
-    **neighbor_kwargs,
-  )
 
 
 def so3lr_sparse_edges(positions, neighbors, *, displacement):
@@ -103,10 +52,11 @@ def get_sparse_edge_data(
   periodic: bool,
   displacement,
 ):
-  neighbors = get_sparse_neighbors(
+  neighbors = get_neighbors(
     positions,
     box,
     cutoff=cutoff,
+    format=partition.NeighborListFormat.Sparse,
     cell_atom_threshold=cell_atom_threshold,
     cell_capacity_multiplier=cell_capacity_multiplier,
     neighbors=neighbors,
@@ -960,7 +910,7 @@ class SO3LR(eqx.Module):
     positions = jnp.asarray(positions, dtype=jnp.float32)
     atomic_numbers = jnp.asarray(species, dtype=jnp.int32)
     box_vectors = box_vectors if periodic else None
-    displacement, _ = _neighbor_displacement(
+    displacement, _ = neighbor_displacement(
       positions,
       box_vectors,
       periodic=periodic,

@@ -2520,6 +2520,83 @@ def load_gnome_model_neighbor_list(
   return neighbor_fn, energy_fn
 
 
+def orb_neighbor_list(
+  displacement_fn=None,
+  box=None,
+  species=None,
+  model: str = 'orb-jax-v3-conservative-omol',
+  model_path=None,
+  total_charge: float = 0.0,
+  total_spin: float = 0.0,
+  dr_threshold: float = 0.0,
+  capacity_multiplier: float = 1.25,
+  disable_cell_list: bool = False,
+  neighbor_list_fn: Callable = partition.neighbor_list,
+  **nl_kwargs,
+):
+  """Convenience wrapper to compute Orb energy using a neighbor list.
+
+  Args:
+    displacement_fn: Displacement function from `jax_md.space`. Defaults to
+      `space.periodic_general(box)`; pass `space.free()[0]` for free space.
+    box: Box matrix with columns as lattice vectors, shape (dim, dim).
+    species: Atomic numbers, shape (num_atoms,). May be overridden per call.
+    model: Pretrained checkpoint name passed to `orb.load_model`.
+    model_path: Optional path to a local checkpoint, overriding `model`.
+    total_charge: Total charge. May be overridden per call.
+    total_spin: Total spin. May be overridden per call.
+    dr_threshold: Skin distance added to the cutoff.
+    capacity_multiplier: Multiplier used to size the neighbor list buffer.
+    disable_cell_list: If True, search all atom pairs.
+    neighbor_list_fn: Neighbor list constructor.
+    **nl_kwargs: Extra neighbor list kwargs, e.g. `format`. Dense and Sparse
+      formats are both supported.
+
+  Returns:
+    A neighbor_fn and energy_fn pair. The energy is in eV.
+  """
+  from jax_md._nn import orb
+
+  if box is None:
+    raise ValueError('orb_neighbor_list requires a box.')
+  if displacement_fn is None:
+    displacement_fn, _ = space.periodic_general(
+      box, fractional_coordinates=False
+    )
+
+  net = orb.load_model(model, model_path=model_path)
+  neighbor_fn = neighbor_list_fn(
+    displacement_fn,
+    box,
+    float(net.cutoff),
+    dr_threshold=dr_threshold,
+    capacity_multiplier=capacity_multiplier,
+    disable_cell_list=disable_cell_list,
+    **nl_kwargs,
+  )
+
+  def energy_fn(
+    position,
+    neighbor,
+    species=species,
+    total_charge=total_charge,
+    total_spin=total_spin,
+    **kwargs,
+  ):
+    if species is None:
+      raise ValueError('Orb requires per-atom species (atomic numbers).')
+    return net(
+      position,
+      species,
+      jnp.atleast_1d(jnp.asarray(total_charge)),
+      jnp.atleast_1d(jnp.asarray(total_spin)),
+      displacement_fn=displacement_fn,
+      neighbors=neighbor,
+    )
+
+  return neighbor_fn, energy_fn
+
+
 # TRIANGULATED SURFACE POTENTIALS / MEMBRANE POTENTIALS
 
 
@@ -2755,8 +2832,13 @@ def uma_neighbor_list(
         using ``partition.neighbor_list``, pass ``uma_featurizer`` explicitly.
     charge: System charge(s), shape ``[num_systems]`` (default: ``[0]``).
     spin: System spin(s), shape ``[num_systems]`` (default: ``[0]``).
-    dataset_idx: Integer dataset index, shape ``[num_systems]`` (default: ``[0]``).
-    head_dataset: Dataset name for pretrained MoE energy head selection.
+    dataset_idx: Integer dataset (task) embedding index, shape
+        ``[num_systems]``. If None, it is derived from ``head_dataset`` against
+        ``cfg.dataset_list`` so the task embedding matches the selected energy
+        head. Falls back to ``[0]`` only when the dataset name cannot be
+        resolved.
+    head_dataset: Dataset name for pretrained MoE energy head selection. Also
+        sets the default task embedding (``dataset_idx``).
     apply_atom_refs: Whether to apply checkpoint task normalizer and element
         references for pretrained checkpoints. Defaults to True when refs are
         available.
@@ -2813,6 +2895,15 @@ def uma_neighbor_list(
   # backbone even when checkpoint_path is not passed here.
   is_moe = is_moe or hasattr(cfg, 'num_experts')
   auto_moe_optimizations = checkpoint_path is not None and is_moe
+
+  # Derive dataset_idx from head_dataset so the task embedding matches the
+  # selected energy head instead of silently defaulting to oc20.
+  if dataset_idx is None and head_dataset is not None:
+    dataset_list = getattr(cfg, 'dataset_list', None)
+    if dataset_list is not None and head_dataset in dataset_list:
+      from jax_md._nn.uma.nn.embedding import dataset_names_to_indices
+
+      dataset_idx = dataset_names_to_indices([head_dataset], dataset_list)
   merge_mole = False if merge_mole is None else bool(merge_mole)
   so2_block_gemm = (
     auto_moe_optimizations if so2_block_gemm is None else bool(so2_block_gemm)

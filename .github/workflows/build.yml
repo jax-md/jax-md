@@ -51,11 +51,15 @@ jobs:
             test-suite: 'mace'
           - python-version: '3.13'
             test-suite: 'mace'
+          - python-version: '3.12'
+            test-suite: 'biomlff'
     steps:
     - name: Install native dependencies
       run: |
         sudo apt-get -y install pandoc
     - uses: actions/checkout@v3
+      with:
+        lfs: ${{ matrix.test-suite == 'biomlff' }}
     - name: Install uv
       uses: astral-sh/setup-uv@v5
     - name: Set up Python ${{ matrix.python-version }}

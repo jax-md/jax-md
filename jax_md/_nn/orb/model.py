@@ -1,8 +1,7 @@
 # Credit to https://github.com/orbital-materials/orb-models
 
-from __future__ import annotations
-
 import json
+from functools import partial
 from os import PathLike
 from pathlib import Path
 from typing import Any
@@ -12,7 +11,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import Array
-from jax_md import partition, space
+from jax_md import partition
 
 jax.config.update('jax_default_matmul_precision', 'highest')
 
@@ -26,94 +25,34 @@ ORB_MODEL_PATHS = {
 ORB_MODEL_NAMES = tuple(ORB_MODEL_PATHS)
 
 
-def get_neighbors(
-  positions,
-  box=None,
-  *,
-  cutoff: float,
-  cell_atom_threshold: int = 64,
-  cell_capacity_multiplier: float = 1.5,
-  neighbors=None,
-  periodic: bool = False,
-  dr_threshold: float = 0.0,
-):
-  num_atoms = int(positions.shape[0])
-  use_cell_list = periodic and num_atoms >= cell_atom_threshold
-  if periodic:
-    if box is None:
-      raise ValueError('periodic neighbor lists require a box.')
-    jax_box = jnp.swapaxes(jnp.asarray(box, dtype=positions.dtype), -1, -2)
-    displacement, _ = space.periodic_general(
-      jax_box,
-      fractional_coordinates=False,
-    )
-    neighbor_kwargs = {'box': jax_box}
-  else:
-    displacement, _ = space.free()
-    neighbor_kwargs = {}
+def neighbor_list_featurizer(displacement_fn, *, cutoff: float | None = None):
+  def featurize(position, neighbor, **kwargs):
+    num_atoms = position.shape[0]
+    mask = partition.neighbor_list_mask(neighbor, True)
+    if partition.is_sparse(neighbor.format):
+      receivers, senders = jnp.asarray(neighbor.idx, dtype=jnp.int32)
+    else:
+      atom_ids = jnp.arange(num_atoms, dtype=jnp.int32)
+      receivers = jnp.asarray(neighbor.idx, dtype=jnp.int32)
+      senders = jnp.broadcast_to(atom_ids[:, None], receivers.shape)
+      receivers = receivers.reshape(-1)
+      senders = senders.reshape(-1)
+      mask = mask.reshape(-1)
 
-  if neighbors is not None:
-    return neighbors.update(positions)
+    senders = jnp.where(mask, senders, 0)
+    receivers = jnp.where(mask, receivers, 0)
 
-  neighbor_fn = partition.neighbor_list(
-    displacement,
-    jnp.asarray(1.0, dtype=positions.dtype),
-    float(cutoff),
-    dr_threshold=float(dr_threshold),
-    capacity_multiplier=float(cell_capacity_multiplier),
-    disable_cell_list=not use_cell_list,
-    mask_self=True,
-    fractional_coordinates=False,
-    format=partition.NeighborListFormat.Dense,
-  )
-  return neighbor_fn.allocate(
-    positions,
-    **neighbor_kwargs,
-  )
+    d = jax.vmap(partial(displacement_fn, **kwargs))
+    edge_vectors = d(position[receivers], position[senders])
 
+    distances = jnp.linalg.norm(edge_vectors, axis=-1)
+    edge_mask = mask & (distances > 1.0e-8)
+    if cutoff is not None:
+      edge_mask = edge_mask & (distances < cutoff)
+    edge_vectors = jnp.where(edge_mask[:, None], edge_vectors, 0.0)
+    return edge_vectors, senders, receivers, edge_mask
 
-def dense_neighbor_edges(
-  positions,
-  neighbors,
-  *,
-  box_vectors=None,
-  cutoff: float | None = None,
-):
-  num_atoms = positions.shape[0]
-  atom_ids = jnp.arange(num_atoms, dtype=jnp.int32)
-  neighbors = jnp.asarray(neighbors, dtype=jnp.int32)
-  neighbor_mask = (neighbors >= 0) & (neighbors < num_atoms)
-  safe_neighbors = jnp.where(neighbor_mask, neighbors, atom_ids[:, None])
-
-  neighbor_positions = positions[safe_neighbors]
-  if box_vectors is None:
-    edge_vectors = neighbor_positions - positions[:, None, :]
-  else:
-    jax_box = jnp.swapaxes(
-      jnp.asarray(box_vectors, dtype=positions.dtype), -1, -2
-    )
-    displacement, _ = space.periodic_general(
-      jax_box,
-      fractional_coordinates=False,
-    )
-    edge_vectors = space.map_neighbor(displacement)(
-      positions, neighbor_positions
-    )
-
-  distances = jnp.linalg.norm(edge_vectors, axis=-1)
-  edge_mask = (
-    neighbor_mask & (safe_neighbors != atom_ids[:, None]) & (distances > 1.0e-8)
-  )
-  if cutoff is not None:
-    edge_mask = edge_mask & (distances < cutoff)
-  edge_vectors = jnp.where(edge_mask[..., None], edge_vectors, 0.0)
-  senders = jnp.broadcast_to(atom_ids[:, None], safe_neighbors.shape)
-  return (
-    edge_vectors.reshape(-1, 3),
-    senders.reshape(-1),
-    safe_neighbors.reshape(-1),
-    edge_mask.reshape(-1),
-  )
+  return featurize
 
 
 def polynomial_cutoff(r: Array, r_max: float | Array, p: float) -> Array:
@@ -559,8 +498,6 @@ class Orb(eqx.Module):
   cutoff: float = eqx.field(static=True)
   ev_to_kjmol: float = eqx.field(static=True)
   num_species_embeddings: int = eqx.field(static=True)
-  neighbor_cell_atom_threshold: int = eqx.field(static=True)
-  neighbor_cell_capacity_multiplier: float = eqx.field(static=True)
   num_layers: int = eqx.field(static=True)
   mlp_num_layers: int = eqx.field(static=True)
   energy_mlp_num_layers: int = eqx.field(static=True)
@@ -582,12 +519,6 @@ class Orb(eqx.Module):
         'num_species_embeddings',
         config['params']['model.atom_emb.embeddings.weight']['shape'][0],
       )
-    )
-    self.neighbor_cell_atom_threshold = int(
-      config.get('neighbor_cell_atom_threshold', 64)
-    )
-    self.neighbor_cell_capacity_multiplier = float(
-      config.get('neighbor_cell_capacity_multiplier', 1.5)
     )
     self.num_layers = int(
       config.get('num_layers', config.get('num_gnn_stacks', 5))
@@ -626,14 +557,14 @@ class Orb(eqx.Module):
     total_charge: Array,
     total_spin: Array,
     *,
-    neighbor_idx: Array,
-    box_vectors: Array | None = None,
+    neighbors,
+    displacement_fn,
   ) -> tuple[Array, Array, Array, Array, Array]:
-    edge_vectors, senders, receivers, edge_mask = dense_neighbor_edges(
-      positions_angstrom,
-      neighbor_idx,
-      box_vectors=box_vectors,
-      cutoff=float(self.cutoff),
+    featurize = neighbor_list_featurizer(
+      displacement_fn, cutoff=float(self.cutoff)
+    )
+    edge_vectors, senders, receivers, edge_mask = featurize(
+      positions_angstrom, neighbors
     )
     node_features = self.layer(
       edge_vectors,
@@ -653,32 +584,22 @@ class Orb(eqx.Module):
     total_charge: Array,
     total_spin: Array,
     *,
-    box_vectors: Array | None = None,
+    displacement_fn=None,
     neighbors=None,
-    neighbor_idx: Array | None = None,
-    periodic: bool | None = False,
   ) -> Array:
-    periodic = bool(periodic)
-    if neighbor_idx is None:
-      neighbors = get_neighbors(
-        positions_angstrom,
-        box_vectors if periodic else None,
-        cutoff=float(self.cutoff),
-        cell_atom_threshold=int(self.neighbor_cell_atom_threshold),
-        cell_capacity_multiplier=float(self.neighbor_cell_capacity_multiplier),
-        neighbors=neighbors,
-        periodic=periodic,
+    if displacement_fn is None or neighbors is None:
+      raise ValueError(
+        'Orb requires a displacement_fn and a neighbor list. Build them '
+        'with energy.orb_neighbor_list.'
       )
-      neighbor_idx = neighbors.idx
-    box_vectors = box_vectors if periodic else None
     node_features, edge_vectors, senders, receivers, edge_mask = (
       self.local_node_features(
         positions_angstrom,
         species,
         total_charge,
         total_spin,
-        neighbor_idx=neighbor_idx,
-        box_vectors=box_vectors,
+        neighbors=neighbors,
+        displacement_fn=displacement_fn,
       )
     )
     graph_energy = self.energy_head(node_features, species)
@@ -698,8 +619,6 @@ def load_model(
   model: str | PathLike = 'orb-jax-v3-conservative-omol',
   *,
   model_path: str | PathLike | None = None,
-  neighbor_cell_atom_threshold: int | None = None,
-  neighbor_cell_capacity_multiplier: float | None = None,
 ) -> Orb:
   if model_path is not None:
     path = Path(model_path)
@@ -712,10 +631,4 @@ def load_model(
 
   with path.open('rb') as handle:
     config = dict(json.loads(handle.readline().decode()))
-    if neighbor_cell_atom_threshold is not None:
-      config['neighbor_cell_atom_threshold'] = int(neighbor_cell_atom_threshold)
-    if neighbor_cell_capacity_multiplier is not None:
-      config['neighbor_cell_capacity_multiplier'] = float(
-        neighbor_cell_capacity_multiplier
-      )
     return eqx.tree_deserialise_leaves(handle, Orb(config=config))
