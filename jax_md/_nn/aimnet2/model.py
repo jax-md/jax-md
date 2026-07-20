@@ -556,8 +556,7 @@ class EnergyHead(eqx.Module):
     key: Array,
   ):
     self.energy_mlp = MLP(config['energy_sizes'], dtype=dtype, key=key)
-    with jax.enable_x64(True):
-      self.atomic_shifts = jnp.zeros((64,), dtype=jnp.float64)
+    self.atomic_shifts = jnp.zeros((64,), dtype=jnp.float64)
 
   def __call__(self, aim_vectors: Array, species: Array) -> Array:
     atom_local_energy = self.energy_mlp(aim_vectors, last_linear=True).squeeze(
@@ -782,43 +781,42 @@ class AIMNet2(eqx.Module):
         'AIMNet2 requires a displacement_fn and short- and long-range '
         'neighbor lists. Build them with energy.aimnet2_neighbor_list.'
       )
-    with jax.enable_x64(True):
-      positions64 = positions.astype(jnp.float64)
-      (
-        node_energies,
-        partial_charges,
-        r_ij,
-        neighbor_ids,
-        edge_mask,
-      ) = self.local_node_energies_and_charges(
-        positions64,
-        species,
-        neighbor=neighbors,
-        displacement_fn=displacement_fn,
-        total_charge=total_charge,
-      )
-      local_energy = jnp.sum(node_energies)
-      coulomb_energy = self.coulomb_energy(
-        partial_charges,
-        positions64,
-        r_ij,
-        neighbor_ids,
-        edge_mask,
-        lr_neighbors,
-        displacement_fn,
-        periodic,
-      )
-      dispersion_energy = d3bj_energy_neighbors(
-        positions64,
-        d3_data,
-        lr_neighbors,
-        displacement_fn,
-        cutoff=float(self.lr_cutoff),
-        smoothing_fraction=float(self.d3_smoothing_fraction),
-      ).astype(jnp.float64)
+    positions64 = positions.astype(jnp.float64)
+    (
+      node_energies,
+      partial_charges,
+      r_ij,
+      neighbor_ids,
+      edge_mask,
+    ) = self.local_node_energies_and_charges(
+      positions64,
+      species,
+      neighbor=neighbors,
+      displacement_fn=displacement_fn,
+      total_charge=total_charge,
+    )
+    local_energy = jnp.sum(node_energies)
+    coulomb_energy = self.coulomb_energy(
+      partial_charges,
+      positions64,
+      r_ij,
+      neighbor_ids,
+      edge_mask,
+      lr_neighbors,
+      displacement_fn,
+      periodic,
+    )
+    dispersion_energy = d3bj_energy_neighbors(
+      positions64,
+      d3_data,
+      lr_neighbors,
+      displacement_fn,
+      cutoff=float(self.lr_cutoff),
+      smoothing_fraction=float(self.d3_smoothing_fraction),
+    ).astype(jnp.float64)
 
-      total_energy = local_energy + coulomb_energy + dispersion_energy
-      return total_energy.astype(jnp.float64)
+    total_energy = local_energy + coulomb_energy + dispersion_energy
+    return total_energy.astype(jnp.float64)
 
 
 def load_model(
@@ -836,6 +834,5 @@ def load_model(
     path = Path(model)
   with path.open('rb') as handle:
     config = dict(json.loads(handle.readline().decode()))
-    with jax.enable_x64(True):
-      template = AIMNet2(config=config, dtype=jnp.float32)
-      return eqx.tree_deserialise_leaves(handle, template)
+    template = AIMNet2(config=config, dtype=jnp.float32)
+    return eqx.tree_deserialise_leaves(handle, template)

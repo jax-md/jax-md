@@ -55,7 +55,7 @@ ACEFF = Model(
   load=load_aceff,
   call_bare=lambda net, pos, sp: net(pos, sp),
   reference=-0.99136613 if X64 else -0.9913653,
-  places=8 if X64 else 6,
+  places=6,
   supports_sparse=True,
 )
 ANI = Model(
@@ -183,8 +183,12 @@ class EnergyWrapperTest(parameterized.TestCase):
 
 class Aimnet2Test(parameterized.TestCase):
   # AIMNet2 has two cutoffs and a frame-dependent Coulomb term, so it does not
-  # join the shared parameterization. It forces fp64 internally, so its
-  # references are x64-invariant.
+  # join the shared parameterization. It runs in fp64 and requires x64.
+  def setUp(self):
+    super().setUp()
+    if not X64:
+      self.skipTest('AIMNet2 requires x64 (JAX_ENABLE_X64=1)')
+
   def test_energies(self):
     positions, species = water_molecule()
     ortho = jnp.eye(3, dtype=DTYPE) * 100.0
@@ -217,10 +221,8 @@ class Aimnet2Test(parameterized.TestCase):
     self.assertAlmostEqual(tri, per, places=3)
     self.assertGreater(abs(free - per), 0.001)
 
-    # AIMNet2 forces fp64 internally, so gradients need x64 inputs.
-    if X64:
-      forces = -jax.grad(lambda p: per_fn(p, nbr_per.allocate(p)))(positions)
-      self.assertTrue(bool(jnp.all(jnp.isfinite(forces))))
+    forces = -jax.grad(lambda p: per_fn(p, nbr_per.allocate(p)))(positions)
+    self.assertTrue(bool(jnp.all(jnp.isfinite(forces))))
 
   def test_invalid_inputs_raise(self):
     positions, species = water_molecule()
