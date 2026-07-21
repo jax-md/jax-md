@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from functools import partial
+from importlib.resources import files
 from os import PathLike
 from pathlib import Path
 from typing import Any
@@ -17,7 +18,7 @@ from jax_md import partition
 jax.config.update('jax_default_matmul_precision', 'highest')
 
 SO3LR_MODEL_PATHS = {
-  'so3lr': Path(__file__).resolve().with_name('so3lr.eqx'),
+  'so3lr': files('jax_md._nn.so3lr') / 'so3lr.eqx',
 }
 SO3LR_MODEL_NAMES = tuple(SO3LR_MODEL_PATHS)
 

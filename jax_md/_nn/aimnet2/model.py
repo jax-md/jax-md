@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 from functools import partial
+from importlib.resources import files
 from os import PathLike
 from pathlib import Path
 from typing import Any
@@ -20,7 +21,7 @@ from jax_md import partition, space
 jax.config.update('jax_default_matmul_precision', 'highest')
 
 AIMNET2_MODEL_PATHS = {
-  'aimnet2-jax': Path(__file__).resolve().with_name('aimnet2.eqx'),
+  'aimnet2-jax': files('jax_md._nn.aimnet2') / 'aimnet2.eqx',
 }
 AIMNET2_MODEL_NAMES = tuple(AIMNET2_MODEL_PATHS)
 

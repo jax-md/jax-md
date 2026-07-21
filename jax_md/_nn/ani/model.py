@@ -1,5 +1,6 @@
 import json
 from functools import partial
+from importlib.resources import files
 from os import PathLike
 from pathlib import Path
 
@@ -11,12 +12,8 @@ from jax_md import partition, space
 
 jax.config.update('jax_default_matmul_precision', 'highest')
 
-DEFAULT_ENSEMBLE_MODEL_PATH = (
-  Path(__file__).resolve().with_name('ani2x_ensemble.eqx')
-)
-DEFAULT_SINGLE_MODEL_PATH = (
-  Path(__file__).resolve().with_name('ani2x_model0.eqx')
-)
+DEFAULT_ENSEMBLE_MODEL_PATH = files('jax_md._nn.ani') / 'ani2x_ensemble.eqx'
+DEFAULT_SINGLE_MODEL_PATH = files('jax_md._nn.ani') / 'ani2x_model0.eqx'
 ANI2X_MODEL_PATHS = {
   'ani2x-jax-ensemble': DEFAULT_ENSEMBLE_MODEL_PATH,
   'ani2x-jax-model0': DEFAULT_SINGLE_MODEL_PATH,

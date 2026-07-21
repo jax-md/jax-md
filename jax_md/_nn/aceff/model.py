@@ -2,6 +2,7 @@
 
 import json
 from functools import partial
+from importlib.resources import files
 from os import PathLike
 from pathlib import Path
 from typing import Any
@@ -15,8 +16,8 @@ from jax_md import partition
 jax.config.update('jax_default_matmul_precision', 'highest')
 
 ACEFF_MODEL_PATHS = {
-  'aceff-jax-1.1': Path(__file__).resolve().with_name('aceff_v1.1.eqx'),
-  'aceff-jax-2.0': Path(__file__).resolve().with_name('aceff_v2.0.eqx'),
+  'aceff-jax-1.1': files('jax_md._nn.aceff') / 'aceff_v1.1.eqx',
+  'aceff-jax-2.0': files('jax_md._nn.aceff') / 'aceff_v2.0.eqx',
 }
 ACEFF_MODEL_NAMES = tuple(ACEFF_MODEL_PATHS)
 
@@ -600,7 +601,7 @@ class AceFF(eqx.Module):
   neighbor_cell_atom_threshold: int = eqx.field(static=True)
   neighbor_cell_capacity_multiplier: float = eqx.field(static=True)
 
-  def __init__(self, params, config):
+  def __init__(self, config):
     self.cutoff = float(config['cutoff'])
     self.ev_to_kjmol = float(config['ev_to_kjmol'])
     self.cutoff_lower = float(config['cutoff_lower'])
@@ -624,6 +625,83 @@ class AceFF(eqx.Module):
     self.neighbor_cell_capacity_multiplier = float(
       config['neighbor_cell_capacity_multiplier']
     )
+
+    # Rebuild the zero-filled parameter tree from the architecture dimensions
+    # in the config; eqx.tree_deserialise_leaves fills in the array leaves.
+    hidden = int(config['hidden_channels'])
+    num_rbf = int(config['num_rbf'])
+    num_layers = int(config['num_interaction_layers'])
+    norm_eps = float(config['layernorm_eps'])
+
+    def zeros(*shape):
+      return jnp.zeros(shape, dtype=jnp.float32)
+
+    def linear(d_in, d_out, *, bias=True):
+      return Linear(zeros(d_in, d_out), zeros(d_out) if bias else None)
+
+    def layer_norm(dim):
+      return LayerNorm(zeros(dim), zeros(dim), eps=norm_eps)
+
+    def mlp(d_in, dims):
+      layers = []
+      for d_out in dims:
+        layers.append(linear(d_in, int(d_out)))
+        d_in = int(d_out)
+      return layers
+
+    charge_mlp_dims = (
+      [int(x) for x in config['charge_mlp_dims']] if charge_predictors else []
+    )
+    n_charge = charge_mlp_dims[-1] // 2 if charge_predictors else 0
+    layer_scalar_in = num_rbf + (2 * n_charge if edge_charge_features else 0)
+
+    def charge_head():
+      return {
+        'q_norm': layer_norm(3 * hidden),
+        'q_mlp': mlp(3 * hidden, charge_mlp_dims),
+      }
+
+    params = {
+      'rbf_means': zeros(num_rbf),
+      'rbf_betas': zeros(num_rbf),
+      'tensor_embedding': {
+        'distance_proj1': linear(num_rbf, hidden),
+        'distance_proj2': linear(num_rbf, hidden),
+        'distance_proj3': linear(num_rbf, hidden),
+        'emb': zeros(hidden, hidden),
+        'emb2': linear(2 * hidden, hidden),
+        'init_norm': layer_norm(hidden),
+        'linears_scalar': [
+          linear(hidden, 2 * hidden),
+          linear(2 * hidden, 3 * hidden),
+        ],
+        'linears_tensor': [
+          linear(hidden, hidden, bias=False) for _ in range(3)
+        ],
+      },
+      'layers': [
+        {
+          'linears_scalar': [
+            linear(layer_scalar_in, hidden),
+            linear(hidden, 2 * hidden),
+            linear(2 * hidden, 3 * hidden),
+          ],
+          'linears_tensor': [
+            linear(hidden, hidden, bias=False) for _ in range(6)
+          ],
+        }
+        for _ in range(num_layers)
+      ],
+      'linear': linear(3 * hidden, hidden),
+      'out_norm': layer_norm(3 * hidden),
+      'output_network': mlp(hidden, config['output_network_dims']),
+    }
+    if charge_predictors:
+      params['charge_predict_0'] = charge_head()
+      params['charge_predicts'] = [charge_head() for _ in range(num_layers)]
+    if coulomb_energy:
+      params['qweights'] = zeros(int(config['coulomb_qweights_dim']))
+
     self.rbf_betas = params['rbf_betas']
     self.rbf_means = params['rbf_means']
     self.tensor_embedding = TensorEmbedding(
@@ -818,31 +896,6 @@ class AceFF(eqx.Module):
     return local_energy + coulomb_energy
 
 
-def _build_from_spec(spec):
-  kind = spec['t']
-  if kind == 'none':
-    return None
-  if kind == 'arr':
-    # Leaves are stored as float32 on disk; eqx requires the template dtype to
-    # match. load_model upcasts to the requested dtype afterwards.
-    return jnp.zeros(tuple(spec['shape']), dtype=jnp.float32)
-  if kind == 'lin':
-    return Linear(
-      _build_from_spec(spec['kernel']), _build_from_spec(spec['bias'])
-    )
-  if kind == 'ln':
-    return LayerNorm(
-      _build_from_spec(spec['weight']),
-      _build_from_spec(spec['bias']),
-      eps=float(spec['eps']),
-    )
-  if kind == 'dict':
-    return {k: _build_from_spec(v) for k, v in spec['d'].items()}
-  if kind == 'list':
-    return [_build_from_spec(v) for v in spec['l']]
-  raise ValueError(f'unknown spec node: {kind!r}')
-
-
 def load_model(
   model: str | PathLike = 'aceff-jax-2.0',
   *,
@@ -860,9 +913,7 @@ def load_model(
 
   with path.open('rb') as handle:
     config = dict(json.loads(handle.readline().decode()))
-    spec = json.loads(handle.readline().decode())
-    template_params = _build_from_spec(spec)
-    template = AceFF(template_params, config)
+    template = AceFF(config)
     loaded = eqx.tree_deserialise_leaves(handle, template)
 
   if jax.config.jax_enable_x64:

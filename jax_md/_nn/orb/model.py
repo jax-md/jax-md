@@ -2,6 +2,7 @@
 
 import json
 from functools import partial
+from importlib.resources import files
 from os import PathLike
 from pathlib import Path
 from typing import Any
@@ -18,9 +19,9 @@ jax.config.update('jax_default_matmul_precision', 'highest')
 EV_TO_KJMOL = 96.48533212331002
 
 ORB_MODEL_PATHS = {
-  'orb-jax-v3-conservative-omol': Path(__file__)
-  .resolve()
-  .with_name('orb-v3-conservative-omol.eqx'),
+  'orb-jax-v3-conservative-omol': (
+    files('jax_md._nn.orb') / 'orb-v3-conservative-omol.eqx'
+  ),
 }
 ORB_MODEL_NAMES = tuple(ORB_MODEL_PATHS)
 
