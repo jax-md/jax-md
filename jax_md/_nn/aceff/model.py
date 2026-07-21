@@ -1,7 +1,6 @@
 # Credit to https://github.com/torchmd/torchmd-net
 
 import json
-import pickle
 from functools import partial
 from os import PathLike
 from pathlib import Path
@@ -473,23 +472,34 @@ class AceFFLayer(eqx.Module):
 
 
 class LocalEnergyHead(eqx.Module):
-  weights: Any
+  out_norm: Any
+  linear: Any
+  output_network: Any
 
   def __init__(self, weights):
-    self.weights = weights
+    self.out_norm = weights['out_norm']
+    self.linear = weights['linear']
+    self.output_network = weights['output_network']
 
   def __call__(self, tensor_features):
-    weights = self.weights
-    scalar, antisymmetric, symmetric = decompose_tensor(tensor_features)
+    _, antisymmetric, symmetric = decompose_tensor(tensor_features)
+    trace = jnp.diagonal(tensor_features, axis1=1, axis2=2).sum(axis=-1)
+    warp_one_third = jnp.asarray(
+      # This comes from upstream using Warp kernels that round
+      # 1/3 to float32 before casting to float64.
+      float(np.float32(1.0 / 3.0)),
+      dtype=trace.dtype,
+    )
+    scalar_norm = warp_one_third * trace * trace
     energy_features = jnp.concatenate(
-      [3.0 * scalar**2, tensor_norm(antisymmetric), tensor_norm(symmetric)],
+      [scalar_norm, tensor_norm(antisymmetric), tensor_norm(symmetric)],
       axis=-1,
     )
-    energy_features = weights['out_norm'](energy_features)
-    energy_features = jax.nn.silu(weights['linear'](energy_features))
-    for i, layer in enumerate(weights['output_network']):
+    energy_features = self.out_norm(energy_features)
+    energy_features = jax.nn.silu(self.linear(energy_features))
+    for i, layer in enumerate(self.output_network):
       energy_features = layer(energy_features)
-      if i < len(weights['output_network']) - 1:
+      if i < len(self.output_network) - 1:
         energy_features = jax.nn.silu(energy_features)
     return energy_features.squeeze(-1)
 
@@ -527,12 +537,22 @@ class CoulombHead(eqx.Module):
     partial_charges,
     *,
     displacement_fn,
+    coulomb_edges=None,
   ):
     partial_charges = jnp.concatenate(partial_charges, axis=-1)
-    pair_src, pair_dst = unique_pairs(int(positions.shape[0]))
-    pair_vectors = jax.vmap(displacement_fn)(
-      positions[pair_src], positions[pair_dst]
-    )
+    if coulomb_edges is None:
+      # Free-space fallback: every unique pair contributes once.
+      pair_src, pair_dst = unique_pairs(int(positions.shape[0]))
+      pair_vectors = jax.vmap(displacement_fn)(
+        positions[pair_src], positions[pair_dst]
+      )
+      pair_mask = None
+    else:
+      # A dedicated Coulomb neighbor list at coulomb_cutoff supplies edges.
+      # Each undirected pair appears twice, so keep only edge_src < edge_dst.
+      edge_src, edge_dst, pair_vectors, edge_mask = coulomb_edges
+      pair_src, pair_dst = edge_src, edge_dst
+      pair_mask = edge_mask & (edge_src < edge_dst)
 
     distances = safe_norm(pair_vectors, axis=-1)
     damping_x = jnp.clip(
@@ -559,6 +579,8 @@ class CoulombHead(eqx.Module):
         * (1.0 / distances + k_rf * distances**2 - c_rf)
       )
       pair_energies = jnp.where(distances < cutoff, pair_energies, 0.0)
+    if pair_mask is not None:
+      pair_energies = jnp.where(pair_mask, pair_energies, 0.0)
     return self.coulomb_factor * pair_energies.sum()
 
 
@@ -571,47 +593,37 @@ class AceFF(eqx.Module):
   charge_predictors_by_layer: tuple[ChargePredictionHead, ...]
   local_energy_head: LocalEnergyHead
   coulomb_head: CoulombHead | None
-  name: str = eqx.field(static=True)
-  architecture: str = eqx.field(static=True)
   cutoff: float = eqx.field(static=True)
   ev_to_kjmol: float = eqx.field(static=True)
   cutoff_lower: float = eqx.field(static=True)
   alpha: float = eqx.field(static=True)
-  group: str = eqx.field(static=True)
-  charge_predictors: bool = eqx.field(static=True)
-  edge_charge_features: bool = eqx.field(static=True)
-  total_charge_interaction_scale: bool = eqx.field(static=True)
-  coulomb_energy: bool = eqx.field(static=True)
-  coulomb_factor: float = eqx.field(static=True)
-  coulomb_damp_cutoff: float = eqx.field(static=True)
-  coulomb_cutoff: float | None = eqx.field(static=True)
-  coulomb_epsilon_solvent: float = eqx.field(static=True)
-  exp_minus_1: float = eqx.field(static=True)
+  neighbor_cell_atom_threshold: int = eqx.field(static=True)
+  neighbor_cell_capacity_multiplier: float = eqx.field(static=True)
 
   def __init__(self, params, config):
-    self.name = str(config['name'])
-    self.architecture = str(config['architecture'])
     self.cutoff = float(config['cutoff'])
     self.ev_to_kjmol = float(config['ev_to_kjmol'])
     self.cutoff_lower = float(config['cutoff_lower'])
     self.alpha = float(config['alpha'])
-    self.group = str(config['group'])
-    self.charge_predictors = bool(config['charge_predictors'])
-    self.edge_charge_features = bool(config['edge_charge_features'])
-    self.total_charge_interaction_scale = bool(
+    group = str(config['group'])
+    charge_predictors = bool(config['charge_predictors'])
+    edge_charge_features = bool(config['edge_charge_features'])
+    total_charge_interaction_scale = bool(
       config['total_charge_interaction_scale']
     )
-    self.coulomb_energy = bool(config['coulomb_energy'])
-    self.coulomb_factor = float(config['coulomb_factor'])
-    self.coulomb_damp_cutoff = float(config['coulomb_damp_cutoff'])
-    coulomb_cutoff = config.get('coulomb_cutoff', None)
-    self.coulomb_cutoff = (
-      None if coulomb_cutoff is None else float(coulomb_cutoff)
+    coulomb_energy = bool(config['coulomb_energy'])
+    coulomb_factor = float(config['coulomb_factor'])
+    coulomb_damp_cutoff = float(config['coulomb_damp_cutoff'])
+    coulomb_cutoff = config['coulomb_cutoff']
+    coulomb_cutoff = None if coulomb_cutoff is None else float(coulomb_cutoff)
+    coulomb_epsilon_solvent = float(config['coulomb_epsilon_solvent'])
+    exp_minus_1 = float(config['exp_minus_1'])
+    self.neighbor_cell_atom_threshold = int(
+      config['neighbor_cell_atom_threshold']
     )
-    self.coulomb_epsilon_solvent = float(
-      config.get('coulomb_epsilon_solvent', 78.3)
+    self.neighbor_cell_capacity_multiplier = float(
+      config['neighbor_cell_capacity_multiplier']
     )
-    self.exp_minus_1 = float(config['exp_minus_1'])
     self.rbf_betas = params['rbf_betas']
     self.rbf_means = params['rbf_means']
     self.tensor_embedding = TensorEmbedding(
@@ -621,7 +633,7 @@ class AceFF(eqx.Module):
     )
     self.charge_predictor_0 = (
       ChargePredictionHead(params['charge_predict_0'])
-      if self.charge_predictors
+      if charge_predictors
       else None
     )
     self.layers = tuple(
@@ -629,9 +641,9 @@ class AceFF(eqx.Module):
         layer,
         cutoff=self.cutoff,
         cutoff_lower=self.cutoff_lower,
-        group=self.group,
-        edge_charge_features=self.edge_charge_features,
-        total_charge_interaction_scale=self.total_charge_interaction_scale,
+        group=group,
+        edge_charge_features=edge_charge_features,
+        total_charge_interaction_scale=total_charge_interaction_scale,
       )
       for layer in params['layers']
     )
@@ -639,20 +651,20 @@ class AceFF(eqx.Module):
       tuple(
         ChargePredictionHead(weights) for weights in params['charge_predicts']
       )
-      if self.charge_predictors
+      if charge_predictors
       else ()
     )
     self.local_energy_head = LocalEnergyHead(params)
     self.coulomb_head = (
       CoulombHead(
         params['qweights'],
-        coulomb_factor=self.coulomb_factor,
-        coulomb_damp_cutoff=self.coulomb_damp_cutoff,
-        coulomb_cutoff=self.coulomb_cutoff,
-        coulomb_epsilon_solvent=self.coulomb_epsilon_solvent,
-        exp_minus_1=self.exp_minus_1,
+        coulomb_factor=coulomb_factor,
+        coulomb_damp_cutoff=coulomb_damp_cutoff,
+        coulomb_cutoff=coulomb_cutoff,
+        coulomb_epsilon_solvent=coulomb_epsilon_solvent,
+        exp_minus_1=exp_minus_1,
       )
-      if self.coulomb_energy
+      if coulomb_energy
       else None
     )
 
@@ -723,8 +735,7 @@ class AceFF(eqx.Module):
 
     partial_charges = None
     charge_history = []
-    if self.charge_predictors:
-      assert self.charge_predictor_0 is not None
+    if self.charge_predictor_0 is not None:
       partial_charges = self.charge_predictor_0(
         tensor_features,
         total_charge,
@@ -742,7 +753,7 @@ class AceFF(eqx.Module):
         radial_features,
         edge_mask=edge_mask,
       )
-      if self.charge_predictors:
+      if self.charge_predictor_0 is not None:
         partial_charges = self.charge_predictors_by_layer[layer_index](
           tensor_features,
           total_charge,
@@ -758,6 +769,7 @@ class AceFF(eqx.Module):
     *,
     displacement_fn=None,
     neighbors=None,
+    coulomb_neighbors=None,
     total_charge=0.0,
   ):
     if displacement_fn is None or neighbors is None:
@@ -779,16 +791,56 @@ class AceFF(eqx.Module):
       total_charge,
     )
     local_energy = jnp.sum(node_energies)
-    if not self.coulomb_energy:
+    if self.coulomb_head is None:
       return local_energy
-    assert self.coulomb_head is not None
+
+    coulomb_edges = None
+    if coulomb_neighbors is not None:
+      coulomb_cutoff = self.coulomb_head.coulomb_cutoff
+      coulomb_featurize = neighbor_list_featurizer(
+        displacement_fn,
+        cutoff=float(coulomb_cutoff)
+        if coulomb_cutoff is not None
+        else float(self.cutoff),
+      )
+      c_src, c_dst, c_shifts, c_mask = coulomb_featurize(
+        positions, coulomb_neighbors
+      )
+      c_vectors = positions[c_src] - positions[c_dst] + c_shifts
+      coulomb_edges = (c_src, c_dst, c_vectors, c_mask)
+
     coulomb_energy = self.coulomb_head(
       positions,
       partial_charges,
       displacement_fn=displacement_fn,
+      coulomb_edges=coulomb_edges,
     )
-    total_energy = local_energy + coulomb_energy
-    return total_energy
+    return local_energy + coulomb_energy
+
+
+def _build_from_spec(spec):
+  kind = spec['t']
+  if kind == 'none':
+    return None
+  if kind == 'arr':
+    # Leaves are stored as float32 on disk; eqx requires the template dtype to
+    # match. load_model upcasts to the requested dtype afterwards.
+    return jnp.zeros(tuple(spec['shape']), dtype=jnp.float32)
+  if kind == 'lin':
+    return Linear(
+      _build_from_spec(spec['kernel']), _build_from_spec(spec['bias'])
+    )
+  if kind == 'ln':
+    return LayerNorm(
+      _build_from_spec(spec['weight']),
+      _build_from_spec(spec['bias']),
+      eps=float(spec['eps']),
+    )
+  if kind == 'dict':
+    return {k: _build_from_spec(v) for k, v in spec['d'].items()}
+  if kind == 'list':
+    return [_build_from_spec(v) for v in spec['l']]
+  raise ValueError(f'unknown spec node: {kind!r}')
 
 
 def load_model(
@@ -808,8 +860,13 @@ def load_model(
 
   with path.open('rb') as handle:
     config = dict(json.loads(handle.readline().decode()))
-    loaded = pickle.load(handle)
-    loaded = AceFF(loaded, config)
+    spec = json.loads(handle.readline().decode())
+    template_params = _build_from_spec(spec)
+    template = AceFF(template_params, config)
+    loaded = eqx.tree_deserialise_leaves(handle, template)
+
+  if jax.config.jax_enable_x64:
+    dtype = jnp.float64
   if dtype == jnp.float32:
     return loaded
   return jax.tree_util.tree_map(

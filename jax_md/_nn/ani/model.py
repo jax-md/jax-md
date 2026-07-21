@@ -44,6 +44,24 @@ def piecewise_cutoff(distance, cutoff: float):
   return 0.5 * jnp.cos(distance * jnp.pi / cutoff) + 0.5
 
 
+def _species_index_table(species_order: tuple[int, ...]) -> tuple[int, ...]:
+  table = [-1] * (max(species_order) + 1)
+  for species_index, atomic_number in enumerate(species_order):
+    table[atomic_number] = species_index
+  return tuple(table)
+
+
+def _pair_index_table(num_species: int) -> tuple[tuple[int, ...], ...]:
+  table = np.zeros((num_species, num_species), dtype=np.int32)
+  pair_index = 0
+  for species_i in range(num_species):
+    for species_j in range(species_i, num_species):
+      table[species_i, species_j] = pair_index
+      table[species_j, species_i] = pair_index
+      pair_index += 1
+  return tuple(tuple(int(index) for index in row) for row in table)
+
+
 class ANI2xCheckpoint(eqx.Module):
   """Full on-disk ANI2x checkpoint leaves before active-species pruning."""
 
@@ -52,11 +70,12 @@ class ANI2xCheckpoint(eqx.Module):
   layer_biases: list
 
   def __init__(self, config: dict):
-    num_species = config['num_species']
+    num_species = len(config['species_order'])
     num_models = config['num_models']
     network_sizes = tuple(config['network_sizes'])
 
-    self.atom_energies = jnp.zeros(num_species, dtype=jnp.float32)
+    # Self-energies are large constants kept in f64; weights are f32.
+    self.atom_energies = jnp.zeros(num_species, dtype=jnp.float64)
     self.layer_weights = []
     self.layer_biases = []
     for layer_index in range(len(network_sizes) - 1):
@@ -156,7 +175,6 @@ class ANI2x(eqx.Module):
   ):
     self.radial_eta = config['radial_eta']
     self.angular_eta = config['angular_eta']
-    self.radial_divisions = config['radial_divisions']
     self.zeta = config['zeta']
     self.radial_cutoff = config['radial_cutoff']
     self.angular_cutoff = config['angular_cutoff']
@@ -164,12 +182,16 @@ class ANI2x(eqx.Module):
     self.radial_shifts = tuple(config['radial_shifts'])
     self.angular_shifts = tuple(config['angular_shifts'])
     self.angular_radial_shifts = tuple(config['angular_radial_shifts'])
-    self.species_to_index = tuple(config['species_to_index'])
-    self.pair_to_index = tuple(tuple(row) for row in config['pair_to_index'])
-    num_species = config['num_species']
-    num_species_pairs = config['num_species_pairs']
+    species_order = tuple(int(z) for z in config['species_order'])
+    num_species = len(species_order)
+    self.species_to_index = _species_index_table(species_order)
+    self.pair_to_index = _pair_index_table(num_species)
+    num_species_pairs = num_species * (num_species + 1) // 2
+    self.radial_divisions = len(self.radial_shifts)
     self.num_models = int(config['num_models'])
-    self.angular_basis_width = config['angular_basis_width']
+    self.angular_basis_width = len(self.angular_shifts) * len(
+      self.angular_radial_shifts
+    )
 
     if active_species is None:
       active_species = tuple(range(num_species))
@@ -435,16 +457,27 @@ def load_model(
     config = dict(config)
     active_species = None
     if atomic_numbers is not None:
-      species = jnp.asarray(config['species_to_index'], dtype=jnp.int32)[
-        jnp.asarray(atomic_numbers, dtype=jnp.int32)
-      ]
+      species_order = tuple(int(z) for z in config['species_order'])
+      species = jnp.asarray(
+        _species_index_table(species_order), dtype=jnp.int32
+      )[jnp.asarray(atomic_numbers, dtype=jnp.int32)]
       active_species = tuple(
         int(x)
         for x in sorted(set(np.asarray(jax.device_get(species)).tolist()))
       )
     # Need to first load the whole model and then prune out weights for other species
+    checkpoint = eqx.tree_deserialise_leaves(handle, ANI2xCheckpoint(config))
+    if jax.config.jax_enable_x64:
+      checkpoint = jax.tree_util.tree_map(
+        lambda x: (
+          x.astype(jnp.float64)
+          if eqx.is_array(x) and jnp.issubdtype(x.dtype, jnp.floating)
+          else x
+        ),
+        checkpoint,
+      )
     return ANI2x(
       config=config,
-      checkpoint=eqx.tree_deserialise_leaves(handle, ANI2xCheckpoint(config)),
+      checkpoint=checkpoint,
       active_species=active_species,
     )

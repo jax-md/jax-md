@@ -119,7 +119,6 @@ def d3bj_energy_neighbors(
   displacement_fn,
   *,
   cutoff: float,
-  smoothing_fraction: float,
 ) -> Array:
   featurize = neighbor_list_featurizer(displacement_fn, cutoff=float(cutoff))
   edge_vectors, safe_neighbors, edge_mask = featurize(positions, neighbor)
@@ -151,32 +150,9 @@ def d3bj_energy_neighbors(
     d3_a2=float(d3_pre['d3_a2']),
     d3_k3=float(d3_pre['d3_k3']),
   )
-  switch = _s5_switch(
-    rij,
-    smoothing_on=float(cutoff)
-    * (1.0 - float(smoothing_fraction))
-    / float(d3_pre['bohr_a']),
-    smoothing_off=float(cutoff) / float(d3_pre['bohr_a']),
+  return jnp.sum(jnp.where(pair_mask, e_pair.astype(jnp.float64), 0.0)) * float(
+    d3_pre['hartree_ev']
   )
-  return jnp.sum(
-    jnp.where(pair_mask, (e_pair * switch).astype(jnp.float64), 0.0)
-  ) * float(d3_pre['hartree_ev'])
-
-
-def _s5_switch(
-  distance: Array, *, smoothing_on: float, smoothing_off: float
-) -> Array:
-  if smoothing_off <= smoothing_on:
-    return jnp.ones_like(distance)
-  t = jnp.clip(
-    (distance - smoothing_on) / (smoothing_off - smoothing_on), 0.0, 1.0
-  )
-  t2 = t * t
-  t3 = t2 * t
-  t4 = t3 * t
-  t5 = t4 * t
-  switch = 1.0 - (10.0 * t3 - 15.0 * t4 + 6.0 * t5)
-  return jnp.where(distance <= smoothing_on, 1.0, switch)
 
 
 def _d3_pair_energy(
@@ -201,15 +177,15 @@ def _d3_pair_energy(
   cn_distance2 = (reference_cn_i - nci[..., None, None]) ** 2 + (
     reference_cn_j - ncj[..., None, None]
   ) ** 2
-  reference_logits = jnp.where(
-    reference_c6 > 0.0,
-    d3_k3 * cn_distance2,
-    -1.0e20,
-  ).reshape(*rij.shape, num_cn_references)
-
-  reference_weights = jax.nn.softmax(reference_logits, axis=-1)
+  reference_weights = jnp.exp(d3_k3 * cn_distance2).reshape(
+    *rij.shape,
+    num_cn_references,
+  )
   reference_c6 = reference_c6.reshape(*rij.shape, num_cn_references)
-  c6 = jnp.sum(reference_weights * reference_c6, axis=-1)
+  weight_sum = jnp.sum(reference_weights, axis=-1)
+  weighted_c6 = jnp.sum(reference_weights * reference_c6, axis=-1)
+  weighted_c6 = jnp.where(weight_sum < 1.0e-5, 0.0, weighted_c6)
+  c6 = weighted_c6 / jnp.maximum(weight_sum, 1.0e-5)
   c8 = 3.0 * c6 * r2r4_i * r2r4_j
 
   bj_radius = (
@@ -288,15 +264,7 @@ def _dsf_coulomb_dense(
   j_dsf = j_dsf - c2 + (d - rc) * (c3 + c4)
   q_ij = charges[:, None] * charges[safe_neighbors]
   e = coulomb_factor * (q_ij * j_dsf).astype(jnp.float64)
-  pair_energy = jnp.sum(jnp.where(edge_mask, e, 0.0))
-  self_energy = (
-    -2.0
-    * coulomb_factor
-    * float(alpha)
-    / jnp.sqrt(jnp.asarray(jnp.pi, dtype=positions.dtype))
-    * jnp.sum((charges * charges).astype(jnp.float64))
-  )
-  return pair_energy + self_energy
+  return jnp.sum(jnp.where(edge_mask, e, 0.0))
 
 
 def _simple_coulomb_all_pairs(
@@ -347,7 +315,10 @@ class AIMNet2Layer(eqx.Module):
     self.ncharge = int(config['ncharge'])
     self.ncomb_v = int(config['ncomb_v'])
     self.mlp_last_linear = tuple(bool(x) for x in config['mlp_last_linear'])
-    self.afv = jnp.zeros((64, self.nfeature * self.nshifts), dtype=dtype)
+    num_species = len(config['implemented_species'])
+    self.afv = jnp.zeros(
+      (num_species, self.nfeature * self.nshifts), dtype=dtype
+    )
     self.shifts = jnp.zeros((self.nshifts,), dtype=dtype)
     self.eta = jnp.zeros((), dtype=dtype)
     self.conv_a_agh = jnp.zeros(
@@ -556,7 +527,10 @@ class EnergyHead(eqx.Module):
     key: Array,
   ):
     self.energy_mlp = MLP(config['energy_sizes'], dtype=dtype, key=key)
-    self.atomic_shifts = jnp.zeros((64,), dtype=jnp.float64)
+    # Self-energy shifts are large constants kept in f64; weights are f32.
+    self.atomic_shifts = jnp.zeros(
+      (len(config['implemented_species']),), dtype=jnp.float64
+    )
 
   def __call__(self, aim_vectors: Array, species: Array) -> Array:
     atom_local_energy = self.energy_mlp(aim_vectors, last_linear=True).squeeze(
@@ -582,24 +556,23 @@ class AIMNet2(eqx.Module):
   hartree_ev: float = eqx.field(static=True)
   mlp_last_linear: tuple[bool, ...] = eqx.field(static=True)
   implemented_species: tuple[int, ...] = eqx.field(static=True)
+  species_lookup: tuple[int, ...] = eqx.field(static=True)
   d3_s6: float = eqx.field(static=True)
   d3_s8: float = eqx.field(static=True)
   d3_a1: float = eqx.field(static=True)
   d3_a2: float = eqx.field(static=True)
   lr_cutoff: float = eqx.field(static=True)
-  d3_smoothing_fraction: float = eqx.field(static=True)
   dsf_alpha: float = eqx.field(static=True)
   layer: AIMNet2Layer
   energy_head: EnergyHead
-  d3_c6ab: Array | None
-  d3_rcov: Array | None
-  d3_r2r4: Array | None
+  d3_c6ab: Array
+  d3_rcov: Array
+  d3_r2r4: Array
 
   def __init__(
     self,
     *,
     config: dict[str, Any],
-    d3_params: dict[str, np.ndarray | Array] | None = None,
     dtype: Any = jnp.float32,
     key: Array = jax.random.PRNGKey(0),
   ):
@@ -622,12 +595,15 @@ class AIMNet2(eqx.Module):
     self.implemented_species = tuple(
       int(x) for x in config['implemented_species']
     )
+    species_lookup = [-1] * (max(self.implemented_species) + 1)
+    for index, atomic_number in enumerate(self.implemented_species):
+      species_lookup[atomic_number] = index
+    self.species_lookup = tuple(species_lookup)
     self.d3_s6 = float(config['d3_s6'])
     self.d3_s8 = float(config['d3_s8'])
     self.d3_a1 = float(config['d3_a1'])
     self.d3_a2 = float(config['d3_a2'])
     self.lr_cutoff = float(config['lr_cutoff'])
-    self.d3_smoothing_fraction = float(config['d3_smoothing_fraction'])
     self.dsf_alpha = float(config['dsf_alpha'])
     self.layer = AIMNet2Layer(
       config=config,
@@ -639,41 +615,24 @@ class AIMNet2(eqx.Module):
       dtype=dtype,
       key=keys[3],
     )
-    if d3_params is None and config['has_d3_params']:
-      try:
-        c6ab_shape = tuple(int(v) for v in config['d3_c6ab_shape'])
-        rcov_shape = tuple(int(v) for v in config['d3_rcov_shape'])
-        r2r4_shape = tuple(int(v) for v in config['d3_r2r4_shape'])
-      except KeyError as exc:
-        raise ValueError(
-          'AIMNet2 checkpoint config says it has D3 params but is missing D3 shapes.'
-        ) from exc
-      self.d3_c6ab = jnp.zeros(c6ab_shape, dtype=dtype)
-      self.d3_rcov = jnp.zeros(rcov_shape, dtype=dtype)
-      self.d3_r2r4 = jnp.zeros(r2r4_shape, dtype=dtype)
-    elif d3_params is None:
-      self.d3_c6ab = None
-      self.d3_rcov = None
-      self.d3_r2r4 = None
-    else:
-      self.d3_c6ab = jnp.asarray(d3_params['c6ab'], dtype=dtype)
-      self.d3_rcov = jnp.asarray(d3_params['rcov'], dtype=dtype)
-      self.d3_r2r4 = jnp.asarray(d3_params['r2r4'], dtype=dtype)
+    self.d3_c6ab = jnp.zeros(
+      tuple(int(v) for v in config['d3_c6ab_shape']), dtype=dtype
+    )
+    self.d3_rcov = jnp.zeros(
+      tuple(int(v) for v in config['d3_rcov_shape']), dtype=dtype
+    )
+    self.d3_r2r4 = jnp.zeros(
+      tuple(int(v) for v in config['d3_r2r4_shape']), dtype=dtype
+    )
 
   def prepare_d3_data(self, species_np):
-    assert self.d3_c6ab is not None
-    assert self.d3_rcov is not None
-    assert self.d3_r2r4 is not None
-    unique_z = np.unique(species_np)
-    z_to_idx = np.zeros(int(unique_z.max()) + 1, dtype=np.int32)
-    for i, z in enumerate(unique_z):
-      z_to_idx[int(z)] = i
-    species_idx = z_to_idx[species_np]
-    unique_z_jax = jnp.asarray(unique_z, dtype=jnp.int32)
+    species_np = np.asarray(species_np).reshape(-1)
+    lookup = np.asarray(self.species_lookup, dtype=np.int32)
+    species_idx = lookup[species_np]
     return {
-      'c6ab': self.d3_c6ab[unique_z_jax[:, None], unique_z_jax[None, :]],
-      'rcov': self.d3_rcov[unique_z_jax],
-      'r2r4': self.d3_r2r4[unique_z_jax],
+      'c6ab': self.d3_c6ab,
+      'rcov': self.d3_rcov,
+      'r2r4': self.d3_r2r4,
       'species_idx': jnp.asarray(species_idx, dtype=jnp.int32),
       'd3_s6': float(self.d3_s6),
       'd3_s8': float(self.d3_s8),
@@ -738,7 +697,9 @@ class AIMNet2(eqx.Module):
     model_dtype = self.layer.afv.dtype
     positions = positions.astype(model_dtype)
     total_charge = jnp.asarray(total_charge, dtype=model_dtype)
-    species = jnp.asarray(species, dtype=jnp.int32)
+    species = jnp.asarray(self.species_lookup, dtype=jnp.int32)[
+      jnp.asarray(species, dtype=jnp.int32)
+    ]
     featurize = neighbor_list_featurizer(
       displacement_fn, cutoff=float(self.cutoff)
     )
@@ -812,7 +773,6 @@ class AIMNet2(eqx.Module):
       lr_neighbors,
       displacement_fn,
       cutoff=float(self.lr_cutoff),
-      smoothing_fraction=float(self.d3_smoothing_fraction),
     ).astype(jnp.float64)
 
     total_energy = local_energy + coulomb_energy + dispersion_energy
@@ -835,4 +795,14 @@ def load_model(
   with path.open('rb') as handle:
     config = dict(json.loads(handle.readline().decode()))
     template = AIMNet2(config=config, dtype=jnp.float32)
-    return eqx.tree_deserialise_leaves(handle, template)
+    model = eqx.tree_deserialise_leaves(handle, template)
+    if jax.config.jax_enable_x64:
+      model = jax.tree_util.tree_map(
+        lambda x: (
+          x.astype(jnp.float64)
+          if eqx.is_array(x) and jnp.issubdtype(x.dtype, jnp.floating)
+          else x
+        ),
+        model,
+      )
+    return model
