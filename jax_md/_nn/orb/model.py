@@ -597,21 +597,15 @@ def load_model(
   model_path: str | PathLike | None = None,
   dtype=None,
 ) -> Orb:
-  if model_path is not None:
-    path = Path(model_path)
-  elif isinstance(model, PathLike):
-    path = Path(model)
-  elif model in ORB_MODEL_PATHS:
-    path = ORB_MODEL_PATHS[model]
-  else:
-    path = Path(model)
+  path = (
+    Path(model_path)
+    if model_path is not None
+    else ORB_MODEL_PATHS.get(model, Path(model))
+  )
 
   if dtype is None:
     dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
-  with (
-    jax.enable_x64(jnp.dtype(dtype) == jnp.dtype(jnp.float64)),
-    path.open('rb') as handle,
-  ):
+  with path.open('rb') as handle:
     config = dict(json.loads(handle.readline().decode()))
     model = eqx.tree_deserialise_leaves(handle, Orb(config=config))
     return jax.tree_util.tree_map(

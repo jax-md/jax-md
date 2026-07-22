@@ -56,28 +56,6 @@ def safe_norm(
   )
 
 
-class MLP(eqx.Module):
-  layers: list[Linear]
-  sizes: tuple[int, ...] = eqx.field(static=True)
-
-  def __init__(
-    self, sizes: tuple[int, ...], *, dtype: Any = jnp.float32, key: Array
-  ):
-    self.sizes = tuple(int(size) for size in sizes)
-    keys = jax.random.split(key, len(sizes) - 1)
-    self.layers = [
-      Linear(in_dim, out_dim, dtype=dtype, key=subkey)
-      for subkey, in_dim, out_dim in zip(keys, self.sizes[:-1], self.sizes[1:])
-    ]
-
-  def __call__(self, x: Array, *, last_linear: bool = True) -> Array:
-    for i, layer in enumerate(self.layers):
-      x = layer(x)
-      if i < len(self.layers) - 1 or not last_linear:
-        x = jax.nn.gelu(x, approximate=False)
-    return x
-
-
 class Linear(eqx.Module):
   weight: Array
   bias: Array
@@ -113,47 +91,26 @@ class Linear(eqx.Module):
     return x @ self.weight.T + self.bias
 
 
-def d3bj_energy_neighbors(
-  positions: Array,
-  d3_pre: dict[str, Array],
-  neighbor,
-  displacement_fn,
-  *,
-  cutoff: float,
-) -> Array:
-  featurize = neighbor_list_featurizer(displacement_fn, cutoff=float(cutoff))
-  edge_vectors, safe_neighbors, edge_mask = featurize(positions, neighbor)
-  distances = safe_norm(edge_vectors, axis=-1)
-  rij = distances / float(d3_pre['bohr_a'])
-  sp_idx = d3_pre['species_idx']
-  sp_i = sp_idx[:, None]
-  sp_j = sp_idx[safe_neighbors]
-  rcov = d3_pre['rcov']
-  r2r4 = d3_pre['r2r4']
+class MLP(eqx.Module):
+  layers: list[Linear]
+  sizes: tuple[int, ...] = eqx.field(static=True)
 
-  rr = (rcov[sp_i] + rcov[sp_j]) / jnp.maximum(rij, 1.0e-8)
-  damp = 1.0 / (1.0 + jnp.exp(-float(d3_pre['d3_k1']) * (rr - 1.0)))
-  cn = jnp.sum(jnp.where(edge_mask, damp, 0.0), axis=1)
+  def __init__(
+    self, sizes: tuple[int, ...], *, dtype: Any = jnp.float32, key: Array
+  ):
+    self.sizes = tuple(int(size) for size in sizes)
+    keys = jax.random.split(key, len(sizes) - 1)
+    self.layers = [
+      Linear(in_dim, out_dim, dtype=dtype, key=subkey)
+      for subkey, in_dim, out_dim in zip(keys, self.sizes[:-1], self.sizes[1:])
+    ]
 
-  atom_ids = jnp.arange(positions.shape[0], dtype=jnp.int32)
-  pair_mask = edge_mask & (atom_ids[:, None] < safe_neighbors)
-  pair_c6ab = d3_pre['c6ab'][sp_i, sp_j]
-  e_pair = d3_pair_energy(
-    pair_c6ab,
-    cn[:, None],
-    cn[safe_neighbors],
-    rij,
-    r2r4[sp_i],
-    r2r4[sp_j],
-    d3_s6=float(d3_pre['d3_s6']),
-    d3_s8=float(d3_pre['d3_s8']),
-    d3_a1=float(d3_pre['d3_a1']),
-    d3_a2=float(d3_pre['d3_a2']),
-    d3_k3=float(d3_pre['d3_k3']),
-  )
-  return jnp.sum(jnp.where(pair_mask, e_pair.astype(jnp.float64), 0.0)) * float(
-    d3_pre['hartree_ev']
-  )
+  def __call__(self, x: Array, *, last_linear: bool = True) -> Array:
+    for i, layer in enumerate(self.layers):
+      x = layer(x)
+      if i < len(self.layers) - 1 or not last_linear:
+        x = jax.nn.gelu(x, approximate=False)
+    return x
 
 
 def d3_pair_energy(
@@ -626,24 +583,39 @@ class AIMNet2(eqx.Module):
       tuple(int(v) for v in config['d3_r2r4_shape']), dtype=dtype
     )
 
-  def prepare_d3_data(self, species_np):
-    species_np = np.asarray(species_np).reshape(-1)
-    lookup = np.asarray(self.species_lookup, dtype=np.int32)
-    species_idx = lookup[species_np]
-    return {
-      'c6ab': self.d3_c6ab,
-      'rcov': self.d3_rcov,
-      'r2r4': self.d3_r2r4,
-      'species_idx': jnp.asarray(species_idx, dtype=jnp.int32),
-      'd3_s6': float(self.d3_s6),
-      'd3_s8': float(self.d3_s8),
-      'd3_a1': float(self.d3_a1),
-      'd3_a2': float(self.d3_a2),
-      'd3_k1': float(self.d3_k1),
-      'd3_k3': float(self.d3_k3),
-      'bohr_a': float(self.bohr_a),
-      'hartree_ev': float(self.hartree_ev),
-    }
+  def dispersion_energy(
+    self, positions, species_idx, neighbor, displacement_fn
+  ):
+    featurize = neighbor_list_featurizer(
+      displacement_fn, cutoff=float(self.lr_cutoff)
+    )
+    edge_vectors, safe_neighbors, edge_mask = featurize(positions, neighbor)
+    rij = safe_norm(edge_vectors, axis=-1) / float(self.bohr_a)
+    sp_i = species_idx[:, None]
+    sp_j = species_idx[safe_neighbors]
+
+    rr = (self.d3_rcov[sp_i] + self.d3_rcov[sp_j]) / jnp.maximum(rij, 1.0e-8)
+    damp = 1.0 / (1.0 + jnp.exp(-float(self.d3_k1) * (rr - 1.0)))
+    cn = jnp.sum(jnp.where(edge_mask, damp, 0.0), axis=1)
+
+    atom_ids = jnp.arange(positions.shape[0], dtype=jnp.int32)
+    pair_mask = edge_mask & (atom_ids[:, None] < safe_neighbors)
+    e_pair = d3_pair_energy(
+      self.d3_c6ab[sp_i, sp_j],
+      cn[:, None],
+      cn[safe_neighbors],
+      rij,
+      self.d3_r2r4[sp_i],
+      self.d3_r2r4[sp_j],
+      d3_s6=float(self.d3_s6),
+      d3_s8=float(self.d3_s8),
+      d3_a1=float(self.d3_a1),
+      d3_a2=float(self.d3_a2),
+      d3_k3=float(self.d3_k3),
+    )
+    return jnp.sum(
+      jnp.where(pair_mask, e_pair.astype(jnp.float64), 0.0)
+    ) * float(self.hartree_ev)
 
   def coulomb_energy(
     self,
@@ -731,7 +703,6 @@ class AIMNet2(eqx.Module):
     positions: Array,
     species: Array,
     *,
-    d3_data: dict[str, Array],
     displacement_fn=None,
     neighbors=None,
     lr_neighbors=None,
@@ -768,12 +739,11 @@ class AIMNet2(eqx.Module):
       displacement_fn,
       periodic,
     )
-    dispersion_energy = d3bj_energy_neighbors(
-      positions64,
-      d3_data,
-      lr_neighbors,
-      displacement_fn,
-      cutoff=float(self.lr_cutoff),
+    species_idx = jnp.asarray(self.species_lookup, dtype=jnp.int32)[
+      jnp.asarray(species, dtype=jnp.int32)
+    ]
+    dispersion_energy = self.dispersion_energy(
+      positions64, species_idx, lr_neighbors, displacement_fn
     ).astype(jnp.float64)
 
     total_energy = local_energy + coulomb_energy + dispersion_energy
@@ -786,20 +756,14 @@ def load_model(
   model_path: str | PathLike | None = None,
   dtype=None,
 ) -> AIMNet2:
-  if model_path is not None:
-    path = Path(model_path)
-  elif isinstance(model, PathLike):
-    path = Path(model)
-  elif model in AIMNET2_MODEL_PATHS:
-    path = AIMNET2_MODEL_PATHS[model]
-  else:
-    path = Path(model)
+  path = (
+    Path(model_path)
+    if model_path is not None
+    else AIMNET2_MODEL_PATHS.get(model, Path(model))
+  )
   if dtype is None:
     dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
-  with (
-    jax.enable_x64(jnp.dtype(dtype) == jnp.dtype(jnp.float64)),
-    path.open('rb') as handle,
-  ):
+  with path.open('rb') as handle:
     config = dict(json.loads(handle.readline().decode()))
     template = AIMNet2(config=config, dtype=jnp.float32)
     model = eqx.tree_deserialise_leaves(handle, template)

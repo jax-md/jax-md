@@ -1122,19 +1122,15 @@ def load_model(
   model_path: str | PathLike | None = None,
   dtype=None,
 ):
-  if model_path is not None:
-    path = Path(model_path)
-  elif model in SO3LR_MODEL_PATHS:
-    path = SO3LR_MODEL_PATHS[model]
-  else:
-    raise ValueError(f'Unsupported SO3LR model: {model}')
+  path = (
+    Path(model_path)
+    if model_path is not None
+    else SO3LR_MODEL_PATHS.get(model, Path(model))
+  )
 
   if dtype is None:
     dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
-  with (
-    jax.enable_x64(jnp.dtype(dtype) == jnp.dtype(jnp.float64)),
-    path.open('rb') as handle,
-  ):
+  with path.open('rb') as handle:
     header = json.loads(handle.readline().decode('utf-8'))
     metadata = header['metadata']
     hyperparameters = header['hyperparameters']

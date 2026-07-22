@@ -47,12 +47,8 @@ FINE_STRUCTURE_CONSTANT = float(
   * constants_CONDATA_2014['_e'] ** 2
   / (2 * constants_CONDATA_2014['_hplanck'])
 )
-HARTREE_EV = float(
-  FINE_STRUCTURE_CONSTANT**2
-  * constants_CONDATA_2014['_me']
-  * constants_CONDATA_2014['_c'] ** 2
-  / constants_CONDATA_2014['_e']
-)
+# Hartree energy in eV, CODATA 2018, matching the ported ML potentials.
+HARTREE_EV = 27.211386245988
 BOHR_ANGSTROM = float(
   constants_CONDATA_2014['_hplanck']
   / (

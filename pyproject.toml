@@ -118,6 +118,7 @@ packages = ["jax_md"]
 exclude = [
     "jax_md/_nn/uma/Jd.pt",
     "jax_md/_nn/uma/checkpoints/*.json",
+    "jax_md/_nn/**/*.eqx",
 ]
 
 [tool.hatch.build.targets.wheel.shared-data]
@@ -131,6 +132,7 @@ exclude = [
 exclude = [
     "jax_md/_nn/uma/Jd.pt",
     "jax_md/_nn/uma/checkpoints/*.json",
+    "jax_md/_nn/**/*.eqx",
 ]
 
 [tool.hatch.build.targets.sdist.force-include]

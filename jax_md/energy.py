@@ -2527,7 +2527,7 @@ def orb_neighbor_list(
   model: str = 'orb-jax-v3-conservative-omol',
   model_path=None,
   total_charge: float = 0.0,
-  total_spin: float = 0.0,
+  total_spin: float = 1.0,
   dr_threshold: float = 0.0,
   capacity_multiplier: float = 1.25,
   disable_cell_list: bool = False,
@@ -2544,7 +2544,8 @@ def orb_neighbor_list(
     model: Pretrained checkpoint name passed to `orb.load_model`.
     model_path: Optional path to a local checkpoint, overriding `model`.
     total_charge: Total charge. May be overridden per call.
-    total_spin: Total spin. May be overridden per call.
+    total_spin: Spin multiplicity; defaults to 1 (closed-shell singlet), the
+      value orb-models uses for neutral systems. May be overridden per call.
     dr_threshold: Skin distance added to the cutoff.
     capacity_multiplier: Multiplier used to size the neighbor list buffer.
     disable_cell_list: If True, search all atom pairs.
@@ -2860,7 +2861,6 @@ def aimnet2_neighbor_list(
   Returns:
     A neighbor_fn and energy_fn pair. The energy is in eV.
   """
-  import numpy as onp
   from jax_md._nn import aimnet2
 
   if box is None:
@@ -2878,9 +2878,6 @@ def aimnet2_neighbor_list(
     )
 
   net = aimnet2.load_model(model, model_path=model_path)
-  d3_data = None
-  if species is not None:
-    d3_data = net.prepare_d3_data(onp.asarray(species))
   neighbor_fn = partition.paired_neighbor_list(
     displacement_fn,
     box,
@@ -2895,12 +2892,11 @@ def aimnet2_neighbor_list(
   )
 
   def energy_fn(position, neighbor, total_charge=total_charge, **kwargs):
-    if species is None or d3_data is None:
+    if species is None:
       raise ValueError('AIMNet2 requires per-atom species.')
     return net(
       position,
       species,
-      d3_data=d3_data,
       displacement_fn=displacement_fn,
       neighbors=neighbor.short,
       lr_neighbors=neighbor.long_range,

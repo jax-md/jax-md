@@ -9,6 +9,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from jax_md import partition, space
+from jax_md.units import HARTREE_EV
 
 jax.config.update('jax_default_matmul_precision', 'highest')
 
@@ -232,11 +233,6 @@ class ANI2x(eqx.Module):
     self.layer_weights = layer_weights
     self.layer_biases = layer_biases
 
-  def species_indices(self, atomic_numbers) -> jnp.ndarray:
-    return jnp.asarray(self.species_to_index, dtype=jnp.int32)[
-      jnp.asarray(atomic_numbers, dtype=jnp.int32)
-    ]
-
   def local_node_energies(
     self,
     positions,
@@ -245,7 +241,9 @@ class ANI2x(eqx.Module):
     neighbor,
     displacement_fn,
   ):
-    species = jnp.asarray(species, dtype=jnp.int32)
+    species = jnp.asarray(self.species_to_index, dtype=jnp.int32)[
+      jnp.asarray(species, dtype=jnp.int32)
+    ]
     num_atoms = species.shape[0]
     atom_ids = jnp.arange(num_atoms, dtype=jnp.int32)
     species_lookup = jnp.asarray(self.species_lookup, dtype=jnp.int32)
@@ -429,7 +427,7 @@ class ANI2x(eqx.Module):
       displacement_fn=displacement_fn,
     )
     local_energy = jnp.sum(node_energies)
-    return local_energy
+    return HARTREE_EV * local_energy
 
 
 def load_model(
@@ -441,26 +439,26 @@ def load_model(
 ) -> ANI2x:
   """Load an ANI-2x checkpoint, optionally specialized to a fixed atomic-number set."""
 
-  if model_path is not None:
-    path = Path(model_path)
-  elif isinstance(model, PathLike):
-    path = Path(model)
-  elif model in ANI2X_MODEL_PATHS:
-    path = ANI2X_MODEL_PATHS[model]
-  else:
-    path = Path(model)
+  path = (
+    Path(model_path)
+    if model_path is not None
+    else ANI2X_MODEL_PATHS.get(model, Path(model))
+  )
 
   if dtype is None:
     dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
-  with (
-    jax.enable_x64(jnp.dtype(dtype) == jnp.dtype(jnp.float64)),
-    path.open('rb') as handle,
-  ):
+  with path.open('rb') as handle:
     config = json.loads(handle.readline().decode())
     config = dict(config)
     active_species = None
     if atomic_numbers is not None:
       species_order = tuple(int(z) for z in config['species_order'])
+      requested = np.asarray(atomic_numbers, dtype=np.int64).reshape(-1)
+      unsupported = sorted(set(requested.tolist()) - set(species_order))
+      if unsupported:
+        raise ValueError(
+          f'ANI2x does not support atomic numbers {unsupported}.'
+        )
       species = jnp.asarray(
         species_index_table(species_order), dtype=jnp.int32
       )[jnp.asarray(atomic_numbers, dtype=jnp.int32)]

@@ -663,10 +663,10 @@ class AceFF(eqx.Module):
         'q_mlp': mlp(3 * hidden, charge_mlp_dims),
       }
 
-    params = {
-      'rbf_means': zeros(num_rbf),
-      'rbf_betas': zeros(num_rbf),
-      'tensor_embedding': {
+    self.rbf_betas = zeros(num_rbf)
+    self.rbf_means = zeros(num_rbf)
+    self.tensor_embedding = TensorEmbedding(
+      {
         'distance_proj1': linear(num_rbf, hidden),
         'distance_proj2': linear(num_rbf, hidden),
         'distance_proj3': linear(num_rbf, hidden),
@@ -681,7 +681,14 @@ class AceFF(eqx.Module):
           linear(hidden, hidden, bias=False) for _ in range(3)
         ],
       },
-      'layers': [
+      cutoff=self.cutoff,
+      cutoff_lower=self.cutoff_lower,
+    )
+    self.charge_predictor_0 = (
+      ChargePredictionHead(charge_head()) if charge_predictors else None
+    )
+    self.layers = tuple(
+      AceFFLayer(
         {
           'linears_scalar': [
             linear(layer_scalar_in, hidden),
@@ -691,53 +698,30 @@ class AceFF(eqx.Module):
           'linears_tensor': [
             linear(hidden, hidden, bias=False) for _ in range(6)
           ],
-        }
-        for _ in range(num_layers)
-      ],
-      'linear': linear(3 * hidden, hidden),
-      'out_norm': layer_norm(3 * hidden),
-      'output_network': mlp(hidden, config['output_network_dims']),
-    }
-    if charge_predictors:
-      params['charge_predict_0'] = charge_head()
-      params['charge_predicts'] = [charge_head() for _ in range(num_layers)]
-    if coulomb_energy:
-      params['qweights'] = zeros(int(config['coulomb_qweights_dim']))
-
-    self.rbf_betas = params['rbf_betas']
-    self.rbf_means = params['rbf_means']
-    self.tensor_embedding = TensorEmbedding(
-      params['tensor_embedding'],
-      cutoff=self.cutoff,
-      cutoff_lower=self.cutoff_lower,
-    )
-    self.charge_predictor_0 = (
-      ChargePredictionHead(params['charge_predict_0'])
-      if charge_predictors
-      else None
-    )
-    self.layers = tuple(
-      AceFFLayer(
-        layer,
+        },
         cutoff=self.cutoff,
         cutoff_lower=self.cutoff_lower,
         group=group,
         edge_charge_features=edge_charge_features,
         total_charge_interaction_scale=total_charge_interaction_scale,
       )
-      for layer in params['layers']
+      for _ in range(num_layers)
     )
     self.charge_predictors_by_layer = (
-      tuple(
-        ChargePredictionHead(weights) for weights in params['charge_predicts']
-      )
+      tuple(ChargePredictionHead(charge_head()) for _ in range(num_layers))
       if charge_predictors
       else ()
     )
-    self.local_energy_head = LocalEnergyHead(params)
+    self.local_energy_head = LocalEnergyHead(
+      {
+        'out_norm': layer_norm(3 * hidden),
+        'linear': linear(3 * hidden, hidden),
+        'output_network': mlp(hidden, config['output_network_dims']),
+      }
+    )
     self.coulomb_head = (
       CoulombHead(
-        params['qweights'],
+        zeros(int(config['coulomb_qweights_dim'])),
         coulomb_factor=coulomb_factor,
         coulomb_damp_cutoff=coulomb_damp_cutoff,
         coulomb_cutoff=coulomb_cutoff,
@@ -904,21 +888,15 @@ def load_model(
   model_path: str | PathLike | None = None,
   dtype=None,
 ):
-  if model_path is not None:
-    path = Path(model_path)
-  elif isinstance(model, PathLike):
-    path = Path(model)
-  elif model in ACEFF_MODEL_PATHS:
-    path = ACEFF_MODEL_PATHS[model]
-  else:
-    path = Path(model)
+  path = (
+    Path(model_path)
+    if model_path is not None
+    else ACEFF_MODEL_PATHS.get(model, Path(model))
+  )
 
   if dtype is None:
     dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
-  with (
-    jax.enable_x64(jnp.dtype(dtype) == jnp.dtype(jnp.float64)),
-    path.open('rb') as handle,
-  ):
+  with path.open('rb') as handle:
     config = dict(json.loads(handle.readline().decode()))
     template = AceFF(config)
     loaded = eqx.tree_deserialise_leaves(handle, template)
