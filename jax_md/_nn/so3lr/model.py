@@ -32,9 +32,11 @@ def neighbor_list_featurizer(displacement_fn):
     safe_idx_i = jnp.where(valid, idx_i, 0)
     safe_idx_j = jnp.where(valid, idx_j, 0)
     d = jax.vmap(partial(displacement_fn, **kwargs))
-    edges = d(position[safe_idx_j], position[safe_idx_i])
-    edges = jnp.where(valid[:, None], edges, 0.0).astype(position.dtype)
-    return idx_i, idx_j, edges
+    edge_vectors = d(position[safe_idx_j], position[safe_idx_i])
+    edge_vectors = jnp.where(valid[:, None], edge_vectors, 0.0).astype(
+      position.dtype
+    )
+    return idx_i, idx_j, edge_vectors
 
   return featurize
 
@@ -207,7 +209,7 @@ class MLP(eqx.Module):
 
 
 class LayerNorm(eqx.Module):
-  scale: Array
+  weight: Array
   bias: Array
   eps: float = eqx.field(static=True)
 
@@ -218,7 +220,7 @@ class LayerNorm(eqx.Module):
     eps: float = 1.0e-6,
     dtype=jnp.float32,
   ):
-    self.scale = jnp.zeros(num_features, dtype=dtype)
+    self.weight = jnp.zeros(num_features, dtype=dtype)
     self.bias = jnp.zeros(num_features, dtype=dtype)
     self.eps = float(eps)
 
@@ -226,7 +228,7 @@ class LayerNorm(eqx.Module):
     mean = jnp.mean(x, axis=-1, keepdims=True)
     var = jnp.mean(jnp.square(x - mean), axis=-1, keepdims=True)
     y = (x - mean) * jax.lax.rsqrt(var + jnp.asarray(self.eps, dtype=x.dtype))
-    return y * self.scale + self.bias
+    return y * self.weight + self.bias
 
 
 class ChargeSpinEmbed(eqx.Module):
@@ -497,7 +499,7 @@ class SO3LRLayer(eqx.Module):
     return x, ev
 
 
-class LocalNodeEnergyHead(eqx.Module):
+class LocalEnergyHead(eqx.Module):
   energy_offset: Array
   atomic_scales: Array
   energy_mlp: MLP
@@ -664,7 +666,7 @@ class ZBLRepulsion(eqx.Module):
 
 
 class EnergyHead(eqx.Module):
-  local_node_energies: LocalNodeEnergyHead
+  local_node_energies: LocalEnergyHead
   zbl_repulsion: ZBLRepulsion
   partial_charges: PartialChargesHead
   hirshfeld_ratios: HirshfeldRatiosHead
@@ -687,7 +689,7 @@ class EnergyHead(eqx.Module):
     self.bohr_angstrom = float(bohr_angstrom)
     self.hartree_ev = float(hartree_ev)
     self.coulomb_ev_angstrom = float(coulomb_ev_angstrom)
-    self.local_node_energies = LocalNodeEnergyHead(
+    self.local_node_energies = LocalEnergyHead(
       num_species=num_species,
       num_features=num_features,
       dtype=dtype,

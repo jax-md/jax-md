@@ -21,13 +21,10 @@ jax.config.parse_flags_with_absl()
 # These models run in float64, so the tests require x64 and skip otherwise.
 X64 = jax.config.jax_enable_x64
 DTYPE = jnp.float64
-# Internal-consistency tolerances, magnitude-independent; machine precision.
+# Internal-consistency tolerances, machine precision in f64.
 ENERGY_RTOL = 1e-12
 FORCE_TOL = 1e-10
-# Reference tolerances mirror bio-mlff's Test*Potential.py: energy and force
-# compared at rtol 1e-10 with a per-model force atol. so3lr's JAX
-# reimplementation differs from the upstream so3lr package by ~6e-10 energy and
-# ~3e-6 force -- a floor bio-mlff shares -- so it carries looser per-model bounds.
+# Reference force rtol; per-model energy_rtol and force_atol on each Model.
 FORCE_RTOL = 1e-10
 
 
@@ -105,7 +102,7 @@ ORB = Model(
     ],
     dtype=DTYPE,
   ),
-  energy_rtol=1e-10,
+  energy_rtol=1e-12,
   force_atol=0.0,
   supports_sparse=True,
 )
@@ -135,7 +132,7 @@ ACEFF = Model(
     ],
     dtype=DTYPE,
   ),
-  energy_rtol=1e-10,
+  energy_rtol=1e-12,
   force_atol=5e-11,
   supports_sparse=True,
 )
@@ -165,7 +162,7 @@ ANI = Model(
     ],
     dtype=DTYPE,
   ),
-  energy_rtol=1e-10,
+  energy_rtol=1e-12,
   force_atol=3e-6,
   supports_sparse=False,
 )
@@ -225,7 +222,7 @@ AIMNET2 = Model(
     ],
     dtype=DTYPE,
   ),
-  energy_rtol=1e-10,
+  energy_rtol=1e-12,
   force_atol=0.0,
   supports_sparse=False,
 )

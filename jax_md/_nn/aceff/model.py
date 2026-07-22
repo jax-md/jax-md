@@ -175,12 +175,22 @@ def safe_norm(x, *, axis=-1, keepdims: bool = False, eps: float = 1.0e-24):
   )
 
 
-def mlp(d_in, dims):
-  layers = []
-  for d_out in dims:
-    layers.append(Linear(d_in, int(d_out)))
-    d_in = int(d_out)
-  return tuple(layers)
+class MLP(eqx.Module):
+  layers: tuple[Linear, ...]
+
+  def __init__(self, d_in, dims):
+    layers = []
+    for d_out in dims:
+      layers.append(Linear(d_in, int(d_out)))
+      d_in = int(d_out)
+    self.layers = tuple(layers)
+
+  def __call__(self, x):
+    for i, layer in enumerate(self.layers):
+      x = layer(x)
+      if i < len(self.layers) - 1:
+        x = jax.nn.silu(x)
+    return x
 
 
 class TensorEmbedding(eqx.Module):
@@ -296,11 +306,11 @@ class TensorEmbedding(eqx.Module):
 
 
 class ChargePredictionHead(eqx.Module):
-  q_mlp: tuple[Linear, ...]
+  q_mlp: MLP
   q_norm: LayerNorm
 
   def __init__(self, in_dim, mlp_dims, *, eps):
-    self.q_mlp = mlp(in_dim, mlp_dims)
+    self.q_mlp = MLP(in_dim, mlp_dims)
     self.q_norm = LayerNorm(in_dim, eps=eps)
 
   def _neural_charge_equilibration(
@@ -328,10 +338,7 @@ class ChargePredictionHead(eqx.Module):
     )
 
     charge_features = self.q_norm(charge_features)
-    for i, layer in enumerate(self.q_mlp):
-      charge_features = layer(charge_features)
-      if i < len(self.q_mlp) - 1:
-        charge_features = jax.nn.silu(charge_features)
+    charge_features = self.q_mlp(charge_features)
 
     ncharge = charge_features.shape[-1] // 2
     partial_charges = charge_features[:, :ncharge]
@@ -505,12 +512,12 @@ class AceFFLayer(eqx.Module):
 class LocalEnergyHead(eqx.Module):
   out_norm: LayerNorm
   linear: Linear
-  output_network: tuple[Linear, ...]
+  output_network: MLP
 
   def __init__(self, hidden, output_network_dims, *, eps):
     self.out_norm = LayerNorm(3 * hidden, eps=eps)
     self.linear = Linear(3 * hidden, hidden)
-    self.output_network = mlp(hidden, output_network_dims)
+    self.output_network = MLP(hidden, output_network_dims)
 
   def __call__(self, tensor_features):
     _, antisymmetric, symmetric = decompose_tensor(tensor_features)
@@ -532,10 +539,7 @@ class LocalEnergyHead(eqx.Module):
     )
     energy_features = self.out_norm(energy_features)
     energy_features = jax.nn.silu(self.linear(energy_features))
-    for i, layer in enumerate(self.output_network):
-      energy_features = layer(energy_features)
-      if i < len(self.output_network) - 1:
-        energy_features = jax.nn.silu(energy_features)
+    energy_features = self.output_network(energy_features)
     return energy_features.squeeze(-1)
 
 

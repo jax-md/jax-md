@@ -26,17 +26,17 @@ def neighbor_list_featurizer(displacement_fn):
     num_atoms = position.shape[0]
     atom_ids = jnp.arange(num_atoms, dtype=jnp.int32)
     idx = jnp.asarray(neighbor.idx, dtype=jnp.int32)
-    mask = partition.neighbor_list_mask(neighbor)
-    safe_idx = jnp.where(mask, idx, atom_ids[:, None])
+    edge_mask = partition.neighbor_list_mask(neighbor)
+    safe_idx = jnp.where(edge_mask, idx, atom_ids[:, None])
     d = space.map_neighbor(partial(displacement_fn, **kwargs))
     edge_vectors = d(position, position[safe_idx])
-    edge_vectors = jnp.where(mask[..., None], edge_vectors, 0.0)
-    return edge_vectors, safe_idx, mask
+    edge_vectors = jnp.where(edge_mask[..., None], edge_vectors, 0.0)
+    return edge_vectors, safe_idx, edge_mask
 
   return featurize
 
 
-def piecewise_cutoff(distance, cutoff: float):
+def cosine_cutoff(distance, cutoff: float):
   """ANI cosine cutoff."""
   return 0.5 * jnp.cos(distance * jnp.pi / cutoff) + 0.5
 
@@ -278,7 +278,7 @@ class ANI2x(eqx.Module):
     # Eq. 3: radial symmetry terms, then sum them by species.
     radial_mask = radial_real_neighbor & (radial_distance < self.radial_cutoff)
     radial_switch = (
-      piecewise_cutoff(radial_distance, self.radial_cutoff) * radial_mask
+      cosine_cutoff(radial_distance, self.radial_cutoff) * radial_mask
     )
     radial_terms = (
       jnp.exp(
@@ -313,7 +313,7 @@ class ANI2x(eqx.Module):
       angular_distance < self.angular_cutoff
     )
     angular_switch = (
-      piecewise_cutoff(angular_distance, self.angular_cutoff) * angular_mask
+      cosine_cutoff(angular_distance, self.angular_cutoff) * angular_mask
     )
     direction = angular_displacements / jnp.clip(
       angular_distance[..., None], min=1e-5

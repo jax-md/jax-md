@@ -354,7 +354,7 @@ class ORBLayer(eqx.Module):
     return nodes
 
 
-class EnergyHead(eqx.Module):
+class LocalEnergyHead(eqx.Module):
   energy_mlp: MLP
   energy_normalizer_var: Array
   energy_normalizer_mean: Array
@@ -480,7 +480,7 @@ class ZBLRepulsion(eqx.Module):
 
 class Orb(eqx.Module):
   layer: ORBLayer
-  energy_head: EnergyHead
+  energy_head: LocalEnergyHead
   zbl_repulsion: ZBLRepulsion
   cutoff: float = eqx.field(static=True)
   ev_to_kjmol: float = eqx.field(static=True)
@@ -520,7 +520,7 @@ class Orb(eqx.Module):
       edge_feature_dim=self.edge_feature_dim,
       cutoff_polynomial_p=self.cutoff_polynomial_p,
     )
-    self.energy_head = EnergyHead(
+    self.energy_head = LocalEnergyHead(
       config=config,
       energy_mlp_num_layers=self.energy_mlp_num_layers,
     )

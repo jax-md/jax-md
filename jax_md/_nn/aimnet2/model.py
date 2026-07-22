@@ -472,7 +472,7 @@ class AIMNet2Layer(eqx.Module):
     return aim_vectors, partial_charges
 
 
-class EnergyHead(eqx.Module):
+class LocalEnergyHead(eqx.Module):
   energy_mlp: MLP
   atomic_shifts: Array
 
@@ -521,7 +521,7 @@ class AIMNet2(eqx.Module):
   lr_cutoff: float = eqx.field(static=True)
   dsf_alpha: float = eqx.field(static=True)
   layer: AIMNet2Layer
-  energy_head: EnergyHead
+  energy_head: LocalEnergyHead
   d3_c6ab: Array
   d3_rcov: Array
   d3_r2r4: Array
@@ -567,7 +567,7 @@ class AIMNet2(eqx.Module):
       dtype=dtype,
       keys=keys[:3],
     )
-    self.energy_head = EnergyHead(
+    self.energy_head = LocalEnergyHead(
       config=config,
       dtype=dtype,
       key=keys[3],
