@@ -19,7 +19,6 @@ ACEFF_MODEL_PATHS = {
   'aceff-jax-1.1': files('jax_md._nn.aceff') / 'aceff_v1.1.eqx',
   'aceff-jax-2.0': files('jax_md._nn.aceff') / 'aceff_v2.0.eqx',
 }
-ACEFF_MODEL_NAMES = tuple(ACEFF_MODEL_PATHS)
 
 
 def neighbor_list_featurizer(displacement_fn, *, cutoff: float):
@@ -143,9 +142,9 @@ class Linear(eqx.Module):
   kernel: Any
   bias: Any
 
-  def __init__(self, kernel, bias=None):
-    self.kernel = kernel
-    self.bias = bias
+  def __init__(self, d_in, d_out, *, bias=True):
+    self.kernel = jnp.zeros((d_in, d_out), dtype=jnp.float32)
+    self.bias = jnp.zeros((d_out,), dtype=jnp.float32) if bias else None
 
   def __call__(self, x):
     out = x @ self.kernel
@@ -159,9 +158,9 @@ class LayerNorm(eqx.Module):
   bias: Any
   eps: float = eqx.field(static=True)
 
-  def __init__(self, weight, bias, *, eps: float = 1.0e-5):
-    self.weight = weight
-    self.bias = bias
+  def __init__(self, dim, *, eps: float = 1.0e-5):
+    self.weight = jnp.zeros((dim,), dtype=jnp.float32)
+    self.bias = jnp.zeros((dim,), dtype=jnp.float32)
     self.eps = float(eps)
 
   def __call__(self, x):
@@ -176,13 +175,40 @@ def safe_norm(x, *, axis=-1, keepdims: bool = False, eps: float = 1.0e-24):
   )
 
 
+def mlp(d_in, dims):
+  layers = []
+  for d_out in dims:
+    layers.append(Linear(d_in, int(d_out)))
+    d_in = int(d_out)
+  return tuple(layers)
+
+
 class TensorEmbedding(eqx.Module):
-  weights: Any
+  distance_proj1: Linear
+  distance_proj2: Linear
+  distance_proj3: Linear
+  emb: Any
+  emb2: Linear
+  init_norm: LayerNorm
+  linears_scalar: tuple[Linear, ...]
+  linears_tensor: tuple[Linear, ...]
   cutoff: float = eqx.field(static=True)
   cutoff_lower: float = eqx.field(static=True)
 
-  def __init__(self, weights, *, cutoff: float, cutoff_lower: float):
-    self.weights = weights
+  def __init__(self, num_rbf, hidden, *, cutoff, cutoff_lower, eps):
+    self.distance_proj1 = Linear(num_rbf, hidden)
+    self.distance_proj2 = Linear(num_rbf, hidden)
+    self.distance_proj3 = Linear(num_rbf, hidden)
+    self.emb = jnp.zeros((hidden, hidden), dtype=jnp.float32)
+    self.emb2 = Linear(2 * hidden, hidden)
+    self.init_norm = LayerNorm(hidden, eps=eps)
+    self.linears_scalar = (
+      Linear(hidden, 2 * hidden),
+      Linear(2 * hidden, 3 * hidden),
+    )
+    self.linears_tensor = tuple(
+      Linear(hidden, hidden, bias=False) for _ in range(3)
+    )
     self.cutoff = float(cutoff)
     self.cutoff_lower = float(cutoff_lower)
 
@@ -197,19 +223,18 @@ class TensorEmbedding(eqx.Module):
     *,
     edge_mask=None,
   ):
-    weights = self.weights
-    num_features = weights['emb'].shape[1]
+    num_features = self.emb.shape[1]
     num_atoms = species.shape[0]
 
-    Zi = weights['emb'][species[edge_src]]
-    Zj = weights['emb'][species[edge_dst]]
-    Zij = weights['emb2'](
+    Zi = self.emb[species[edge_src]]
+    Zj = self.emb[species[edge_dst]]
+    Zij = self.emb2(
       jnp.concatenate([Zi, Zj], axis=-1),
     )
 
-    distance_projection_1 = weights['distance_proj1'](radial_features)
-    distance_projection_2 = weights['distance_proj2'](radial_features)
-    distance_projection_3 = weights['distance_proj3'](radial_features)
+    distance_projection_1 = self.distance_proj1(radial_features)
+    distance_projection_2 = self.distance_proj2(radial_features)
+    distance_projection_3 = self.distance_proj3(radial_features)
 
     cutoff_values = cosine_cutoff(distances, self.cutoff, self.cutoff_lower)
     if edge_mask is not None:
@@ -254,8 +279,8 @@ class TensorEmbedding(eqx.Module):
     )
 
     norm = (tensor_features**2).sum(axis=(1, 2))
-    norm = weights['init_norm'](norm)
-    for layer in weights['linears_scalar']:
+    norm = self.init_norm(norm)
+    for layer in self.linears_scalar:
       norm = jax.nn.silu(layer(norm))
     norm = norm.reshape(-1, 3, num_features)
 
@@ -263,20 +288,20 @@ class TensorEmbedding(eqx.Module):
     antisymmetric_norm = norm[:, 1, :][:, None, None, :]
     symmetric_norm = norm[:, 2, :][:, None, None, :]
 
-    scalar = weights['linears_tensor'][0](scalar) * scalar_norm
-    antisymmetric = (
-      weights['linears_tensor'][1](antisymmetric) * antisymmetric_norm
-    )
-    symmetric = weights['linears_tensor'][2](symmetric) * symmetric_norm
+    scalar = self.linears_tensor[0](scalar) * scalar_norm
+    antisymmetric = self.linears_tensor[1](antisymmetric) * antisymmetric_norm
+    symmetric = self.linears_tensor[2](symmetric) * symmetric_norm
 
     return scalar[:, None, None, :] * identity + antisymmetric + symmetric
 
 
 class ChargePredictionHead(eqx.Module):
-  weights: Any
+  q_mlp: tuple[Linear, ...]
+  q_norm: LayerNorm
 
-  def __init__(self, weights):
-    self.weights = weights
+  def __init__(self, in_dim, mlp_dims, *, eps):
+    self.q_mlp = mlp(in_dim, mlp_dims)
+    self.q_norm = LayerNorm(in_dim, eps=eps)
 
   def _neural_charge_equilibration(
     self,
@@ -292,7 +317,6 @@ class ChargePredictionHead(eqx.Module):
     )
 
   def __call__(self, tensor_features, total_charge=0.0):
-    weights = self.weights
     scalar, antisymmetric, symmetric = decompose_tensor(tensor_features)
     charge_features = jnp.concatenate(
       [
@@ -303,10 +327,10 @@ class ChargePredictionHead(eqx.Module):
       axis=-1,
     )
 
-    charge_features = weights['q_norm'](charge_features)
-    for i, layer in enumerate(weights['q_mlp']):
+    charge_features = self.q_norm(charge_features)
+    for i, layer in enumerate(self.q_mlp):
       charge_features = layer(charge_features)
-      if i < len(weights['q_mlp']) - 1:
+      if i < len(self.q_mlp) - 1:
         charge_features = jax.nn.silu(charge_features)
 
     ncharge = charge_features.shape[-1] // 2
@@ -320,7 +344,8 @@ class ChargePredictionHead(eqx.Module):
 
 
 class AceFFLayer(eqx.Module):
-  weights: Any
+  linears_scalar: tuple[Linear, ...]
+  linears_tensor: tuple[Linear, ...]
   cutoff: float = eqx.field(static=True)
   cutoff_lower: float = eqx.field(static=True)
   group: str = eqx.field(static=True)
@@ -329,7 +354,8 @@ class AceFFLayer(eqx.Module):
 
   def __init__(
     self,
-    weights,
+    scalar_in,
+    hidden,
     *,
     cutoff: float,
     cutoff_lower: float,
@@ -337,7 +363,14 @@ class AceFFLayer(eqx.Module):
     edge_charge_features: bool,
     total_charge_interaction_scale: bool,
   ):
-    self.weights = weights
+    self.linears_scalar = (
+      Linear(scalar_in, hidden),
+      Linear(hidden, 2 * hidden),
+      Linear(2 * hidden, 3 * hidden),
+    )
+    self.linears_tensor = tuple(
+      Linear(hidden, hidden, bias=False) for _ in range(6)
+    )
     self.cutoff = float(cutoff)
     self.cutoff_lower = float(cutoff_lower)
     self.group = str(group)
@@ -356,7 +389,6 @@ class AceFFLayer(eqx.Module):
     *,
     edge_mask=None,
   ):
-    weights = self.weights
     num_atoms = tensor_features.shape[0]
     num_features = tensor_features.shape[3]
 
@@ -374,7 +406,7 @@ class AceFFLayer(eqx.Module):
     else:
       edge_features = radial_features
 
-    for layer in weights['linears_scalar']:
+    for layer in self.linears_scalar:
       edge_features = jax.nn.silu(layer(edge_features))
     edge_features = (edge_features * cutoff_values[:, None]).reshape(
       -1,
@@ -388,9 +420,9 @@ class AceFFLayer(eqx.Module):
     )
 
     scalar, antisymmetric, symmetric = decompose_tensor(tensor_features)
-    scalar = weights['linears_tensor'][0](scalar)
-    antisymmetric = weights['linears_tensor'][1](antisymmetric)
-    symmetric = weights['linears_tensor'][2](symmetric)
+    scalar = self.linears_tensor[0](scalar)
+    antisymmetric = self.linears_tensor[1](antisymmetric)
+    symmetric = self.linears_tensor[2](symmetric)
     identity = jnp.eye(3, dtype=scalar.dtype)[None, :, :, None]
     projected_features = (
       scalar[:, None, None, :] * identity + antisymmetric + symmetric
@@ -454,9 +486,9 @@ class AceFFLayer(eqx.Module):
     antisymmetric_update = antisymmetric_update / update_norm[:, None, None, :]
     symmetric_update = symmetric_update / update_norm[:, None, None, :]
 
-    scalar_update = weights['linears_tensor'][3](scalar_update)
-    antisymmetric_update = weights['linears_tensor'][4](antisymmetric_update)
-    symmetric_update = weights['linears_tensor'][5](symmetric_update)
+    scalar_update = self.linears_tensor[3](scalar_update)
+    antisymmetric_update = self.linears_tensor[4](antisymmetric_update)
+    symmetric_update = self.linears_tensor[5](symmetric_update)
     delta_features = (
       scalar_update[:, None, None, :] * identity
       + antisymmetric_update
@@ -471,14 +503,14 @@ class AceFFLayer(eqx.Module):
 
 
 class LocalEnergyHead(eqx.Module):
-  out_norm: Any
-  linear: Any
-  output_network: Any
+  out_norm: LayerNorm
+  linear: Linear
+  output_network: tuple[Linear, ...]
 
-  def __init__(self, weights):
-    self.out_norm = weights['out_norm']
-    self.linear = weights['linear']
-    self.output_network = weights['output_network']
+  def __init__(self, hidden, output_network_dims, *, eps):
+    self.out_norm = LayerNorm(3 * hidden, eps=eps)
+    self.linear = Linear(3 * hidden, hidden)
+    self.output_network = mlp(hidden, output_network_dims)
 
   def __call__(self, tensor_features):
     _, antisymmetric, symmetric = decompose_tensor(tensor_features)
@@ -517,7 +549,7 @@ class CoulombHead(eqx.Module):
 
   def __init__(
     self,
-    qweights,
+    qweights_dim,
     *,
     coulomb_factor: float,
     coulomb_damp_cutoff: float,
@@ -525,7 +557,7 @@ class CoulombHead(eqx.Module):
     coulomb_epsilon_solvent: float,
     exp_minus_1: float,
   ):
-    self.qweights = qweights
+    self.qweights = jnp.zeros((qweights_dim,), dtype=jnp.float32)
     self.coulomb_factor = float(coulomb_factor)
     self.coulomb_damp_cutoff = float(coulomb_damp_cutoff)
     self.coulomb_cutoff = (
@@ -628,77 +660,36 @@ class AceFF(eqx.Module):
       config['neighbor_cell_capacity_multiplier']
     )
 
-    # Rebuild the zero-filled parameter tree from the architecture dimensions
-    # in the config; eqx.tree_deserialise_leaves fills in the array leaves.
+    # Zero template rebuilt from the config dimensions; the array leaves are
+    # filled by eqx.tree_deserialise_leaves in load_model.
     hidden = int(config['hidden_channels'])
     num_rbf = int(config['num_rbf'])
     num_layers = int(config['num_interaction_layers'])
-    norm_eps = float(config['layernorm_eps'])
-
-    def zeros(*shape):
-      return jnp.zeros(shape, dtype=jnp.float32)
-
-    def linear(d_in, d_out, *, bias=True):
-      return Linear(zeros(d_in, d_out), zeros(d_out) if bias else None)
-
-    def layer_norm(dim):
-      return LayerNorm(zeros(dim), zeros(dim), eps=norm_eps)
-
-    def mlp(d_in, dims):
-      layers = []
-      for d_out in dims:
-        layers.append(linear(d_in, int(d_out)))
-        d_in = int(d_out)
-      return layers
-
+    eps = float(config['layernorm_eps'])
     charge_mlp_dims = (
       [int(x) for x in config['charge_mlp_dims']] if charge_predictors else []
     )
     n_charge = charge_mlp_dims[-1] // 2 if charge_predictors else 0
-    layer_scalar_in = num_rbf + (2 * n_charge if edge_charge_features else 0)
+    scalar_in = num_rbf + (2 * n_charge if edge_charge_features else 0)
 
-    def charge_head():
-      return {
-        'q_norm': layer_norm(3 * hidden),
-        'q_mlp': mlp(3 * hidden, charge_mlp_dims),
-      }
-
-    self.rbf_betas = zeros(num_rbf)
-    self.rbf_means = zeros(num_rbf)
+    self.rbf_betas = jnp.zeros((num_rbf,), dtype=jnp.float32)
+    self.rbf_means = jnp.zeros((num_rbf,), dtype=jnp.float32)
     self.tensor_embedding = TensorEmbedding(
-      {
-        'distance_proj1': linear(num_rbf, hidden),
-        'distance_proj2': linear(num_rbf, hidden),
-        'distance_proj3': linear(num_rbf, hidden),
-        'emb': zeros(hidden, hidden),
-        'emb2': linear(2 * hidden, hidden),
-        'init_norm': layer_norm(hidden),
-        'linears_scalar': [
-          linear(hidden, 2 * hidden),
-          linear(2 * hidden, 3 * hidden),
-        ],
-        'linears_tensor': [
-          linear(hidden, hidden, bias=False) for _ in range(3)
-        ],
-      },
+      num_rbf,
+      hidden,
       cutoff=self.cutoff,
       cutoff_lower=self.cutoff_lower,
+      eps=eps,
     )
     self.charge_predictor_0 = (
-      ChargePredictionHead(charge_head()) if charge_predictors else None
+      ChargePredictionHead(3 * hidden, charge_mlp_dims, eps=eps)
+      if charge_predictors
+      else None
     )
     self.layers = tuple(
       AceFFLayer(
-        {
-          'linears_scalar': [
-            linear(layer_scalar_in, hidden),
-            linear(hidden, 2 * hidden),
-            linear(2 * hidden, 3 * hidden),
-          ],
-          'linears_tensor': [
-            linear(hidden, hidden, bias=False) for _ in range(6)
-          ],
-        },
+        scalar_in,
+        hidden,
         cutoff=self.cutoff,
         cutoff_lower=self.cutoff_lower,
         group=group,
@@ -708,20 +699,19 @@ class AceFF(eqx.Module):
       for _ in range(num_layers)
     )
     self.charge_predictors_by_layer = (
-      tuple(ChargePredictionHead(charge_head()) for _ in range(num_layers))
+      tuple(
+        ChargePredictionHead(3 * hidden, charge_mlp_dims, eps=eps)
+        for _ in range(num_layers)
+      )
       if charge_predictors
       else ()
     )
     self.local_energy_head = LocalEnergyHead(
-      {
-        'out_norm': layer_norm(3 * hidden),
-        'linear': linear(3 * hidden, hidden),
-        'output_network': mlp(hidden, config['output_network_dims']),
-      }
+      hidden, config['output_network_dims'], eps=eps
     )
     self.coulomb_head = (
       CoulombHead(
-        zeros(int(config['coulomb_qweights_dim'])),
+        int(config['coulomb_qweights_dim']),
         coulomb_factor=coulomb_factor,
         coulomb_damp_cutoff=coulomb_damp_cutoff,
         coulomb_cutoff=coulomb_cutoff,
@@ -883,15 +873,13 @@ class AceFF(eqx.Module):
 
 
 def load_model(
-  model: str | PathLike = 'aceff-jax-2.0',
+  model: str = 'aceff-jax-2.0',
   *,
   model_path: str | PathLike | None = None,
   dtype=None,
 ):
   path = (
-    Path(model_path)
-    if model_path is not None
-    else ACEFF_MODEL_PATHS.get(model, Path(model))
+    Path(model_path) if model_path is not None else ACEFF_MODEL_PATHS[model]
   )
 
   if dtype is None:

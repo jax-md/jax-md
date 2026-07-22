@@ -23,7 +23,6 @@ jax.config.update('jax_default_matmul_precision', 'highest')
 AIMNET2_MODEL_PATHS = {
   'aimnet2-jax': files('jax_md._nn.aimnet2') / 'aimnet2.eqx',
 }
-AIMNET2_MODEL_NAMES = tuple(AIMNET2_MODEL_PATHS)
 
 
 def neighbor_list_featurizer(displacement_fn, *, cutoff: float):
@@ -751,15 +750,13 @@ class AIMNet2(eqx.Module):
 
 
 def load_model(
-  model: str | PathLike = 'aimnet2-jax',
+  model: str = 'aimnet2-jax',
   *,
   model_path: str | PathLike | None = None,
   dtype=None,
 ) -> AIMNet2:
   path = (
-    Path(model_path)
-    if model_path is not None
-    else AIMNET2_MODEL_PATHS.get(model, Path(model))
+    Path(model_path) if model_path is not None else AIMNET2_MODEL_PATHS[model]
   )
   if dtype is None:
     dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32

@@ -20,7 +20,6 @@ jax.config.update('jax_default_matmul_precision', 'highest')
 SO3LR_MODEL_PATHS = {
   'so3lr': files('jax_md._nn.so3lr') / 'so3lr.eqx',
 }
-SO3LR_MODEL_NAMES = tuple(SO3LR_MODEL_PATHS)
 
 
 def neighbor_list_featurizer(displacement_fn):
@@ -1123,9 +1122,7 @@ def load_model(
   dtype=None,
 ):
   path = (
-    Path(model_path)
-    if model_path is not None
-    else SO3LR_MODEL_PATHS.get(model, Path(model))
+    Path(model_path) if model_path is not None else SO3LR_MODEL_PATHS[model]
   )
 
   if dtype is None:

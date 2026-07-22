@@ -19,7 +19,6 @@ ANI2X_MODEL_PATHS = {
   'ani2x-jax-ensemble': DEFAULT_ENSEMBLE_MODEL_PATH,
   'ani2x-jax-model0': DEFAULT_SINGLE_MODEL_PATH,
 }
-ANI2X_MODEL_NAMES = tuple(ANI2X_MODEL_PATHS)
 
 
 def neighbor_list_featurizer(displacement_fn):
@@ -431,7 +430,7 @@ class ANI2x(eqx.Module):
 
 
 def load_model(
-  model: str | PathLike = 'ani2x-jax-ensemble',
+  model: str = 'ani2x-jax-ensemble',
   *,
   atomic_numbers=None,
   model_path: str | PathLike | None = None,
@@ -440,9 +439,7 @@ def load_model(
   """Load an ANI-2x checkpoint, optionally specialized to a fixed atomic-number set."""
 
   path = (
-    Path(model_path)
-    if model_path is not None
-    else ANI2X_MODEL_PATHS.get(model, Path(model))
+    Path(model_path) if model_path is not None else ANI2X_MODEL_PATHS[model]
   )
 
   if dtype is None:

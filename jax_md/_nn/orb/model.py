@@ -22,7 +22,6 @@ ORB_MODEL_PATHS = {
     files('jax_md._nn.orb') / 'orb-v3-conservative-omol.eqx'
   ),
 }
-ORB_MODEL_NAMES = tuple(ORB_MODEL_PATHS)
 
 
 def neighbor_list_featurizer(displacement_fn, *, cutoff: float | None = None):
@@ -592,16 +591,12 @@ class Orb(eqx.Module):
 
 
 def load_model(
-  model: str | PathLike = 'orb-jax-v3-conservative-omol',
+  model: str = 'orb-jax-v3-conservative-omol',
   *,
   model_path: str | PathLike | None = None,
   dtype=None,
 ) -> Orb:
-  path = (
-    Path(model_path)
-    if model_path is not None
-    else ORB_MODEL_PATHS.get(model, Path(model))
-  )
+  path = Path(model_path) if model_path is not None else ORB_MODEL_PATHS[model]
 
   if dtype is None:
     dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
