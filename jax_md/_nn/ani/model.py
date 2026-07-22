@@ -41,14 +41,14 @@ def piecewise_cutoff(distance, cutoff: float):
   return 0.5 * jnp.cos(distance * jnp.pi / cutoff) + 0.5
 
 
-def _species_index_table(species_order: tuple[int, ...]) -> tuple[int, ...]:
+def species_index_table(species_order: tuple[int, ...]) -> tuple[int, ...]:
   table = [-1] * (max(species_order) + 1)
   for species_index, atomic_number in enumerate(species_order):
     table[atomic_number] = species_index
   return tuple(table)
 
 
-def _pair_index_table(num_species: int) -> tuple[tuple[int, ...], ...]:
+def pair_index_table(num_species: int) -> tuple[tuple[int, ...], ...]:
   table = np.zeros((num_species, num_species), dtype=np.int32)
   pair_index = 0
   for species_i in range(num_species):
@@ -86,7 +86,7 @@ class ANI2xCheckpoint(eqx.Module):
       )
 
 
-def _active_pair_ids(
+def active_pair_ids(
   active_species: tuple[int, ...],
   pair_to_index: tuple[tuple[int, ...], ...],
 ) -> tuple[int, ...]:
@@ -100,7 +100,7 @@ def _active_pair_ids(
   )
 
 
-def _lookup_table(
+def lookup_table(
   active_ids: tuple[int, ...], full_size: int
 ) -> tuple[int, ...]:
   active_ids_np = np.asarray(active_ids, dtype=np.int32)
@@ -109,7 +109,7 @@ def _lookup_table(
   return tuple(int(x) for x in lookup.tolist())
 
 
-def _basis_block_columns(
+def basis_block_columns(
   active_ids: tuple[int, ...],
   block_width: int,
   *,
@@ -121,7 +121,7 @@ def _basis_block_columns(
   return (offset + block_offsets + block_columns).reshape(-1)
 
 
-def _first_layer_columns(
+def first_layer_columns(
   active_species: tuple[int, ...],
   active_pairs: tuple[int, ...],
   *,
@@ -129,8 +129,8 @@ def _first_layer_columns(
   radial_divisions: int,
   angular_basis_width: int,
 ) -> np.ndarray:
-  radial_cols = _basis_block_columns(active_species, radial_divisions)
-  angular_cols = _basis_block_columns(
+  radial_cols = basis_block_columns(active_species, radial_divisions)
+  angular_cols = basis_block_columns(
     active_pairs,
     angular_basis_width,
     offset=num_species * radial_divisions,
@@ -181,8 +181,8 @@ class ANI2x(eqx.Module):
     self.angular_radial_shifts = tuple(config['angular_radial_shifts'])
     species_order = tuple(int(z) for z in config['species_order'])
     num_species = len(species_order)
-    self.species_to_index = _species_index_table(species_order)
-    self.pair_to_index = _pair_index_table(num_species)
+    self.species_to_index = species_index_table(species_order)
+    self.pair_to_index = pair_index_table(num_species)
     num_species_pairs = num_species * (num_species + 1) // 2
     self.radial_divisions = len(self.radial_shifts)
     self.num_models = int(config['num_models'])
@@ -202,11 +202,11 @@ class ANI2x(eqx.Module):
           f'[0, {num_species}); got {invalid}.'
         )
 
-    active_pairs = _active_pair_ids(active_species, self.pair_to_index)
+    active_pairs = active_pair_ids(active_species, self.pair_to_index)
 
-    self.species_lookup = _lookup_table(active_species, num_species)
-    self.pair_lookup = _lookup_table(active_pairs, num_species_pairs)
-    first_layer_cols = _first_layer_columns(
+    self.species_lookup = lookup_table(active_species, num_species)
+    self.pair_lookup = lookup_table(active_pairs, num_species_pairs)
+    first_layer_cols = first_layer_columns(
       active_species,
       active_pairs,
       num_species=num_species,
@@ -456,7 +456,7 @@ def load_model(
     if atomic_numbers is not None:
       species_order = tuple(int(z) for z in config['species_order'])
       species = jnp.asarray(
-        _species_index_table(species_order), dtype=jnp.int32
+        species_index_table(species_order), dtype=jnp.int32
       )[jnp.asarray(atomic_numbers, dtype=jnp.int32)]
       active_species = tuple(
         int(x)

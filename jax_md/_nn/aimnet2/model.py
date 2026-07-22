@@ -138,7 +138,7 @@ def d3bj_energy_neighbors(
   atom_ids = jnp.arange(positions.shape[0], dtype=jnp.int32)
   pair_mask = edge_mask & (atom_ids[:, None] < safe_neighbors)
   pair_c6ab = d3_pre['c6ab'][sp_i, sp_j]
-  e_pair = _d3_pair_energy(
+  e_pair = d3_pair_energy(
     pair_c6ab,
     cn[:, None],
     cn[safe_neighbors],
@@ -156,7 +156,7 @@ def d3bj_energy_neighbors(
   )
 
 
-def _d3_pair_energy(
+def d3_pair_energy(
   pair_c6ab: Array,
   nci: Array,
   ncj: Array,
@@ -216,12 +216,12 @@ def cosine_cutoff(distance: Array, cutoff: float) -> Array:
   return 0.5 * (jnp.cos(distance * jnp.pi / cutoff) + 1.0)
 
 
-def _exp_cutoff(d: Array, rc: float, exp_minus_1: float) -> Array:
+def exp_cutoff(d: Array, rc: float, exp_minus_1: float) -> Array:
   x = jnp.clip(d / rc, 0.0, 1.0 - 1.0e-6)
   return jnp.exp(-1.0 / (1.0 - x**2)) / exp_minus_1
 
 
-def _short_range_coulomb_dense(
+def short_range_coulomb_dense(
   charges: Array,
   d: Array,
   neighbors: Array,
@@ -233,12 +233,12 @@ def _short_range_coulomb_dense(
 ) -> Array:
   q_ij = charges[:, None] * charges[neighbors]
   inv_d = 1.0 / jnp.maximum(d, 1.0e-8)
-  fc = _exp_cutoff(d, coulomb_rc, exp_minus_1)
+  fc = exp_cutoff(d, coulomb_rc, exp_minus_1)
   e = coulomb_factor * (fc * q_ij * inv_d).astype(jnp.float64)
   return jnp.sum(jnp.where(edge_mask, e, 0.0))
 
 
-def _dsf_coulomb_dense(
+def dsf_coulomb_dense(
   charges: Array,
   positions: Array,
   neighbor,
@@ -268,7 +268,7 @@ def _dsf_coulomb_dense(
   return jnp.sum(jnp.where(edge_mask, e, 0.0))
 
 
-def _simple_coulomb_all_pairs(
+def simple_coulomb_all_pairs(
   positions: Array,
   charges: Array,
   hartree_bohr: float,
@@ -657,7 +657,7 @@ class AIMNet2(eqx.Module):
     periodic,
   ):
     partial_charges = partial_charges.squeeze(-1)
-    local_coulomb = _short_range_coulomb_dense(
+    local_coulomb = short_range_coulomb_dense(
       partial_charges,
       r_ij,
       neighbors,
@@ -667,13 +667,13 @@ class AIMNet2(eqx.Module):
       exp_minus_1=self.exp_minus_1,
     )
     if not periodic:
-      total_coulomb = _simple_coulomb_all_pairs(
+      total_coulomb = simple_coulomb_all_pairs(
         positions,
         partial_charges,
         hartree_bohr=self.hartree_bohr,
       )
     else:
-      total_coulomb = _dsf_coulomb_dense(
+      total_coulomb = dsf_coulomb_dense(
         partial_charges,
         positions,
         lr_neighbor,

@@ -71,28 +71,14 @@ def cosine_cutoff(d, cutoff, cutoff_lower=0.0):
     return jnp.where(d < cutoff, c, 0.0)
 
 
-def _scalar_to_tensor(scalar):
-  """Scalar [N, F] -> diagonal tensor [N, 3, 3, F]."""
-  eye = jnp.eye(3, dtype=scalar.dtype)[None, :, :, None]
-  return scalar[:, None, None, :] * eye
-
-
 def decompose_tensor(X):
   """Decompose into scalar, antisymmetric, and symmetric components."""
   antisymmetric = 0.5 * (X - jnp.swapaxes(X, 1, 2))
   symmetric_full = X - antisymmetric
   scalar = jnp.diagonal(X, axis1=1, axis2=2).mean(axis=-1)
-  symmetric = symmetric_full - _scalar_to_tensor(scalar)
+  identity = jnp.eye(3, dtype=scalar.dtype)[None, :, :, None]
+  symmetric = symmetric_full - scalar[:, None, None, :] * identity
   return scalar, antisymmetric, symmetric
-
-
-def compose_tensor(scalar, antisymmetric, symmetric):
-  return _scalar_to_tensor(scalar) + antisymmetric + symmetric
-
-
-def tensor_norm(X):
-  """Frobenius norm squared: [N, 3, 3, F] -> [N, F]."""
-  return (X**2).sum(axis=(1, 2))
 
 
 def vector_to_skewtensor(vec):
@@ -133,7 +119,8 @@ def outer_to_symtensor(T):
   """Symmetrize and remove trace. [N, 3, 3, F] -> [N, 3, 3, F]."""
   symmetric = 0.5 * (T + jnp.swapaxes(T, 1, 2))
   scalar = jnp.diagonal(T, axis1=1, axis2=2).mean(axis=-1)
-  return symmetric - _scalar_to_tensor(scalar)
+  identity = jnp.eye(3, dtype=scalar.dtype)[None, :, :, None]
+  return symmetric - scalar[:, None, None, :] * identity
 
 
 def tensor_matmul_o3(Y, msg):
@@ -261,9 +248,12 @@ class TensorEmbedding(eqx.Module):
 
     antisymmetric = vector_to_skewtensor(antisymmetric_vectors)
     symmetric = outer_to_symtensor(symmetric)
-    tensor_features = compose_tensor(scalar, antisymmetric, symmetric)
+    identity = jnp.eye(3, dtype=scalar.dtype)[None, :, :, None]
+    tensor_features = (
+      scalar[:, None, None, :] * identity + antisymmetric + symmetric
+    )
 
-    norm = tensor_norm(tensor_features)
+    norm = (tensor_features**2).sum(axis=(1, 2))
     norm = weights['init_norm'](norm)
     for layer in weights['linears_scalar']:
       norm = jax.nn.silu(layer(norm))
@@ -279,7 +269,7 @@ class TensorEmbedding(eqx.Module):
     )
     symmetric = weights['linears_tensor'][2](symmetric) * symmetric_norm
 
-    return compose_tensor(scalar, antisymmetric, symmetric)
+    return scalar[:, None, None, :] * identity + antisymmetric + symmetric
 
 
 class ChargePredictionHead(eqx.Module):
@@ -305,7 +295,11 @@ class ChargePredictionHead(eqx.Module):
     weights = self.weights
     scalar, antisymmetric, symmetric = decompose_tensor(tensor_features)
     charge_features = jnp.concatenate(
-      [scalar, tensor_norm(antisymmetric), tensor_norm(symmetric)],
+      [
+        scalar,
+        (antisymmetric**2).sum(axis=(1, 2)),
+        (symmetric**2).sum(axis=(1, 2)),
+      ],
       axis=-1,
     )
 
@@ -389,14 +383,18 @@ class AceFFLayer(eqx.Module):
     )
 
     tensor_features = (
-      tensor_features / (tensor_norm(tensor_features) + 1)[:, None, None, :]
+      tensor_features
+      / ((tensor_features**2).sum(axis=(1, 2)) + 1)[:, None, None, :]
     )
 
     scalar, antisymmetric, symmetric = decompose_tensor(tensor_features)
     scalar = weights['linears_tensor'][0](scalar)
     antisymmetric = weights['linears_tensor'][1](antisymmetric)
     symmetric = weights['linears_tensor'][2](symmetric)
-    projected_features = compose_tensor(scalar, antisymmetric, symmetric)
+    identity = jnp.eye(3, dtype=scalar.dtype)[None, :, :, None]
+    projected_features = (
+      scalar[:, None, None, :] * identity + antisymmetric + symmetric
+    )
 
     antisymmetric_vectors = skewtensor_to_vector(antisymmetric)
 
@@ -429,10 +427,10 @@ class AceFFLayer(eqx.Module):
     symmetric_message = symmetric_message.at[edge_src].add(symmetric_messages)
 
     antisymmetric_message = vector_to_skewtensor(antisymmetric_message_vectors)
-    messages = compose_tensor(
-      scalar_message,
-      antisymmetric_message,
-      symmetric_message,
+    messages = (
+      scalar_message[:, None, None, :] * identity
+      + antisymmetric_message
+      + symmetric_message
     )
 
     charge_factor = 1.0
@@ -451,7 +449,7 @@ class AceFFLayer(eqx.Module):
       updates
     )
 
-    update_norm = tensor_norm(updates) + 1
+    update_norm = (updates**2).sum(axis=(1, 2)) + 1
     scalar_update = scalar_update / update_norm
     antisymmetric_update = antisymmetric_update / update_norm[:, None, None, :]
     symmetric_update = symmetric_update / update_norm[:, None, None, :]
@@ -459,10 +457,10 @@ class AceFFLayer(eqx.Module):
     scalar_update = weights['linears_tensor'][3](scalar_update)
     antisymmetric_update = weights['linears_tensor'][4](antisymmetric_update)
     symmetric_update = weights['linears_tensor'][5](symmetric_update)
-    delta_features = compose_tensor(
-      scalar_update,
-      antisymmetric_update,
-      symmetric_update,
+    delta_features = (
+      scalar_update[:, None, None, :] * identity
+      + antisymmetric_update
+      + symmetric_update
     )
 
     return (
@@ -493,7 +491,11 @@ class LocalEnergyHead(eqx.Module):
     )
     scalar_norm = warp_one_third * trace * trace
     energy_features = jnp.concatenate(
-      [scalar_norm, tensor_norm(antisymmetric), tensor_norm(symmetric)],
+      [
+        scalar_norm,
+        (antisymmetric**2).sum(axis=(1, 2)),
+        (symmetric**2).sum(axis=(1, 2)),
+      ],
       axis=-1,
     )
     energy_features = self.out_norm(energy_features)
