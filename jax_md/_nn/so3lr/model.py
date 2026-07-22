@@ -1120,6 +1120,7 @@ def load_model(
   model: str = 'so3lr',
   *,
   model_path: str | PathLike | None = None,
+  dtype=None,
 ):
   if model_path is not None:
     path = Path(model_path)
@@ -1128,19 +1129,22 @@ def load_model(
   else:
     raise ValueError(f'Unsupported SO3LR model: {model}')
 
-  with path.open('rb') as handle:
+  if dtype is None:
+    dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
+  with (
+    jax.enable_x64(jnp.dtype(dtype) == jnp.dtype(jnp.float64)),
+    path.open('rb') as handle,
+  ):
     header = json.loads(handle.readline().decode('utf-8'))
     metadata = header['metadata']
     hyperparameters = header['hyperparameters']
     template = SO3LR(metadata, hyperparameters, dtype=jnp.float32)
     model = eqx.tree_deserialise_leaves(handle, template)
-    if jax.config.jax_enable_x64:
-      model = jax.tree_util.tree_map(
-        lambda x: (
-          x.astype(jnp.float64)
-          if eqx.is_array(x) and jnp.issubdtype(x.dtype, jnp.floating)
-          else x
-        ),
-        model,
-      )
-    return model
+    return jax.tree_util.tree_map(
+      lambda x: (
+        x.astype(dtype)
+        if eqx.is_array(x) and jnp.issubdtype(x.dtype, jnp.floating)
+        else x
+      ),
+      model,
+    )

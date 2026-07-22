@@ -437,6 +437,7 @@ def load_model(
   *,
   atomic_numbers=None,
   model_path: str | PathLike | None = None,
+  dtype=None,
 ) -> ANI2x:
   """Load an ANI-2x checkpoint, optionally specialized to a fixed atomic-number set."""
 
@@ -449,7 +450,12 @@ def load_model(
   else:
     path = Path(model)
 
-  with path.open('rb') as handle:
+  if dtype is None:
+    dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
+  with (
+    jax.enable_x64(jnp.dtype(dtype) == jnp.dtype(jnp.float64)),
+    path.open('rb') as handle,
+  ):
     config = json.loads(handle.readline().decode())
     config = dict(config)
     active_species = None
@@ -464,15 +470,14 @@ def load_model(
       )
     # Need to first load the whole model and then prune out weights for other species
     checkpoint = eqx.tree_deserialise_leaves(handle, ANI2xCheckpoint(config))
-    if jax.config.jax_enable_x64:
-      checkpoint = jax.tree_util.tree_map(
-        lambda x: (
-          x.astype(jnp.float64)
-          if eqx.is_array(x) and jnp.issubdtype(x.dtype, jnp.floating)
-          else x
-        ),
-        checkpoint,
-      )
+    checkpoint = jax.tree_util.tree_map(
+      lambda x: (
+        x.astype(dtype)
+        if eqx.is_array(x) and jnp.issubdtype(x.dtype, jnp.floating)
+        else x
+      ),
+      checkpoint,
+    )
     return ANI2x(
       config=config,
       checkpoint=checkpoint,

@@ -595,6 +595,7 @@ def load_model(
   model: str | PathLike = 'orb-jax-v3-conservative-omol',
   *,
   model_path: str | PathLike | None = None,
+  dtype=None,
 ) -> Orb:
   if model_path is not None:
     path = Path(model_path)
@@ -605,16 +606,19 @@ def load_model(
   else:
     path = Path(model)
 
-  with path.open('rb') as handle:
+  if dtype is None:
+    dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
+  with (
+    jax.enable_x64(jnp.dtype(dtype) == jnp.dtype(jnp.float64)),
+    path.open('rb') as handle,
+  ):
     config = dict(json.loads(handle.readline().decode()))
     model = eqx.tree_deserialise_leaves(handle, Orb(config=config))
-  if jax.config.jax_enable_x64:
-    model = jax.tree_util.tree_map(
+    return jax.tree_util.tree_map(
       lambda x: (
-        x.astype(jnp.float64)
+        x.astype(dtype)
         if eqx.is_array(x) and jnp.issubdtype(x.dtype, jnp.floating)
         else x
       ),
       model,
     )
-  return model

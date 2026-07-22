@@ -784,6 +784,7 @@ def load_model(
   model: str | PathLike = 'aimnet2-jax',
   *,
   model_path: str | PathLike | None = None,
+  dtype=None,
 ) -> AIMNet2:
   if model_path is not None:
     path = Path(model_path)
@@ -793,17 +794,20 @@ def load_model(
     path = AIMNET2_MODEL_PATHS[model]
   else:
     path = Path(model)
-  with path.open('rb') as handle:
+  if dtype is None:
+    dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
+  with (
+    jax.enable_x64(jnp.dtype(dtype) == jnp.dtype(jnp.float64)),
+    path.open('rb') as handle,
+  ):
     config = dict(json.loads(handle.readline().decode()))
     template = AIMNet2(config=config, dtype=jnp.float32)
     model = eqx.tree_deserialise_leaves(handle, template)
-    if jax.config.jax_enable_x64:
-      model = jax.tree_util.tree_map(
-        lambda x: (
-          x.astype(jnp.float64)
-          if eqx.is_array(x) and jnp.issubdtype(x.dtype, jnp.floating)
-          else x
-        ),
-        model,
-      )
-    return model
+    return jax.tree_util.tree_map(
+      lambda x: (
+        x.astype(dtype)
+        if eqx.is_array(x) and jnp.issubdtype(x.dtype, jnp.floating)
+        else x
+      ),
+      model,
+    )
