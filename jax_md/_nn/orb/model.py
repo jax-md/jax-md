@@ -13,10 +13,9 @@ import jax.numpy as jnp
 import numpy as np
 from jax import Array
 from jax_md import partition
+from jax_md.units import EV_TO_KJMOL
 
 jax.config.update('jax_default_matmul_precision', 'highest')
-
-EV_TO_KJMOL = 96.48533212331002
 
 ORB_MODEL_PATHS = {
   'orb-jax-v3-conservative-omol': (

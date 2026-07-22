@@ -64,9 +64,9 @@ BOHR_ANGSTROM = float(
   )
   / 1e-10
 )
-EV_TO_KJMOL = float(
-  constants_CONDATA_2014['_e'] * constants_CONDATA_2014['_Nav'] / 1e3
-)
+# eV -> kJ/mol from the SI-exact CODATA 2018 elementary charge and Avogadro
+# constant, matching the value the ported ML potentials use.
+EV_TO_KJMOL = float(1.602176634e-19 * 6.02214076e23 / 1e3)
 
 
 def metal_unit_system(constants: Dict = constants_CONDATA_2014):
