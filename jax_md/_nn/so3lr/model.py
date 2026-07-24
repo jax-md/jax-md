@@ -68,6 +68,7 @@ def bernstein_basis(r_ij, *, n_rbf: int, gamma: float = 0.9448630629184640):
   )
   k = jnp.arange(n_rbf, dtype=r_ij.dtype)
   k_rev = jnp.arange(n_rbf, dtype=r_ij.dtype)[::-1]
+  # Published so3lr uses a float32 gamma here.
   gamma_arr = jnp.asarray(np.float32(gamma), dtype=r_ij.dtype)
   exp_r = jnp.exp(-gamma_arr * r_ij)
 

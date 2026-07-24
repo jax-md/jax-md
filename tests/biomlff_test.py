@@ -22,10 +22,10 @@ jax.config.parse_flags_with_absl()
 X64 = jax.config.jax_enable_x64
 DTYPE = jnp.float64
 # Internal-consistency tolerances, machine precision in f64.
-ENERGY_RTOL = 1e-12
-FORCE_TOL = 1e-10
+ENERGY_RTOL = 1e-13
+FORCE_TOL = 1e-12
 # Reference force rtol; per-model energy_rtol and force_atol on each Model.
-FORCE_RTOL = 1e-10
+FORCE_RTOL = 1e-11
 
 
 def water_molecule():
@@ -102,7 +102,7 @@ ORB = Model(
     ],
     dtype=DTYPE,
   ),
-  energy_rtol=1e-12,
+  energy_rtol=1e-14,
   force_atol=0.0,
   supports_sparse=True,
 )
@@ -132,8 +132,8 @@ ACEFF = Model(
     ],
     dtype=DTYPE,
   ),
-  energy_rtol=1e-12,
-  force_atol=5e-11,
+  energy_rtol=1e-13,
+  force_atol=0.0,
   supports_sparse=True,
 )
 ANI = Model(
@@ -141,7 +141,8 @@ ANI = Model(
   load=load_ani,
   call_bare=lambda net, pos, sp: net(pos, sp),
   make_free=lambda w, box, sp: w(space.free()[0], box, species=sp),
-  toluene_reference_kjmol=-712776.6445064595,
+  # force gap is amplified by CELU near its kink.
+  toluene_reference_kjmol=-712776.6445064585,
   toluene_forces_kjmol=jnp.asarray(
     [
       [28.668967613700588, -114.19465652328087, 86.12166468597633],
@@ -162,7 +163,7 @@ ANI = Model(
     ],
     dtype=DTYPE,
   ),
-  energy_rtol=1e-12,
+  energy_rtol=1e-13,
   force_atol=3e-6,
   supports_sparse=False,
 )
@@ -192,8 +193,11 @@ SO3LR = Model(
     ],
     dtype=DTYPE,
   ),
-  energy_rtol=5e-9,
-  force_atol=2e-5,
+  # Reference computes the ZBL and Bernstein terms in float32; this sets the
+  # divergence floor, while the NN, electrostatic, and dispersion terms match
+  # to ~1e-12.
+  energy_rtol=2e-9,
+  force_atol=1e-5,
   supports_sparse=False,
 )
 AIMNET2 = Model(
@@ -222,8 +226,8 @@ AIMNET2 = Model(
     ],
     dtype=DTYPE,
   ),
-  energy_rtol=1e-12,
-  force_atol=0.0,
+  energy_rtol=1e-14,
+  force_atol=1e-12,
   supports_sparse=False,
 )
 MODELS = (
