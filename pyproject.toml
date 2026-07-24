@@ -92,7 +92,7 @@ uma = [
     "huggingface_hub",        # Downloading pretrained models
 ]
 lint = [
-    "ruff",
+    "ruff==0.15.7",
     "ty==0.0.46",
 ]
 dev = [
