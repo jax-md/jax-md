@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 from functools import partial
 from importlib.resources import files
@@ -16,6 +14,9 @@ from jax.ops import segment_sum
 from jax_md import partition
 
 jax.config.update('jax_default_matmul_precision', 'highest')
+
+# Runs in fp32 or fp64 per the loaded parameter dtype; the Bernstein gamma and
+# ZBL coefficients stay fp32 to match the published checkpoint.
 
 SO3LR_MODEL_PATHS = {
   'so3lr': files('jax_md._nn.so3lr') / 'so3lr.eqx',
@@ -68,7 +69,6 @@ def bernstein_basis(r_ij, *, n_rbf: int, gamma: float = 0.9448630629184640):
   )
   k = jnp.arange(n_rbf, dtype=r_ij.dtype)
   k_rev = jnp.arange(n_rbf, dtype=r_ij.dtype)[::-1]
-  # Published so3lr uses a float32 gamma here.
   gamma_arr = jnp.asarray(np.float32(gamma), dtype=r_ij.dtype)
   exp_r = jnp.exp(-gamma_arr * r_ij)
 
@@ -146,6 +146,195 @@ def spherical_harmonics_1_to_4(r):
     axis=-1,
   )
   return jnp.concatenate([y1, y2, y3, y4], axis=-1)
+
+
+def l0_contraction(ev):
+  return jnp.stack(
+    [
+      jnp.sum(ev[..., 0:3] ** 2, axis=-1)
+      / jnp.sqrt(jnp.asarray(3.0, dtype=ev.dtype)),
+      jnp.sum(ev[..., 3:8] ** 2, axis=-1)
+      / jnp.sqrt(jnp.asarray(5.0, dtype=ev.dtype)),
+      jnp.sum(ev[..., 8:15] ** 2, axis=-1)
+      / jnp.sqrt(jnp.asarray(7.0, dtype=ev.dtype)),
+      jnp.sum(ev[..., 15:24] ** 2, axis=-1) / jnp.asarray(3.0, dtype=ev.dtype),
+    ],
+    axis=-1,
+  )
+
+
+def electrostatic_energy(
+  partial_charges,
+  idx_i_lr,
+  idx_j_lr,
+  d_ij_lr,
+  *,
+  cutoff_lr,
+  sigma,
+  coulomb_ev_angstrom,
+):
+  pairwise = coulomb_erf_shifted_force_smooth(
+    partial_charges,
+    d_ij_lr,
+    idx_i_lr,
+    idx_j_lr,
+    ke=coulomb_ev_angstrom,
+    sigma=sigma,
+    cutoff=cutoff_lr,
+    cuton=cutoff_lr * 0.45,
+  )
+  return segment_sum(pairwise, idx_i_lr, num_segments=partial_charges.shape[0])
+
+
+def dispersion_energy(
+  atomic_numbers,
+  hirshfeld_ratios,
+  idx_i_lr,
+  idx_j_lr,
+  d_ij_lr,
+  *,
+  cutoff_lr,
+  cutoff_lr_damping,
+  dispersion_energy_scale,
+  fine_structure,
+  dispersion_alphas,
+  dispersion_c6,
+  bohr_angstrom,
+  hartree_ev,
+):
+  alpha_ij, c6_ij = dispersion_pair_parameters(
+    atomic_numbers,
+    idx_i_lr,
+    idx_j_lr,
+    hirshfeld_ratios,
+    dispersion_alphas=dispersion_alphas,
+    dispersion_c6=dispersion_c6,
+  )
+  gamma_ij = gamma_cubic_fit(alpha_ij, fine_structure=fine_structure)
+  pairwise = vdw_qdo_disp_damp(
+    d_ij_lr / jnp.asarray(bohr_angstrom, dtype=d_ij_lr.dtype),
+    gamma_ij,
+    c6_ij,
+    alpha_ij,
+    jnp.asarray(dispersion_energy_scale, dtype=d_ij_lr.dtype),
+    hartree_ev=hartree_ev,
+  )
+  w = safe_mask(
+    d_ij_lr > 0.0,
+    partial(switching_fn, x_on=cutoff_lr - cutoff_lr_damping, x_off=cutoff_lr),
+    d_ij_lr,
+    0.0,
+  )
+  pairwise = safe_scale(pairwise, w)
+  return segment_sum(pairwise, idx_i_lr, num_segments=atomic_numbers.shape[0])
+
+
+def coulomb_erf_shifted_force_smooth(
+  q,
+  rij,
+  idx_i,
+  idx_j,
+  *,
+  ke,
+  sigma,
+  cutoff,
+  cuton,
+):
+  # Real-space erf-damped shifted-force cutoff Coulomb matching upstream SO3LR
+  # inference; intentionally not PME/Ewald, which upstream does not use here.
+  dtype = rij.dtype
+  c = jnp.asarray(0.5, dtype=dtype)
+  ke = jnp.asarray(ke, dtype=dtype)
+  sigma = jnp.asarray(sigma, dtype=dtype)
+  cutoff = jnp.asarray(cutoff, dtype=dtype)
+  cuton = jnp.asarray(cuton, dtype=dtype)
+  valid = (rij > 0.0) & (rij < cutoff)
+  rij_safe = jnp.where(valid, rij, 1.0)
+
+  def potential(r):
+    return jax.lax.erf(r / sigma) / r
+
+  def force(r):
+    return (
+      2.0 * r * jnp.exp(-((r / sigma) ** 2)) / (jnp.sqrt(jnp.pi) * sigma)
+      - jax.lax.erf(r / sigma)
+    ) / r**2
+
+  f = switching_fn(rij_safe, cuton, cutoff)
+  pairwise = potential(rij_safe)
+  shift = potential(cutoff)
+  force_shift = force(cutoff)
+  shifted = pairwise - shift - force_shift * (rij_safe - cutoff)
+  return jnp.where(
+    valid,
+    c
+    * ke
+    * q[idx_i]
+    * q[idx_j]
+    * (f * (pairwise - shift) + (1.0 - f) * shifted),
+    0.0,
+  )
+
+
+def dispersion_pair_parameters(
+  atomic_numbers,
+  idx_i,
+  idx_j,
+  hirshfeld_ratios,
+  *,
+  dispersion_alphas,
+  dispersion_c6,
+):
+  dtype = hirshfeld_ratios.dtype
+  zi = atomic_numbers[idx_i] - 1
+  zj = atomic_numbers[idx_j] - 1
+  vi = hirshfeld_ratios[idx_i]
+  vj = hirshfeld_ratios[idx_j]
+  alphas = jnp.asarray(dispersion_alphas, dtype=dtype)
+  c6 = jnp.asarray(dispersion_c6, dtype=dtype)
+  alpha_i = jnp.take(alphas, zi, axis=0) * vi
+  c6_i = jnp.take(c6, zi, axis=0) * jnp.square(vi)
+  alpha_j = jnp.take(alphas, zj, axis=0) * vj
+  c6_j = jnp.take(c6, zj, axis=0) * jnp.square(vj)
+  alpha_ij = (alpha_i + alpha_j) / 2.0
+  c6_ij = (
+    2.0
+    * c6_i
+    * c6_j
+    * alpha_j
+    * alpha_i
+    / (alpha_i**2 * c6_j + alpha_j**2 * c6_i)
+  )
+  return alpha_ij, c6_ij
+
+
+def gamma_cubic_fit(alpha, *, fine_structure):
+  dtype = alpha.dtype
+  vdw_radius = jnp.asarray(fine_structure, dtype=dtype) ** jnp.asarray(
+    -4.0 / 21.0, dtype
+  ) * alpha ** jnp.asarray(1.0 / 7.0, dtype)
+  b0 = jnp.asarray(-0.00433008, dtype=dtype)
+  b1 = jnp.asarray(0.24428889, dtype=dtype)
+  b2 = jnp.asarray(0.04125273, dtype=dtype)
+  b3 = jnp.asarray(-0.00078893, dtype=dtype)
+  sigma = b3 * vdw_radius**3 + b2 * vdw_radius**2 + b1 * vdw_radius + b0
+  return jnp.asarray(0.5, dtype=dtype) / jnp.square(sigma)
+
+
+def vdw_qdo_disp_damp(
+  distance, gamma, c6, alpha_ij, gamma_scale, *, hartree_ev
+):
+  dtype = distance.dtype
+  half = jnp.asarray(0.5, dtype=dtype)
+  c8 = 5.0 / gamma * c6
+  c10 = 245.0 / 8.0 / gamma**2 * c6
+  damping_length = gamma_scale * 2.0 * 2.54 * alpha_ij ** (1.0 / 7.0)
+  disp = (
+    -c6 / (distance**6 + damping_length**6)
+    - c8 / (distance**8 + damping_length**8)
+    - c10 / (distance**10 + damping_length**10)
+  )
+  return half * disp * jnp.asarray(hartree_ev, dtype=dtype)
 
 
 def sigma_switch(x):
@@ -272,21 +461,6 @@ class ChargeSpinEmbed(eqx.Module):
     x = a[:, None] * v
     y = self.residual(jax.nn.silu(x), use_bias=False, final_use_bias=False)
     return x + y
-
-
-def l0_contraction(ev):
-  return jnp.stack(
-    [
-      jnp.sum(ev[..., 0:3] ** 2, axis=-1)
-      / jnp.sqrt(jnp.asarray(3.0, dtype=ev.dtype)),
-      jnp.sum(ev[..., 3:8] ** 2, axis=-1)
-      / jnp.sqrt(jnp.asarray(5.0, dtype=ev.dtype)),
-      jnp.sum(ev[..., 8:15] ** 2, axis=-1)
-      / jnp.sqrt(jnp.asarray(7.0, dtype=ev.dtype)),
-      jnp.sum(ev[..., 15:24] ** 2, axis=-1) / jnp.asarray(3.0, dtype=ev.dtype),
-    ],
-    axis=-1,
-  )
 
 
 class AttentionBlock(eqx.Module):
@@ -532,6 +706,75 @@ class LocalEnergyHead(eqx.Module):
     return atomic_energy * atomic_scales + energy_offset
 
 
+class ZBLRepulsion(eqx.Module):
+  a1: Array
+  a2: Array
+  a3: Array
+  a4: Array
+  c1: Array
+  c2: Array
+  c3: Array
+  c4: Array
+  p: Array
+  d: Array
+  coulomb_ev_angstrom: float = eqx.field(static=True)
+
+  def __init__(
+    self,
+    *,
+    coulomb_ev_angstrom: float,
+    dtype=jnp.float32,
+  ):
+    self.coulomb_ev_angstrom = float(coulomb_ev_angstrom)
+    empty = jnp.zeros(1, dtype=dtype)
+    self.a1 = empty
+    self.a2 = empty
+    self.a3 = empty
+    self.a4 = empty
+    self.c1 = empty
+    self.c2 = empty
+    self.c3 = empty
+    self.c4 = empty
+    self.p = empty
+    self.d = empty
+
+  def __call__(
+    self,
+    atomic_numbers: Array,
+    cut: Array,
+    idx_i: Array,
+    idx_j: Array,
+    d_ij: Array,
+  ) -> Array:
+    parameter_dtype = jnp.float32
+    a1 = jax.nn.softplus(self.a1.astype(parameter_dtype))
+    a2 = jax.nn.softplus(self.a2.astype(parameter_dtype))
+    a3 = jax.nn.softplus(self.a3.astype(parameter_dtype))
+    a4 = jax.nn.softplus(self.a4.astype(parameter_dtype))
+    c1 = jax.nn.softplus(self.c1.astype(parameter_dtype))
+    c2 = jax.nn.softplus(self.c2.astype(parameter_dtype))
+    c3 = jax.nn.softplus(self.c3.astype(parameter_dtype))
+    c4 = jax.nn.softplus(self.c4.astype(parameter_dtype))
+    p_exp = jax.nn.softplus(self.p.astype(parameter_dtype))
+    d = jax.nn.softplus(self.d.astype(parameter_dtype))
+    c_sum = c1 + c2 + c3 + c4
+    c1, c2, c3, c4 = c1 / c_sum, c2 / c_sum, c3 / c_sum, c4 / c_sum
+    z_i = atomic_numbers[idx_i]
+    z_j = atomic_numbers[idx_j]
+    z_d_ij = safe_mask(d_ij != 0.0, lambda u: z_i * z_j / u, d_ij, 0.0)
+    x = jnp.asarray(self.coulomb_ev_angstrom, dtype=d_ij.dtype) * cut * z_d_ij
+    rzd = d_ij * (jnp.power(z_i, p_exp) + jnp.power(z_j, p_exp)) * d
+    y = (
+      c1 * jnp.exp(-a1 * rzd)
+      + c2 * jnp.exp(-a2 * rzd)
+      + c3 * jnp.exp(-a3 * rzd)
+      + c4 * jnp.exp(-a4 * rzd)
+    )
+    w = switching_fn(d_ij, x_on=0.0, x_off=1.5)
+    e_rep_edge = w * x * y / jnp.asarray(2.0, dtype=d_ij.dtype)
+    return segment_sum(e_rep_edge, idx_i, num_segments=atomic_numbers.shape[0])
+
+
 class PartialChargesHead(eqx.Module):
   embed_0: Array
   charge_mlp: MLP
@@ -593,77 +836,6 @@ class HirshfeldRatiosHead(eqx.Module):
     k = self.hirshfeld_mlp(x)
     qk = (q * k / jnp.sqrt(float(num_features // 2))).sum(axis=-1)
     return jnp.abs(v_shift + qk)
-
-
-class ZBLRepulsion(eqx.Module):
-  a1: Array
-  a2: Array
-  a3: Array
-  a4: Array
-  c1: Array
-  c2: Array
-  c3: Array
-  c4: Array
-  p: Array
-  d: Array
-  coulomb_ev_angstrom: float = eqx.field(static=True)
-
-  def __init__(
-    self,
-    *,
-    coulomb_ev_angstrom: float,
-    dtype=jnp.float32,
-  ):
-    self.coulomb_ev_angstrom = float(coulomb_ev_angstrom)
-    empty = jnp.zeros(1, dtype=dtype)
-    self.a1 = empty
-    self.a2 = empty
-    self.a3 = empty
-    self.a4 = empty
-    self.c1 = empty
-    self.c2 = empty
-    self.c3 = empty
-    self.c4 = empty
-    self.p = empty
-    self.d = empty
-
-  def __call__(
-    self,
-    atomic_numbers: Array,
-    cut: Array,
-    idx_i: Array,
-    idx_j: Array,
-    d_ij: Array,
-  ) -> Array:
-    # Upstream keeps the published checkpoint leaves in float32, so these
-    # parameter-only transforms remain float32 even for float64 inference.
-    parameter_dtype = jnp.float32
-    a1 = jax.nn.softplus(self.a1.astype(parameter_dtype))
-    a2 = jax.nn.softplus(self.a2.astype(parameter_dtype))
-    a3 = jax.nn.softplus(self.a3.astype(parameter_dtype))
-    a4 = jax.nn.softplus(self.a4.astype(parameter_dtype))
-    c1 = jax.nn.softplus(self.c1.astype(parameter_dtype))
-    c2 = jax.nn.softplus(self.c2.astype(parameter_dtype))
-    c3 = jax.nn.softplus(self.c3.astype(parameter_dtype))
-    c4 = jax.nn.softplus(self.c4.astype(parameter_dtype))
-    p_exp = jax.nn.softplus(self.p.astype(parameter_dtype))
-    d = jax.nn.softplus(self.d.astype(parameter_dtype))
-    c_sum = c1 + c2 + c3 + c4
-    c1, c2, c3, c4 = c1 / c_sum, c2 / c_sum, c3 / c_sum, c4 / c_sum
-    z_i = atomic_numbers[idx_i]
-    z_j = atomic_numbers[idx_j]
-    z_d_ij = safe_mask(d_ij != 0.0, lambda u: z_i * z_j / u, d_ij, 0.0)
-    x = jnp.asarray(self.coulomb_ev_angstrom, dtype=d_ij.dtype) * cut * z_d_ij
-    rzd = d_ij * (jnp.power(z_i, p_exp) + jnp.power(z_j, p_exp)) * d
-    y = (
-      c1 * jnp.exp(-a1 * rzd)
-      + c2 * jnp.exp(-a2 * rzd)
-      + c3 * jnp.exp(-a3 * rzd)
-      + c4 * jnp.exp(-a4 * rzd)
-    )
-    w = switching_fn(d_ij, x_on=0.0, x_off=1.5)
-    e_rep_edge = w * x * y / jnp.asarray(2.0, dtype=d_ij.dtype)
-    return segment_sum(e_rep_edge, idx_i, num_segments=atomic_numbers.shape[0])
 
 
 class EnergyHead(eqx.Module):
@@ -768,178 +940,6 @@ class EnergyHead(eqx.Module):
       hartree_ev=self.hartree_ev,
     )
     return nn_energy + zbl + electrostatic + dispersion
-
-
-def electrostatic_energy(
-  partial_charges,
-  idx_i_lr,
-  idx_j_lr,
-  d_ij_lr,
-  *,
-  cutoff_lr,
-  sigma,
-  coulomb_ev_angstrom,
-):
-  pairwise = coulomb_erf_shifted_force_smooth(
-    partial_charges,
-    d_ij_lr,
-    idx_i_lr,
-    idx_j_lr,
-    ke=coulomb_ev_angstrom,
-    sigma=sigma,
-    cutoff=cutoff_lr,
-    cuton=cutoff_lr * 0.45,
-  )
-  return segment_sum(pairwise, idx_i_lr, num_segments=partial_charges.shape[0])
-
-
-def dispersion_energy(
-  atomic_numbers,
-  hirshfeld_ratios,
-  idx_i_lr,
-  idx_j_lr,
-  d_ij_lr,
-  *,
-  cutoff_lr,
-  cutoff_lr_damping,
-  dispersion_energy_scale,
-  fine_structure,
-  dispersion_alphas,
-  dispersion_c6,
-  bohr_angstrom,
-  hartree_ev,
-):
-  alpha_ij, c6_ij = dispersion_pair_parameters(
-    atomic_numbers,
-    idx_i_lr,
-    idx_j_lr,
-    hirshfeld_ratios,
-    dispersion_alphas=dispersion_alphas,
-    dispersion_c6=dispersion_c6,
-  )
-  gamma_ij = gamma_cubic_fit(alpha_ij, fine_structure=fine_structure)
-  pairwise = vdw_qdo_disp_damp(
-    d_ij_lr / jnp.asarray(bohr_angstrom, dtype=d_ij_lr.dtype),
-    gamma_ij,
-    c6_ij,
-    alpha_ij,
-    jnp.asarray(dispersion_energy_scale, dtype=d_ij_lr.dtype),
-    hartree_ev=hartree_ev,
-  )
-  w = safe_mask(
-    d_ij_lr > 0.0,
-    partial(switching_fn, x_on=cutoff_lr - cutoff_lr_damping, x_off=cutoff_lr),
-    d_ij_lr,
-    0.0,
-  )
-  pairwise = safe_scale(pairwise, w)
-  return segment_sum(pairwise, idx_i_lr, num_segments=atomic_numbers.shape[0])
-
-
-def coulomb_erf_shifted_force_smooth(
-  q,
-  rij,
-  idx_i,
-  idx_j,
-  *,
-  ke,
-  sigma,
-  cutoff,
-  cuton,
-):
-  dtype = rij.dtype
-  c = jnp.asarray(0.5, dtype=dtype)
-  ke = jnp.asarray(ke, dtype=dtype)
-  sigma = jnp.asarray(sigma, dtype=dtype)
-  cutoff = jnp.asarray(cutoff, dtype=dtype)
-  cuton = jnp.asarray(cuton, dtype=dtype)
-  valid = (rij > 0.0) & (rij < cutoff)
-  rij_safe = jnp.where(valid, rij, 1.0)
-
-  def potential(r):
-    return jax.lax.erf(r / sigma) / r
-
-  def force(r):
-    return (
-      2.0 * r * jnp.exp(-((r / sigma) ** 2)) / (jnp.sqrt(jnp.pi) * sigma)
-      - jax.lax.erf(r / sigma)
-    ) / r**2
-
-  f = switching_fn(rij_safe, cuton, cutoff)
-  pairwise = potential(rij_safe)
-  shift = potential(cutoff)
-  force_shift = force(cutoff)
-  shifted = pairwise - shift - force_shift * (rij_safe - cutoff)
-  return jnp.where(
-    valid,
-    c
-    * ke
-    * q[idx_i]
-    * q[idx_j]
-    * (f * (pairwise - shift) + (1.0 - f) * shifted),
-    0.0,
-  )
-
-
-def dispersion_pair_parameters(
-  atomic_numbers,
-  idx_i,
-  idx_j,
-  hirshfeld_ratios,
-  *,
-  dispersion_alphas,
-  dispersion_c6,
-):
-  dtype = hirshfeld_ratios.dtype
-  zi = atomic_numbers[idx_i] - 1
-  zj = atomic_numbers[idx_j] - 1
-  vi = hirshfeld_ratios[idx_i]
-  vj = hirshfeld_ratios[idx_j]
-  alphas = jnp.asarray(dispersion_alphas, dtype=dtype)
-  c6 = jnp.asarray(dispersion_c6, dtype=dtype)
-  alpha_i = jnp.take(alphas, zi, axis=0) * vi
-  c6_i = jnp.take(c6, zi, axis=0) * jnp.square(vi)
-  alpha_j = jnp.take(alphas, zj, axis=0) * vj
-  c6_j = jnp.take(c6, zj, axis=0) * jnp.square(vj)
-  alpha_ij = (alpha_i + alpha_j) / 2.0
-  c6_ij = (
-    2.0
-    * c6_i
-    * c6_j
-    * alpha_j
-    * alpha_i
-    / (alpha_i**2 * c6_j + alpha_j**2 * c6_i)
-  )
-  return alpha_ij, c6_ij
-
-
-def gamma_cubic_fit(alpha, *, fine_structure):
-  dtype = alpha.dtype
-  vdw_radius = jnp.asarray(fine_structure, dtype=dtype) ** jnp.asarray(
-    -4.0 / 21.0, dtype
-  ) * alpha ** jnp.asarray(1.0 / 7.0, dtype)
-  b0 = jnp.asarray(-0.00433008, dtype=dtype)
-  b1 = jnp.asarray(0.24428889, dtype=dtype)
-  b2 = jnp.asarray(0.04125273, dtype=dtype)
-  b3 = jnp.asarray(-0.00078893, dtype=dtype)
-  sigma = b3 * vdw_radius**3 + b2 * vdw_radius**2 + b1 * vdw_radius + b0
-  return jnp.asarray(0.5, dtype=dtype) / jnp.square(sigma)
-
-
-def vdw_qdo_disp_damp(
-  distance, gamma, c6, alpha_ij, gamma_scale, *, hartree_ev
-):
-  dtype = distance.dtype
-  half = jnp.asarray(0.5, dtype=dtype)
-  c8 = 5.0 / gamma * c6
-  c10 = 245.0 / 8.0 / gamma**2 * c6
-  damping_length = gamma_scale * 2.0 * 2.54 * alpha_ij ** (1.0 / 7.0)
-  disp = (
-    -c6 / (distance**6 + damping_length**6)
-    - c8 / (distance**8 + damping_length**8)
-    - c10 / (distance**10 + damping_length**10)
-  )
-  return half * disp * jnp.asarray(hartree_ev, dtype=dtype)
 
 
 class SO3LR(eqx.Module):

@@ -152,6 +152,7 @@ exclude_lines = [
 testpaths = ["tests"]
 
 [tool.uv]
+constraint-dependencies = ["pymatgen-core!=2026.7.24"]
 conflicts = [
     [
         { group = "dev" },

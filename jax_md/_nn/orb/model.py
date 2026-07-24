@@ -54,6 +54,14 @@ def neighbor_list_featurizer(displacement_fn, *, cutoff: float | None = None):
   return featurize
 
 
+def safe_norm(
+  x: Array, *, axis=-1, keepdims: bool = False, eps: float = 1.0e-24
+) -> Array:
+  return jnp.sqrt(
+    jnp.maximum(jnp.sum(x * x, axis=axis, keepdims=keepdims), eps)
+  )
+
+
 def polynomial_cutoff(r: Array, r_max: float | Array, p: float) -> Array:
   ratio = r / r_max
   envelope = (
@@ -73,35 +81,6 @@ def bessel_basis(
   safe_r = jnp.maximum(r, 1.0e-7)
   return prefactor * (
     jnp.sin(bessel_weights[None, :] * safe_r[:, None]) / safe_r[:, None]
-  )
-
-
-def condition_nodes(
-  charge_embedding: Array,
-  spin_embedding: Array,
-  total_charge: Array,
-  total_spin: Array,
-  num_atoms: int,
-) -> Array:
-  charge_proj = (
-    total_charge[:, None] * charge_embedding[None, :] * (2.0 * jnp.pi)
-  )
-  spin_proj = total_spin[:, None] * spin_embedding[None, :] * (2.0 * jnp.pi)
-  charge_emb = jnp.concatenate(
-    [jnp.sin(charge_proj), jnp.cos(charge_proj)], axis=-1
-  )
-  spin_emb = jnp.concatenate([jnp.sin(spin_proj), jnp.cos(spin_proj)], axis=-1)
-  spin_emb = jnp.where(total_spin[:, None] == 0, 0.0, spin_emb)
-  return jnp.repeat(
-    jnp.concatenate([charge_emb, spin_emb], axis=-1), num_atoms, axis=0
-  )
-
-
-def safe_norm(
-  x: Array, *, axis=-1, keepdims: bool = False, eps: float = 1.0e-24
-) -> Array:
-  return jnp.sqrt(
-    jnp.maximum(jnp.sum(x * x, axis=axis, keepdims=keepdims), eps)
   )
 
 
@@ -154,6 +133,27 @@ def spherical_harmonics_0_to_3(edge_vectors: Array) -> Array:
   return sh * component_scale
 
 
+def condition_nodes(
+  charge_embedding: Array,
+  spin_embedding: Array,
+  total_charge: Array,
+  total_spin: Array,
+  num_atoms: int,
+) -> Array:
+  charge_proj = (
+    total_charge[:, None] * charge_embedding[None, :] * (2.0 * jnp.pi)
+  )
+  spin_proj = total_spin[:, None] * spin_embedding[None, :] * (2.0 * jnp.pi)
+  charge_emb = jnp.concatenate(
+    [jnp.sin(charge_proj), jnp.cos(charge_proj)], axis=-1
+  )
+  spin_emb = jnp.concatenate([jnp.sin(spin_proj), jnp.cos(spin_proj)], axis=-1)
+  spin_emb = jnp.where(total_spin[:, None] == 0, 0.0, spin_emb)
+  return jnp.repeat(
+    jnp.concatenate([charge_emb, spin_emb], axis=-1), num_atoms, axis=0
+  )
+
+
 class Linear(eqx.Module):
   weight: Array
   bias: Array
@@ -192,9 +192,28 @@ class MLP(eqx.Module):
     return x
 
 
+class RMSNorm(eqx.Module):
+  weight: Array
+
+  def __init__(
+    self,
+    config: dict[str, Any],
+    prefix: str,
+  ) -> None:
+    self.weight = jnp.zeros(
+      tuple(config['params'][f'{prefix}.weight']),
+      np.dtype(config['parameter_dtype']),
+    )
+
+  def __call__(self, x: Array) -> Array:
+    eps = jnp.asarray(jnp.finfo(x.dtype).eps, dtype=x.dtype)
+    scale = jax.lax.rsqrt(jnp.mean(jnp.square(x), axis=-1, keepdims=True) + eps)
+    return x * scale * self.weight
+
+
 class MLPNorm(eqx.Module):
   mlp: MLP
-  norm_weight: Array
+  layer_norm: RMSNorm
 
   def __init__(
     self,
@@ -206,16 +225,10 @@ class MLPNorm(eqx.Module):
       f'{prefix}.mlp',
       int(config['mlp_num_layers']),
     )
-    self.norm_weight = jnp.zeros(
-      tuple(config['params'][f'{prefix}.layer_norm.weight']),
-      np.dtype(config['parameter_dtype']),
-    )
+    self.layer_norm = RMSNorm(config, f'{prefix}.layer_norm')
 
   def __call__(self, x: Array) -> Array:
-    x = self.mlp(x)
-    eps = jnp.asarray(jnp.finfo(x.dtype).eps, dtype=x.dtype)
-    scale = jax.lax.rsqrt(jnp.mean(jnp.square(x), axis=-1, keepdims=True) + eps)
-    return x * scale * self.norm_weight
+    return self.layer_norm(self.mlp(x))
 
 
 class AttentionBlock(eqx.Module):

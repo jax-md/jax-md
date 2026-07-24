@@ -195,7 +195,7 @@ SO3LR = Model(
   ),
   # Reference computes the ZBL and Bernstein terms in float32; this sets the
   # divergence floor, while the NN, electrostatic, and dispersion terms match
-  # to ~1e-12.
+  # to 1e-12.
   energy_rtol=2e-9,
   force_atol=1e-5,
   supports_sparse=False,

@@ -1,6 +1,7 @@
 # Credit to https://github.com/isayevlab/aimnetcentral for the docs
 
-from __future__ import annotations
+# Weights and per-atom features run in fp32; energy accumulation, self-energy
+# shifts, and the Coulomb and dispersion sums run in fp64.
 
 import json
 import math
@@ -25,6 +26,14 @@ AIMNET2_MODEL_PATHS = {
 }
 
 
+def safe_norm(
+  x: Array, *, axis=-1, keepdims: bool = False, eps: float = 1.0e-24
+) -> Array:
+  return jnp.sqrt(
+    jnp.maximum(jnp.sum(x * x, axis=axis, keepdims=keepdims), eps)
+  )
+
+
 def neighbor_list_featurizer(displacement_fn, *, cutoff: float):
   def featurize(position, neighbor, **kwargs):
     num_atoms = position.shape[0]
@@ -47,69 +56,24 @@ def neighbor_list_featurizer(displacement_fn, *, cutoff: float):
   return featurize
 
 
-def safe_norm(
-  x: Array, *, axis=-1, keepdims: bool = False, eps: float = 1.0e-24
+def cosine_cutoff(distance: Array, cutoff: float) -> Array:
+  distance = jnp.clip(distance, 1.0e-6, cutoff)
+  return 0.5 * (jnp.cos(distance * jnp.pi / cutoff) + 1.0)
+
+
+def exp_cutoff(d: Array, rc: float, exp_minus_1: float) -> Array:
+  x = jnp.clip(d / rc, 0.0, 1.0 - 1.0e-6)
+  return jnp.exp(-1.0 / (1.0 - x**2)) / exp_minus_1
+
+
+def radial_symmetry_functions(
+  distance: Array, shifts: Array, eta: Array, cutoff: float
 ) -> Array:
-  return jnp.sqrt(
-    jnp.maximum(jnp.sum(x * x, axis=axis, keepdims=keepdims), eps)
+  cutoff_values = cosine_cutoff(distance, cutoff)
+  return (
+    jnp.exp(-eta * (distance[..., None] - shifts) ** 2)
+    * cutoff_values[..., None]
   )
-
-
-class Linear(eqx.Module):
-  weight: Array
-  bias: Array
-  in_dim: int = eqx.field(static=True)
-
-  def __init__(
-    self, in_dim: int, out_dim: int, *, dtype: Any = jnp.float32, key: Array
-  ):
-    weight_key, bias_key = jax.random.split(key)
-    lim = jnp.sqrt(1.0 / in_dim)
-    self.weight = jax.random.uniform(
-      weight_key,
-      (out_dim, in_dim),
-      dtype=dtype,
-      minval=-lim,
-      maxval=lim,
-    )
-    self.bias = jax.random.uniform(
-      bias_key,
-      (out_dim,),
-      dtype=dtype,
-      minval=-lim,
-      maxval=lim,
-    )
-    self.in_dim = in_dim
-
-  def __call__(self, x: Array) -> Array:
-    if x.shape[-1] != self.in_dim:
-      raise ValueError(
-        f'Expected feature axis of size {self.in_dim}, got shape {x.shape}.'
-      )
-    x = x.astype(self.weight.dtype)
-    return x @ self.weight.T + self.bias
-
-
-class MLP(eqx.Module):
-  layers: list[Linear]
-  sizes: tuple[int, ...] = eqx.field(static=True)
-
-  def __init__(
-    self, sizes: tuple[int, ...], *, dtype: Any = jnp.float32, key: Array
-  ):
-    self.sizes = tuple(int(size) for size in sizes)
-    keys = jax.random.split(key, len(sizes) - 1)
-    self.layers = [
-      Linear(in_dim, out_dim, dtype=dtype, key=subkey)
-      for subkey, in_dim, out_dim in zip(keys, self.sizes[:-1], self.sizes[1:])
-    ]
-
-  def __call__(self, x: Array, *, last_linear: bool = True) -> Array:
-    for i, layer in enumerate(self.layers):
-      x = layer(x)
-      if i < len(self.layers) - 1 or not last_linear:
-        x = jax.nn.gelu(x, approximate=False)
-    return x
 
 
 def d3_pair_energy(
@@ -155,26 +119,6 @@ def d3_pair_energy(
   e6 = -d3_s6 * c6 / (rij**6 + bj_radius6)
   e8 = -d3_s8 * c8 / (rij**8 + bj_radius8)
   return e6 + e8
-
-
-def radial_symmetry_functions(
-  distance: Array, shifts: Array, eta: Array, cutoff: float
-) -> Array:
-  cutoff_values = cosine_cutoff(distance, cutoff)
-  return (
-    jnp.exp(-eta * (distance[..., None] - shifts) ** 2)
-    * cutoff_values[..., None]
-  )
-
-
-def cosine_cutoff(distance: Array, cutoff: float) -> Array:
-  distance = jnp.clip(distance, 1.0e-6, cutoff)
-  return 0.5 * (jnp.cos(distance * jnp.pi / cutoff) + 1.0)
-
-
-def exp_cutoff(d: Array, rc: float, exp_minus_1: float) -> Array:
-  x = jnp.clip(d / rc, 0.0, 1.0 - 1.0e-6)
-  return jnp.exp(-1.0 / (1.0 - x**2)) / exp_minus_1
 
 
 def short_range_coulomb_dense(
@@ -245,6 +189,85 @@ def simple_coulomb_all_pairs(
   return jnp.sum(jnp.where(pair_mask, pair_energy, 0.0).astype(jnp.float64))
 
 
+class Linear(eqx.Module):
+  weight: Array
+  bias: Array
+  in_dim: int = eqx.field(static=True)
+
+  def __init__(
+    self, in_dim: int, out_dim: int, *, dtype: Any = jnp.float32, key: Array
+  ):
+    weight_key, bias_key = jax.random.split(key)
+    lim = jnp.sqrt(1.0 / in_dim)
+    self.weight = jax.random.uniform(
+      weight_key,
+      (out_dim, in_dim),
+      dtype=dtype,
+      minval=-lim,
+      maxval=lim,
+    )
+    self.bias = jax.random.uniform(
+      bias_key,
+      (out_dim,),
+      dtype=dtype,
+      minval=-lim,
+      maxval=lim,
+    )
+    self.in_dim = in_dim
+
+  def __call__(self, x: Array) -> Array:
+    if x.shape[-1] != self.in_dim:
+      raise ValueError(
+        f'Expected feature axis of size {self.in_dim}, got shape {x.shape}.'
+      )
+    x = x.astype(self.weight.dtype)
+    return x @ self.weight.T + self.bias
+
+
+class MLP(eqx.Module):
+  layers: list[Linear]
+  sizes: tuple[int, ...] = eqx.field(static=True)
+
+  def __init__(
+    self, sizes: tuple[int, ...], *, dtype: Any = jnp.float32, key: Array
+  ):
+    self.sizes = tuple(int(size) for size in sizes)
+    keys = jax.random.split(key, len(sizes) - 1)
+    self.layers = [
+      Linear(in_dim, out_dim, dtype=dtype, key=subkey)
+      for subkey, in_dim, out_dim in zip(keys, self.sizes[:-1], self.sizes[1:])
+    ]
+
+  def __call__(self, x: Array, *, last_linear: bool = True) -> Array:
+    for i, layer in enumerate(self.layers):
+      x = layer(x)
+      if i < len(self.layers) - 1 or not last_linear:
+        x = jax.nn.gelu(x, approximate=False)
+    return x
+
+
+class PartialChargesHead(eqx.Module):
+  """Parameter-free charge equilibration matching aceff's head interface.
+
+  aimnet2 fuses the charge readout into the shared per-layer MLPs, so unlike
+  aceff's head this owns no parameters and only equilibrates the charges and
+  weights produced upstream.
+  """
+
+  def __call__(
+    self,
+    partial_charges: Array,
+    charge_weights: Array,
+    total_charge: Array | float = 0.0,
+  ) -> Array:
+    weights = charge_weights**2
+    weight_sum = jnp.sum(weights, axis=0, keepdims=True) + 1.0e-6
+    predicted_charge = jnp.sum(partial_charges, axis=0, keepdims=True)
+    return partial_charges + (weights / weight_sum) * (
+      total_charge - predicted_charge
+    )
+
+
 class AIMNet2Layer(eqx.Module):
   afv: Array
   shifts: Array
@@ -254,6 +277,7 @@ class AIMNet2Layer(eqx.Module):
   mlp0: MLP
   mlp1: MLP
   mlp2: MLP
+  charge_head: PartialChargesHead
   nfeature: int = eqx.field(static=True)
   nshifts: int = eqx.field(static=True)
   ncharge: int = eqx.field(static=True)
@@ -289,8 +313,9 @@ class AIMNet2Layer(eqx.Module):
     self.mlp0 = MLP(config['mlp0_sizes'], dtype=dtype, key=keys[0])
     self.mlp1 = MLP(config['mlp1_sizes'], dtype=dtype, key=keys[1])
     self.mlp2 = MLP(config['mlp2_sizes'], dtype=dtype, key=keys[2])
+    self.charge_head = PartialChargesHead()
 
-  def _atomic_embedding_features(
+  def atomic_embedding_features(
     self,
     atomic_embeddings: Array,
     g_ijs: Array,
@@ -325,7 +350,7 @@ class AIMNet2Layer(eqx.Module):
     )
     return jnp.concatenate([scalar_features, vector_features], axis=-1)
 
-  def _charge_features(
+  def charge_features(
     self,
     partial_charges: Array,
     g_ijs: Array,
@@ -354,19 +379,6 @@ class AIMNet2Layer(eqx.Module):
     )
     return jnp.concatenate([scalar_features, vector_features], axis=-1)
 
-  def _neural_charge_equilibration(
-    self,
-    partial_charges: Array,
-    charge_weights: Array,
-    total_charge: Array | float = 0.0,
-  ) -> Array:
-    weights = charge_weights**2
-    weight_sum = jnp.sum(weights, axis=0, keepdims=True) + 1.0e-6
-    predicted_charge = jnp.sum(partial_charges, axis=0, keepdims=True)
-    return partial_charges + (weights / weight_sum) * (
-      total_charge - predicted_charge
-    )
-
   def __call__(
     self,
     species,
@@ -385,7 +397,7 @@ class AIMNet2Layer(eqx.Module):
       jnp.concatenate(
         [
           embedding_flat,
-          self._atomic_embedding_features(
+          self.atomic_embedding_features(
             atomic_embeddings,
             g_ijs,
             unit_vectors,
@@ -397,7 +409,7 @@ class AIMNet2Layer(eqx.Module):
       ),
       last_linear=self.mlp_last_linear[0],
     )
-    partial_charges = self._neural_charge_equilibration(
+    partial_charges = self.charge_head(
       out0[:, :ncharge],
       out0[:, ncharge : 2 * ncharge],
       total_charge,
@@ -413,7 +425,7 @@ class AIMNet2Layer(eqx.Module):
       jnp.concatenate(
         [
           embedding_flat,
-          self._atomic_embedding_features(
+          self.atomic_embedding_features(
             atomic_embeddings,
             g_ijs,
             unit_vectors,
@@ -421,7 +433,7 @@ class AIMNet2Layer(eqx.Module):
             edge_mask,
           ),
           partial_charges,
-          self._charge_features(
+          self.charge_features(
             partial_charges,
             g_ijs,
             unit_vectors,
@@ -433,7 +445,7 @@ class AIMNet2Layer(eqx.Module):
       ),
       last_linear=self.mlp_last_linear[1],
     )
-    partial_charges = self._neural_charge_equilibration(
+    partial_charges = self.charge_head(
       partial_charges + out1[:, :ncharge],
       out1[:, ncharge : 2 * ncharge],
       total_charge,
@@ -449,7 +461,7 @@ class AIMNet2Layer(eqx.Module):
       jnp.concatenate(
         [
           embedding_flat,
-          self._atomic_embedding_features(
+          self.atomic_embedding_features(
             atomic_embeddings,
             g_ijs,
             unit_vectors,
@@ -457,7 +469,7 @@ class AIMNet2Layer(eqx.Module):
             edge_mask,
           ),
           partial_charges,
-          self._charge_features(
+          self.charge_features(
             partial_charges,
             g_ijs,
             unit_vectors,

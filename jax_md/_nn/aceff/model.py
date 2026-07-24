@@ -1,4 +1,7 @@
 # Credit to https://github.com/torchmd/torchmd-net
+#
+# Parameters are stored fp32 and cast to fp64 under jax_enable_x64.
+# LocalEnergyHead rounds 1/3 in fp32 to match the upstream Warp kernels.
 
 import json
 from functools import partial
@@ -44,10 +47,10 @@ def neighbor_list_featurizer(displacement_fn, *, cutoff: float):
 
     raw_vec = position[edge_src] - position[edge_dst]
     d = jax.vmap(partial(displacement_fn, **kwargs))
-    pbc_shifts = d(position[edge_src], position[edge_dst]) - raw_vec
+    offsets = d(position[edge_src], position[edge_dst]) - raw_vec
     far_shift = jnp.zeros_like(raw_vec).at[:, 0].set(float(cutoff) + 1.0)
-    pbc_shifts = jnp.where(edge_mask[:, None], pbc_shifts, far_shift - raw_vec)
-    return edge_src, edge_dst, pbc_shifts, edge_mask
+    offsets = jnp.where(edge_mask[:, None], offsets, far_shift - raw_vec)
+    return edge_src, edge_dst, offsets, edge_mask
 
   return featurize
 
@@ -57,6 +60,12 @@ def unique_pairs(num_atoms: int):
   return (
     jnp.asarray(pair_src, dtype=jnp.int32),
     jnp.asarray(pair_dst, dtype=jnp.int32),
+  )
+
+
+def safe_norm(x, *, axis=-1, keepdims: bool = False, eps: float = 1.0e-24):
+  return jnp.sqrt(
+    jnp.maximum(jnp.sum(x * x, axis=axis, keepdims=keepdims), eps)
   )
 
 
@@ -153,28 +162,6 @@ class Linear(eqx.Module):
     return out
 
 
-class LayerNorm(eqx.Module):
-  weight: Any
-  bias: Any
-  eps: float = eqx.field(static=True)
-
-  def __init__(self, dim, *, eps: float = 1.0e-5):
-    self.weight = jnp.zeros((dim,), dtype=jnp.float32)
-    self.bias = jnp.zeros((dim,), dtype=jnp.float32)
-    self.eps = float(eps)
-
-  def __call__(self, x):
-    mean = x.mean(axis=-1, keepdims=True)
-    var = ((x - mean) ** 2).mean(axis=-1, keepdims=True)
-    return self.weight * (x - mean) * jax.lax.rsqrt(var + self.eps) + self.bias
-
-
-def safe_norm(x, *, axis=-1, keepdims: bool = False, eps: float = 1.0e-24):
-  return jnp.sqrt(
-    jnp.maximum(jnp.sum(x * x, axis=axis, keepdims=keepdims), eps)
-  )
-
-
 class MLP(eqx.Module):
   layers: tuple[Linear, ...]
 
@@ -191,6 +178,22 @@ class MLP(eqx.Module):
       if i < len(self.layers) - 1:
         x = jax.nn.silu(x)
     return x
+
+
+class LayerNorm(eqx.Module):
+  weight: Any
+  bias: Any
+  eps: float = eqx.field(static=True)
+
+  def __init__(self, dim, *, eps: float = 1.0e-5):
+    self.weight = jnp.zeros((dim,), dtype=jnp.float32)
+    self.bias = jnp.zeros((dim,), dtype=jnp.float32)
+    self.eps = float(eps)
+
+  def __call__(self, x):
+    mean = x.mean(axis=-1, keepdims=True)
+    var = ((x - mean) ** 2).mean(axis=-1, keepdims=True)
+    return self.weight * (x - mean) * jax.lax.rsqrt(var + self.eps) + self.bias
 
 
 class TensorEmbedding(eqx.Module):
@@ -263,23 +266,17 @@ class TensorEmbedding(eqx.Module):
     antisymmetric_messages = (
       edge_features[:, 1, :][:, None, :] * unit_vectors[:, :, None]
     )
-    antisymmetric_vectors = jnp.zeros(
-      (num_atoms, 3, num_features),
-      dtype=scalar_messages.dtype,
-    )
-    antisymmetric_vectors = antisymmetric_vectors.at[edge_src].add(
-      antisymmetric_messages
+    antisymmetric_vectors = jax.ops.segment_sum(
+      antisymmetric_messages, edge_src, num_segments=num_atoms
     )
 
     outer = unit_vectors[:, :, None] * unit_vectors[:, None, :]
     symmetric_messages = (
       edge_features[:, 2, :][:, None, None, :] * outer[:, :, :, None]
     )
-    symmetric = jnp.zeros(
-      (num_atoms, 3, 3, num_features),
-      dtype=scalar_messages.dtype,
+    symmetric = jax.ops.segment_sum(
+      symmetric_messages, edge_src, num_segments=num_atoms
     )
-    symmetric = symmetric.at[edge_src].add(symmetric_messages)
 
     antisymmetric = vector_to_skewtensor(antisymmetric_vectors)
     symmetric = outer_to_symtensor(symmetric)
@@ -305,7 +302,7 @@ class TensorEmbedding(eqx.Module):
     return scalar[:, None, None, :] * identity + antisymmetric + symmetric
 
 
-class ChargePredictionHead(eqx.Module):
+class PartialChargesHead(eqx.Module):
   q_mlp: MLP
   q_norm: LayerNorm
 
@@ -580,15 +577,15 @@ class CoulombHead(eqx.Module):
   ):
     partial_charges = jnp.concatenate(partial_charges, axis=-1)
     if coulomb_edges is None:
-      # Free-space fallback: every unique pair contributes once.
+      # No Coulomb neighbor list supplied: sum over all unique atom pairs.
       pair_src, pair_dst = unique_pairs(int(positions.shape[0]))
       pair_vectors = jax.vmap(displacement_fn)(
         positions[pair_src], positions[pair_dst]
       )
       pair_mask = None
     else:
-      # A dedicated Coulomb neighbor list at coulomb_cutoff supplies edges.
-      # Each undirected pair appears twice, so keep only edge_src < edge_dst.
+      # The Coulomb neighbor list lists each undirected pair twice; keep
+      # edge_src < edge_dst so every pair is counted once.
       edge_src, edge_dst, pair_vectors, edge_mask = coulomb_edges
       pair_src, pair_dst = edge_src, edge_dst
       pair_mask = edge_mask & (edge_src < edge_dst)
@@ -627,9 +624,9 @@ class AceFF(eqx.Module):
   rbf_betas: Any
   rbf_means: Any
   tensor_embedding: TensorEmbedding
-  charge_predictor_0: ChargePredictionHead | None
+  charge_predictor_0: PartialChargesHead | None
   layers: tuple[AceFFLayer, ...]
-  charge_predictors_by_layer: tuple[ChargePredictionHead, ...]
+  charge_predictors_by_layer: tuple[PartialChargesHead, ...]
   local_energy_head: LocalEnergyHead
   coulomb_head: CoulombHead | None
   cutoff: float = eqx.field(static=True)
@@ -640,39 +637,30 @@ class AceFF(eqx.Module):
   neighbor_cell_capacity_multiplier: float = eqx.field(static=True)
 
   def __init__(self, config):
-    self.cutoff = float(config['cutoff'])
-    self.ev_to_kjmol = float(config['ev_to_kjmol'])
-    self.cutoff_lower = float(config['cutoff_lower'])
-    self.alpha = float(config['alpha'])
-    group = str(config['group'])
-    charge_predictors = bool(config['charge_predictors'])
-    edge_charge_features = bool(config['edge_charge_features'])
-    total_charge_interaction_scale = bool(
-      config['total_charge_interaction_scale']
-    )
-    coulomb_energy = bool(config['coulomb_energy'])
-    coulomb_factor = float(config['coulomb_factor'])
-    coulomb_damp_cutoff = float(config['coulomb_damp_cutoff'])
+    self.cutoff = config['cutoff']
+    self.ev_to_kjmol = config['ev_to_kjmol']
+    self.cutoff_lower = config['cutoff_lower']
+    self.alpha = config['alpha']
+    group = config['group']
+    charge_predictors = config['charge_predictors']
+    edge_charge_features = config['edge_charge_features']
+    total_charge_interaction_scale = config['total_charge_interaction_scale']
+    coulomb_energy = config['coulomb_energy']
+    coulomb_factor = config['coulomb_factor']
+    coulomb_damp_cutoff = config['coulomb_damp_cutoff']
     coulomb_cutoff = config['coulomb_cutoff']
-    coulomb_cutoff = None if coulomb_cutoff is None else float(coulomb_cutoff)
-    coulomb_epsilon_solvent = float(config['coulomb_epsilon_solvent'])
-    exp_minus_1 = float(config['exp_minus_1'])
-    self.neighbor_cell_atom_threshold = int(
-      config['neighbor_cell_atom_threshold']
-    )
-    self.neighbor_cell_capacity_multiplier = float(
-      config['neighbor_cell_capacity_multiplier']
-    )
+    coulomb_epsilon_solvent = config['coulomb_epsilon_solvent']
+    exp_minus_1 = config['exp_minus_1']
+    self.neighbor_cell_atom_threshold = config['neighbor_cell_atom_threshold']
+    self.neighbor_cell_capacity_multiplier = config[
+      'neighbor_cell_capacity_multiplier'
+    ]
 
-    # Zero template rebuilt from the config dimensions; the array leaves are
-    # filled by eqx.tree_deserialise_leaves in load_model.
-    hidden = int(config['hidden_channels'])
-    num_rbf = int(config['num_rbf'])
-    num_layers = int(config['num_interaction_layers'])
-    eps = float(config['layernorm_eps'])
-    charge_mlp_dims = (
-      [int(x) for x in config['charge_mlp_dims']] if charge_predictors else []
-    )
+    hidden = config['hidden_channels']
+    num_rbf = config['num_rbf']
+    num_layers = config['num_interaction_layers']
+    eps = config['layernorm_eps']
+    charge_mlp_dims = config['charge_mlp_dims'] if charge_predictors else []
     n_charge = charge_mlp_dims[-1] // 2 if charge_predictors else 0
     scalar_in = num_rbf + (2 * n_charge if edge_charge_features else 0)
 
@@ -686,7 +674,7 @@ class AceFF(eqx.Module):
       eps=eps,
     )
     self.charge_predictor_0 = (
-      ChargePredictionHead(3 * hidden, charge_mlp_dims, eps=eps)
+      PartialChargesHead(3 * hidden, charge_mlp_dims, eps=eps)
       if charge_predictors
       else None
     )
@@ -702,20 +690,16 @@ class AceFF(eqx.Module):
       )
       for _ in range(num_layers)
     )
-    self.charge_predictors_by_layer = (
-      tuple(
-        ChargePredictionHead(3 * hidden, charge_mlp_dims, eps=eps)
-        for _ in range(num_layers)
-      )
-      if charge_predictors
-      else ()
+    self.charge_predictors_by_layer = tuple(
+      PartialChargesHead(3 * hidden, charge_mlp_dims, eps=eps)
+      for _ in range(num_layers if charge_predictors else 0)
     )
     self.local_energy_head = LocalEnergyHead(
       hidden, config['output_network_dims'], eps=eps
     )
     self.coulomb_head = (
       CoulombHead(
-        int(config['coulomb_qweights_dim']),
+        config['coulomb_qweights_dim'],
         coulomb_factor=coulomb_factor,
         coulomb_damp_cutoff=coulomb_damp_cutoff,
         coulomb_cutoff=coulomb_cutoff,
@@ -731,22 +715,20 @@ class AceFF(eqx.Module):
     positions,
     edge_src,
     edge_dst,
-    pbc_shifts,
+    offsets,
     edge_mask,
   ):
-    edge_vectors = positions[edge_src] - positions[edge_dst] + pbc_shifts
-    is_self = edge_src == edge_dst
+    edge_vectors = positions[edge_src] - positions[edge_dst] + offsets
     distances = jnp.where(
-      is_self,
+      edge_src == edge_dst,
       0.0,
       safe_norm(edge_vectors, axis=-1, eps=1.0e-30),
     )
-    safe_denom = jnp.where(
-      is_self[:, None],
+    unit_vectors = edge_vectors / jnp.where(
+      (edge_src == edge_dst)[:, None],
       1.0,
       jnp.maximum(distances[:, None], 1e-8),
     )
-    unit_vectors = edge_vectors / safe_denom
     edge_mask = jnp.asarray(edge_mask, dtype=positions.dtype)
     distances_expanded = distances[..., None]
     cutoff_values = cosine_cutoff(distances_expanded, self.cutoff, 0.0)
@@ -770,7 +752,7 @@ class AceFF(eqx.Module):
     species,
     edge_src,
     edge_dst,
-    pbc_shifts,
+    offsets,
     edge_mask,
     total_charge,
   ):
@@ -778,7 +760,7 @@ class AceFF(eqx.Module):
       positions,
       edge_src,
       edge_dst,
-      pbc_shifts,
+      offsets,
       edge_mask,
     )
     tensor_features = self.tensor_embedding(
@@ -838,13 +820,13 @@ class AceFF(eqx.Module):
     featurize = neighbor_list_featurizer(
       displacement_fn, cutoff=float(self.cutoff)
     )
-    edge_src, edge_dst, pbc_shifts, edge_mask = featurize(positions, neighbors)
+    edge_src, edge_dst, offsets, edge_mask = featurize(positions, neighbors)
     node_energies, partial_charges = self.local_node_energies_and_charges(
       positions,
       species,
       edge_src,
       edge_dst,
-      pbc_shifts,
+      offsets,
       edge_mask,
       total_charge,
     )

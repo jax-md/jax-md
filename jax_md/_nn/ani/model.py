@@ -1,3 +1,9 @@
+"""ANI-2x energy model.
+
+Self-energies are fp64; weights and the AEV/MLP run in fp32. CELU is only C1, so
+near its kink it amplifies gradients and ANI forces match the reference to 3e-6.
+"""
+
 import json
 from functools import partial
 from importlib.resources import files
@@ -37,7 +43,6 @@ def neighbor_list_featurizer(displacement_fn):
 
 
 def cosine_cutoff(distance, cutoff: float):
-  """ANI cosine cutoff."""
   return 0.5 * jnp.cos(distance * jnp.pi / cutoff) + 0.5
 
 
@@ -56,12 +61,10 @@ def pair_index_table(num_species: int) -> tuple[tuple[int, ...], ...]:
       table[species_i, species_j] = pair_index
       table[species_j, species_i] = pair_index
       pair_index += 1
-  return tuple(tuple(int(index) for index in row) for row in table)
+  return tuple(map(tuple, table.tolist()))
 
 
 class ANI2xCheckpoint(eqx.Module):
-  """Full on-disk ANI2x checkpoint leaves before active-species pruning."""
-
   atom_energies: jnp.ndarray
   layer_weights: list
   layer_biases: list
@@ -71,7 +74,6 @@ class ANI2xCheckpoint(eqx.Module):
     num_models = config['num_models']
     network_sizes = tuple(config['network_sizes'])
 
-    # Self-energies are large constants kept in f64; weights are f32.
     self.atom_energies = jnp.zeros(num_species, dtype=jnp.float64)
     self.layer_weights = []
     self.layer_biases = []
@@ -139,7 +141,6 @@ def first_layer_columns(
 
 
 class ANI2x(eqx.Module):
-  # Runtime leaves pruned from the full checkpoint.
   atom_energies: jnp.ndarray
   layer_weights: list
   layer_biases: list
@@ -257,8 +258,6 @@ class ANI2x(eqx.Module):
 
     local_species = species_lookup[species]
 
-    # One list at the radial cutoff also feeds the angular terms; neighbors
-    # outside the smaller angular cutoff are masked out below.
     featurize = neighbor_list_featurizer(displacement_fn)
     edge_displacements, safe_neighbors, edge_mask = featurize(
       positions, neighbor
@@ -268,7 +267,6 @@ class ANI2x(eqx.Module):
     radial_neighbor_mask = angular_neighbor_mask = edge_mask
     local_radial_neighbor_species = local_species[radial_safe_neighbors]
 
-    # R_ij is the distance between atom i and radial neighbor j.
     radial_distance2 = jnp.sum(radial_displacements**2, axis=-1)
     radial_distance = jnp.sqrt(jnp.clip(radial_distance2, min=1e-5))
     radial_real_neighbor = radial_neighbor_mask & (
