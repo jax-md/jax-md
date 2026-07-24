@@ -1,4 +1,7 @@
 # Credit to https://github.com/orbital-materials/orb-models
+#
+# Parameters are stored fp32, matching upstream orb-models; computation runs
+# in fp64 under jax_enable_x64.
 
 import json
 from functools import partial

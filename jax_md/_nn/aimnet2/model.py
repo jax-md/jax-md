@@ -247,10 +247,10 @@ class MLP(eqx.Module):
 
 
 class PartialChargesHead(eqx.Module):
-  """Parameter-free charge equilibration matching aceff's head interface.
+  """Parameter-free charge equilibration matching AceFF's head interface.
 
-  aimnet2 fuses the charge readout into the shared per-layer MLPs, so unlike
-  aceff's head this owns no parameters and only equilibrates the charges and
+  AIMNet2 fuses the charge readout into the shared per-layer MLPs, so unlike
+  AceFF's head this owns no parameters and only equilibrates the charges and
   weights produced upstream.
   """
 

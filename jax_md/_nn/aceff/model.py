@@ -520,8 +520,6 @@ class LocalEnergyHead(eqx.Module):
     _, antisymmetric, symmetric = decompose_tensor(tensor_features)
     trace = jnp.diagonal(tensor_features, axis1=1, axis2=2).sum(axis=-1)
     warp_one_third = jnp.asarray(
-      # This comes from upstream using Warp kernels that round
-      # 1/3 to float32 before casting to float64.
       float(np.float32(1.0 / 3.0)),
       dtype=trace.dtype,
     )
