@@ -18,6 +18,7 @@ import numpy as np
 from jax import Array
 from jax.scipy.special import erfc
 from jax_md import partition, space
+from jax_md._nn import weights
 
 jax.config.update('jax_default_matmul_precision', 'highest')
 
@@ -772,6 +773,7 @@ def load_model(
   )
   if dtype is None:
     dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
+  path = weights.resolve_checkpoint(path)
   with path.open('rb') as handle:
     config = dict(json.loads(handle.readline().decode()))
     template = AIMNet2(config=config, dtype=jnp.float32)

@@ -12,6 +12,7 @@ import numpy as np
 from jax import Array
 from jax.ops import segment_sum
 from jax_md import partition
+from jax_md._nn import weights
 
 jax.config.update('jax_default_matmul_precision', 'highest')
 
@@ -1130,6 +1131,7 @@ def load_model(
 
   if dtype is None:
     dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
+  path = weights.resolve_checkpoint(path)
   with path.open('rb') as handle:
     header = json.loads(handle.readline().decode('utf-8'))
     metadata = header['metadata']

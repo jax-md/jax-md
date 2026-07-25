@@ -15,6 +15,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from jax_md import partition, space
+from jax_md._nn import weights
 from jax_md.units import HARTREE_EV
 
 jax.config.update('jax_default_matmul_precision', 'highest')
@@ -442,6 +443,7 @@ def load_model(
 
   if dtype is None:
     dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
+  path = weights.resolve_checkpoint(path)
   with path.open('rb') as handle:
     config = json.loads(handle.readline().decode())
     config = dict(config)
