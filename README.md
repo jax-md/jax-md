@@ -40,7 +40,7 @@ JAX MD also comes with self contained python scripts which you run locally if yo
 - [NVE with Neighbor Lists](examples/nve_neighbor_list.py)
 - [Neural Network Potentials](examples/neural_networks.py)
 
-See [FEATURES.md](FEATURES.md) for a tour of the main library components.
+See [FEATURES.md](https://github.com/jax-md/jax-md/blob/main/FEATURES.md) for a tour of the main library components.
 
 ## Installation
 
@@ -74,7 +74,7 @@ Or install a local source checkout:
 python -m pip install -e .
 ```
 
-To include testing and documentation dependencies with pip:
+To include testing and documentation dependencies with pip, using the `--group` flag from pip 25.1 or newer:
 
 ```sh
 python -m pip install -e . --group testing --group docs
@@ -111,18 +111,18 @@ JAX_ENABLE_X64=1 python -m pytest tests/<suite>_test.py
 Run the suites affected by your change. See [CONTRIBUTING.md](CONTRIBUTING.md)
 for the full development setup.
 
-### Technical gotchas
+## Technical gotchas
 
-#### GPU
+### GPU
 
 You must follow [JAX's](https://www.github.com/google/jax/) GPU installation instructions to enable GPU support.
 
-#### 64-bit precision
+### 64-bit precision
 To enable 64-bit precision, set the respective JAX flag _before_ importing `jax_md` (see the JAX [guide](https://colab.research.google.com/github/google/jax/blob/main/notebooks/Common_Gotchas_in_JAX.ipynb#scrollTo=YTktlwTTMgFl)), for example:
 
 ```python
-from jax.config import config
-config.update("jax_enable_x64", True)
+import jax
+jax.config.update("jax_enable_x64", True)
 ```
 
 ## Publications

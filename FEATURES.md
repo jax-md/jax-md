@@ -15,7 +15,7 @@ Spaces also include mapping helpers:
 - [`space.map_product()`](https://jax-md.readthedocs.io/en/main/jax_md.space.html#jax_md.space.map_product) vectorizes a displacement or metric over all pairs.
 - [`space.map_bond()`](https://jax-md.readthedocs.io/en/main/jax_md.space.html#jax_md.space.map_bond) maps a displacement or metric over indexed bonds.
 - [`space.map_neighbor()`](https://jax-md.readthedocs.io/en/main/jax_md.space.html#jax_md.space.map_neighbor) maps a displacement or metric over neighbor-list entries.
-- [`space.inverse()`](https://jax-md.readthedocs.io/en/main/jax_md.space.html#jax_md.space.inverse) canonicalizes scalar, vector, or matrix boxes for coordinate transforms.
+- [`space.inverse()`](jax_md/space.py#L110) computes the inverse of a scalar, vector, or matrix box.
 
 Example:
 
@@ -27,7 +27,7 @@ displacement_fn, shift_fn = space.periodic(box_size)
 
 ## Units ([`units.py`](jax_md/units.py))
 
-JAX MD computations are unitless by default, but the library includes unit-system dictionaries that make it easier to convert physical inputs into the units expected by simulations. The unit systems follow conventions similar to LAMMPS.
+JAX MD computations are unitless by default, but the library includes unit-system dictionaries that make it easier to convert physical inputs into the units expected by simulations. The unit systems follow conventions similar to LAMMPS. The conversion factors are constructed in float64, so enable 64-bit precision, for example with `JAX_ENABLE_X64=1`, before using them to avoid silent truncation to float32.
 
 The following unit systems are currently supported:
 - [`units.metal_unit_system()`](jax_md/units.py#L44) provides conversion factors for metal units, with Angstrom, eV, amu, picoseconds, bar, and related quantities.
@@ -58,7 +58,7 @@ We provide the following classical potentials:
 - [`energy.gupta_potential()`](jax_md/energy.py#L449) implements the Gupta many-body potential, and [`energy.gupta_gold55()`](jax_md/energy.py#L523) provides a gold-cluster convenience wrapper.
 - [`energy.edip()`](jax_md/energy.py#L1506) and [`energy.edip_neighbor_list()`](jax_md/energy.py#L1594) implement the Environment Dependent Interatomic Potential.
 
-For finite-ranged potentials it is often useful to consider only interactions within a certain neighborhood. We include the `_neighbor_list` modifier to the above potentials that uses a list of neighbors (see below) for optimization.
+For finite-ranged potentials it is often useful to consider only interactions within a certain neighborhood. Most of the above potentials have a `_neighbor_list` variant such as `energy.lennard_jones_neighbor_list` that uses a neighbor list, described below, for optimization. The Gupta potentials currently do not.
 
 Example:
 
@@ -70,37 +70,37 @@ from jax_md import energy, quantity, space
 N = 1000
 spatial_dimension = 2
 key = random.PRNGKey(0)
-R = random.uniform(key, (N, spatial_dimension), minval=0.0, maxval=1.0)
-displacement_fn, shift_fn = space.periodic(1.0)
-energy_fn = energy.lennard_jones_pair(displacement_fn)
+box_size = 32.0
+R = box_size * random.uniform(key, (N, spatial_dimension))
+displacement_fn, shift_fn = space.periodic(box_size)
+energy_fn = energy.soft_sphere_pair(displacement_fn)
 print('E = {}'.format(energy_fn(R)))
 force_fn = quantity.force(energy_fn)
 print('Total Squared Force = {}'.format(np.sum(force_fn(R) ** 2)))
 ```
 
-## Electrostatics ([`_energy/electrostatics.py`](jax_md/_energy/electrostatics.py))
+## Electrostatics ([`energy.py`](https://jax-md.readthedocs.io/en/main/jax_md.energy.html))
 
 Charged systems often require splitting the Coulomb interaction into short-range and reciprocal-space pieces. JAX MD includes direct-space Coulomb terms, Ewald sums, and particle mesh Ewald (PME) utilities.
 
-The electrostatics module includes:
-- [`coulomb_direct_pair()`](jax_md/_energy/electrostatics.py#L56) for direct pairwise screened Coulomb interactions.
-- [`coulomb_direct_neighbor_list()`](jax_md/_energy/electrostatics.py#L71) for direct Coulomb interactions with a neighbor list.
-- [`coulomb_recip_ewald()`](jax_md/_energy/electrostatics.py#L105) for reciprocal Ewald sums.
-- [`coulomb_recip_pme()`](jax_md/_energy/electrostatics.py#L139) for reciprocal PME sums.
-- [`coulomb()`](jax_md/_energy/electrostatics.py#L205) and [`coulomb_neighbor_list()`](jax_md/_energy/electrostatics.py#L227) convenience wrappers that combine direct and reciprocal terms.
-- [`coulomb_ewald_neighbor_list()`](jax_md/_energy/electrostatics.py#L186) for Ewald electrostatics with neighbor-listed direct-space terms.
+These functions are available from the public `jax_md.energy` namespace:
+- [`energy.coulomb_direct_pair()`](jax_md/_energy/electrostatics.py#L56) for direct pairwise screened Coulomb interactions.
+- [`energy.coulomb_direct_neighbor_list()`](jax_md/_energy/electrostatics.py#L71) for direct Coulomb interactions with a neighbor list.
+- [`energy.coulomb_recip_ewald()`](jax_md/_energy/electrostatics.py#L105) for reciprocal Ewald sums.
+- [`energy.coulomb_recip_pme()`](jax_md/_energy/electrostatics.py#L139) for reciprocal PME sums.
+- [`energy.coulomb()`](jax_md/_energy/electrostatics.py#L205) and [`energy.coulomb_neighbor_list()`](jax_md/_energy/electrostatics.py#L227) convenience wrappers that combine direct and reciprocal terms.
+- [`energy.coulomb_ewald_neighbor_list()`](jax_md/_energy/electrostatics.py#L186) for Ewald electrostatics with neighbor-listed direct-space terms.
 
 Example:
 
 ```python
 import jax.numpy as np
-from jax_md import space
-from jax_md._energy import electrostatics
+from jax_md import energy, space
 
 # PME electrostatics for a 3D periodic box.
 displacement_fn, shift_fn = space.periodic(10.0)
 charge = np.ones((1000,))
-energy_fn = electrostatics.coulomb(displacement_fn, 10.0, charge, grid_points=32)
+energy_fn = energy.coulomb(displacement_fn, 10.0, charge, grid_points=32)
 ```
 
 ## Membrane Potentials ([`energy.py`](https://jax-md.readthedocs.io/en/main/jax_md.energy.html))
@@ -242,8 +242,7 @@ Cell List Example:
 from jax_md import partition
 
 cell_size = 5.0
-capacity = 10
-cell_list_fn = partition.cell_list(box_size, cell_size, capacity)
+cell_list_fn = partition.cell_list(box_size, cell_size)
 cell_list_data = cell_list_fn.allocate(R)
 ```
 
@@ -252,7 +251,8 @@ Neighbor List Example:
 ```python
 from jax_md import partition
 
-neighbor_list_fn = partition.neighbor_list(displacement_fn, box_size, cell_size)
+r_cutoff = 5.0
+neighbor_list_fn = partition.neighbor_list(displacement_fn, box_size, r_cutoff)
 neighbors = neighbor_list_fn.allocate(R) # Create a new neighbor list.
 
 # Do some simulating....
@@ -262,7 +262,7 @@ if neighbors.did_buffer_overflow:  # Couldn't fit all the neighbors into the lis
   neighbors = neighbor_list_fn.allocate(R)  # So create a new neighbor list.
 ```
 
-There are three different formats of neighbor list supported: `Dense`, `Sparse`, and `OrderedSparse`. `Dense` neighbor lists store neighbors in an `(particle_count, neighbors_per_particle)` array, `Sparse` neighbor lists store neighbors in a `(2, total_neighbors)` array of pairs, `OrderedSparse` neighbor lists are like `Sparse` neighbor lists, but they only store pairs such that `i < j`.
+There are three different formats of neighbor list supported: `Dense`, `Sparse`, and `OrderedSparse`. `Dense` neighbor lists store neighbors in a `(particle_count, neighbors_per_particle)` array; `Sparse` neighbor lists store neighbors in a `(2, total_neighbors)` array of pairs; `OrderedSparse` neighbor lists are like `Sparse` neighbor lists, but they only store pairs such that `i < j`.
 
 ## Mapping Interactions ([`smap.py`](jax_md/smap.py))
 
