@@ -768,7 +768,7 @@ def load_model(
   dtype=None,
 ) -> AIMNet2:
   if model_path is not None:
-    path = weights.resolve_checkpoint(str(model_path), allow_cache=False)
+    path = weights.resolve_checkpoint(model_path, allow_cache=False)
   else:
     path = weights.resolve_checkpoint(str(AIMNET2_MODEL_PATHS[model]))
   if dtype is None:

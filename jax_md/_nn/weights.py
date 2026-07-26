@@ -106,9 +106,10 @@ def resolve_checkpoint(
   expected = WEIGHTS.get(path.name)
   if (
     allow_cache
+    and expected is not None
     and cached.is_file()
     and not is_lfs_pointer(cached)
-    and (expected is None or cached.stat().st_size == expected[1])
+    and hashlib.sha256(cached.read_bytes()).hexdigest() == expected[0]
   ):
     return cached
 
@@ -167,13 +168,13 @@ def download(filename: str, force: bool = False, progress: bool = True) -> Path:
   if filename not in WEIGHTS:
     known = ', '.join(sorted(WEIGHTS))
     raise ValueError(f'Unknown checkpoint {filename!r}. Known: {known}')
-  sha256, size = WEIGHTS[filename]
+  sha256, _ = WEIGHTS[filename]
   dest = cache_dir() / filename
   if (
     dest.is_file()
     and not force
     and not is_lfs_pointer(dest)
-    and dest.stat().st_size == size
+    and hashlib.sha256(dest.read_bytes()).hexdigest() == sha256
   ):
     return dest
   return fetch(f'{WEIGHTS_BASE_URL}/{filename}', dest, sha256, progress)

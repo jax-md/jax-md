@@ -613,7 +613,7 @@ def load_model(
   dtype=None,
 ) -> Orb:
   if model_path is not None:
-    path = weights.resolve_checkpoint(str(model_path), allow_cache=False)
+    path = weights.resolve_checkpoint(model_path, allow_cache=False)
   else:
     path = weights.resolve_checkpoint(str(ORB_MODEL_PATHS[model]))
 

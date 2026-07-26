@@ -56,7 +56,7 @@ def test_resolve_checkpoint(tmp_path, monkeypatch):
   monkeypatch.setitem(
     weights.WEIGHTS,
     'so3lr.eqx',
-    (weights.WEIGHTS['so3lr.eqx'][0], len(FAKE_BYTES)),
+    (hashlib.sha256(FAKE_BYTES).hexdigest(), len(FAKE_BYTES)),
   )
   in_tree = tmp_path / 'pkg' / 'so3lr.eqx'
   in_tree.parent.mkdir()
@@ -88,6 +88,12 @@ def test_resolve_checkpoint_explicit_override(tmp_path, monkeypatch):
   override = tmp_path / 'custom.eqx'
   override.write_bytes(FAKE_BYTES)
   assert weights.resolve_checkpoint(override, allow_cache=False) == override
+
+  class OnlyFspath:
+    def __fspath__(self):
+      return str(override)
+
+  assert weights.resolve_checkpoint(OnlyFspath(), allow_cache=False) == override
 
 
 def test_cache_dir_env_override(tmp_path, monkeypatch):
@@ -139,7 +145,7 @@ def test_download_models(tmp_path, monkeypatch):
     monkeypatch.setitem(
       weights.WEIGHTS,
       filename,
-      (weights.WEIGHTS[filename][0], len(FAKE_BYTES)),
+      (hashlib.sha256(FAKE_BYTES).hexdigest(), len(FAKE_BYTES)),
     )
   monkeypatch.setenv('JAX_MD_CACHE', str(cache))
   assert sorted(p.name for p in weights.download_models(['all'])) == sorted(
