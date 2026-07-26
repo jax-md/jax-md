@@ -1125,13 +1125,13 @@ def load_model(
   model_path: str | PathLike | None = None,
   dtype=None,
 ):
-  path = (
-    Path(model_path) if model_path is not None else SO3LR_MODEL_PATHS[model]
-  )
+  if model_path is not None:
+    path = Path(model_path)
+  else:
+    path = weights.resolve_checkpoint(str(SO3LR_MODEL_PATHS[model]))
 
   if dtype is None:
     dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
-  path = weights.resolve_checkpoint(path)
   with path.open('rb') as handle:
     header = json.loads(handle.readline().decode('utf-8'))
     metadata = header['metadata']

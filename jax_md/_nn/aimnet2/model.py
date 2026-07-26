@@ -768,12 +768,12 @@ def load_model(
   model_path: str | PathLike | None = None,
   dtype=None,
 ) -> AIMNet2:
-  path = (
-    Path(model_path) if model_path is not None else AIMNET2_MODEL_PATHS[model]
-  )
+  if model_path is not None:
+    path = Path(model_path)
+  else:
+    path = weights.resolve_checkpoint(str(AIMNET2_MODEL_PATHS[model]))
   if dtype is None:
     dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
-  path = weights.resolve_checkpoint(path)
   with path.open('rb') as handle:
     config = dict(json.loads(handle.readline().decode()))
     template = AIMNet2(config=config, dtype=jnp.float32)

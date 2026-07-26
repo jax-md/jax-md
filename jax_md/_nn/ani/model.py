@@ -437,13 +437,13 @@ def load_model(
 ) -> ANI2x:
   """Load an ANI-2x checkpoint, optionally specialized to a fixed atomic-number set."""
 
-  path = (
-    Path(model_path) if model_path is not None else ANI2X_MODEL_PATHS[model]
-  )
+  if model_path is not None:
+    path = Path(model_path)
+  else:
+    path = weights.resolve_checkpoint(str(ANI2X_MODEL_PATHS[model]))
 
   if dtype is None:
     dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
-  path = weights.resolve_checkpoint(path)
   with path.open('rb') as handle:
     config = json.loads(handle.readline().decode())
     config = dict(config)
