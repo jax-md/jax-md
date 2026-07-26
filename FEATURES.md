@@ -27,7 +27,7 @@ displacement_fn, shift_fn = space.periodic(box_size)
 
 ## Units ([`units.py`](jax_md/units.py))
 
-JAX MD computations are unitless by default, but the library includes unit-system dictionaries that make it easier to convert physical inputs into the units expected by simulations. The unit systems follow conventions similar to LAMMPS. The conversion factors are constructed in float64, so enable 64-bit precision, for example with `JAX_ENABLE_X64=1`, before using them to avoid silent truncation to float32.
+JAX MD computations are unitless by default, but the library includes unit-system dictionaries that make it easier to convert physical inputs into the units expected by simulations. The unit systems follow conventions similar to LAMMPS. The conversion factors are computed with JAX and inherit its active precision, so enable 64-bit precision, for example with `JAX_ENABLE_X64=1`, before constructing them; otherwise they are silently built in float32.
 
 The following unit systems are currently supported:
 - [`units.metal_unit_system()`](jax_md/units.py#L44) provides conversion factors for metal units, with Angstrom, eV, amu, picoseconds, bar, and related quantities.
