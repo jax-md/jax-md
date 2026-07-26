@@ -7,7 +7,6 @@ import json
 from functools import partial
 from importlib.resources import files
 from os import PathLike
-from pathlib import Path
 from typing import Any
 
 import equinox as eqx
@@ -864,7 +863,7 @@ def load_model(
   dtype=None,
 ):
   if model_path is not None:
-    path = Path(model_path)
+    path = weights.resolve_checkpoint(str(model_path), allow_cache=False)
   else:
     path = weights.resolve_checkpoint(str(ACEFF_MODEL_PATHS[model]))
 

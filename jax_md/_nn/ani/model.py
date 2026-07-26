@@ -8,7 +8,6 @@ import json
 from functools import partial
 from importlib.resources import files
 from os import PathLike
-from pathlib import Path
 
 import equinox as eqx
 import jax
@@ -438,7 +437,7 @@ def load_model(
   """Load an ANI-2x checkpoint, optionally specialized to a fixed atomic-number set."""
 
   if model_path is not None:
-    path = Path(model_path)
+    path = weights.resolve_checkpoint(str(model_path), allow_cache=False)
   else:
     path = weights.resolve_checkpoint(str(ANI2X_MODEL_PATHS[model]))
 

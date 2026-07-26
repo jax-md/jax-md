@@ -88,18 +88,28 @@ def family_of(filename: str) -> str | None:
   return None
 
 
-def resolve_checkpoint(path: os.PathLike | str) -> Path:
+def resolve_checkpoint(
+  path: os.PathLike | str, *, allow_cache: bool = True
+) -> Path:
   """Return an on-disk path for the checkpoint expected at ``path``.
 
   Falls back to the cache directory, then raises ``FileNotFoundError``
-  with fetch instructions.
+  with fetch instructions. Set ``allow_cache`` to False for an explicit
+  user-supplied path so a missing or LFS-pointer override is not silently
+  replaced by an unrelated cache file.
   """
   path = Path(path)
   if path.is_file() and not is_lfs_pointer(path):
     return path
 
   cached = cache_dir() / path.name
-  if cached.is_file() and not is_lfs_pointer(cached):
+  expected = WEIGHTS.get(path.name)
+  if (
+    allow_cache
+    and cached.is_file()
+    and not is_lfs_pointer(cached)
+    and (expected is None or cached.stat().st_size == expected[1])
+  ):
     return cached
 
   family = family_of(path.name) or path.name
@@ -117,7 +127,7 @@ def resolve_checkpoint(path: os.PathLike | str) -> Path:
 def fetch(url: str, dest: Path, sha256: str, progress: bool = True) -> Path:
   dest.parent.mkdir(parents=True, exist_ok=True)
   digest = hashlib.sha256()
-  with urllib.request.urlopen(url) as response:
+  with urllib.request.urlopen(url, timeout=30) as response:
     total = int(response.headers.get('Content-Length') or 0)
     with tempfile.NamedTemporaryFile(
       dir=dest.parent, prefix=dest.name + '.', delete=False
@@ -157,9 +167,14 @@ def download(filename: str, force: bool = False, progress: bool = True) -> Path:
   if filename not in WEIGHTS:
     known = ', '.join(sorted(WEIGHTS))
     raise ValueError(f'Unknown checkpoint {filename!r}. Known: {known}')
-  sha256, _ = WEIGHTS[filename]
+  sha256, size = WEIGHTS[filename]
   dest = cache_dir() / filename
-  if dest.is_file() and not force and not is_lfs_pointer(dest):
+  if (
+    dest.is_file()
+    and not force
+    and not is_lfs_pointer(dest)
+    and dest.stat().st_size == size
+  ):
     return dest
   return fetch(f'{WEIGHTS_BASE_URL}/{filename}', dest, sha256, progress)
 
@@ -216,7 +231,7 @@ def main(argv=None) -> int:
         )
     if not args.models:
       parser.print_usage()
-    return 0
+      return 0
 
   try:
     paths = download_models(args.models, force=args.force)
