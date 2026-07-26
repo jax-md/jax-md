@@ -132,11 +132,14 @@ We provide the following neural network potentials and helpers:
 - [`energy.nequip_neighbor_list()`](jax_md/energy.py#L2412) and [`energy.load_gnome_model_neighbor_list()`](jax_md/energy.py#L2470) wrappers for NequIP/GNoME-style neighbor-list graph models.
 - [`energy.uma_neighbor_list()`](jax_md/energy.py#L2716) for UMA force-field models, including pretrained checkpoint loading, MoE heads, charge/spin/dataset embeddings, atom-reference corrections, and optional optimized kernels.
 - [`energy.mace_neighbor_list()`](jax_md/energy.py#L3055) for wrapping MACE-JAX models as JAX MD neighbor-list energies.
+- [`energy.orb_neighbor_list()`](jax_md/energy.py#L2523), [`energy.aceff_neighbor_list()`](jax_md/energy.py#L2601), [`energy.ani_neighbor_list()`](jax_md/energy.py#L2674), [`energy.so3lr_neighbor_list()`](jax_md/energy.py#L2739), and [`energy.aimnet2_neighbor_list()`](jax_md/energy.py#L2823) wrap the pretrained bio-mlff potentials Orb, AceFF, ANI-2x, SO3LR, and AIMNet2.
+- Pretrained bio-mlff checkpoints are not bundled in the PyPI wheel; [`jax_md._nn.weights`](jax_md/_nn/weights.py) resolves them from the in-tree file, a cache directory, or the `weights-v1` release, and `python -m jax_md._nn.weights <model>` fetches them with SHA-256 verification.
 
 The neural network subpackage also includes model-building pieces:
 - [`jax_md.nn.MLP`](jax_md/nn.py#L49) and graph-network helpers such as [`apply_node_fn()`](jax_md/nn.py#L181), [`apply_edge_fn()`](jax_md/nn.py#L209), and [`apply_global_fn()`](jax_md/nn.py#L235).
 - [`jax_md._nn.mace`](jax_md/_nn/mace) utilities for MACE featurization, JAX model construction, and torch-to-JAX conversion.
 - [`jax_md._nn.uma`](jax_md/_nn/uma) modules for UMA backbones, heads, featurizers, SO3/SO2 layers, MoE routing, pretrained checkpoint conversion, and Pallas/segment-matrix-multiplication kernels.
+- [`jax_md._nn.orb`](jax_md/_nn/orb), [`jax_md._nn.aceff`](jax_md/_nn/aceff), [`jax_md._nn.ani`](jax_md/_nn/ani), [`jax_md._nn.so3lr`](jax_md/_nn/so3lr), and [`jax_md._nn.aimnet2`](jax_md/_nn/aimnet2) implement the bio-mlff model architectures and equinox checkpoint loaders.
 
 Example:
 
