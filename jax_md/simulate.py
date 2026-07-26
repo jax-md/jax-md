@@ -1132,10 +1132,10 @@ def npt_csvr(
     "Isothermal-isobaric molecular dynamics using stochastic velocity
     rescaling," *J. Chem. Phys.* 130, 074101 (2009).
   """
-  dt = jnp.asarray(dt)
+  dt = f32(dt)
   dt_2 = dt / 2
-  tau_p = jnp.asarray(tau_p)
-  tau_t = jnp.asarray(tau_t)
+  tau_p = f32(tau_p)
+  tau_t = f32(tau_t)
 
   def force_stress_fn(position, box, **kwargs):
     def U(position, eps):
@@ -1260,9 +1260,7 @@ def npt_csvr(
     next_key, normal_key, chi_square_key = random.split(state.rng, 3)
     _kT = jnp.asarray(_kT, dtype=state.position.dtype)
     dof = state.position.size + 1
-    kinetic = quantity.kinetic_energy(
-      momentum=state.momentum, mass=state.mass
-    )
+    kinetic = quantity.kinetic_energy(momentum=state.momentum, mass=state.mass)
     kinetic += state.box_momentum**2 / (2 * state.box_mass)
     kinetic = jnp.maximum(kinetic, jnp.finfo(state.position.dtype).tiny)
     mean_kinetic = 0.5 * dof * _kT
@@ -1289,14 +1287,8 @@ def npt_csvr(
     internal_pressure = (2 * kinetic - dUdV) / (3 * volume)
     eta_dot = 3 * (volume * (internal_pressure - pressure) + kT)
     eta = eta + eta_dot * dt_2 / box_mass
-    eta += (
-      util.high_precision_sum(force * momentum / mass) * dt_2**2 / box_mass
-    )
-    eta += (
-      util.high_precision_sum(force**2 / mass)
-      * dt_2**3
-      / (3 * box_mass)
-    )
+    eta += util.high_precision_sum(force * momentum / mass) * dt_2**2 / box_mass
+    eta += util.high_precision_sum(force**2 / mass) * dt_2**3 / (3 * box_mass)
     return eta
 
   def nph_step(state, _pressure, _kT, **kwargs):
