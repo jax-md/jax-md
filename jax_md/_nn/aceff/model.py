@@ -7,7 +7,6 @@ import json
 from functools import partial
 from importlib.resources import files
 from os import PathLike
-from pathlib import Path
 from typing import Any
 
 import equinox as eqx
@@ -15,6 +14,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from jax_md import partition
+from jax_md._nn import weights
 
 jax.config.update('jax_default_matmul_precision', 'highest')
 
@@ -862,9 +862,10 @@ def load_model(
   model_path: str | PathLike | None = None,
   dtype=None,
 ):
-  path = (
-    Path(model_path) if model_path is not None else ACEFF_MODEL_PATHS[model]
-  )
+  if model_path is not None:
+    path = weights.resolve_checkpoint(model_path, allow_cache=False)
+  else:
+    path = weights.resolve_checkpoint(str(ACEFF_MODEL_PATHS[model]))
 
   if dtype is None:
     dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32

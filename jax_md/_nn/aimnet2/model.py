@@ -8,7 +8,6 @@ import math
 from functools import partial
 from importlib.resources import files
 from os import PathLike
-from pathlib import Path
 from typing import Any
 
 import equinox as eqx
@@ -18,6 +17,7 @@ import numpy as np
 from jax import Array
 from jax.scipy.special import erfc
 from jax_md import partition, space
+from jax_md._nn import weights
 
 jax.config.update('jax_default_matmul_precision', 'highest')
 
@@ -767,9 +767,10 @@ def load_model(
   model_path: str | PathLike | None = None,
   dtype=None,
 ) -> AIMNet2:
-  path = (
-    Path(model_path) if model_path is not None else AIMNET2_MODEL_PATHS[model]
-  )
+  if model_path is not None:
+    path = weights.resolve_checkpoint(model_path, allow_cache=False)
+  else:
+    path = weights.resolve_checkpoint(str(AIMNET2_MODEL_PATHS[model]))
   if dtype is None:
     dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
   with path.open('rb') as handle:

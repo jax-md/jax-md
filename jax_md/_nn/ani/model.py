@@ -8,13 +8,13 @@ import json
 from functools import partial
 from importlib.resources import files
 from os import PathLike
-from pathlib import Path
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
 from jax_md import partition, space
+from jax_md._nn import weights
 from jax_md.units import HARTREE_EV
 
 jax.config.update('jax_default_matmul_precision', 'highest')
@@ -436,9 +436,10 @@ def load_model(
 ) -> ANI2x:
   """Load an ANI-2x checkpoint, optionally specialized to a fixed atomic-number set."""
 
-  path = (
-    Path(model_path) if model_path is not None else ANI2X_MODEL_PATHS[model]
-  )
+  if model_path is not None:
+    path = weights.resolve_checkpoint(model_path, allow_cache=False)
+  else:
+    path = weights.resolve_checkpoint(str(ANI2X_MODEL_PATHS[model]))
 
   if dtype is None:
     dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
