@@ -1045,6 +1045,228 @@ def npt_nose_hoover_invariant(
   return E
 
 
+"""Stochastic Simulations
+
+JAX MD includes integrators for stochastic simulations of Langevin dynamics and
+Brownian motion for systems in the NVT ensemble with a solvent.
+"""
+
+
+@dataclasses.dataclass
+class Normal:
+  """A simple normal distribution."""
+
+  mean: jnp.ndarray
+  var: jnp.ndarray | float
+
+  def sample(self, key):
+    mu, sigma = self.mean, jnp.sqrt(self.var)
+    return mu + sigma * random.normal(key, mu.shape, dtype=mu.dtype)
+
+  def log_prob(self, x):
+    return (
+      -0.5 * jnp.log(2 * jnp.pi * self.var)
+      - 1 / (2 * self.var) * (x - self.mean) ** 2
+    )
+
+
+@dataclasses.dataclass
+class NVTLangevinState:
+  """A struct containing state information for the Langevin thermostat.
+
+  Attributes:
+    position: The current position of the particles. An ndarray of floats with
+      shape `[n, spatial_dimension]`.
+    momentum: The momentum of particles. An ndarray of floats with shape
+      `[n, spatial_dimension]`.
+    force: The (non-stochastic) force on particles. An ndarray of floats with
+      shape `[n, spatial_dimension]`.
+    mass: The mass of particles. Will either be a float or an ndarray of floats
+      with shape `[n]`.
+    rng: The current state of the random number generator.
+  """
+
+  position: Array
+  momentum: Array
+  force: Array
+  mass: Array
+  rng: Array
+
+  @property
+  def velocity(self) -> Array:
+    return self.momentum / self.mass
+
+
+@dispatch_by_state
+def stochastic_step(
+  state: NVTLangevinState, dt: float, kT: ArrayLike, gamma: float
+):
+  """A single stochastic step (the `O` step)."""
+  c1 = jnp.exp(-gamma * dt)
+  c2 = jnp.sqrt(kT * (1 - c1**2))
+  momentum_dist = Normal(c1 * state.momentum, c2**2 * state.mass)
+  key, split = random.split(state.rng)
+  return state.set(momentum=momentum_dist.sample(split), rng=key)
+
+
+def nvt_langevin(
+  energy_or_force_fn: Callable[..., Array],
+  shift_fn: ShiftFn,
+  dt: float,
+  kT: ArrayLike | util.PyTree,
+  gamma: float | util.PyTree = 0.1,
+  center_velocity: bool = True,
+  **sim_kwargs,
+) -> Simulator:
+  """Simulation in the NVT ensemble using the BAOAB Langevin thermostat.
+
+  Samples from the canonical ensemble in which the number of particles (N),
+  the system volume (V), and the temperature (T) are held constant. Langevin
+  dynamics are stochastic and it is supposed that the system is interacting
+  with fictitious microscopic degrees of freedom. An example of this would be
+  large particles in a solvent such as water. Thus, Langevin dynamics are a
+  stochastic ODE described by a friction coefficient and noise of a given
+  covariance.
+
+  Our implementation follows the paper [#davidcheck] by Davidchack, Ouldridge,
+  and Tretyakov.
+
+  Args:
+    energy_or_force: A function that produces either an energy or a force from
+      a set of particle positions specified as an ndarray of shape
+      `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`. Both
+      `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
+    dt: Floating point number specifying the timescale (step size) of the
+      simulation.
+    kT: Floating point number specifying the temperature in units of Boltzmann
+      constant. To update the temperature dynamically during a simulation one
+      should pass `kT` as a keyword argument to the step function.
+    gamma: A float specifying the friction coefficient between the particles
+      and the solvent.
+    center_velocity: A boolean specifying whether or not the center of mass
+      position should be subtracted.
+  Returns:
+    See above.
+
+  .. rubric:: References
+  .. [#carlon] R. L. Davidchack, T. E. Ouldridge, and M. V. Tretyakov.
+    "New Langevin and gradient thermostats for rigid body dynamics."
+    The Journal of Chemical Physics 142, 144114 (2015)
+  """
+  force_fn = quantity.canonicalize_force(energy_or_force_fn)
+
+  @jit
+  def init_fn(key, R, mass=f32(1.0), momenta=None, **kwargs):
+    _kT = kwargs.pop('kT', kT)
+    key, split = random.split(key)
+    force = force_fn(R, **kwargs)
+    state = NVTLangevinState(R, tree_map(jnp.zeros_like, R), force, mass, key)
+    state = canonicalize_mass(state)
+    if momenta is None:
+      state = initialize_momenta(state, split, _kT)
+    else:
+      state = canonicalize_momenta(state, momenta)
+    return state
+
+  @jit
+  def step_fn(state, **kwargs):
+    _dt = kwargs.pop('dt', dt)
+    _kT = kwargs.pop('kT', kT)
+    dt_2 = _dt / 2
+
+    state = momentum_step(state, dt_2)
+    state = position_step(state, shift_fn, dt_2, **kwargs)
+    state = stochastic_step(state, _dt, _kT, gamma)
+    state = position_step(state, shift_fn, dt_2, **kwargs)
+    state = state.set(force=force_fn(state.position, **kwargs))
+    state = momentum_step(state, dt_2)
+
+    return state
+
+  return init_fn, step_fn
+
+
+@dataclasses.dataclass
+class BrownianState:
+  """A tuple containing state information for Brownian dynamics.
+
+  Attributes:
+    position: The current position of the particles. An ndarray of floats with
+      shape `[n, spatial_dimension]`.
+    mass: The mass of particles. Will either be a float or an ndarray of floats
+      with shape `[n]`.
+    rng: The current state of the random number generator.
+  """
+
+  position: Array
+  mass: Array
+  rng: Array
+
+
+def brownian(
+  energy_or_force: Callable[..., Array],
+  shift: ShiftFn,
+  dt: float,
+  kT: ArrayLike,
+  gamma: float = 0.1,
+) -> Simulator:
+  """Simulation of Brownian dynamics.
+
+  Simulates Brownian dynamics which are synonymous with the overdamped
+  regime of Langevin dynamics. However, in this case we don't need to take into
+  account velocity information and the dynamics simplify. Consequently, when
+  Brownian dynamics can be used they will be faster than Langevin. As in the
+  case of Langevin dynamics our implementation follows Carlon et al. [#carlon]_
+
+  Args:
+    energy_or_force: A function that produces either an energy or a force from
+      a set of particle positions specified as an ndarray of shape
+      `[n, spatial_dimension]`.
+    shift_fn: A function that displaces positions, `R`, by an amount `dR`.
+      Both `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
+    dt: Floating point number specifying the timescale (step size) of the
+      simulation.
+    kT: Floating point number specifying the temperature in units of Boltzmann
+      constant. To update the temperature dynamically during a simulation one
+      should pass `kT` as a keyword argument to the step function.
+    gamma: A float specifying the friction coefficient between the particles
+      and the solvent. The gamma here is the friction coeifficient divided by
+      the mass. For example, when the particles are 3 diemsional spheres
+      gamma = 6 pi eta R/mass. See quantity.gamma_from_stokes_law for detail.
+
+  Returns:
+    See above.
+  """
+
+  force_fn = quantity.canonicalize_force(energy_or_force)
+
+  def init_fn(key, R, mass=f32(1)):
+    state = BrownianState(R, mass, key)
+    return canonicalize_mass(state)
+
+  def apply_fn(state, **kwargs):
+    _dt = kwargs.pop('dt', dt)
+    _kT = kwargs.pop('kT', kT)
+    _gamma = kwargs.pop('gamma', gamma)
+
+    R, mass, key = dataclasses.astuple(state)
+
+    key, split = random.split(key)
+
+    F = force_fn(R, **kwargs)
+    xi = random.normal(split, R.shape, R.dtype)
+
+    nu = f32(1) / (mass * _gamma)
+
+    dR = F * _dt * nu + jnp.sqrt(f32(2) * _kT * _dt * nu) * xi
+    R = shift(R, dR, **kwargs)
+
+    return BrownianState(R, mass, key)  # pytype: disable=wrong-arg-count
+
+  return init_fn, apply_fn
+
+
 @dataclasses.dataclass
 class NPTCSVRState:
   """State information for the unconstrained-COM NPT CSVR integrator.
@@ -1354,228 +1576,6 @@ def npt_csvr(
     state = csvr_update(state, _kT)
     state = nph_step(state, _pressure, _kT, **kwargs)
     return csvr_update(state, _kT)
-
-  return init_fn, apply_fn
-
-
-"""Stochastic Simulations
-
-JAX MD includes integrators for stochastic simulations of Langevin dynamics and
-Brownian motion for systems in the NVT ensemble with a solvent.
-"""
-
-
-@dataclasses.dataclass
-class Normal:
-  """A simple normal distribution."""
-
-  mean: jnp.ndarray
-  var: jnp.ndarray | float
-
-  def sample(self, key):
-    mu, sigma = self.mean, jnp.sqrt(self.var)
-    return mu + sigma * random.normal(key, mu.shape, dtype=mu.dtype)
-
-  def log_prob(self, x):
-    return (
-      -0.5 * jnp.log(2 * jnp.pi * self.var)
-      - 1 / (2 * self.var) * (x - self.mean) ** 2
-    )
-
-
-@dataclasses.dataclass
-class NVTLangevinState:
-  """A struct containing state information for the Langevin thermostat.
-
-  Attributes:
-    position: The current position of the particles. An ndarray of floats with
-      shape `[n, spatial_dimension]`.
-    momentum: The momentum of particles. An ndarray of floats with shape
-      `[n, spatial_dimension]`.
-    force: The (non-stochastic) force on particles. An ndarray of floats with
-      shape `[n, spatial_dimension]`.
-    mass: The mass of particles. Will either be a float or an ndarray of floats
-      with shape `[n]`.
-    rng: The current state of the random number generator.
-  """
-
-  position: Array
-  momentum: Array
-  force: Array
-  mass: Array
-  rng: Array
-
-  @property
-  def velocity(self) -> Array:
-    return self.momentum / self.mass
-
-
-@dispatch_by_state
-def stochastic_step(
-  state: NVTLangevinState, dt: float, kT: ArrayLike, gamma: float
-):
-  """A single stochastic step (the `O` step)."""
-  c1 = jnp.exp(-gamma * dt)
-  c2 = jnp.sqrt(kT * (1 - c1**2))
-  momentum_dist = Normal(c1 * state.momentum, c2**2 * state.mass)
-  key, split = random.split(state.rng)
-  return state.set(momentum=momentum_dist.sample(split), rng=key)
-
-
-def nvt_langevin(
-  energy_or_force_fn: Callable[..., Array],
-  shift_fn: ShiftFn,
-  dt: float,
-  kT: ArrayLike | util.PyTree,
-  gamma: float | util.PyTree = 0.1,
-  center_velocity: bool = True,
-  **sim_kwargs,
-) -> Simulator:
-  """Simulation in the NVT ensemble using the BAOAB Langevin thermostat.
-
-  Samples from the canonical ensemble in which the number of particles (N),
-  the system volume (V), and the temperature (T) are held constant. Langevin
-  dynamics are stochastic and it is supposed that the system is interacting
-  with fictitious microscopic degrees of freedom. An example of this would be
-  large particles in a solvent such as water. Thus, Langevin dynamics are a
-  stochastic ODE described by a friction coefficient and noise of a given
-  covariance.
-
-  Our implementation follows the paper [#davidcheck] by Davidchack, Ouldridge,
-  and Tretyakov.
-
-  Args:
-    energy_or_force: A function that produces either an energy or a force from
-      a set of particle positions specified as an ndarray of shape
-      `[n, spatial_dimension]`.
-    shift_fn: A function that displaces positions, `R`, by an amount `dR`. Both
-      `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
-    dt: Floating point number specifying the timescale (step size) of the
-      simulation.
-    kT: Floating point number specifying the temperature in units of Boltzmann
-      constant. To update the temperature dynamically during a simulation one
-      should pass `kT` as a keyword argument to the step function.
-    gamma: A float specifying the friction coefficient between the particles
-      and the solvent.
-    center_velocity: A boolean specifying whether or not the center of mass
-      position should be subtracted.
-  Returns:
-    See above.
-
-  .. rubric:: References
-  .. [#carlon] R. L. Davidchack, T. E. Ouldridge, and M. V. Tretyakov.
-    "New Langevin and gradient thermostats for rigid body dynamics."
-    The Journal of Chemical Physics 142, 144114 (2015)
-  """
-  force_fn = quantity.canonicalize_force(energy_or_force_fn)
-
-  @jit
-  def init_fn(key, R, mass=f32(1.0), momenta=None, **kwargs):
-    _kT = kwargs.pop('kT', kT)
-    key, split = random.split(key)
-    force = force_fn(R, **kwargs)
-    state = NVTLangevinState(R, tree_map(jnp.zeros_like, R), force, mass, key)
-    state = canonicalize_mass(state)
-    if momenta is None:
-      state = initialize_momenta(state, split, _kT)
-    else:
-      state = canonicalize_momenta(state, momenta)
-    return state
-
-  @jit
-  def step_fn(state, **kwargs):
-    _dt = kwargs.pop('dt', dt)
-    _kT = kwargs.pop('kT', kT)
-    dt_2 = _dt / 2
-
-    state = momentum_step(state, dt_2)
-    state = position_step(state, shift_fn, dt_2, **kwargs)
-    state = stochastic_step(state, _dt, _kT, gamma)
-    state = position_step(state, shift_fn, dt_2, **kwargs)
-    state = state.set(force=force_fn(state.position, **kwargs))
-    state = momentum_step(state, dt_2)
-
-    return state
-
-  return init_fn, step_fn
-
-
-@dataclasses.dataclass
-class BrownianState:
-  """A tuple containing state information for Brownian dynamics.
-
-  Attributes:
-    position: The current position of the particles. An ndarray of floats with
-      shape `[n, spatial_dimension]`.
-    mass: The mass of particles. Will either be a float or an ndarray of floats
-      with shape `[n]`.
-    rng: The current state of the random number generator.
-  """
-
-  position: Array
-  mass: Array
-  rng: Array
-
-
-def brownian(
-  energy_or_force: Callable[..., Array],
-  shift: ShiftFn,
-  dt: float,
-  kT: ArrayLike,
-  gamma: float = 0.1,
-) -> Simulator:
-  """Simulation of Brownian dynamics.
-
-  Simulates Brownian dynamics which are synonymous with the overdamped
-  regime of Langevin dynamics. However, in this case we don't need to take into
-  account velocity information and the dynamics simplify. Consequently, when
-  Brownian dynamics can be used they will be faster than Langevin. As in the
-  case of Langevin dynamics our implementation follows Carlon et al. [#carlon]_
-
-  Args:
-    energy_or_force: A function that produces either an energy or a force from
-      a set of particle positions specified as an ndarray of shape
-      `[n, spatial_dimension]`.
-    shift_fn: A function that displaces positions, `R`, by an amount `dR`.
-      Both `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
-    dt: Floating point number specifying the timescale (step size) of the
-      simulation.
-    kT: Floating point number specifying the temperature in units of Boltzmann
-      constant. To update the temperature dynamically during a simulation one
-      should pass `kT` as a keyword argument to the step function.
-    gamma: A float specifying the friction coefficient between the particles
-      and the solvent. The gamma here is the friction coeifficient divided by
-      the mass. For example, when the particles are 3 diemsional spheres
-      gamma = 6 pi eta R/mass. See quantity.gamma_from_stokes_law for detail.
-
-  Returns:
-    See above.
-  """
-
-  force_fn = quantity.canonicalize_force(energy_or_force)
-
-  def init_fn(key, R, mass=f32(1)):
-    state = BrownianState(R, mass, key)
-    return canonicalize_mass(state)
-
-  def apply_fn(state, **kwargs):
-    _dt = kwargs.pop('dt', dt)
-    _kT = kwargs.pop('kT', kT)
-    _gamma = kwargs.pop('gamma', gamma)
-
-    R, mass, key = dataclasses.astuple(state)
-
-    key, split = random.split(key)
-
-    F = force_fn(R, **kwargs)
-    xi = random.normal(split, R.shape, R.dtype)
-
-    nu = f32(1) / (mass * _gamma)
-
-    dR = F * _dt * nu + jnp.sqrt(f32(2) * _kT * _dt * nu) * xi
-    R = shift(R, dR, **kwargs)
-
-    return BrownianState(R, mass, key)  # pytype: disable=wrong-arg-count
 
   return init_fn, apply_fn
 
