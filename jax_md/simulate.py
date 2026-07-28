@@ -1354,10 +1354,7 @@ def npt_csvr(
     "Isothermal-isobaric molecular dynamics using stochastic velocity
     rescaling," *J. Chem. Phys.* 130, 074101 (2009).
   """
-  dt = f32(dt)
   dt_2 = dt / 2
-  tau_p = f32(tau_p)
-  tau_t = f32(tau_t)
 
   def force_stress_fn(position, box, **kwargs):
     def U(position, eps):
@@ -1406,8 +1403,8 @@ def npt_csvr(
     if dim != 3:
       raise ValueError('npt_csvr currently supports only three dimensions.')
 
-    _kT = jnp.asarray(kwargs.pop('kT', kT), dtype=R.dtype)
-    _pressure = jnp.asarray(kwargs.pop('pressure', pressure), dtype=R.dtype)
+    _kT = kwargs.pop('kT', kT)
+    _pressure = kwargs.pop('pressure', pressure)
 
     if jnp.isscalar(box) or box.ndim == 0:
       # TODO(schsam): This is necessary because of JAX issue #5849.
@@ -1480,7 +1477,6 @@ def npt_csvr(
   def csvr_update(state, _kT):
     """Apply one exact CSVR half-step to particles and the piston."""
     next_key, normal_key, chi_square_key = random.split(state.rng, 3)
-    _kT = jnp.asarray(_kT, dtype=state.position.dtype)
     dof = state.position.size + 1
     kinetic = quantity.kinetic_energy(momentum=state.momentum, mass=state.mass)
     kinetic += state.box_momentum**2 / (2 * state.box_mass)
