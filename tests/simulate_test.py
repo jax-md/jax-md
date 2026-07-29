@@ -402,6 +402,173 @@ class SimulateTest(test_util.JAXMDTestCase):
   @parameterized.named_parameters(
     test_util.cases_from_list(
       {
+        'testcase_name': f'_dtype={dtype.__name__}',
+        'dtype': dtype,
+      }
+      for dtype in DTYPE
+    )
+  )
+  def test_npt_csvr(self, dtype):
+    particle_count = 64
+    box = dtype((particle_count / 0.7) ** (1 / 3))
+    grid = np.stack(
+      np.meshgrid(*[np.arange(4, dtype=dtype)] * 3, indexing='ij'), axis=-1
+    )
+    position = (grid.reshape(-1, 3) + dtype(0.5)) / dtype(4)
+    displacement, shift = space.periodic_general(box)
+    energy_fn = energy.lennard_jones_pair(
+      displacement,
+      sigma=dtype(1.0),
+      epsilon=dtype(1.0),
+      r_onset=dtype(1.8),
+      r_cutoff=dtype(2.0),
+    )
+    init_fn, apply_fn = simulate.npt_csvr(
+      energy_fn,
+      shift,
+      dt=dtype(2e-3),
+      pressure=dtype(0.4),
+      kT=dtype(1.0),
+      tau_p=dtype(1.0),
+      tau_t=dtype(0.1),
+    )
+    apply_fn = jit(apply_fn)
+    state = init_fn(random.PRNGKey(0), position, box=box)
+    initial_box = state.box
+    initial_conserved = state.conserved_quantity
+
+    def step_fn(i, state_and_conserved):
+      state, conserved = state_and_conserved
+      state = apply_fn(state)
+      return state, conserved.at[i].set(state.conserved_quantity)
+
+    conserved = np.zeros((SHORT_DYNAMICS_STEPS,), dtype=dtype)
+    state, conserved = lax.fori_loop(
+      0, SHORT_DYNAMICS_STEPS, step_fn, (state, conserved)
+    )
+
+    kinetic = quantity.kinetic_energy(momentum=state.momentum, mass=state.mass)
+    volume = quantity.volume(3, state.box)
+    pressure = (2 * kinetic - state.dUdV) / (3 * volume)
+    expected_pressure = quantity.pressure(
+      energy_fn, state.position, state.box, kinetic
+    )
+    expected_force = quantity.force(energy_fn)(state.position, box=state.box)
+    tol = 2e-4 if dtype is f32 else 1e-10
+
+    self.assertEqual(state.position.dtype, dtype)
+    self.assertEqual(state.box.dtype, dtype)
+    self.assertFalse(np.allclose(state.box, initial_box))
+    self.assertAllClose(
+      state.potential_energy,
+      energy_fn(state.position, box=state.box),
+      rtol=tol,
+      atol=tol,
+    )
+    self.assertAllClose(state.force, expected_force, rtol=tol, atol=tol)
+    self.assertAllClose(pressure, expected_pressure, rtol=tol, atol=tol)
+    self.assertAllClose(
+      conserved,
+      np.full_like(conserved, initial_conserved),
+      rtol=2e-4,
+      atol=2e-4,
+    )
+    for value in (
+      state.position,
+      state.momentum,
+      state.force,
+      state.potential_energy,
+      state.dUdV,
+      state.box,
+      pressure,
+    ):
+      self.assertTrue(np.all(np.isfinite(value)))
+
+  @parameterized.named_parameters(
+    test_util.cases_from_list(
+      {
+        'testcase_name': f'_dtype={dtype.__name__}',
+        'dtype': dtype,
+      }
+      for dtype in DTYPE
+    )
+  )
+  def test_npt_csvr_initialization(self, dtype):
+    particle_count = 8
+    position = (
+      np.stack(
+        np.meshgrid(*[np.arange(2, dtype=dtype)] * 3, indexing='ij'),
+        axis=-1,
+      ).reshape(-1, 3)
+      + dtype(0.5)
+    ) / dtype(2)
+    mass = np.arange(1, particle_count + 1, dtype=dtype)
+    momenta = np.arange(1, position.size + 1, dtype=dtype).reshape(
+      position.shape
+    ) / dtype(10)
+    temperature = dtype(1.2)
+    tau_p = dtype(0.7)
+    box_velocity = dtype(0.2)
+
+    for box in (dtype(5.0), np.eye(3, dtype=dtype) * dtype(5.0)):
+      displacement, shift = space.periodic_general(box)
+      energy_fn = energy.lennard_jones_pair(displacement)
+      init_fn, _ = simulate.npt_csvr(
+        energy_fn,
+        shift,
+        dt=dtype(1e-3),
+        pressure=dtype(0.4),
+        kT=temperature,
+        tau_p=tau_p,
+        tau_t=dtype(0.1),
+      )
+      state = init_fn(
+        random.PRNGKey(0),
+        position,
+        box=box,
+        mass=mass,
+        momenta=momenta,
+        box_velocity=box_velocity,
+      )
+      expected_box = np.eye(3, dtype=dtype) * box if np.ndim(box) == 0 else box
+      expected_box_mass = dtype(3 * particle_count) * temperature * tau_p**2
+
+      self.assertAllClose(state.momentum, momenta)
+      self.assertAllClose(state.velocity, momenta / mass[:, None])
+      self.assertAllClose(state.box, expected_box)
+      self.assertAllClose(state.box_mass, expected_box_mass)
+      self.assertAllClose(state.box_momentum, expected_box_mass * box_velocity)
+      self.assertFalse(np.allclose(np.sum(state.momentum, axis=0), 0))
+
+  @parameterized.named_parameters(
+    test_util.cases_from_list(
+      {
+        'testcase_name': f'_dtype={dtype.__name__}',
+        'dtype': dtype,
+      }
+      for dtype in DTYPE
+    )
+  )
+  def test_npt_csvr_requires_three_dimensions(self, dtype):
+    box = np.eye(2, dtype=dtype) * dtype(5.0)
+    _, shift = space.periodic_general(box)
+    energy_fn = lambda position, **kwargs: np.sum(position**2)
+    init_fn, _ = simulate.npt_csvr(
+      energy_fn,
+      shift,
+      dt=dtype(1e-3),
+      pressure=dtype(0.4),
+      kT=dtype(1.0),
+      tau_p=dtype(1.0),
+      tau_t=dtype(0.1),
+    )
+
+    with self.assertRaisesRegex(ValueError, 'only three dimensions'):
+      init_fn(random.PRNGKey(0), np.zeros((4, 2), dtype=dtype), box=box)
+
+  @parameterized.named_parameters(
+    test_util.cases_from_list(
+      {
         'testcase_name': f'dtype={dtype.__name__}',
         'dtype': dtype,
       }

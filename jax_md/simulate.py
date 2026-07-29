@@ -1349,6 +1349,11 @@ def npt_csvr(
   Returns:
     An ``(init_fn, apply_fn)`` pair.
 
+  .. warning::
+    This integrator couples a single global stochastic velocity rescaling to
+    the system plus piston. Hence, there can be scenarios with slow
+    equilibration.
+
   .. rubric:: References
   .. [#bzp2009] G. Bussi, T. Zykova-Timan, and M. Parrinello,
     "Isothermal-isobaric molecular dynamics using stochastic velocity
