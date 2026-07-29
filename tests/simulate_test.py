@@ -454,6 +454,13 @@ class SimulateTest(test_util.JAXMDTestCase):
       energy_fn, state.position, state.box, kinetic
     )
     expected_force = quantity.force(energy_fn)(state.position, box=state.box)
+    expected_energy = energy.lennard_jones_pair(
+      space.periodic_general(state.box)[0],
+      sigma=dtype(1.0),
+      epsilon=dtype(1.0),
+      r_onset=dtype(1.8),
+      r_cutoff=dtype(2.0),
+    )(state.position)
     tol = 2e-4 if dtype is f32 else 1e-10
 
     self.assertEqual(state.position.dtype, dtype)
@@ -461,7 +468,7 @@ class SimulateTest(test_util.JAXMDTestCase):
     self.assertFalse(np.allclose(state.box, initial_box))
     self.assertAllClose(
       state.potential_energy,
-      energy_fn(state.position, box=state.box),
+      expected_energy,
       rtol=tol,
       atol=tol,
     )
