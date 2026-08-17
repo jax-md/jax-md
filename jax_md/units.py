@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
 import jax.numpy as jnp
 from typing import Dict
 from jax_md import util
@@ -39,6 +40,29 @@ constants_CONDATA_2014 = {
   '_k': 1.38064852e-23,  # Boltzmann constant, J/K
   '_amu': 1.660539040e-27,
 }  # atomic mass unit, kg
+
+FINE_STRUCTURE_CONSTANT = float(
+  constants_CONDATA_2014['_mu0']
+  * constants_CONDATA_2014['_c']
+  * constants_CONDATA_2014['_e'] ** 2
+  / (2 * constants_CONDATA_2014['_hplanck'])
+)
+# Hartree energy in eV, CODATA 2018, matching the ported ML potentials.
+HARTREE_EV = 27.211386245988
+BOHR_ANGSTROM = float(
+  constants_CONDATA_2014['_hplanck']
+  / (
+    2
+    * math.pi
+    * constants_CONDATA_2014['_me']
+    * constants_CONDATA_2014['_c']
+    * FINE_STRUCTURE_CONSTANT
+  )
+  / 1e-10
+)
+# eV -> kJ/mol from the SI-exact CODATA 2018 elementary charge and Avogadro
+# constant, matching the value the ported ML potentials use.
+EV_TO_KJMOL = float(1.602176634e-19 * 6.02214076e23 / 1e3)
 
 
 def metal_unit_system(constants: Dict = constants_CONDATA_2014):
