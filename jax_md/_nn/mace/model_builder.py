@@ -4,6 +4,7 @@ from typing import Any
 
 import jax.numpy as jnp
 import numpy as np
+import numpy.typing
 from e3nn_jax import Irreps
 
 from flax import nnx
