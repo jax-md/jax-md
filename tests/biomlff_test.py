@@ -8,13 +8,18 @@ import jax
 import jax.numpy as jnp
 import numpy as onp
 
+from pathlib import Path
+
 from jax_md import energy, partition, space
 from jax_md.units import EV_TO_KJMOL
+from jax_md._nn import weights
 from jax_md._nn.aceff import load_model as load_aceff
 from jax_md._nn.aimnet2 import load_model as load_aimnet2
 from jax_md._nn.ani import load_model as load_ani
 from jax_md._nn.orb import load_model as load_orb
 from jax_md._nn.so3lr import load_model as load_so3lr
+
+NN_DIR = Path(weights.__file__).resolve().parent
 
 jax.config.parse_flags_with_absl()
 
@@ -239,8 +244,24 @@ MODELS = (
 )
 
 
+def checkpoints_present():
+  """Whether the pretrained weights are reachable, by LFS content or cache."""
+  for family in ('orb', 'aceff', 'ani', 'so3lr', 'aimnet2'):
+    for filename in weights.MODELS[family]:
+      try:
+        weights.resolve_checkpoint(NN_DIR / family / filename)
+      except FileNotFoundError:
+        return False
+  return True
+
+
 @absltest.skipUnless(
   X64, 'bio-mlff models run in float64; set JAX_ENABLE_X64=1'
+)
+@absltest.skipUnless(
+  checkpoints_present(),
+  'pretrained checkpoints are absent; fetch them with `git lfs pull` or '
+  '`python -m jax_md._nn.weights <family>`',
 )
 class EnergyWrapperTest(parameterized.TestCase):
   @parameterized.named_parameters(*MODELS)

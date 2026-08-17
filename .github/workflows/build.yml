@@ -41,6 +41,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ['3.10', '3.11', '3.12', '3.13']
         test-suite: ['elasticity', 'rigid_body', 'energy', 'simulate', 'nequip', 'reaxff', 'tpu', 'uma', 'biomlff', 'weights', 'custom_partition', 'custom_smap', 'minimize', 'nn', 'oplsaa', 'partition', 'quantity', 'smap', 'space', 'amber', 'amber_fe']
@@ -64,6 +65,7 @@ jobs:
         key: lfs-${{ hashFiles('jax_md/_nn/**/*.eqx') }}
     - name: Fetch LFS checkpoints
       if: matrix.test-suite == 'biomlff' || matrix.test-suite == 'weights'
+      continue-on-error: true
       run: git lfs pull
     - name: Install uv
       uses: astral-sh/setup-uv@v5
