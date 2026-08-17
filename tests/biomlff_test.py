@@ -76,7 +76,7 @@ def toluene():
 
 Model = namedtuple(
   'Model',
-  'wrapper load call_bare make_free toluene_reference_kjmol '
+  'wrapper load checkpoint call_bare make_free toluene_reference_kjmol '
   'toluene_forces_kjmol energy_rtol force_atol supports_sparse',
 )
 
@@ -84,6 +84,7 @@ Model = namedtuple(
 ORB = Model(
   wrapper=energy.orb_neighbor_list,
   load=load_orb,
+  checkpoint='orb/orb-v3-conservative-omol.eqx',
   call_bare=lambda net, pos, sp: net(pos, sp, jnp.zeros((1,)), jnp.zeros((1,))),
   make_free=lambda w, box, sp: w(space.free()[0], box, species=sp),
   toluene_reference_kjmol=-712903.5201361555,
@@ -114,6 +115,7 @@ ORB = Model(
 ACEFF = Model(
   wrapper=energy.aceff_neighbor_list,
   load=load_aceff,
+  checkpoint='aceff/aceff_v2.0.eqx',
   call_bare=lambda net, pos, sp: net(pos, sp),
   make_free=lambda w, box, sp: w(space.free()[0], box, species=sp),
   toluene_reference_kjmol=-362.46118331266337,
@@ -144,6 +146,7 @@ ACEFF = Model(
 ANI = Model(
   wrapper=energy.ani_neighbor_list,
   load=load_ani,
+  checkpoint='ani/ani2x_ensemble.eqx',
   call_bare=lambda net, pos, sp: net(pos, sp),
   make_free=lambda w, box, sp: w(space.free()[0], box, species=sp),
   # force gap is amplified by CELU near its kink.
@@ -175,6 +178,7 @@ ANI = Model(
 SO3LR = Model(
   wrapper=energy.so3lr_neighbor_list,
   load=load_so3lr,
+  checkpoint='so3lr/so3lr.eqx',
   call_bare=lambda net, pos, sp: net(pos, sp),
   make_free=lambda w, box, sp: w(space.free()[0], box, species=sp),
   toluene_reference_kjmol=-2528.822629129894,
@@ -208,6 +212,7 @@ SO3LR = Model(
 AIMNET2 = Model(
   wrapper=energy.aimnet2_neighbor_list,
   load=load_aimnet2,
+  checkpoint='aimnet2/aimnet2.eqx',
   call_bare=lambda net, pos, sp: net(pos, sp),
   make_free=lambda w, box, sp: w(box=box, species=sp, periodic=False),
   toluene_reference_kjmol=-713468.0030672933,
@@ -244,29 +249,21 @@ MODELS = (
 )
 
 
-def checkpoints_present():
-  """Whether the pretrained weights are reachable, by LFS content or cache."""
-  for family in ('orb', 'aceff', 'ani', 'so3lr', 'aimnet2'):
-    for filename in weights.MODELS[family]:
-      try:
-        weights.resolve_checkpoint(NN_DIR / family / filename)
-      except FileNotFoundError:
-        return False
-  return True
-
-
 @absltest.skipUnless(
   X64, 'bio-mlff models run in float64; set JAX_ENABLE_X64=1'
 )
-@absltest.skipUnless(
-  checkpoints_present(),
-  'pretrained checkpoints are absent; fetch them with `git lfs pull` or '
-  '`python -m jax_md._nn.weights <family>`',
-)
 class EnergyWrapperTest(parameterized.TestCase):
+  def require(self, model):
+    """Skip unless this model's checkpoint is reachable, by LFS or cache."""
+    try:
+      weights.resolve_checkpoint(NN_DIR / model.checkpoint)
+    except FileNotFoundError as absent:
+      self.skipTest(str(absent).splitlines()[0])
+
   @parameterized.named_parameters(*MODELS)
   def test_periodic_frames_agree(self, model):
     # An isolated molecule has the same energy in any box past the cutoff.
+    self.require(model)
     positions, species = water_molecule()
     ortho = jnp.eye(3, dtype=DTYPE) * 100.0
     triclinic = jnp.swapaxes(
@@ -287,6 +284,7 @@ class EnergyWrapperTest(parameterized.TestCase):
   @parameterized.named_parameters(*MODELS)
   def test_toluene_matches_reference(self, model):
     # jax-md energy in eV -> kJ/mol vs the reference implementation.
+    self.require(model)
     positions, species = toluene()
     box = jnp.eye(3, dtype=DTYPE) * 100.0
     neighbor_fn, energy_fn = model.make_free(model.wrapper, box, species)
@@ -301,6 +299,7 @@ class EnergyWrapperTest(parameterized.TestCase):
   @parameterized.named_parameters(*MODELS)
   def test_toluene_forces_match_reference(self, model):
     # jax-md forces in eV/A -> kJ/mol/A vs the reference implementation.
+    self.require(model)
     positions, species = toluene()
     box = jnp.eye(3, dtype=DTYPE) * 100.0
     neighbor_fn, energy_fn = model.make_free(model.wrapper, box, species)
@@ -318,6 +317,7 @@ class EnergyWrapperTest(parameterized.TestCase):
   @parameterized.named_parameters(*MODELS)
   def test_displacement_fn_drives_edges(self, model):
     # The third atom is a neighbor only via the periodic image.
+    self.require(model)
     positions = jnp.asarray(
       [[1.0, 1.0, 1.0], [2.0, 1.0, 1.0], [13.0, 1.0, 1.0]], DTYPE
     )
@@ -334,6 +334,7 @@ class EnergyWrapperTest(parameterized.TestCase):
 
   @parameterized.named_parameters(*MODELS)
   def test_sparse_format_matches_dense(self, model):
+    self.require(model)
     if not model.supports_sparse:
       self.skipTest('model uses a Dense neighbor list only')
     positions, species = water_molecule()
@@ -358,6 +359,7 @@ class EnergyWrapperTest(parameterized.TestCase):
 
   @parameterized.named_parameters(*MODELS)
   def test_default_displacement_fn_is_periodic(self, model):
+    self.require(model)
     positions, species = water_molecule()
     box = jnp.eye(3, dtype=DTYPE) * 100.0
 
@@ -373,6 +375,7 @@ class EnergyWrapperTest(parameterized.TestCase):
 
   @parameterized.named_parameters(*MODELS)
   def test_invalid_inputs_raise(self, model):
+    self.require(model)
     positions, species = water_molecule()
     box = jnp.eye(3, dtype=DTYPE) * 100.0
     disp, _ = space.periodic_general(box, fractional_coordinates=False)
@@ -389,6 +392,7 @@ class EnergyWrapperTest(parameterized.TestCase):
 
   def test_aimnet2_rejects_free_with_displacement(self):
     # Free space ignores a displacement_fn, so periodic=False rejects one.
+    self.require(AIMNET2)
     _, species = water_molecule()
     box = jnp.eye(3, dtype=DTYPE) * 100.0
     disp, _ = space.periodic_general(box, fractional_coordinates=False)
