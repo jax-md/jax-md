@@ -760,6 +760,18 @@ class NPTNoseHooverState:
     return (V / V_0) ** (1 / dim) * ref
 
 
+def sinhx_x(x: Array) -> Array:
+  """Taylor series for sinh(x) / x as x -> 0."""
+  return (
+    1
+    + x**2 / 6
+    + x**4 / 120
+    + x**6 / 5040
+    + x**8 / 362_880
+    + x**10 / 39_916_800
+  )
+
+
 def _npt_box_info(
   state: NPTNoseHooverState,
 ) -> Tuple[Array, Callable[[Array | float], Array]]:
@@ -905,17 +917,6 @@ def npt_nose_hoover(
     KE2 = util.high_precision_sum(momentum**2 / mass)
 
     return alpha * KE2 - dUdV - pressure * vol * dim
-
-  def sinhx_x(x):
-    """Taylor series for sinh(x) / x as x -> 0."""
-    return (
-      1
-      + x**2 / 6
-      + x**4 / 120
-      + x**6 / 5040
-      + x**8 / 362_880
-      + x**10 / 39_916_800
-    )
 
   def exp_iL1(box, R, V, V_b, **kwargs):
     x = V_b * dt
@@ -1467,17 +1468,6 @@ def npt_csvr(
       _kT,
     )
     return state.set(conserved_quantity=H)
-
-  def sinhx_x(x):
-    """Taylor series for sinh(x) / x as x -> 0."""
-    return (
-      1
-      + x**2 / 6
-      + x**4 / 120
-      + x**6 / 5040
-      + x**8 / 362_880
-      + x**10 / 39_916_800
-    )
 
   def csvr_update(state, _kT):
     """Apply one exact CSVR half-step to particles and the piston."""
