@@ -9,7 +9,6 @@ from typing import Any
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-import numpy as np
 from jax import Array
 from jax_md import partition
 from jax_md._nn import weights
@@ -17,7 +16,7 @@ from jax_md._nn import weights
 jax.config.update('jax_default_matmul_precision', 'highest')
 
 VIVACE_MODEL_PATHS = {
-  'vivace-v0.1': files('jax_md._nn.vivace') / 'vivace_v0.1.npz',
+  'vivace-v0.1': files('jax_md._nn.vivace') / 'vivace_v0.1.eqx',
 }
 
 
@@ -657,7 +656,7 @@ def load_model(
   model_path: str | PathLike | None = None,
   dtype=None,
 ) -> Vivace:
-  """Load a Vivace checkpoint exported to NumPy."""
+  """Load a Vivace checkpoint."""
   if model_path is not None:
     path = weights.resolve_checkpoint(model_path, allow_cache=False)
   else:
@@ -666,85 +665,15 @@ def load_model(
   if dtype is None:
     dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32
 
-  with np.load(path, allow_pickle=False) as checkpoint:
-    exported = json.loads(checkpoint['__config__'].item())
-    static = exported['static']
-    head_dim = round(float(static['attn_scale']) ** -2)
-    latent_dim = checkpoint['b0.query'].shape[0]
-    config = {
-      'num_species': checkpoint['embed'].shape[0],
-      'num_radial': checkpoint['rb_means'].shape[-1],
-      'num_invariant_features': checkpoint['embed'].shape[-1],
-      'num_equivariant_features': checkpoint['b0.lin'].shape[-1],
-      'num_hidden_features': checkpoint['node_mlp.0.w'].shape[0],
-      'num_attention_heads': latent_dim // head_dim,
-      'attention_head_dim': head_dim,
-      'num_short_range_powers': checkpoint['powers'].shape[0],
-      'radial_alpha': static['rb_alpha'],
-      'cutoff_clamp': static['main_clamp'],
-      'equivariant_clamp': static['equiv_clamp'],
-      'equivariant_cutoff': static['equiv_r_max'],
-      'tensor_product_dims': [
-        tuple(reversed(checkpoint[f'b{i}.cg'].shape[:2]))
-        for i in range(len(exported['blocks']))
-      ],
-      'attention_scale': static['attn_scale'],
-      'short_range_cutoff': static['short_r_max'],
-      'short_range_envelope_cutoff': static['cos_r_max'],
-      'cutoff': static['r_max'],
-    }
-    model = Vivace(config, dtype=dtype)
-
-    def assign(module, attribute, key):
-      current = getattr(module, attribute)
-      value = jnp.asarray(checkpoint[key], dtype=current.dtype)
-      if value.shape != current.shape:
-        raise ValueError(
-          f'Vivace checkpoint array {key!r} has shape {value.shape}; '
-          f'expected {current.shape}.'
-        )
-      object.__setattr__(module, attribute, value)
-
-    assign(model.embedding, 'atomic_embedding', 'embed')
-    assign(model.embedding.radial_basis, 'means', 'rb_means')
-    assign(model.embedding.radial_basis, 'betas', 'rb_betas')
-    assign(model.embedding.equivariant_radial_basis, 'means', 'rbq_means')
-    assign(model.embedding.equivariant_radial_basis, 'betas', 'rbq_betas')
-    assign(model.embedding.equivariant_radial_linear, 'weight', 'rbq_lin')
-    assign(model.embedding, 'spherical_irreps', 'sh_irrep')
-
-    for prefix, mlp in (
-      ('inv_mlp', model.embedding.invariant_mlp),
-      ('eq_mlp', model.embedding.equivariant_mlp),
-      ('node_mlp', model.energy_head.node_mlp),
-      ('edge_mlp', model.energy_head.edge_mlp),
-      ('short_mlp', model.short_range_repulsion.mlp),
-    ):
-      for i, layer in enumerate(mlp.layers):
-        assign(layer, 'weight', f'{prefix}.{i}.w')
-        if layer.bias is not None:
-          assign(layer, 'bias', f'{prefix}.{i}.b')
-
-    assign(model.energy_head, 'atomic_energies', 'e0s')
-    assign(model.short_range_repulsion, 'powers', 'powers')
-
-    for i, layer in enumerate(model.layers):
-      prefix = f'b{i}'
-      update = layer.equivariant_update
-      assign(update.query, 'weight', f'{prefix}.query')
-      assign(update.key, 'weight', f'{prefix}.key')
-      assign(update.value, 'weight', f'{prefix}.value')
-      assign(update.environment_out, 'weight', f'{prefix}.out')
-      assign(update, 'coefficients', f'{prefix}.cg')
-      assign(update, 'mixing_kernel', f'{prefix}.lin')
-
-      invariant = layer.invariant_update
-      assign(invariant.invariant_out, 'weight', f'{prefix}.out2')
-      for j, post_layer in enumerate(invariant.post_mlp.layers):
-        assign(post_layer, 'weight', f'{prefix}.post.{j}.w')
-      if isinstance(invariant, EdgeUpdate):
-        assign(invariant, 'scalar_selection', f'{prefix}.sel')
-        for j, filter_layer in enumerate(invariant.filter_mlp.layers):
-          assign(filter_layer, 'weight', f'{prefix}.filter.{j}.w')
-
-  return model
+  with path.open('rb') as handle:
+    config = json.loads(handle.readline().decode('utf-8'))
+    template = Vivace(config, dtype=jnp.float32)
+    model = eqx.tree_deserialise_leaves(handle, template)
+    return jax.tree_util.tree_map(
+      lambda x: (
+        x.astype(dtype)
+        if eqx.is_array(x) and jnp.issubdtype(x.dtype, jnp.floating)
+        else x
+      ),
+      model,
+    )
