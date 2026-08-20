@@ -10,6 +10,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 from jax import Array
+from jax.ops import segment_sum
 from jax_md import partition
 from jax_md._nn import weights
 
@@ -225,10 +226,10 @@ class InitialEmbedding(eqx.Module):
         :, self.spherical_irreps
       ]
     )
-    node_equivariant = (
-      jnp.zeros((num_atoms, 9, num_channels), dtype=edge_equivariant.dtype)
-      .at[receivers]
-      .add(edge_equivariant)
+    node_equivariant = segment_sum(
+      edge_equivariant,
+      receivers,
+      num_segments=num_atoms,
     )
     return (
       lengths,
@@ -308,10 +309,10 @@ class EquivariantUpdate(eqx.Module):
       harmonics[:, :, None]
       * (environment_weights.reshape(-1, 3, num_channels)[:, spherical_irreps])
     )
-    environment = (
-      jnp.zeros((num_atoms, 9, num_channels), dtype=edge_equivariant.dtype)
-      .at[receivers]
-      .add(edge_equivariant)
+    environment = segment_sum(
+      edge_equivariant,
+      receivers,
+      num_segments=num_atoms,
     )
     new_equivariant = jnp.einsum(
       'aic,ajc,kij->akc', node_equivariant, environment, self.coefficients
@@ -356,7 +357,6 @@ class EdgeUpdate(eqx.Module):
 
   def __call__(
     self,
-    node_invariant,
     edge_invariant,
     node_equivariant,
     receivers,
@@ -375,9 +375,7 @@ class EdgeUpdate(eqx.Module):
     update = edge_invariant + equivariant_envelope[:, None] * self.post_mlp(
       edge_invariant + delta
     )
-    return node_invariant, jnp.where(
-      equivariant_mask[:, None], update, edge_invariant
-    )
+    return jnp.where(equivariant_mask[:, None], update, edge_invariant)
 
 
 class NodeUpdate(eqx.Module):
@@ -405,19 +403,13 @@ class NodeUpdate(eqx.Module):
   def __call__(
     self,
     node_invariant,
-    edge_invariant,
     node_equivariant,
-    receivers,
-    equivariant_envelope,
-    equivariant_mask,
-    harmonics,
-    equivariant_embedding,
   ):
     scalars = self.invariant_out(node_equivariant[:, 0, :])
     mean = jnp.mean(scalars, axis=-1, keepdims=True)
     variance = jnp.var(scalars, axis=-1, keepdims=True)
     scalars = (scalars - mean) / jnp.sqrt(variance + 1.0e-5)
-    return node_invariant + self.post_mlp(scalars), edge_invariant
+    return node_invariant + self.post_mlp(scalars)
 
 
 class VivaceLayer(eqx.Module):
@@ -468,16 +460,21 @@ class VivaceLayer(eqx.Module):
       spherical_irreps,
       attention_scale,
     )
-    node_invariant, edge_invariant = self.invariant_update(
-      node_invariant,
-      edge_invariant,
-      node_equivariant,
-      receivers,
-      equivariant_envelope,
-      equivariant_mask,
-      harmonics,
-      equivariant_embedding,
-    )
+    if isinstance(self.invariant_update, NodeUpdate):
+      node_invariant = self.invariant_update(
+        node_invariant,
+        node_equivariant,
+      )
+    else:
+      edge_invariant = self.invariant_update(
+        edge_invariant,
+        node_equivariant,
+        receivers,
+        equivariant_envelope,
+        equivariant_mask,
+        harmonics,
+        equivariant_embedding,
+      )
     return node_invariant, edge_invariant, node_equivariant
 
 
@@ -519,11 +516,7 @@ class ShortRangeRepulsion(eqx.Module):
       weights * safe_distance[:, None] ** -self.powers, axis=-1
     )
     repulsion = repulsion * clamp * short_mask
-    return (
-      jnp.zeros((num_atoms,), dtype=repulsion.dtype)
-      .at[receivers]
-      .add(repulsion)
-    )
+    return segment_sum(repulsion, receivers, num_segments=num_atoms)
 
 
 class EnergyHead(eqx.Module):
@@ -555,7 +548,9 @@ class EnergyHead(eqx.Module):
       self.atomic_energies[species] + self.node_mlp(node_invariant)[:, 0]
     )
     edge_energy = self.edge_mlp(edge_invariant * envelope[:, None])[:, 0]
-    return node_energy.at[receivers].add(edge_energy)
+    return node_energy + segment_sum(
+      edge_energy, receivers, num_segments=node_energy.shape[0]
+    )
 
 
 class Vivace(eqx.Module):
