@@ -2736,6 +2736,71 @@ def ani_neighbor_list(
   return neighbor_fn, energy_fn
 
 
+def vivace_neighbor_list(
+  displacement_fn=None,
+  box=None,
+  species=None,
+  model: str = 'vivace-v0.1',
+  model_path=None,
+  dr_threshold: float = 0.0,
+  capacity_multiplier: float = 1.25,
+  disable_cell_list: bool = False,
+  neighbor_list_fn: Callable = partition.neighbor_list,
+  **nl_kwargs,
+):
+  """Convenience wrapper to compute Vivace energy using a neighbor list.
+
+  Args:
+    displacement_fn: Displacement function from `jax_md.space`. Defaults to
+      `space.periodic_general(box)`; pass `space.free()[0]` for free space.
+    box: Box matrix with columns as lattice vectors, shape (dim, dim).
+    species: Atomic numbers, shape (num_atoms,). May be overridden per call.
+    model: Pretrained checkpoint name passed to `vivace.load_model`.
+    model_path: Optional path to a local checkpoint, overriding `model`.
+    dr_threshold: Skin distance added to the cutoff.
+    capacity_multiplier: Multiplier used to size the neighbor list buffer.
+    disable_cell_list: If True, search all atom pairs.
+    neighbor_list_fn: Neighbor list constructor.
+    **nl_kwargs: Extra neighbor list kwargs, e.g. `format`. Dense and Sparse
+      formats are supported; OrderedSparse is not a full neighbor list.
+
+  Returns:
+    A neighbor_fn and energy_fn pair. The energy is in eV.
+  """
+  from jax_md._nn import vivace
+
+  if box is None:
+    raise ValueError('vivace_neighbor_list requires a box.')
+  if displacement_fn is None:
+    displacement_fn, _ = space.periodic_general(
+      box, fractional_coordinates=False
+    )
+
+  net = vivace.load_model(model, model_path=model_path)
+  neighbor_fn = neighbor_list_fn(
+    displacement_fn,
+    box,
+    float(net.cutoff),
+    dr_threshold=dr_threshold,
+    capacity_multiplier=capacity_multiplier,
+    disable_cell_list=disable_cell_list,
+    **nl_kwargs,
+  )
+
+  def energy_fn(position, neighbor, species=species, **kwargs):
+    if species is None:
+      raise ValueError('Vivace requires per-atom species.')
+    return net(
+      position,
+      species,
+      displacement_fn=displacement_fn,
+      neighbors=neighbor,
+      **kwargs,
+    )
+
+  return neighbor_fn, energy_fn
+
+
 def so3lr_neighbor_list(
   displacement_fn=None,
   box=None,
