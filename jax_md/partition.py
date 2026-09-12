@@ -1274,3 +1274,55 @@ def to_dense(neighbor: NeighborList) -> Array:
 Dense = NeighborListFormat.Dense
 Sparse = NeighborListFormat.Sparse
 OrderedSparse = NeighborListFormat.OrderedSparse
+
+
+@dataclasses.dataclass
+class PairedNeighborList:
+  """Two neighbor lists at different cutoffs behind one NeighborList API."""
+
+  short: NeighborList
+  long_range: NeighborList
+
+  def update(self, position, **kwargs):
+    return PairedNeighborList(
+      self.short.update(position, **kwargs),
+      self.long_range.update(position, **kwargs),
+    )
+
+  @property
+  def did_buffer_overflow(self):
+    return self.short.did_buffer_overflow | self.long_range.did_buffer_overflow
+
+
+def paired_neighbor_list(
+  displacement_fn,
+  box,
+  short_cutoff: float,
+  long_range_cutoff: float,
+  *,
+  neighbor_list_fn: Callable = neighbor_list,
+  **nl_kwargs,
+) -> NeighborListFns:
+  """Allocate short- and long-range lists together as one neighbor_fn.
+
+  For models with two cutoffs. ``allocate``/``update`` return a
+  ``PairedNeighborList`` whose ``short`` and ``long_range`` fields are ordinary
+  neighbor lists, so it plugs into ``simulate`` like a single list.
+  """
+  short_fn = neighbor_list_fn(
+    displacement_fn, box, float(short_cutoff), **nl_kwargs
+  )
+  long_range_fn = neighbor_list_fn(
+    displacement_fn, box, float(long_range_cutoff), **nl_kwargs
+  )
+
+  def allocate(position, **kwargs):
+    return PairedNeighborList(
+      short_fn.allocate(position, **kwargs),
+      long_range_fn.allocate(position, **kwargs),
+    )
+
+  def update(position, paired, **kwargs):
+    return paired.update(position, **kwargs)
+
+  return NeighborListFns(allocate, update)

@@ -14,6 +14,7 @@ Stochastic Simulation Environments
 --------------------------------------
 .. autofunction:: nvt_langevin
 .. autofunction:: brownian
+.. autofunction:: npt_csvr
 .. autofunction:: hybrid_swap_mc
 
 Helper Functions
@@ -21,6 +22,7 @@ Helper Functions
 .. autofunction:: velocity_verlet
 .. autofunction:: nose_hoover_chain
 .. autofunction:: npt_box
+.. autofunction:: sinhx_x
 
 Testing Functions
 ------------------
@@ -35,3 +37,4 @@ Data Types
 .. autoclass:: NPTNoseHooverState
 .. autoclass:: NVTLangevinState
 .. autoclass:: BrownianState
+.. autoclass:: NPTCSVRState

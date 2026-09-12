@@ -38,13 +38,17 @@ classifiers = [
 dependencies = [
     "absl-py",
     "numpy",
-    "jax>=0.5.0",
-    "jaxlib>=0.5.0",
+    # Exclude 0.10.2: https://github.com/jax-ml/jax/issues/39103
+    # Exclude 0.11.1: it drops jax.experimental.hijax.MutableHiType, which
+    # flax 0.12.8 imports at module scope.
+    "jax>=0.5.0,!=0.10.2,!=0.11.1",
+    "jaxlib>=0.5.0,!=0.10.2,!=0.11.1",
     "flax",
     "jraph",
     "einops",
     "ml_collections",
     "e3nn-jax",
+    "equinox",
     "optax",
     "frozendict",
     "pymatgen>=2021.3.4",
@@ -90,7 +94,7 @@ uma = [
     "huggingface_hub",        # Downloading pretrained models
 ]
 lint = [
-    "ruff",
+    "ruff==0.15.7",
     "ty==0.0.46",
 ]
 dev = [
@@ -116,6 +120,7 @@ packages = ["jax_md"]
 exclude = [
     "jax_md/_nn/uma/Jd.pt",
     "jax_md/_nn/uma/checkpoints/*.json",
+    "jax_md/_nn/**/*.eqx",
 ]
 
 [tool.hatch.build.targets.wheel.shared-data]
@@ -129,6 +134,7 @@ exclude = [
 exclude = [
     "jax_md/_nn/uma/Jd.pt",
     "jax_md/_nn/uma/checkpoints/*.json",
+    "jax_md/_nn/**/*.eqx",
 ]
 
 [tool.hatch.build.targets.sdist.force-include]
@@ -148,6 +154,7 @@ exclude_lines = [
 testpaths = ["tests"]
 
 [tool.uv]
+constraint-dependencies = ["pymatgen-core!=2026.7.24"]
 conflicts = [
     [
         { group = "dev" },

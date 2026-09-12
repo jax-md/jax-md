@@ -749,6 +749,7 @@ def convert_openmm_system(
         force.getUseDispersionCorrection()
         and nb_method != openmm.NonbondedForce.NoCutoff
       ):
+        assert r_cut is not None
         disp_coefs = np.stack([sigma_arr, epsilon_arr], axis=1)
         values, count = np.unique(disp_coefs, axis=0, return_counts=True)
         sigma2 = values[:, 0] * values[:, 0]
@@ -820,8 +821,8 @@ def convert_openmm_system(
           * n_atoms
           * np.pi
           * (
-            sum1 / (9 * np.power(r_cut, 9))  # ty: ignore[no-matching-overload]
-            - sum2 / (3 * np.power(r_cut, 3))  # ty: ignore[no-matching-overload]
+            sum1 / (9 * np.power(r_cut, 9))
+            - sum2 / (3 * np.power(r_cut, 3))
             + sum3
           )
         )

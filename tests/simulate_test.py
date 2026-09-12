@@ -434,6 +434,7 @@ class SimulateTest(test_util.JAXMDTestCase):
     )
     apply_fn = jit(apply_fn)
     state = init_fn(random.PRNGKey(0), position, box=box)
+    self.assertFalse(np.allclose(np.sum(state.momentum, axis=0), 0))
     initial_box = state.box
     initial_conserved = state.conserved_quantity
 
