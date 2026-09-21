@@ -15,6 +15,7 @@ Stochastic Simulation Environments
 .. autofunction:: nvt_langevin
 .. autofunction:: brownian
 .. autofunction:: npt_csvr
+.. autofunction:: npt_langevin
 .. autofunction:: hybrid_swap_mc
 
 Helper Functions
@@ -38,3 +39,4 @@ Data Types
 .. autoclass:: NVTLangevinState
 .. autoclass:: BrownianState
 .. autoclass:: NPTCSVRState
+.. autoclass:: NPTLangevinState

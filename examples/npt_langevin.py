@@ -1,4 +1,4 @@
-"""Run a small Lennard-Jones liquid at two NPT state points using CSVR."""
+"""Run a small Lennard-Jones liquid at two NPT Langevin state points."""
 
 import os
 
@@ -29,14 +29,14 @@ energy_fn = energy.lennard_jones_pair(
 )
 
 for index, (temperature, pressure) in enumerate(STATE_POINTS):
-  init_fn, apply_fn = simulate.npt_csvr(
+  init_fn, apply_fn = simulate.npt_langevin(
     energy_fn,
     shift,
     dt=0.002,
     pressure=pressure,
     kT=temperature,
     tau_p=1.0,
-    tau_t=0.1,
+    gamma=5.0,
   )
   state = init_fn(random.PRNGKey(index), position, box=box, mass=1.0)
 
