@@ -311,7 +311,7 @@ def is_integer(x: Array) -> bool:
   return x.dtype == jnp.int32 or x.dtype == jnp.int64
 
 
-def average_pair_correlation_results(gofr, species=None):
+def average_pair_correlation_results(gofr, species=None, n_species=None):
   """Calculate species-based averages of pair correlations.
 
   Average the results of pair_correlation or pair_correlation_neighbor_list,
@@ -339,10 +339,36 @@ def average_pair_correlation_results(gofr, species=None):
   """
   if species is None:
     return jnp.mean(gofr, axis=0)
-  species_types = jnp.unique(species)  # note: this returns in sorted order
+
+  if n_species is None:
+    # Note: this returns unique species in sorted order
+    species_types = jnp.unique(species)
+    return jnp.array(
+      [
+        [jnp.mean(gofr[si][species == s], axis=0) for s in species_types]
+        for si in range(species_types.size)
+      ]
+    )
+
+  # Size must be specified in order to be jit compatible
+  # Note: this returns unique species in sorted order
+  species_types = jnp.unique(species, size=n_species)
+
+  # Same logic as above but statically sized for n_species unique species
   return jnp.array(
     [
-      [jnp.mean(gofr[si][species == s], axis=0) for s in species_types]
+      [
+        jnp.sum(
+          jnp.where(
+            (species == s).repeat(gofr[si].shape[1]).reshape((gofr[si].shape)),
+            gofr[si],
+            0,
+          ),
+          axis=0,
+        )
+        / jnp.count_nonzero(species == s)
+        for s in species_types
+      ]
       for si in range(species_types.size)
     ]
   )
@@ -374,9 +400,12 @@ def pair_correlation(
       A function that computes the displacement or distance between two points.
     radii: An array of radii at which we would like to compute :math:`g(r)`.
     sigima: A float specifying the width of the approximating Gaussian.
-    species: An optional array specifying the species of each particle. If
-      species is None then we compute a single :math:`g(r)` for all particles,
-      otherwise we compute one :math:`g(r)` for each species.
+    species: An array specifying the species of each particle or an
+      integer specifying the number of unique species. If species is None
+      then we compute a single :math:`g(r)` for all particles; if species is
+      an array we compute one :math:`g(r)` for each species; and if species
+      is an integer, an integer `species` ndarray of shape `[n]` is supplied
+      dynamically as an argument to `g_fn`.
     eps: A small additive constant used to ensure stability if the radius is
       zero.
 
@@ -417,9 +446,8 @@ def pair_correlation(
       if compute_average:
         g_R = average_pair_correlation_results(g_R, species)
       return g_R
-  else:
-    if not (isinstance(species, jnp.ndarray) and is_integer(species)):
-      raise TypeError('Malformed species; expecting array of integers.')
+
+  elif util.is_array(species):
     species_types = jnp.unique(species)
 
     def g_fn(R):
@@ -431,8 +459,31 @@ def pair_correlation(
         mask_s = mask[:, species == s, jnp.newaxis]
         g_R += [jnp.sum(mask_s * pairwise(d(Rs, R), dim), axis=(1,))]
       if compute_average:
-        g_R = average_pair_correlation_results(g_R, species)
+        g_R = average_pair_correlation_results(
+          g_R, species, n_species=species_types
+        )
       return g_R
+
+  elif is_integer(species):
+    species_types = species
+
+    def g_fn(R, species):
+      dim = R.shape[-1]
+      g_R = []
+      mask = 1 - jnp.eye(R.shape[0], dtype=R.dtype)
+      for s in species_types:
+        Rs = R[species == s]
+        mask_s = mask[:, species == s, jnp.newaxis]
+        g_R += [jnp.sum(mask_s * pairwise(d(Rs, R), dim), axis=(1,))]
+      if compute_average:
+        g_R = average_pair_correlation_results(
+          g_R, species, n_species=species_types
+        )
+      return g_R
+
+  else:
+    if not (isinstance(species, jnp.ndarray) and is_integer(species)):
+      raise TypeError('Malformed species; expecting array of integers.')
 
   return g_fn
 
@@ -470,9 +521,12 @@ def pair_correlation_neighbor_list(
     box_size: The size of the box containing the particles.
     radii: An array of radii at which we would like to compute :math:`g(r)`.
     sigima: A float specifying the width of the approximating Gaussian.
-    species: An optional array specifying the species of each particle. If
-      species is None then we compute a single :math:`g(r)` for all particles,
-      otherwise we compute one :math:`g(r)` for each species.
+    species: An array specifying the species of each particle or an
+      integer specifying the number of unique species. If species is None
+      then we compute a single :math:`g(r)` for all particles; if species is
+      an array we compute one :math:`g(r)` for each species; and if species
+      is an integer, an integer `species` ndarray of shape `[n]` is supplied
+      dynamically as an argument to `g_fn`.
     dr_threshold: A float specifying the halo size of the neighbor list.
     eps: A small additive constant used to ensure stability if the radius is
       zero.
@@ -543,9 +597,7 @@ def pair_correlation_neighbor_list(
           'OrderedSparse neighbor lists.'
         )
 
-  else:
-    if not (isinstance(species, jnp.ndarray) and is_integer(species)):
-      raise TypeError('Malformed species; expecting array of integers.')
+  elif util.is_array(species):
     species_types = jnp.unique(species)
 
     def g_fn(R, neighbor):
@@ -581,10 +633,57 @@ def pair_correlation_neighbor_list(
           'Pair correlation function does not support '
           'OrderedSparse neighbor lists.'
         )
-
       if compute_average:
-        g_R = average_pair_correlation_results(g_R, species)
+        g_R = average_pair_correlation_results(
+          g_R, species, n_species=species_types
+        )
       return g_R
+
+  elif is_integer(species):
+    species_types = species
+
+    def g_fn(R, neighbor, species):
+      N, dim = R.shape
+      g_R = []
+      mask = partition.neighbor_list_mask(neighbor)
+      if neighbor.format is partition.Dense:
+        neighbor_species = species[neighbor.idx]
+        R_neigh = R[neighbor.idx]
+        d = space.map_neighbor(metric)
+        _pairwise = vmap(vmap(pairwise, (0, None)), (0, None))
+        for s in species_types:
+          mask_s = mask * (neighbor_species == s)
+          g_R += [
+            jnp.sum(
+              mask_s[:, :, jnp.newaxis] * _pairwise(d(R, R_neigh), dim),
+              axis=(1,),
+            )
+          ]
+      elif neighbor.format is partition.Sparse:
+        neighbor_species = species[neighbor.idx[1]]
+        dr = space.map_bond(metric)(R[neighbor.idx[0]], R[neighbor.idx[1]])
+        _pairwise = vmap(pairwise, (0, None))
+        for s in species_types:
+          mask_s = mask * (neighbor_species == s)
+          g_R += [
+            ops.segment_sum(
+              mask_s[:, None] * _pairwise(dr, dim), neighbor.idx[0], N
+            )
+          ]
+      else:
+        raise NotImplementedError(
+          'Pair correlation function does not support '
+          'OrderedSparse neighbor lists.'
+        )
+      if compute_average:
+        g_R = average_pair_correlation_results(
+          g_R, species, n_species=species_types
+        )
+      return g_R
+
+  else:
+    if not (isinstance(species, jnp.ndarray) and is_integer(species)):
+      raise TypeError('Malformed species; expecting array of integers.')
 
   return neighbor_fn, g_fn
 
