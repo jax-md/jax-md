@@ -1245,6 +1245,100 @@ as the more polished environments above.
 
 
 @dataclasses.dataclass
+class MCState:
+  """A struct containing state information about a Hybrid Swap MC simulation.
+
+  Attributes:
+    species: An array of shape `[n,]` of particle species.
+    key: A JAX PRGNKey used for random number generation.
+    neighbor: A NeighborList for the system.
+  """
+
+  position: Array
+  species: Array
+  key: Array
+
+
+def swap_mc(
+  energy_fn: Callable[[Array, Array], Array],
+  kT: float,
+) -> Simulator:
+  """Simulation of basic species swap Monte-Carlo.
+
+  Note that this code doesn't feature some of the convenience functions in the
+  other simulations. In particular, there is no support for dynamics keyword
+  arguments and the energy function must be a simple callable of two variables:
+  the distance between adjacent particles and the diameter of the particles.
+  If you want support for a better notion of potential or dynamic keyword
+  arguments, please file an issue!
+
+  Args:
+    energy_fn: A function that computes the energy between one pair of
+      particles as a function of the distance between the particles and the
+      diameter. This function should not have been passed to `smap.xxx`.
+    kT: The temperature of heat bath that the system is coupled to during MD.
+
+  Returns:
+    See above.
+  """
+
+  def init_fn(key, position, species):
+    return MCState(position, species, key)
+
+  if isinstance(kT, Array):
+
+    def apply_fn(state, kT, **kwargs):
+      R, species, key = dataclasses.unpack(state)
+
+      N = R.shape[0]
+
+      # Swap a random pair of particle species.
+      key, particle_key, accept_key = random.split(key, num=3)
+      ij = random.randint(particle_key, (2,), jnp.array(0), jnp.array(N))
+      new_species = species.at[ij].set(species[ij[::-1]])
+
+      # Compute the energy before the swap.
+      orig_energy = energy_fn(R, species=species, **kwargs)
+
+      # Compute the energy after the swap.
+      new_energy = energy_fn(R, species=new_species, **kwargs)
+
+      # Accept or reject with a metropolis probability.
+      p = random.uniform(accept_key, ())
+      accept_prob = jnp.minimum(1, jnp.exp(-(new_energy - orig_energy) / kT))
+      species = jnp.where(p < accept_prob, new_species, species)
+
+      return MCState(R, species, key)
+
+  elif isinstance(kT, float):
+
+    def apply_fn(state, **kwargs):
+      R, species, key = dataclasses.unpack(state)
+
+      N = R.shape[0]
+
+      # Swap a random pair of particle species.
+      key, particle_key, accept_key = random.split(key, num=3)
+      ij = random.randint(particle_key, (2,), jnp.array(0), jnp.array(N))
+      new_species = species.at[ij].set(species[ij[::-1]])
+
+      # Compute the energy before the swap.
+      orig_energy = energy_fn(R, species=species, **kwargs)
+
+      # Compute the energy after the swap.
+      new_energy = energy_fn(R, species=new_species, **kwargs)
+
+      # Accept or reject with a metropolis probability.
+      p = random.uniform(accept_key, ())
+      accept_prob = jnp.minimum(1, jnp.exp(-(new_energy - orig_energy) / kT))
+      species = jnp.where(p < accept_prob, new_species, species)
+
+      return MCState(R, species, key)
+
+  return init_fn, apply_fn
+
+
+@dataclasses.dataclass
 class SwapMCState:
   """A struct containing state information about a Hybrid Swap MC simulation.
 
