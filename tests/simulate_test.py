@@ -303,6 +303,36 @@ class SimulateTest(test_util.JAXMDTestCase):
       self.assertAllClose(invariant(state, T), initial, rtol=tol)
       self.assertEqual(state.position.dtype, dtype)
 
+  def test_nvt_nose_hoover_single_thermostat(self):
+    # chain_length=1 must reduce to the original Nose-Hoover thermostat and
+    # conserve the extended Hamiltonian as well as longer chains do.
+    if not util.x64_enabled():
+      self.skipTest('Needs float64 to resolve the invariant drift.')
+
+    key = random.PRNGKey(0)
+    N = 64
+    box_size = quantity.box_size_at_number_density(N, f32(1.2), 2)
+    displacement_fn, shift_fn = space.periodic(box_size)
+
+    bonds_i = np.arange(N)
+    bonds = np.stack([bonds_i, np.roll(bonds_i, 1)])
+    E = energy.simple_spring_bond(displacement_fn, bonds)
+    invariant = partial(simulate.nvt_nose_hoover_invariant, E)
+
+    pos_key, vel_key = random.split(key)
+    R = box_size * random.uniform(pos_key, (N, 2), dtype=f64)
+    kT = f64(0.8)
+    init_fn, apply_fn = simulate.nvt_nose_hoover(
+      E, shift_fn, 1e-3, kT, chain_length=1
+    )
+    apply_fn = jit(apply_fn)
+
+    state = init_fn(vel_key, R, mass=f64(1.0))
+    initial = invariant(state, kT)
+    state = lax.fori_loop(0, DYNAMICS_STEPS, lambda i, s: apply_fn(s), state)
+
+    self.assertAllClose(invariant(state, kT), initial, rtol=1e-6)
+
   @parameterized.named_parameters(
     test_util.cases_from_list(
       {
