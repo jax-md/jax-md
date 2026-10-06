@@ -1108,6 +1108,42 @@ class SimulateTest(test_util.JAXMDTestCase):
       assert np.abs(T_emp - T) < 0.1
       assert state.position.dtype == dtype
 
+  @parameterized.product(
+    thermostat=['temp_csvr', 'temp_berendsen', 'temp_rescale'],
+    fixed=[False, True],
+    forces=[False, True],
+    dtype=DTYPE,
+  )
+  def test_temp_zero_kinetic_energy(self, thermostat, fixed, forces, dtype):
+    """JIT skips zero-energy rescaling but still allows forces to create motion."""
+    R = np.array([[0.0, 0.0], [1.0, 0.0]], dtype=dtype)
+    mass = np.array([1.0, 2.0], dtype=dtype)
+    E = lambda R, **kwargs: forces * np.sum((R - np.mean(R, axis=0)) ** 2)
+    kwargs = (
+      {'window': 0.1, 'fraction': 0.5}
+      if thermostat == 'temp_rescale'
+      else {'tau': 0.1}
+    )
+    init, step = getattr(simulate, thermostat)(
+      E, space.free()[1], 0.01, 1.0, fix_center_of_mass=fixed, **kwargs
+    )
+    momenta = mass[:, None] * np.ones_like(R) if fixed else np.zeros_like(R)
+    state = init(random.PRNGKey(0), R, mass=mass, momenta=momenta)
+    self.assertEqual(simulate.kinetic_energy(state), 0)
+    after = jit(step)(state)
+    self.assertTrue(np.all(np.isfinite(after.momentum)))
+    if thermostat == 'temp_csvr':
+      self.assertAllClose(after.rng, state.rng, atol=0, rtol=0)
+    if forces:
+      self.assertGreater(simulate.kinetic_energy(after), 0)
+      resumed = jit(step)(after)
+      self.assertTrue(np.all(np.isfinite(resumed.momentum)))
+      if thermostat == 'temp_csvr':
+        self.assertFalse(np.array_equal(resumed.rng, after.rng))
+    else:
+      self.assertAllClose(after.momentum, state.momentum, atol=0, rtol=0)
+      self.assertAllClose(after.position, state.position, atol=0, rtol=0)
+
   @parameterized.product(shape=[(1, 1), (3, 2), (3, 3)], dtype=DTYPE)
   def test_temp_csvr_one_step_distribution(self, shape, dtype):
     """Independent CSVR noise must give the exact one-step kinetic moments."""

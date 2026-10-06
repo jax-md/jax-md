@@ -24,7 +24,6 @@ import numpy as np
 from jax_md import (
   energy,
   quantity,
-  rigid_body,
   simulate,
   space,
   test_util,
@@ -58,7 +57,8 @@ class CenterOfMassTest(test_util.JAXMDTestCase):
   )
   def test_wrapped_neighbor_list(self, integrator):
     """A close pair across the periodic boundary must survive COM initialization."""
-    fractional = integrator.startswith('npt')
+    npt = integrator.startswith('npt')
+    fractional = integrator == 'npt_csvr'
     R = jnp.array([[9.99, 1.0, 1.0], [0.98, 1.0, 1.0], [4.03, 4.0, 4.0]])
     if fractional:
       R /= 10
@@ -72,6 +72,7 @@ class CenterOfMassTest(test_util.JAXMDTestCase):
       sigma=1.0,
       dr_threshold=0,
       fractional_coordinates=fractional,
+      disable_cell_list=npt and not fractional,
     )
     neighbor = neighbor_fn.allocate(R)
     kwargs: dict[str, Any] = dict(dt=0.001, fix_center_of_mass=True)
@@ -79,7 +80,7 @@ class CenterOfMassTest(test_util.JAXMDTestCase):
       kwargs['kT'] = 1.0
     if integrator == 'temp_csvr':
       kwargs['tau'] = 0.1
-    if fractional:
+    if npt:
       kwargs['pressure'] = 0.1
     if integrator == 'npt_csvr':
       kwargs.update(tau_p=1.0, tau_t=0.1)
@@ -90,7 +91,7 @@ class CenterOfMassTest(test_util.JAXMDTestCase):
       random.PRNGKey(9),
       R,
       mass=jnp.arange(1.0, 4.0),
-      **({'box': 10.0} if fractional else {'kT': 1.0}),
+      **({'box': 10.0} if npt else {'kT': 1.0}),
     )
     self.assertAllClose(state.position, R, atol=0, rtol=0)
     self.assertAllClose(state.force, -grad(E)(R, neighbor=neighbor), atol=1e-12)
@@ -98,16 +99,16 @@ class CenterOfMassTest(test_util.JAXMDTestCase):
 
     @jit
     def advance(state, neighbor):
-      kwargs = {'box': state.box} if fractional else {}
+      kwargs = {'box': state.box} if npt else {}
       neighbor = neighbor.update(state.position, **kwargs)
       state = step(state, neighbor=neighbor)
-      kwargs = {'box': state.box} if fractional else {}
+      kwargs = {'box': state.box} if npt else {}
       neighbor = neighbor.update(state.position, **kwargs)
       return state, neighbor
 
     for _ in range(10):
       state, neighbor = advance(state, neighbor)
-      kwargs = {'box': state.box} if fractional else {}
+      kwargs = {'box': state.box} if npt else {}
       self.assertFalse(neighbor.did_buffer_overflow)
       self.assertAllClose(
         E(state.position, neighbor=neighbor, **kwargs),
@@ -129,14 +130,13 @@ class CenterOfMassTest(test_util.JAXMDTestCase):
       'temp_berendsen',
       'temp_rescale',
       'nvk',
-      'brownian',
     ],
     dim=[2, 3],
     dtype=DTYPES,
     supplied=[False, True],
   )
   def test_constraint(self, integrator, dim, dtype, supplied):
-    """All available fixed-volume integrators keep COM fixed for unequal masses."""
+    """Momentum-based integrators keep COM fixed for unequal masses."""
     R = jnp.arange(4 * dim, dtype=dtype).reshape(4, dim) / 10
     mass = jnp.arange(1, 5, dtype=dtype)
     E = lambda R, **kw: jnp.sum((R - jnp.mean(R, axis=0)) ** 2) / 10
@@ -149,7 +149,7 @@ class CenterOfMassTest(test_util.JAXMDTestCase):
       kwargs.update(window=0.1, fraction=0.5)
     init, step = getattr(simulate, integrator)(E, space.free()[1], **kwargs)
     kwargs = {'kT': 1.0} if integrator == 'nve' else {}
-    if supplied and integrator != 'brownian':
+    if supplied:
       kwargs['momenta'] = R + 1
     state = init(random.PRNGKey(1), R, mass=mass, **kwargs)
     self.assertAllClose(state.position, R, atol=0, rtol=0)
@@ -160,11 +160,7 @@ class CenterOfMassTest(test_util.JAXMDTestCase):
       center = jnp.sum(state.mass * state.position, axis=0) / jnp.sum(
         state.mass
       )
-      total_p = (
-        jnp.sum(state.momentum, axis=0)
-        if hasattr(state, 'momentum')
-        else jnp.zeros(dim, dtype=dtype)
-      )
+      total_p = jnp.sum(state.momentum, axis=0)
       return state, (center, total_p)
 
     state, (centers, momenta) = jit(
@@ -176,12 +172,11 @@ class CenterOfMassTest(test_util.JAXMDTestCase):
     )
     self.assertAllClose(momenta, jnp.zeros_like(momenta), atol=tol)
     self.assertEqual(state.position.dtype, dtype)
-    if hasattr(state, 'momentum'):
-      self.assertAllClose(
-        simulate.temperature(state),
-        2 * simulate.kinetic_energy(state) / (3 * dim),
-      )
-      self.assertEqual(state.momentum.dtype, dtype)
+    self.assertAllClose(
+      simulate.temperature(state),
+      2 * simulate.kinetic_energy(state) / (3 * dim),
+    )
+    self.assertEqual(state.momentum.dtype, dtype)
 
   @parameterized.product(
     source=['initialization', 'langevin', 'csvr'], dim=[2, 3]
@@ -217,66 +212,14 @@ class CenterOfMassTest(test_util.JAXMDTestCase):
       jnp.cov(momentum[:, :, 0].T), expected, atol=0.07, rtol=0.04
     )
 
-  @parameterized.parameters(False, True)
-  def test_brownian_per_axis_friction(self, fixed):
-    """COM fixing preserves the existing per-axis friction convention."""
-    R = jnp.zeros((4, 3))
-    gamma = jnp.array([0.4, 1.0, 2.0])
-    E = lambda R, **kw: jnp.sum(R * 0)
-    init, step = simulate.brownian(
-      E, space.free()[1], 0.01, 1.0, gamma, fix_center_of_mass=fixed
-    )
-    state = init(random.PRNGKey(3), R, mass=jnp.arange(1.0, 5.0))
-    result = step(state)
-    self.assertTrue(jnp.all(jnp.isfinite(result.position)))
-    self.assertAllClose(
-      result.position, step(state, gamma=gamma[None, :]).position
-    )
-    if fixed:
-      self.assertAllClose(
-        jnp.sum(result.mass * result.position, axis=0), jnp.zeros(3)
-      )
-
-  def test_brownian_mobility(self):
-    """Unequal masses and frictions require projecting the mobility, not just noise."""
-    R = jnp.arange(8.0).reshape(4, 2)
-    mass = jnp.arange(1.0, 5.0)
-    gamma = jnp.array([0.4, 1.0, 2.0, 3.0])
-    E = lambda R, **kw: jnp.sum((R - jnp.mean(R, axis=0)) ** 2) / 2
-    init, step = simulate.brownian(
-      E, space.free()[1], 0.01, 1.0, gamma[:, None], fix_center_of_mass=True
-    )
-
-    def sample(key):
-      state = init(key, R, mass=mass)
-      return (step(state).position - state.position)[:, 0]
-
-    samples = jit(vmap(sample))(random.split(random.PRNGKey(3), 20000))
-    mobility = 1 / (mass * gamma)
-    weighted = mobility * mass
-    constrained_mobility = jnp.diag(mobility) - jnp.outer(
-      weighted, weighted
-    ) / jnp.sum(mobility * mass**2)
-    self.assertAllClose(
-      jnp.cov(samples.T), 0.02 * constrained_mobility, atol=0.0004, rtol=0.04
-    )
-    force = -(R - jnp.mean(R, axis=0))[:, 0]
-    standard_error = jnp.sqrt(
-      0.02 * jnp.diag(constrained_mobility) / len(samples)
-    )
-    error = jnp.mean(samples, axis=0) - 0.01 * constrained_mobility @ force
-    self.assertLess(jnp.max(jnp.abs(error) / standard_error), 6.0)
-
-  @parameterized.product(
-    integrator=['csvr', 'nhc_fractional', 'nhc_real'], dtype=DTYPES
-  )
+  @parameterized.product(integrator=['csvr', 'nhc'], dtype=DTYPES)
   def test_npt_invariant(self, integrator, dtype):
     """NPT preserves COM momentum while allowing the usual affine box dilation."""
     R = jnp.array(
       [[0, 0, 0], [1.3, 0, 0], [0, 1.3, 0], [0, 0, 1.3]], dtype=dtype
     )
     box = dtype(5.0)
-    fractional = integrator != 'nhc_real'
+    fractional = integrator == 'csvr'
     displacement, shift = space.periodic_general(
       box, fractional_coordinates=fractional, wrapped=False
     )
@@ -305,11 +248,13 @@ class CenterOfMassTest(test_util.JAXMDTestCase):
         thermostat_kwargs={'tau': 0.1},
         barostat_kwargs={'tau': 1.0},
         fix_center_of_mass=True,
-        fractional_coordinates=fractional,
       )
       invariant = lambda s: simulate.npt_nose_hoover_invariant(E, s, 0.4, 1.0)
     state = init(
-      random.PRNGKey(4), R, box=box, mass=jnp.arange(1, 5, dtype=dtype)
+      random.PRNGKey(4),
+      R,
+      box=jnp.eye(3, dtype=dtype) * box,
+      mass=jnp.arange(1, 5, dtype=dtype),
     )
     self.assertAllClose(state.position, R, atol=0, rtol=0)
     initial_center = jnp.sum(state.mass * R, axis=0) / jnp.sum(state.mass)
@@ -342,7 +287,9 @@ class CenterOfMassTest(test_util.JAXMDTestCase):
     """For N=4, standard NPT gives p(V) proportional to V**4 * exp(-V)."""
     R = jnp.zeros((4, 3))
     E = lambda R, **kw: jnp.sum(R * 0)
-    _, shift = space.periodic_general(5 ** (1 / 3), wrapped=False)
+    _, shift = space.periodic_general(
+      5 ** (1 / 3), fractional_coordinates=integrator == 'csvr', wrapped=False
+    )
     if integrator == 'csvr':
       init, step = simulate.npt_csvr(
         E, shift, 0.004, 1.0, 1.0, 0.5, 0.1, fix_center_of_mass=True
@@ -391,71 +338,6 @@ class CenterOfMassTest(test_util.JAXMDTestCase):
     pressure_means = np.mean((2 * kinetic / 3 + 1) / volumes, axis=0)
     error = np.std(pressure_means, ddof=1) / np.sqrt(len(pressure_means))
     self.assertLess(abs(np.mean(pressure_means) - 1), 6 * error + 0.01)
-
-  @parameterized.parameters(
-    ('nve', 2),
-    ('nve', 3),
-    ('nvt_nose_hoover', 2),
-    ('nvt_nose_hoover', 3),
-    ('nvt_langevin', 3),
-    ('temp_csvr', 2),
-    ('temp_csvr', 3),
-  )
-  def test_rigid_body_rotations(self, integrator, dim):
-    """A translational constraint must leave rigid-body rotations free."""
-    center = jnp.arange(12.0).reshape(4, 3)[:, :dim]
-    orientation = (
-      rigid_body.Quaternion(jnp.tile(jnp.array([1.0, 0, 0, 0]), (4, 1)))
-      if dim == 3
-      else jnp.zeros(4)
-    )
-    R = rigid_body.RigidBody(center, orientation)
-    mass = rigid_body.RigidBody(
-      jnp.arange(1.0, 5.0), jnp.ones((4, 3)) if dim == 3 else jnp.ones(4)
-    )
-    E = lambda R, **kw: (
-      jnp.sum(R.center * 0)
-      + jnp.sum(R.orientation.vec * 0 if dim == 3 else R.orientation * 0)
-    )
-    kwargs: dict[str, Any] = dict(dt=0.001, fix_center_of_mass=True)
-    if integrator != 'nve':
-      kwargs['kT'] = 1.0
-    if integrator == 'temp_csvr':
-      kwargs['tau'] = 0.1
-    if integrator == 'nvt_langevin':
-      kwargs['gamma'] = rigid_body.RigidBody(0.1, 0.1)
-    init, step = getattr(simulate, integrator)(E, space.free()[1], **kwargs)
-    state = init(
-      random.PRNGKey(6),
-      R,
-      mass=mass,
-      **({'kT': 1.0} if integrator == 'nve' else {}),
-    )
-    self.assertAllClose(state.position.center, center, atol=0, rtol=0)
-    state = jit(lambda s: lax.fori_loop(0, 20, lambda i, s: step(s), s))(state)
-    self.assertAllClose(
-      jnp.sum(state.momentum.center, axis=0), jnp.zeros(dim), atol=1e-5
-    )
-    self.assertAllClose(
-      jnp.sum(state.mass.center * state.position.center, axis=0),
-      jnp.sum(state.mass.center * center, axis=0),
-      atol=1e-4,
-    )
-    dof = (6 if dim == 3 else 3) * 4 - dim
-    self.assertEqual(quantity.count_dof(state.position, True), dof)
-    self.assertAllClose(
-      simulate.temperature(state), 2 * simulate.kinetic_energy(state) / dof
-    )
-    self.assertFalse(
-      jnp.allclose(
-        state.position.orientation.vec
-        if dim == 3
-        else state.position.orientation,
-        orientation.vec
-        if isinstance(orientation, rigid_body.Quaternion)
-        else orientation,
-      )
-    )
 
   def test_nonuniform_langevin_friction_is_rejected(self):
     E = lambda R, **kw: jnp.sum(R * 0)

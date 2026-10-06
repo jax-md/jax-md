@@ -161,9 +161,7 @@ def constrain_center_of_mass(state: T) -> T:
     raise ValueError(
       'Fixed COM requires at least one internal degree of freedom.'
     )
-  if hasattr(state, 'momentum'):
-    return state.set(momentum=_project_momentum(state.momentum, state.mass))
-  return state
+  return state.set(momentum=_project_momentum(state.momentum, state.mass))
 
 
 @dispatch_by_state
@@ -861,7 +859,6 @@ def npt_nose_hoover(
   barostat_kwargs: Dict[str, Any] | None = None,
   thermostat_kwargs: Dict[str, Any] | None = None,
   fix_center_of_mass: bool = False,
-  fractional_coordinates: bool = True,
 ) -> Simulator:
   """Simulation in the NPT ensemble using a pair of Nose Hoover Chains.
 
@@ -895,8 +892,6 @@ def npt_nose_hoover(
     fix_center_of_mass: Remove COM momentum without recentering positions.
       The thermostat excludes translation; the barostat includes the volume
       weight obtained by integrating out COM, preserving standard NPT averages.
-    fractional_coordinates: Whether positions are fractional, matching the
-      shift function. Used by the fixed-COM position update; defaults to True.
 
   Returns:
     See above.
@@ -936,7 +931,7 @@ def npt_nose_hoover(
 
     if jnp.isscalar(box) or box.ndim == 0:
       # TODO(schsam): This is necessary because of JAX issue #5849.
-      box = jnp.eye(R.shape[-1], dtype=R.dtype) * box
+      box = jnp.eye(R.shape[-1]) * box
 
     _, force, dUdV = force_stress_fn(R, box, **kwargs)
     # Momentum and thermostat placeholders; both are overwritten below once
@@ -998,11 +993,9 @@ def npt_nose_hoover(
     x = V_b * dt
     x_2 = x / 2
     sinhV = sinhx_x(x_2)  # jnp.sinh(x_2) / x_2
-    displacement = dt * V * jnp.exp(x_2) * sinhV
-    # Fractional positions already dilate when the box changes.
-    if not (fix_center_of_mass and fractional_coordinates):
-      displacement += R * (jnp.exp(x) - 1)
-    return shift_fn(R, displacement, box=box, **kwargs)
+    return shift_fn(
+      R, R * (jnp.exp(x) - 1) + dt * V * jnp.exp(x_2) * sinhV, box=box, **kwargs
+    )  # pytype: disable=wrong-keyword-args
 
   def exp_iL2(alpha, P, F, V_b):
     x = alpha * V_b * dt_2
@@ -1013,7 +1006,6 @@ def npt_nose_hoover(
   def inner_step(state, **kwargs):
     _pressure = kwargs.pop('pressure', pressure)
     _kT = kwargs.get('kT', kT)
-    state = constrain_center_of_mass(state)
 
     R, P, M, F = state.position, state.momentum, state.mass, state.force
     R_b, P_b, M_b = state.box_position, state.box_momentum, state.box_mass
@@ -1308,9 +1300,6 @@ class BrownianState:
   position: Array
   mass: Array
   rng: Array
-  fix_center_of_mass: bool = dataclasses.static_field(
-    default=False, kw_only=True
-  )
 
 
 def brownian(
@@ -1318,8 +1307,7 @@ def brownian(
   shift: ShiftFn,
   dt: float,
   kT: ArrayLike,
-  gamma: ArrayLike = 0.1,
-  fix_center_of_mass: bool = False,
+  gamma: float = 0.1,
 ) -> Simulator:
   """Simulation of Brownian dynamics.
 
@@ -1344,8 +1332,6 @@ def brownian(
       and the solvent. The gamma here is the friction coeifficient divided by
       the mass. For example, when the particles are 3 diemsional spheres
       gamma = 6 pi eta R/mass. See quantity.gamma_from_stokes_law for detail.
-    fix_center_of_mass: Remove COM displacement from both drift and noise,
-      without changing the initial positions.
 
   Returns:
     See above.
@@ -1354,15 +1340,15 @@ def brownian(
   force_fn = quantity.canonicalize_force(energy_or_force)
 
   def init_fn(key, R, mass=f32(1)):
-    state = BrownianState(R, mass, key, fix_center_of_mass=fix_center_of_mass)
-    return constrain_center_of_mass(canonicalize_mass(state))
+    state = BrownianState(R, mass, key)
+    return canonicalize_mass(state)
 
   def apply_fn(state, **kwargs):
     _dt = kwargs.pop('dt', dt)
     _kT = kwargs.pop('kT', kT)
     _gamma = kwargs.pop('gamma', gamma)
 
-    R, mass, key = state.position, state.mass, state.rng
+    R, mass, key = dataclasses.astuple(state)
 
     key, split = random.split(key)
 
@@ -1372,17 +1358,9 @@ def brownian(
     nu = f32(1) / (mass * _gamma)
 
     dR = F * _dt * nu + jnp.sqrt(f32(2) * _kT * _dt * nu) * xi
-    if state.fix_center_of_mass:
-      # Project both mobility-weighted drift and noise onto sum(m * dR) = 0.
-      dR -= (
-        nu
-        * mass
-        * jnp.sum(mass * dR, axis=0)
-        / jnp.sum(jnp.broadcast_to(nu * mass**2, R.shape), axis=0)
-      )
     R = shift(R, dR, **kwargs)
 
-    return state.set(position=R, rng=key)
+    return BrownianState(R, mass, key)  # pytype: disable=wrong-arg-count
 
   return init_fn, apply_fn
 
@@ -1635,7 +1613,6 @@ def npt_csvr(
 
   def nph_step(state, _pressure, _kT, **kwargs):
     """Apply the finite-step NPH part and update its conserved quantity."""
-    state = constrain_center_of_mass(state)
     R, P, M, F = state.position, state.momentum, state.mass, state.force
     P_b, M_b = state.box_momentum, state.box_mass
     volume = quantity.volume(3, state.box)
@@ -1937,7 +1914,13 @@ def temp_rescale(
     return constrain_center_of_mass(state)
 
   def apply_fn(state, **kwargs):
-    state = velocity_rescale(state, window, fraction, kT)
+    # Rescaling is undefined at zero kinetic energy; forces can restart motion.
+    state = lax.cond(
+      kinetic_energy(state) > 0,
+      lambda s: velocity_rescale(s, window, fraction, kT),
+      lambda s: s,
+      state,
+    )
     state = velocity_verlet(force_fn, shift_fn, dt, state, **kwargs)
     return state
 
@@ -2009,7 +1992,13 @@ def temp_berendsen(
     return constrain_center_of_mass(state)
 
   def apply_fn(state, **kwargs):
-    state = berendsen_update(state, tau, kT, dt)
+    # Rescaling is undefined at zero kinetic energy; forces can restart motion.
+    state = lax.cond(
+      kinetic_energy(state) > 0,
+      lambda s: berendsen_update(s, tau, kT, dt),
+      lambda s: s,
+      state,
+    )
     state = velocity_verlet(force_fn, shift_fn, dt, state, **kwargs)
     return state
 
@@ -2241,7 +2230,15 @@ def temp_csvr(
     return constrain_center_of_mass(state)
 
   def apply_fn(state, **kwargs):
-    state = csvr_update(state, tau, kT, dt)
+    # Rescaling is undefined at zero kinetic energy; forces can restart motion.
+    # Same guard as i-PI's ThermoSVR.step, lines 508-510:
+    # https://github.com/i-pi/i-pi/blob/e1460fef7cb889472324c47b644a6f8340a474e2/ipi/engine/thermostats.py#L508-L510
+    state = lax.cond(
+      kinetic_energy(state) > 0,
+      lambda s: csvr_update(s, tau, kT, dt),
+      lambda s: s,
+      state,
+    )
     state = velocity_verlet(force_fn, shift_fn, dt, state, **kwargs)
     return state
 

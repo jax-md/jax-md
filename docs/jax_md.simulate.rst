@@ -16,24 +16,21 @@ The momentum projection is
 ``p_i <- p_i - m_i * sum(p) / sum(m)``. It works for unequal masses and removes
 only global translation, not rotation. A system of ``N`` particles in ``d``
 dimensions has ``d * (N - 1)`` kinetic degrees of freedom. Multiple arrays
-share one global COM constraint. Rigid-body NVE and supported NVT simulations
-exclude only translational COM motion, leaving all rotations free; rigid-body
-NPT remains unsupported.
+share one global COM constraint. This option supports particle dynamics with
+momenta only; Brownian and rigid-body dynamics are not covered.
 
 Periodic runs can use wrapped positions and existing neighbour lists. Wrapping
 can change the numerical mean of the stored coordinates even when COM momentum
 is zero; it does not represent COM drift. In NPT, the usual box dilation still
 acts on positions: zero COM momentum does not prevent their affine scaling with
-the box. NPT CSVR requires fractional positions; for fixed-COM NPT Nose-Hoover,
-set ``fractional_coordinates`` to match the space.
+the box. NPT CSVR requires fractional positions. NPT Nose-Hoover's position
+update is unchanged by this option.
 
 ``simulate.temperature(state)`` automatically uses the constrained kinetic
 degrees of freedom. When using ``quantity.temperature`` directly, pass
 ``fix_center_of_mass=True`` explicitly. The old Langevin ``center_velocity``
 argument remains unused for compatibility; it does not activate this option.
-Fixed-COM Langevin requires scalar uniform translational friction. Brownian
-dynamics projects both the force-driven motion and noise using the constrained
-mobility, including with unequal masses and frictions.
+Fixed-COM Langevin requires scalar uniform translational friction.
 
 Both barostats retain the standard NPT volume distribution after integrating
 out COM, rather than changing finite-system averages by one particle.
