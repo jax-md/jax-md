@@ -1108,6 +1108,32 @@ class SimulateTest(test_util.JAXMDTestCase):
       assert np.abs(T_emp - T) < 0.1
       assert state.position.dtype == dtype
 
+  @parameterized.product(shape=[(1, 1), (3, 2), (3, 3)], dtype=DTYPE)
+  def test_temp_csvr_one_step_distribution(self, shape, dtype):
+    """Independent CSVR noise must give the exact one-step kinetic moments."""
+    R = np.zeros(shape, dtype=dtype)
+    E = lambda R, **kwargs: np.sum(R * 0)
+    init_fn, step_fn = simulate.temp_csvr(E, space.free()[1], 1.0, 1.0, 1.0)
+    state = init_fn(random.PRNGKey(0), R, momenta=np.ones_like(R))
+
+    def sample(key):
+      result = step_fn(state.set(rng=key))
+      return result.momentum, simulate.kinetic_energy(result)
+
+    momentum, kinetic = jit(vmap(sample))(
+      random.split(random.PRNGKey(1), 20000)
+    )
+    self.assertTrue(np.all(np.isfinite(momentum)))
+    self.assertAllClose(
+      np.mean(kinetic), R.size / 2, rtol=0.025, check_dtypes=False
+    )
+    self.assertAllClose(
+      np.var(kinetic),
+      R.size / 2 * (1 - np.exp(-2.0)),
+      rtol=0.05,
+      check_dtypes=False,
+    )
+
 
 if __name__ == '__main__':
   absltest.main()
