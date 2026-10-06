@@ -482,9 +482,19 @@ the NVE or NVT ensemble (but is not compatible with NPT).
 
 
 @quantity.count_dof.register
-def _(position: RigidBody) -> int:
+def _(position: RigidBody, fix_center_of_mass: bool = False) -> int:
   sizes = tree_map_no_quat(lambda x: x.size, position)
-  return tree_reduce(lambda accum, x: accum + x, sizes, 0)
+  dof = tree_reduce(lambda accum, x: accum + x, sizes, 0)
+  return dof - position.center.shape[-1] if fix_center_of_mass else dof
+
+
+@simulate.constrain_center_of_mass.register(RigidBody)
+def _(state):
+  """Constrain translation without removing any rotational degrees of freedom."""
+  if not getattr(state, 'fix_center_of_mass', False):
+    return state
+  center = simulate._project_momentum(state.momentum.center, state.mass.center)
+  return state.set(momentum=state.momentum.set(center=center))
 
 
 @simulate.initialize_momenta.register(RigidBody)
@@ -495,7 +505,8 @@ def _(state, key: Array, kT: float):
   P_center = jnp.sqrt(mass.center * kT) * random.normal(
     center_key, R.center.shape, dtype=R.center.dtype
   )
-  P_center = P_center - jnp.mean(P_center, axis=0, keepdims=True)
+  if not getattr(state, 'fix_center_of_mass', False):
+    P_center = P_center - jnp.mean(P_center, axis=0, keepdims=True)
 
   # A the moment we assume that rigid body objects are either 2d or 3d. At some
   # point it might be worth expanding this definition to include other kinds of
@@ -698,6 +709,12 @@ def _(state) -> Array | float:
 
 @simulate.temperature.register(RigidBody)
 def _(state) -> Array | float:
+  if getattr(state, 'fix_center_of_mass', False):
+    return (
+      2
+      * simulate.kinetic_energy(state)
+      / quantity.count_dof(state.position, True)
+    )
   return temperature(state.position, state.momentum, state.mass)
 
 

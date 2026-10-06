@@ -138,6 +138,34 @@ def canonicalize_mass(state: T) -> T:
   return state.set(mass=tree_map(canonicalize_fn, state.mass))
 
 
+def _project_momentum(momentum, mass):
+  """Subtract the mass-weighted share of total momentum from each particle."""
+  total_momentum = tree_reduce(
+    lambda a, b: a + b, tree_map(lambda p: jnp.sum(p, axis=0), momentum)
+  )
+  masses = tree_map(
+    lambda p, m: jnp.sum(jnp.broadcast_to(m, p.shape[:-1] + (1,))),
+    momentum,
+    mass,
+  )
+  v_cm = total_momentum / tree_reduce(lambda a, b: a + b, masses)
+  return tree_map(lambda p, m: p - m * v_cm, momentum, mass)
+
+
+@dispatch_by_state
+def constrain_center_of_mass(state: T) -> T:
+  """Remove COM momentum without changing positions or cached forces."""
+  if not getattr(state, 'fix_center_of_mass', False):
+    return state
+  if quantity.count_dof(state.position, True) <= 0:
+    raise ValueError(
+      'Fixed COM requires at least one internal degree of freedom.'
+    )
+  if hasattr(state, 'momentum'):
+    return state.set(momentum=_project_momentum(state.momentum, state.mass))
+  return state
+
+
 @dispatch_by_state
 def initialize_momenta(state: T, key: Array, kT: ArrayLike) -> T:
   """Initialize momenta with the Maxwell-Boltzmann distribution."""
@@ -150,7 +178,7 @@ def initialize_momenta(state: T, key: Array, kT: ArrayLike) -> T:
   def initialize_fn(k, r, m):
     p = jnp.sqrt(m * kT) * random.normal(k, r.shape, dtype=r.dtype)
     # If simulating more than one particle, center the momentum.
-    if r.shape[0] > 1:
+    if r.shape[0] > 1 and not getattr(state, 'fix_center_of_mass', False):
       p = p - jnp.mean(p, axis=0, keepdims=True)
     return p
 
@@ -170,7 +198,7 @@ def momentum_step(state: T, dt: float) -> T:
   """Apply a single step of the time evolution operator for momenta."""
   assert hasattr(state, 'momentum')
   new_momentum = tree_map(lambda p, f: p + dt * f, state.momentum, state.force)
-  return state.set(momentum=new_momentum)
+  return constrain_center_of_mass(state.set(momentum=new_momentum))
 
 
 @dispatch_by_state
@@ -197,7 +225,11 @@ def kinetic_energy(state: T) -> Array | float:
 @dispatch_by_state
 def temperature(state: T) -> Array | float:
   """Compute the temperature of a state."""
-  return quantity.temperature(momentum=state.momentum, mass=state.mass)
+  return quantity.temperature(
+    momentum=state.momentum,
+    mass=state.mass,
+    fix_center_of_mass=getattr(state, 'fix_center_of_mass', False),
+  )
 
 
 """Deterministic Simulations
@@ -269,6 +301,9 @@ class NVEState:
   momentum: Array
   force: Array
   mass: Array | float
+  fix_center_of_mass: bool = dataclasses.static_field(
+    default=False, kw_only=True
+  )
 
   @property
   def velocity(self) -> Array:
@@ -276,7 +311,9 @@ class NVEState:
 
 
 # pylint: disable=invalid-name
-def nve(energy_or_force_fn, shift_fn, dt=1e-3, **sim_kwargs):
+def nve(
+  energy_or_force_fn, shift_fn, dt=1e-3, fix_center_of_mass=False, **sim_kwargs
+):
   """Simulates a system in the NVE ensemble.
 
   Samples from the microcanonical ensemble in which the number of particles
@@ -291,6 +328,8 @@ def nve(energy_or_force_fn, shift_fn, dt=1e-3, **sim_kwargs):
       Both `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
     dt: Floating point number specifying the timescale (step size) of the
       simulation.
+    fix_center_of_mass: Remove COM momentum without changing initial positions.
+      See the fixed-COM conventions in the simulation docs.
   Returns:
     See above.
   """
@@ -301,13 +340,13 @@ def nve(energy_or_force_fn, shift_fn, dt=1e-3, **sim_kwargs):
     force = force_fn(R, **kwargs)
     # Momentum placeholder; overwritten below once mass is canonical.
     P = tree_map(jnp.zeros_like, R)
-    state = NVEState(R, P, force, mass)
+    state = NVEState(R, P, force, mass, fix_center_of_mass=fix_center_of_mass)
     state = canonicalize_mass(state)
     if momenta is None:
       state = initialize_momenta(state, key, kT)
     else:
       state = canonicalize_momenta(state, momenta)
-    return state
+    return constrain_center_of_mass(state)
 
   @jit
   def step_fn(state, **kwargs):
@@ -556,6 +595,9 @@ class NVTNoseHooverState:
   force: Array
   mass: Array
   chain: NoseHooverChain
+  fix_center_of_mass: bool = dataclasses.static_field(
+    default=False, kw_only=True
+  )
 
   @property
   def velocity(self):
@@ -571,6 +613,7 @@ def nvt_nose_hoover(
   chain_steps: int = 2,
   sy_steps: int = 3,
   tau: float | None = None,
+  fix_center_of_mass: bool = False,
   **sim_kwargs,
 ) -> Simulator:
   """Simulation in the NVT ensemble using a Nose Hoover Chain thermostat.
@@ -602,6 +645,8 @@ def nvt_nose_hoover(
     tau: A floating point timescale over which temperature equilibration
       occurs. Measured in units of `dt`. The performance of the Nose-Hoover
       chain thermostat can be quite sensitive to this choice.
+    fix_center_of_mass: Remove COM momentum and exclude translation from
+      the thermostat's kinetic degrees of freedom.
   Returns:
     See above.
 
@@ -631,18 +676,30 @@ def nvt_nose_hoover(
   def init_fn(key, R, mass=f32(1.0), momenta=None, **kwargs):
     _kT = kT if 'kT' not in kwargs else kwargs['kT']
 
-    dof = quantity.count_dof(R)
+    dof = (
+      quantity.count_dof(R, True)
+      if fix_center_of_mass
+      else quantity.count_dof(R)
+    )
 
     # Momentum and chain placeholders; both are overwritten below once the
     # mass is canonical and the kinetic energy is known.
     P = tree_map(jnp.zeros_like, R)
     chain = thermostat.initialize(dof, f32(0.0), _kT)
-    state = NVTNoseHooverState(R, P, force_fn(R, **kwargs), mass, chain)
+    state = NVTNoseHooverState(
+      R,
+      P,
+      force_fn(R, **kwargs),
+      mass,
+      chain,
+      fix_center_of_mass=fix_center_of_mass,
+    )
     state = canonicalize_mass(state)
     if momenta is None:
       state = initialize_momenta(state, key, _kT)
     else:
       state = canonicalize_momenta(state, momenta)
+    state = constrain_center_of_mass(state)
     KE = kinetic_energy(state)
     return state.set(chain=thermostat.initialize(dof, KE, _kT))
 
@@ -690,7 +747,7 @@ def nvt_nose_hoover_invariant(
   PE = energy_fn(state.position, **kwargs)
   KE = kinetic_energy(state)
 
-  DOF = quantity.count_dof(state.position)
+  DOF = state.chain.degrees_of_freedom
   E = PE + KE
 
   c = state.chain
@@ -745,6 +802,9 @@ class NPTNoseHooverState:
 
   barostat: NoseHooverChain
   thermostat: NoseHooverChain
+  fix_center_of_mass: bool = dataclasses.static_field(
+    default=False, kw_only=True
+  )
 
   @property
   def velocity(self) -> Array:
@@ -800,6 +860,8 @@ def npt_nose_hoover(
   kT: ArrayLike,
   barostat_kwargs: Dict[str, Any] | None = None,
   thermostat_kwargs: Dict[str, Any] | None = None,
+  fix_center_of_mass: bool = False,
+  fractional_coordinates: bool = True,
 ) -> Simulator:
   """Simulation in the NPT ensemble using a pair of Nose Hoover Chains.
 
@@ -830,6 +892,11 @@ def npt_nose_hoover(
     thermostat_kwargs: A dictionary of keyword arguments passed to the
       thermostat NHC. Any parameters not set are drawn from a relatively robust
       default set.
+    fix_center_of_mass: Remove COM momentum without recentering positions.
+      The thermostat excludes translation; the barostat includes the volume
+      weight obtained by integrating out COM, preserving standard NPT averages.
+    fractional_coordinates: Whether positions are fractional, matching the
+      shift function. Used by the fixed-COM position update; defaults to True.
 
   Returns:
     See above.
@@ -869,7 +936,7 @@ def npt_nose_hoover(
 
     if jnp.isscalar(box) or box.ndim == 0:
       # TODO(schsam): This is necessary because of JAX issue #5849.
-      box = jnp.eye(R.shape[-1]) * box
+      box = jnp.eye(R.shape[-1], dtype=R.dtype) * box
 
     _, force, dUdV = force_stress_fn(R, box, **kwargs)
     # Momentum and thermostat placeholders; both are overwritten below once
@@ -885,16 +952,22 @@ def npt_nose_hoover(
       box_mass,
       dUdV,
       barostat.initialize(1, KE_box, _kT),
-      thermostat.initialize(quantity.count_dof(R), f32(0.0), _kT),
+      thermostat.initialize(
+        quantity.count_dof(R, fix_center_of_mass), f32(0.0), _kT
+      ),
+      fix_center_of_mass=fix_center_of_mass,
     )  # pytype: disable=wrong-arg-count
     state = canonicalize_mass(state)
     if momenta is None:
       state = initialize_momenta(state, key, _kT)
     else:
       state = canonicalize_momenta(state, momenta)
+    state = constrain_center_of_mass(state)
     KE = kinetic_energy(state)
     return state.set(
-      thermostat=thermostat.initialize(quantity.count_dof(R), KE, _kT)
+      thermostat=thermostat.initialize(
+        quantity.count_dof(R, fix_center_of_mass), KE, _kT
+      )
     )
 
   def update_box_mass(state, kT):
@@ -911,20 +984,25 @@ def npt_nose_hoover(
     momentum,
     mass,
     pressure,
+    kT,
   ) -> Array:
     N, dim = position.shape
 
     KE2 = util.high_precision_sum(momentum**2 / mass)
 
-    return alpha * KE2 - dUdV - pressure * vol * dim
+    # Integrating out the COM contributes an extra V to the NPT density.
+    correction = dim * kT if fix_center_of_mass else 0
+    return alpha * KE2 - dUdV - pressure * vol * dim + correction
 
   def exp_iL1(box, R, V, V_b, **kwargs):
     x = V_b * dt
     x_2 = x / 2
     sinhV = sinhx_x(x_2)  # jnp.sinh(x_2) / x_2
-    return shift_fn(
-      R, R * (jnp.exp(x) - 1) + dt * V * jnp.exp(x_2) * sinhV, box=box, **kwargs
-    )  # pytype: disable=wrong-keyword-args
+    displacement = dt * V * jnp.exp(x_2) * sinhV
+    # Fractional positions already dilate when the box changes.
+    if not (fix_center_of_mass and fractional_coordinates):
+      displacement += R * (jnp.exp(x) - 1)
+    return shift_fn(R, displacement, box=box, **kwargs)
 
   def exp_iL2(alpha, P, F, V_b):
     x = alpha * V_b * dt_2
@@ -934,6 +1012,8 @@ def npt_nose_hoover(
 
   def inner_step(state, **kwargs):
     _pressure = kwargs.pop('pressure', pressure)
+    _kT = kwargs.get('kT', kT)
+    state = constrain_center_of_mass(state)
 
     R, P, M, F = state.position, state.momentum, state.mass, state.force
     R_b, P_b, M_b = state.box_position, state.box_momentum, state.box_mass
@@ -946,10 +1026,13 @@ def npt_nose_hoover(
 
     vol, box_fn = _npt_box_info(state)
 
-    alpha = 1 + 1 / N
-    G_e = box_force(alpha, vol, dUdV, R, P, M, _pressure)
+    dof = quantity.count_dof(R, fix_center_of_mass)
+    alpha = 1 + dim / dof
+    G_e = box_force(alpha, vol, dUdV, R, P, M, _pressure, _kT)
     P_b = P_b + dt_2 * G_e
     P = exp_iL2(alpha, P, F, P_b / M_b)
+    if fix_center_of_mass:
+      P = _project_momentum(P, M)
 
     R_b = R_b + P_b / M_b * dt
     state = state.set(box_position=R_b)
@@ -960,7 +1043,9 @@ def npt_nose_hoover(
     R = exp_iL1(box, R, P / M, P_b / M_b)
     _, F, dUdV = force_stress_fn(R, box, **kwargs)
     P = exp_iL2(alpha, P, F, P_b / M_b)
-    G_e = box_force(alpha, vol, dUdV, R, P, M, _pressure)
+    if fix_center_of_mass:
+      P = _project_momentum(P, M)
+    G_e = box_force(alpha, vol, dUdV, R, P, M, _pressure, _kT)
     P_b = P_b + dt_2 * G_e
 
     return state.set(
@@ -1028,7 +1113,7 @@ def npt_nose_hoover_invariant(
   PE = energy_fn(state.position, box=box_fn(volume), **kwargs)
   KE = kinetic_energy(state)
 
-  DOF = state.position.size
+  DOF = state.thermostat.degrees_of_freedom
   E = PE + KE
 
   c = state.thermostat
@@ -1042,6 +1127,8 @@ def npt_nose_hoover_invariant(
 
   E += pressure * volume
   E += state.box_momentum**2 / (2 * state.box_mass)
+  if state.fix_center_of_mass:
+    E -= kT * jnp.log(volume)
 
   return E
 
@@ -1092,6 +1179,9 @@ class NVTLangevinState:
   force: Array
   mass: Array
   rng: Array
+  fix_center_of_mass: bool = dataclasses.static_field(
+    default=False, kw_only=True
+  )
 
   @property
   def velocity(self) -> Array:
@@ -1103,11 +1193,17 @@ def stochastic_step(
   state: NVTLangevinState, dt: float, kT: ArrayLike, gamma: float
 ):
   """A single stochastic step (the `O` step)."""
+  if getattr(state, 'fix_center_of_mass', False) and jnp.ndim(gamma) != 0:
+    raise ValueError(
+      'Fixed-COM Langevin requires scalar translational friction.'
+    )
   c1 = jnp.exp(-gamma * dt)
   c2 = jnp.sqrt(kT * (1 - c1**2))
   momentum_dist = Normal(c1 * state.momentum, c2**2 * state.mass)
   key, split = random.split(state.rng)
-  return state.set(momentum=momentum_dist.sample(split), rng=key)
+  return constrain_center_of_mass(
+    state.set(momentum=momentum_dist.sample(split), rng=key)
+  )
 
 
 def nvt_langevin(
@@ -1117,6 +1213,7 @@ def nvt_langevin(
   kT: ArrayLike | util.PyTree,
   gamma: float | util.PyTree = 0.1,
   center_velocity: bool = True,
+  fix_center_of_mass: bool = False,
   **sim_kwargs,
 ) -> Simulator:
   """Simulation in the NVT ensemble using the BAOAB Langevin thermostat.
@@ -1145,8 +1242,9 @@ def nvt_langevin(
       should pass `kT` as a keyword argument to the step function.
     gamma: A float specifying the friction coefficient between the particles
       and the solvent.
-    center_velocity: A boolean specifying whether or not the center of mass
-      position should be subtracted.
+    center_velocity: Deprecated unused argument; use ``fix_center_of_mass``.
+    fix_center_of_mass: Remove COM momentum without recentering positions.
+      Requires uniform scalar translational friction.
   Returns:
     See above.
 
@@ -1162,13 +1260,20 @@ def nvt_langevin(
     _kT = kwargs.pop('kT', kT)
     key, split = random.split(key)
     force = force_fn(R, **kwargs)
-    state = NVTLangevinState(R, tree_map(jnp.zeros_like, R), force, mass, key)
+    state = NVTLangevinState(
+      R,
+      tree_map(jnp.zeros_like, R),
+      force,
+      mass,
+      key,
+      fix_center_of_mass=fix_center_of_mass,
+    )
     state = canonicalize_mass(state)
     if momenta is None:
       state = initialize_momenta(state, split, _kT)
     else:
       state = canonicalize_momenta(state, momenta)
-    return state
+    return constrain_center_of_mass(state)
 
   @jit
   def step_fn(state, **kwargs):
@@ -1203,6 +1308,9 @@ class BrownianState:
   position: Array
   mass: Array
   rng: Array
+  fix_center_of_mass: bool = dataclasses.static_field(
+    default=False, kw_only=True
+  )
 
 
 def brownian(
@@ -1210,7 +1318,8 @@ def brownian(
   shift: ShiftFn,
   dt: float,
   kT: ArrayLike,
-  gamma: float = 0.1,
+  gamma: ArrayLike = 0.1,
+  fix_center_of_mass: bool = False,
 ) -> Simulator:
   """Simulation of Brownian dynamics.
 
@@ -1235,6 +1344,8 @@ def brownian(
       and the solvent. The gamma here is the friction coeifficient divided by
       the mass. For example, when the particles are 3 diemsional spheres
       gamma = 6 pi eta R/mass. See quantity.gamma_from_stokes_law for detail.
+    fix_center_of_mass: Remove COM displacement from both drift and noise,
+      without changing the initial positions.
 
   Returns:
     See above.
@@ -1243,15 +1354,15 @@ def brownian(
   force_fn = quantity.canonicalize_force(energy_or_force)
 
   def init_fn(key, R, mass=f32(1)):
-    state = BrownianState(R, mass, key)
-    return canonicalize_mass(state)
+    state = BrownianState(R, mass, key, fix_center_of_mass=fix_center_of_mass)
+    return constrain_center_of_mass(canonicalize_mass(state))
 
   def apply_fn(state, **kwargs):
     _dt = kwargs.pop('dt', dt)
     _kT = kwargs.pop('kT', kT)
     _gamma = kwargs.pop('gamma', gamma)
 
-    R, mass, key = dataclasses.astuple(state)
+    R, mass, key = state.position, state.mass, state.rng
 
     key, split = random.split(key)
 
@@ -1261,24 +1372,31 @@ def brownian(
     nu = f32(1) / (mass * _gamma)
 
     dR = F * _dt * nu + jnp.sqrt(f32(2) * _kT * _dt * nu) * xi
+    if state.fix_center_of_mass:
+      # Project both mobility-weighted drift and noise onto sum(m * dR) = 0.
+      dR -= (
+        nu
+        * mass
+        * jnp.sum(mass * dR, axis=0)
+        / jnp.sum(jnp.broadcast_to(nu * mass**2, R.shape), axis=0)
+      )
     R = shift(R, dR, **kwargs)
 
-    return BrownianState(R, mass, key)  # pytype: disable=wrong-arg-count
+    return state.set(position=R, rng=key)
 
   return init_fn, apply_fn
 
 
 @dataclasses.dataclass
 class NPTCSVRState:
-  """State information for the unconstrained-COM NPT CSVR integrator.
+  """State information for the isotropic NPT CSVR integrator.
 
   The isotropic box is parameterized by ``box_position`` such that
   ``box_position = log((V / V_0) ** (1 / 3))``. ``box_momentum`` is the
   momentum conjugate to this coordinate and ``box_mass`` is the piston mass.
   ``dUdV`` is the derivative of the potential with respect to an isotropic
   affine perturbation, evaluated at the current state. The state uses the
-  complete particle momentum distribution; no center-of-mass projection is
-  applied.
+  complete particle momentum distribution unless ``fix_center_of_mass=True``.
   """
 
   position: Array
@@ -1294,6 +1412,9 @@ class NPTCSVRState:
   potential_energy: Array
   rng: Array
   conserved_quantity: Array
+  fix_center_of_mass: bool = dataclasses.static_field(
+    default=False, kw_only=True
+  )
 
   @property
   def velocity(self) -> Array:
@@ -1317,11 +1438,12 @@ def npt_csvr(
   kT: ArrayLike,
   tau_p: float,
   tau_t: float,
+  fix_center_of_mass: bool = False,
 ) -> Simulator:
-  """Simulation in the unconstrained-COM NPT ensemble using CSVR.
+  """Simulation in the isotropic NPT ensemble using CSVR.
 
   This is the isotropic Bussi-Zykova-Timan-Parrinello integrator [#bzp2009]_.
-  The particle center of mass and total momentum are unconstrained. The
+  By default the particle COM and total momentum are unconstrained. The
   particle momenta and the piston velocity are coupled to the same canonical
   velocity-rescaling thermostat, with ``3 * N + 1`` kinetic degrees of
   freedom.
@@ -1346,6 +1468,9 @@ def npt_csvr(
     tau_p: The piston relaxation timescale. The piston mass is initialized as
       ``3 * N * kT * tau_p**2``.
     tau_t: The CSVR thermostat relaxation timescale.
+    fix_center_of_mass: Remove COM momentum with ``3 * N - 2`` particle-plus-
+      piston kinetic degrees of freedom, without recentering positions.
+      The piston thermal correction and log-volume term then use ``2 * kT``.
 
   Returns:
     An ``(init_fn, apply_fn)`` pair.
@@ -1393,7 +1518,7 @@ def npt_csvr(
       + kinetic
       + piston_kinetic
       + _pressure * volume
-      - _kT * jnp.log(volume)
+      - (2 if fix_center_of_mass else 1) * _kT * jnp.log(volume)
     )
 
   def init_fn(
@@ -1436,6 +1561,7 @@ def npt_csvr(
       potential_energy,
       state_key,
       zero,
+      fix_center_of_mass=fix_center_of_mass,
     )
     state = canonicalize_mass(state)
 
@@ -1446,6 +1572,8 @@ def npt_csvr(
       state = state.set(momentum=momentum)
     else:
       state = canonicalize_momenta(state, momenta)
+
+    state = constrain_center_of_mass(state)
 
     if box_velocity is None:
       box_velocity = jnp.sqrt(_kT / box_mass) * random.normal(
@@ -1472,7 +1600,7 @@ def npt_csvr(
   def csvr_update(state, _kT):
     """Apply one exact CSVR half-step to particles and the piston."""
     next_key, normal_key, chi_square_key = random.split(state.rng, 3)
-    dof = state.position.size + 1
+    dof = quantity.count_dof(state.position, fix_center_of_mass) + 1
     kinetic = quantity.kinetic_energy(momentum=state.momentum, mass=state.mass)
     kinetic += state.box_momentum**2 / (2 * state.box_mass)
     kinetic = jnp.maximum(kinetic, jnp.finfo(state.position.dtype).tiny)
@@ -1498,7 +1626,8 @@ def npt_csvr(
   ):
     kinetic = quantity.kinetic_energy(momentum=momentum, mass=mass)
     internal_pressure = (2 * kinetic - dUdV) / (3 * volume)
-    eta_dot = 3 * (volume * (internal_pressure - pressure) + kT)
+    correction = (2 if fix_center_of_mass else 1) * kT
+    eta_dot = 3 * (volume * (internal_pressure - pressure) + correction)
     eta = eta + eta_dot * dt_2 / box_mass
     eta += util.high_precision_sum(force * momentum / mass) * dt_2**2 / box_mass
     eta += util.high_precision_sum(force**2 / mass) * dt_2**3 / (3 * box_mass)
@@ -1506,6 +1635,7 @@ def npt_csvr(
 
   def nph_step(state, _pressure, _kT, **kwargs):
     """Apply the finite-step NPH part and update its conserved quantity."""
+    state = constrain_center_of_mass(state)
     R, P, M, F = state.position, state.momentum, state.mass, state.force
     P_b, M_b = state.box_momentum, state.box_mass
     volume = quantity.volume(3, state.box)
@@ -1514,6 +1644,8 @@ def npt_csvr(
       eta, P, F, M, state.dUdV, volume, M_b, _pressure, _kT
     )
     P = P + dt_2 * F
+    if fix_center_of_mass:
+      P = _project_momentum(P, M)
 
     old_H = modified_hamiltonian(
       state.potential_energy,
@@ -1538,6 +1670,8 @@ def npt_csvr(
     volume = quantity.volume(3, box)
     eta = piston_half_step(eta, P, F, M, dUdV, volume, M_b, _pressure, _kT)
     P = P + dt_2 * F
+    if fix_center_of_mass:
+      P = _project_momentum(P, M)
     P_b = M_b * eta
 
     new_H = modified_hamiltonian(
@@ -1741,6 +1875,7 @@ def temp_rescale(
   kT: ArrayLike,
   window: float,
   fraction: float,
+  fix_center_of_mass: bool = False,
   **sim_kwargs,
 ) -> Simulator:
   """Simulation using explicit velocity rescaling.
@@ -1763,6 +1898,7 @@ def temp_rescale(
       rescaling is performed. Measured in units of `kT`.
     fraction: Floating point number which determines the amount of rescaling
       applied to the velocities. Takes values from 0.0-1.0.
+    fix_center_of_mass: Remove COM momentum and use the internal temperature.
   Returns:
     See above.
 
@@ -1787,14 +1923,18 @@ def temp_rescale(
   def init_fn(key, R, mass=f32(1.0), momenta=None, **kwargs):
     # Reuse the NVEState dataclass
     state = NVEState(
-      R, tree_map(jnp.zeros_like, R), force_fn(R, **kwargs), mass
+      R,
+      tree_map(jnp.zeros_like, R),
+      force_fn(R, **kwargs),
+      mass,
+      fix_center_of_mass=fix_center_of_mass,
     )
     state = canonicalize_mass(state)
     if momenta is None:
       state = initialize_momenta(state, key, kT)
     else:
       state = canonicalize_momenta(state, momenta)
-    return state
+    return constrain_center_of_mass(state)
 
   def apply_fn(state, **kwargs):
     state = velocity_rescale(state, window, fraction, kT)
@@ -1810,6 +1950,7 @@ def temp_berendsen(
   dt: float,
   kT: ArrayLike,
   tau: float,
+  fix_center_of_mass: bool = False,
   **sim_kwargs,
 ) -> Simulator:
   """Simulation using the Berendsen thermostat.
@@ -1832,6 +1973,7 @@ def temp_berendsen(
       should pass `kT` as a keyword argument to the step function.
     tau: A floating point number determining how fast the temperature
       is relaxed during the simulation. Measured in units of `dt`.
+    fix_center_of_mass: Remove COM momentum and use the internal temperature.
   Returns:
     See above.
 
@@ -1853,14 +1995,18 @@ def temp_berendsen(
   def init_fn(key, R, mass=f32(1.0), momenta=None, **kwargs):
     # Reuse the NVEState dataclass
     state = NVEState(
-      R, tree_map(jnp.zeros_like, R), force_fn(R, **kwargs), mass
+      R,
+      tree_map(jnp.zeros_like, R),
+      force_fn(R, **kwargs),
+      mass,
+      fix_center_of_mass=fix_center_of_mass,
     )
     state = canonicalize_mass(state)
     if momenta is None:
       state = initialize_momenta(state, key, kT)
     else:
       state = canonicalize_momenta(state, momenta)
-    return state
+    return constrain_center_of_mass(state)
 
   def apply_fn(state, **kwargs):
     state = berendsen_update(state, tau, kT, dt)
@@ -1875,6 +2021,7 @@ def nvk(
   shift_fn: ShiftFn,
   dt: float,
   kT: ArrayLike,
+  fix_center_of_mass: bool = False,
   **sim_kwargs,
 ) -> Simulator:
   """Simulation in the NVK (isokinetic) ensemble using the Gaussian thermostat.
@@ -1897,6 +2044,7 @@ def nvk(
     kT: Floating point number specifying the temperature in units of Boltzmann
       constant. To update the temperature dynamically during a simulation one
       should pass `kT` as a keyword argument to the step function.
+    fix_center_of_mass: Remove COM momentum without recentering positions.
   Returns:
     See above.
 
@@ -1949,7 +2097,7 @@ def nvk(
       s_t,
       s_dot_t,
     )
-    return state.set(momentum=new_momentum)
+    return constrain_center_of_mass(state.set(momentum=new_momentum))
 
   def position_update(state, shift_fn, **kwargs):
     if isinstance(shift_fn, Callable):
@@ -1968,14 +2116,18 @@ def nvk(
     key, split = random.split(key)
     # Reuse the NVEState dataclass
     state = NVEState(
-      R, tree_map(jnp.zeros_like, R), force_fn(R, **kwargs), mass
+      R,
+      tree_map(jnp.zeros_like, R),
+      force_fn(R, **kwargs),
+      mass,
+      fix_center_of_mass=fix_center_of_mass,
     )
     state = canonicalize_mass(state)
     if momenta is None:
       state = initialize_momenta(state, split, _kT)
     else:
       state = canonicalize_momenta(state, momenta)
-    return state
+    return constrain_center_of_mass(state)
 
   def apply_fn(state, **kwargs):
     _KE = kinetic_energy(state)
@@ -1994,6 +2146,7 @@ def temp_csvr(
   dt: float,
   kT: ArrayLike,
   tau: float,
+  fix_center_of_mass: bool = False,
   **sim_kwargs,
 ) -> Simulator:
   """Simulation using the canonical sampling through velocity rescaling (CSVR) thermostat.
@@ -2020,6 +2173,8 @@ def temp_csvr(
       should pass `kT` as a keyword argument to the step function.
     tau: A floating point number determining how fast the temperature
       is relaxed during the simulation. Measured in units of `dt`.
+    fix_center_of_mass: Remove COM momentum and exclude translation from
+      the kinetic-energy distribution sampled by the thermostat.
   Returns:
     See above.
 
@@ -2038,7 +2193,11 @@ def temp_csvr(
     """Update the momentum by an scaling factor as described by
     Eq.A7 Bussi et al. [#bussi2007]_"""
     next_key, normal_key, chi_square_key = random.split(state.rng, 3)
-    dof = quantity.count_dof(state.position)
+    dof = (
+      quantity.count_dof(state.position, True)
+      if fix_center_of_mass
+      else quantity.count_dof(state.position)
+    )
 
     _kT = temperature(state)
 
@@ -2067,14 +2226,19 @@ def temp_csvr(
     key, split = random.split(key)
     # Reuse the NVTLangevinState dataclass
     state = NVTLangevinState(
-      R, tree_map(jnp.zeros_like, R), force_fn(R, **kwargs), mass, key
+      R,
+      tree_map(jnp.zeros_like, R),
+      force_fn(R, **kwargs),
+      mass,
+      key,
+      fix_center_of_mass=fix_center_of_mass,
     )
     state = canonicalize_mass(state)
     if momenta is None:
       state = initialize_momenta(state, split, _kT)
     else:
       state = canonicalize_momenta(state, momenta)
-    return state
+    return constrain_center_of_mass(state)
 
   def apply_fn(state, **kwargs):
     state = csvr_update(state, tau, kT, dt)
