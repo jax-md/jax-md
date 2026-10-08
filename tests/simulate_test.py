@@ -14,6 +14,8 @@
 
 """Tests for google3.third_party.py.jax_md.simulate."""
 
+from tests.tpu_test import SPATIAL_DIMENSIONS
+
 import functools
 
 from absl.testing import absltest
@@ -62,7 +64,9 @@ if util.x64_enabled():
 
 
 ke_fn = lambda p, m: quantity.kinetic_energy(momentum=p, mass=m)
-kT_fn = lambda p, m: quantity.temperature(momentum=p, mass=m)
+kT_fn = lambda p, m, mobile_mask: quantity.temperature(
+  momentum=p, mass=m, mobile_mask=mobile_mask
+)
 
 
 # pylint: disable=invalid-name
@@ -297,11 +301,89 @@ class SimulateTest(test_util.JAXMDTestCase):
       for _ in range(DYNAMICS_STEPS):
         state = apply_fn(state)
 
-      T_final = kT_fn(state.momentum, state.mass)
+      T_final = kT_fn(state.momentum, state.mass, None)
       assert np.abs(T_final - T) / T < 0.1
       tol = 5e-4 if dtype is f32 else 1e-6
       self.assertAllClose(invariant(state, T), initial, rtol=tol)
       self.assertEqual(state.position.dtype, dtype)
+
+  @parameterized.named_parameters(
+    test_util.cases_from_list(
+      {
+        'testcase_name': f'_dim={dim}_dtype={dtype.__name__}_sy_steps={sy_steps}_num_fixed={num_fixed}',
+        'spatial_dimension': dim,
+        'dtype': dtype,
+        'sy_steps': sy_steps,
+        'num_fixed': num_fixed,
+      }
+      for dim in SPATIAL_DIMENSION
+      for dtype in DTYPE
+      for sy_steps in [1, 3, 5, 7]
+      for num_fixed in [
+        0,
+        PARTICLE_COUNT // 4,
+        PARTICLE_COUNT // 2,
+        PARTICLE_COUNT * 3 // 4,
+      ]
+    )
+  )
+  def test_nvt_nose_hoover_fixed(
+    self, spatial_dimension, dtype, sy_steps, num_fixed
+  ):
+    key = random.PRNGKey(0)
+
+    box_size = quantity.box_size_at_number_density(
+      PARTICLE_COUNT, f32(1.2), spatial_dimension
+    )
+    displacement_fn, shift_fn = space.periodic(box_size)
+
+    bonds_i = np.arange(PARTICLE_COUNT)
+    bonds_j = np.roll(bonds_i, 1)
+    bonds = np.stack([bonds_i, bonds_j])
+
+    E = energy.simple_spring_bond(displacement_fn, bonds)
+
+    invariant = partial(simulate.nvt_nose_hoover_invariant, E)
+
+    mobile_mask = np.full(PARTICLE_COUNT, True)
+    mobile_mask = mobile_mask.at[:num_fixed].set(False)
+
+    for _ in range(STOCHASTIC_SAMPLES):
+      key, pos_key, vel_key, T_key, masses_key, mobile_key = random.split(
+        key, 6
+      )
+
+      R = box_size * random.uniform(
+        pos_key, (PARTICLE_COUNT, spatial_dimension), dtype=dtype
+      )
+      R_init = R.copy()
+      T = random.uniform(T_key, (), minval=0.3, maxval=1.4, dtype=dtype)
+      mass = 1 + random.uniform(masses_key, (PARTICLE_COUNT,), dtype=dtype)
+      mobile_mask = random.permutation(mobile_key, mobile_mask)
+      init_fn, apply_fn = simulate.nvt_nose_hoover(
+        E, shift_fn, 1e-3, T, sy_steps=sy_steps, mobile_mask=mobile_mask
+      )
+      apply_fn = jit(apply_fn)
+
+      state = init_fn(vel_key, R, mass=mass)
+
+      initial = invariant(state, T)
+
+      for _ in range(DYNAMICS_STEPS):
+        state = apply_fn(state)
+
+      T_final = kT_fn(state.momentum, state.mass, None)
+      assert np.abs(T_final - T) / T < 0.1
+      tol = 5e-4 if dtype is f32 else 1e-6
+      self.assertAllClose(invariant(state, T), initial, rtol=tol)
+      self.assertEqual(state.position.dtype, dtype)
+
+      self.assertArraysAllClose(
+        state.position[~mobile_mask, :], R_init[~mobile_mask, :]
+      )
+      assert not np.allclose(
+        state.position[mobile_mask, :], R_init[mobile_mask]
+      )
 
   @parameterized.named_parameters(
     test_util.cases_from_list(
@@ -861,7 +943,7 @@ class SimulateTest(test_util.JAXMDTestCase):
       for step in range(LANGEVIN_DYNAMICS_STEPS):
         state = apply_fn(state)
         if step > 4000 and step % 100 == 0:
-          T_list += [kT_fn(state.momentum, state.mass)]
+          T_list += [kT_fn(state.momentum, state.mass, None)]
 
       # TODO(schsam): It would be good to check Gaussinity of R and V in the
       # noninteracting case.
@@ -991,7 +1073,7 @@ class SimulateTest(test_util.JAXMDTestCase):
     def step_fn(i, state_and_temp):
       state, temp = state_and_temp
       state = apply_fn(state)
-      temp = temp.at[i].set(kT_fn(state.md.momentum, 1.0))
+      temp = temp.at[i].set(kT_fn(state.md.momentum, 1.0, None))
       return state, temp
 
     state, Ts = lax.fori_loop(0, DYNAMICS_STEPS, step_fn, (state, Ts))
@@ -1102,7 +1184,7 @@ class SimulateTest(test_util.JAXMDTestCase):
       for step in range(LANGEVIN_DYNAMICS_STEPS):
         state = apply_fn(state)
         if step > 4000 and step % 100 == 0:
-          T_list += [kT_fn(state.momentum, state.mass)]
+          T_list += [kT_fn(state.momentum, state.mass, None)]
 
       T_emp = np.mean(np.array(T_list))
       assert np.abs(T_emp - T) < 0.1

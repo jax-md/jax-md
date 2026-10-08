@@ -73,6 +73,28 @@ class QuantityTest(test_util.JAXMDTestCase):
   @parameterized.named_parameters(
     test_util.cases_from_list(
       {
+        'testcase_name': '_dim={}_mobile_count={}'.format(dim, mobile_count),
+        'mobile_count': mobile_count,
+        'spatial_dimension': dim,
+      }
+      for dim in SPATIAL_DIMENSION
+      for mobile_count in [0, 2, 5, PARTICLE_COUNT]
+    )
+  )
+  def test_count_dof(self, spatial_dimension, mobile_count):
+    key = random.PRNGKey(0)
+    mobile_mask = np.full(PARTICLE_COUNT, False)
+    mobile_mask.at[:mobile_count].set(True)
+    mobile_mask = random.permutation(key, mobile_mask)
+
+    R = random.normal(key, (PARTICLE_COUNT, spatial_dimension), dtype=f32)
+    dof = quantity.count_dof(R, mobile_mask=mobile_mask)
+
+    self.assertEqual(dof, spatial_dimension * np.sum(mobile_mask))
+
+  @parameterized.named_parameters(
+    test_util.cases_from_list(
+      {
         'testcase_name': '_dtype={}'.format(dtype.__name__),
         'dtype': dtype,
       }

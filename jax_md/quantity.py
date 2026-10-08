@@ -103,9 +103,15 @@ def canonicalize_force(energy_or_force_fn: Union[EnergyFn, ForceFn]) -> ForceFn:
 
 
 @functools.singledispatch
-def count_dof(position: Array) -> int:
+def count_dof(position: Array, mobile_mask: Array | None = None) -> int:
   util.check_custom_simulation_type(position)
-  return tree_reduce(lambda accum, x: accum + x.size, position, 0)
+  if mobile_mask is None:
+    return tree_reduce(lambda accum, x: accum + x.size, position, 0)
+  return tree_reduce(
+    lambda accum, x: accum + x.size,
+    position[mobile_mask, :],
+    0,
+  )
 
 
 def volume(dimension: int, box: Box) -> Array:
@@ -164,6 +170,7 @@ def temperature(
   momentum: Array | None = None,
   velocity: Array | None = None,
   mass: Array | float = 1.0,
+  mobile_mask: Array | None = None,
 ) -> Array | float:
   """Computes the temperature of a system.
 
@@ -193,7 +200,7 @@ def temperature(
   q = velocity if momentum is None else momentum
   util.check_custom_simulation_type(q)
 
-  dof = count_dof(q)
+  dof = count_dof(q, mobile_mask=mobile_mask)
 
   kT = tree_map(lambda m, q: util.high_precision_sum(t(q, m)) / dof, mass, q)
   return tree_reduce(operator.add, kT, 0.0)

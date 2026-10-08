@@ -275,8 +275,7 @@ class NVEState:
     return self.momentum / self.mass
 
 
-# pylint: disable=invalid-name
-def nve(energy_or_force_fn, shift_fn, dt=1e-3, **sim_kwargs):
+def nve(energy_or_force_fn, shift_fn, dt=1e-3, mobile_mask=None, **sim_kwargs):
   """Simulates a system in the NVE ensemble.
 
   Samples from the microcanonical ensemble in which the number of particles
@@ -291,9 +290,19 @@ def nve(energy_or_force_fn, shift_fn, dt=1e-3, **sim_kwargs):
       Both `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
     dt: Floating point number specifying the timescale (step size) of the
       simulation.
+    mobile_mask: Mask indicating which particles are moving. If None,
+      all particles are mobile.
   Returns:
     See above.
   """
+  init_fn, apply_fn = _nve(energy_or_force_fn, shift_fn, dt=dt, **sim_kwargs)
+  if mobile_mask is None:
+    return init_fn, apply_fn
+  return with_fixed_atoms(init_fn, apply_fn, mobile_mask)
+
+
+# pylint: disable=invalid-name
+def _nve(energy_or_force_fn, shift_fn, dt=1e-3, **sim_kwargs):
   force_fn = quantity.canonicalize_force(energy_or_force_fn)
 
   @jit
@@ -562,6 +571,41 @@ class NVTNoseHooverState:
     return self.momentum / self.mass
 
 
+def with_fixed_atoms(init_fn, apply_fn, mobile_mask) -> Simulator:
+  """Wrap NVE / Nose-Hoover NVT to constrain fixed atoms. Masks momenta;
+  fixes Nose-Hoover chain DOF / mass / KE if the state has a ``chain``.
+  Not suitable for Langevin (use the integrator's own ``mobile_mask``)."""
+  mobile = mobile_mask[:, None].astype(jnp.float32)  # (N, 1)
+  n_mobile = int(jnp.sum(mobile_mask))
+
+  def wrapped_init(key, R, *args, **kwargs):
+    state = init_fn(key, R, *args, **kwargs)
+    state = state.set(momentum=state.momentum * mobile)
+    if hasattr(state, 'chain'):
+      KE = kinetic_energy(state)
+      dof = R.shape[1] * n_mobile
+      new_mass = state.chain.mass.at[0].multiply(dof / R.size)
+      state = state.set(
+        chain=state.chain.set(
+          degrees_of_freedom=dof,
+          kinetic_energy=KE,
+          mass=new_mass,
+        )
+      )
+    return state
+
+  def wrapped_apply(state, *args, **kwargs):
+    if hasattr(state, 'chain'):
+      dof = n_mobile * state.position.shape[1]
+      state = state.set(chain=state.chain.set(degrees_of_freedom=dof))
+    state = apply_fn(state, *args, **kwargs)
+    return state.set(
+      momentum=state.momentum * mobile, force=state.force * mobile
+    )
+
+  return wrapped_init, wrapped_apply
+
+
 def nvt_nose_hoover(
   energy_or_force_fn: Callable[..., Array],
   shift_fn: ShiftFn,
@@ -571,6 +615,7 @@ def nvt_nose_hoover(
   chain_steps: int = 2,
   sy_steps: int = 3,
   tau: float | None = None,
+  mobile_mask: Array | None = None,
   **sim_kwargs,
 ) -> Simulator:
   """Simulation in the NVT ensemble using a Nose Hoover Chain thermostat.
@@ -602,6 +647,8 @@ def nvt_nose_hoover(
     tau: A floating point timescale over which temperature equilibration
       occurs. Measured in units of `dt`. The performance of the Nose-Hoover
       chain thermostat can be quite sensitive to this choice.
+    mobile_mask: Mask indicating which particles are moving. If None,
+      all particles are mobile.
   Returns:
     See above.
 
@@ -618,6 +665,33 @@ def nvt_nose_hoover(
     dynamics simulations in the isothermal-isobaric ensemble."
     Journal of Physics A: Mathematical and General 39, no. 19 (2006): 5629.
   """
+  init_fn, apply_fn = _nvt_nose_hoover(
+    energy_or_force_fn,
+    shift_fn,
+    dt,
+    kT,
+    tau=tau,
+    chain_length=chain_length,
+    chain_steps=chain_steps,
+    sy_steps=sy_steps,
+    **sim_kwargs,
+  )
+  if mobile_mask is None:
+    return init_fn, apply_fn
+  return with_fixed_atoms(init_fn, apply_fn, mobile_mask)
+
+
+def _nvt_nose_hoover(
+  energy_or_force_fn: Callable[..., Array],
+  shift_fn: ShiftFn,
+  dt: float,
+  kT: ArrayLike,
+  chain_length: int = 5,
+  chain_steps: int = 2,
+  sy_steps: int = 3,
+  tau: float | None = None,
+  **sim_kwargs,
+) -> Simulator:
   force_fn = quantity.canonicalize_force(energy_or_force_fn)
   dt = f32(dt)
   dt_2 = f32(dt / 2)
@@ -690,7 +764,7 @@ def nvt_nose_hoover_invariant(
   PE = energy_fn(state.position, **kwargs)
   KE = kinetic_energy(state)
 
-  DOF = quantity.count_dof(state.position)
+  DOF = state.chain.degrees_of_freedom
   E = PE + KE
 
   c = state.chain
