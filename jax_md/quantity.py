@@ -318,7 +318,7 @@ def average_pair_correlation_results(gofr, species=None):
   appropriately taking species information into account.
 
   When species=None, gofr is expected to be an array of shape (N,nr), where N is
-  the number of species and nr is the number of radii to be considered. The
+  the number of particles and nr is the number of radii to be considered. The
   average is calculated over all particles, so an array of shape (nr,) is
   returned.
 
@@ -359,42 +359,78 @@ def pair_correlation(
   r"""Computes the pair correlation function at a mesh of distances.
 
   The pair correlation function measures the number of particles at a given
-  distance from a central particle. The pair correlation function is defined by
+  distance from a central particle. Here it is computed separately for each
+  particle, :math:`i`, by smoothing the distances, :math:`r_{ij}`, to the other
+  particles with a Gaussian of width :math:`\sigma`,
 
   .. math::
-    g(r) = <\sum_{i \\neq j}\delta(r - |r_i - r_j|)>
+    g_i(r) = {1 \over r^{d - 1}}\sum_{j \neq i}
+      \exp\left(-{(r - r_{ij})^2 \over 2\sigma^2}\right)
 
-  We make the approximation,
-
-  .. math::
-    \delta(r) \\approx {1 \over \sqrt{2\pi\sigma^2}e^{-r / (2\sigma^2)}}
+  where :math:`d` is the spatial dimension. This is not normalized by the
+  number density, so its average over particles is proportional to the
+  conventional :math:`g(r)`, rather than equal to it.
 
   Args:
     displacement_or_metric:
       A function that computes the displacement or distance between two points.
-    radii: An array of radii at which we would like to compute :math:`g(r)`.
-    sigima: A float specifying the width of the approximating Gaussian.
-    species: An optional array specifying the species of each particle. If
-      species is None then we compute a single :math:`g(r)` for all particles,
-      otherwise we compute one :math:`g(r)` for each species.
-    eps: A small additive constant used to ensure stability if the radius is
-      zero.
+    radii: An array of shape `[num_radii]` specifying the distances, :math:`r`,
+      at which to compute :math:`g(r)`.
+    sigma: A float specifying the width (standard deviation) of the Gaussian
+      used to smooth the distances.
+    species: An optional JAX array of integers, of shape `[N]`, specifying the
+      species of each particle. If `species` is None then we compute a single
+      :math:`g(r)` for each particle, otherwise we compute one :math:`g(r)`
+      for each particle and each species.
+    eps: A small constant added to :math:`r` in the :math:`1 / r^{d - 1}`
+      factor to ensure stability if the radius is zero.
+    compute_average: If True, `g_fn` averages its output over particles
+      (separately for each pair of species if `species` is specified).
 
   Returns:
-    A function `g_fn` that computes the pair correlation function for a
-    collection of particles.
+    A function `g_fn(R)` that computes the pair correlation function of
+    particles with positions `R` of shape `[N, spatial_dimension]`. If
+    `compute_average` is False, `g_fn` returns
 
-  :math:`g(r)` is calculated separately for each particle. For species=None, the
-  output of `g_fn` is an array of shape (N, nr), where N is the number of
-  particles passed to `g_fn` and nr is the size of radii (the number of points
-  at which we calculate :math:`g(r)`. When species is specified, the output is a
-  list of nspecies arrays, each of shape (N, nr), where nspecies is the number
-  of unique species. If `gofr` is the output of `g_fn`, then gofr[si][i] gives
-  the :math:`g(r)` for particle i considering only pair particles of species si.
+    * if `species` is None, an array of shape `[N, num_radii]` whose row `i`
+      is :math:`g_i(r)` evaluated at `radii`.
+    * otherwise, a list of `num_species` arrays, one for each unique species,
+      each of shape `[N, num_radii]`. Row `i` of the `s`-th array is
+      :math:`g_i(r)` with the sum restricted to particles :math:`j` of species
+      `jnp.unique(species)[s]`. Note that the list is ordered by sorted
+      species, not by the order in which the species appear.
 
-  Note: when species is specified, the returned list is in the order of the
-  sorted unique species indices, not the order in which they appear.
+    If `compute_average` is True, `g_fn` returns an array of shape
+    `[num_radii]` if `species` is None, and otherwise an array of shape
+    `[num_species, num_species, num_radii]` whose element `[s, t]` is the
+    average of row `i` of the `s`-th array above over the particles `i` of
+    species `jnp.unique(species)[t]`.
 
+  Example:
+
+    .. code-block:: python
+
+       from jax import random
+       import jax.numpy as jnp
+       from jax_md import quantity, space
+
+       box_size = 5.0
+       displacement, _ = space.periodic(box_size)
+       R = random.uniform(random.PRNGKey(0), (100, 3), maxval=box_size)
+       radii = jnp.linspace(0.1, 2.0, 50)
+
+       g_fn = quantity.pair_correlation(displacement, radii, sigma=0.05)
+       g = g_fn(R)  # g.shape == (100, 50)
+
+       species = jnp.array([0] * 60 + [1] * 40)
+       g_fn = quantity.pair_correlation(displacement, radii, 0.05, species)
+       g_0, g_1 = g_fn(R)  # g_0.shape == g_1.shape == (100, 50)
+
+       g_fn = quantity.pair_correlation(
+         displacement, radii, 0.05, species, compute_average=True
+       )
+       g_avg = g_fn(R)  # g_avg.shape == (2, 2, 50)
+       # g_avg[0, 1] == jnp.mean(g_0[species == 1], axis=0)
   """
   d = space.canonicalize_displacement_or_metric(displacement_or_metric)
   d = space.map_product(d)
@@ -452,15 +488,17 @@ def pair_correlation_neighbor_list(
   r"""Computes the pair correlation function at a mesh of distances.
 
   The pair correlation function measures the number of particles at a given
-  distance from a central particle. The pair correlation function is defined by
+  distance from a central particle. Here it is computed separately for each
+  particle, :math:`i`, by smoothing the distances, :math:`r_{ij}`, to the other
+  particles with a Gaussian of width :math:`\sigma`,
 
   .. math::
-    g(r) = <\sum_{i \\neq j}\delta(r - |r_i - r_j|)>
+    g_i(r) = {1 \over r^{d - 1}}\sum_{j \neq i}
+      \exp\left(-{(r - r_{ij})^2 \over 2\sigma^2}\right)
 
-  We make the approximation,
-
-  .. math::
-    \delta(r) \\approx {1 \over \sqrt{2\pi\sigma^2}e^{-r / (2\sigma^2)}}
+  where :math:`d` is the spatial dimension. This is not normalized by the
+  number density, so its average over particles is proportional to the
+  conventional :math:`g(r)`, rather than equal to it.
 
   This function uses neighbor lists to speed up the calculation.
 
@@ -468,34 +506,63 @@ def pair_correlation_neighbor_list(
     displacement_or_metric: A function that computes the displacement or
       distance between two points.
     box_size: The size of the box containing the particles.
-    radii: An array of radii at which we would like to compute :math:`g(r)`.
-    sigima: A float specifying the width of the approximating Gaussian.
-    species: An optional array specifying the species of each particle. If
-      species is None then we compute a single :math:`g(r)` for all particles,
-      otherwise we compute one :math:`g(r)` for each species.
+    radii: An array of shape `[num_radii]` specifying the distances, :math:`r`,
+      at which to compute :math:`g(r)`.
+    sigma: A float specifying the width (standard deviation) of the Gaussian
+      used to smooth the distances.
+    species: An optional JAX array of integers, of shape `[N]`, specifying the
+      species of each particle. If `species` is None then we compute a single
+      :math:`g(r)` for each particle, otherwise we compute one :math:`g(r)`
+      for each particle and each species.
     dr_threshold: A float specifying the halo size of the neighbor list.
-    eps: A small additive constant used to ensure stability if the radius is
-      zero.
+    eps: A small constant added to :math:`r` in the :math:`1 / r^{d - 1}`
+      factor to ensure stability if the radius is zero.
     fractional_coordinates: Bool determining whether positions are stored in
       the unit cube or not.
     format: The format of the neighbor lists. Must be `Dense` or `Sparse`.
+    compute_average: If True, `g_fn` averages its output over particles
+      (separately for each pair of species if `species` is specified).
 
   Returns:
-    A pair of functions: `neighbor_fn` that constructs a neighbor list (see
-    `neighbor_list` in `partition.py` for details). `g_fn` that computes the
-    pair correlation function for a collection of particles given their
-    position and a neighbor list.
+    A pair of functions `(neighbor_fn, g_fn)`. `neighbor_fn` constructs a
+    neighbor list with cutoff `jnp.max(radii) + sigma` (see `neighbor_list`
+    in `partition.py` for details). `g_fn(R, neighbor)` computes the pair
+    correlation function of particles with positions `R` of shape
+    `[N, spatial_dimension]` given a neighbor list, `neighbor`, constructed
+    by `neighbor_fn`. If `compute_average` is False, `g_fn` returns
 
-  :math:`g(r)` is calculated separately for each particle. For species=None, the
-  output of `g_fn` is an array of shape (N, nr), where N is the number of
-  particles passed to `g_fn` and nr is the size of radii (the number of points
-  at which we calculate :math:`g(r)`. When species is specified, the output is a
-  list of nspecies arrays, each of shape (N, nr), where nspecies is the number
-  of unique species. If `gofr` is the output of `g_fn`, then gofr[si][i] gives
-  the :math:`g(r)` for particle i considering only pair particles of species si.
+    * if `species` is None, an array of shape `[N, num_radii]` whose row `i`
+      is :math:`g_i(r)` evaluated at `radii`.
+    * otherwise, a list of `num_species` arrays, one for each unique species,
+      each of shape `[N, num_radii]`. Row `i` of the `s`-th array is
+      :math:`g_i(r)` with the sum restricted to particles :math:`j` of species
+      `jnp.unique(species)[s]`. Note that the list is ordered by sorted
+      species, not by the order in which the species appear.
 
-  Note: when species is specified, the returned list is in the order of the
-  sorted unique species indices, not the order in which they appear.
+    If `compute_average` is True, `g_fn` returns an array of shape
+    `[num_radii]` if `species` is None, and otherwise an array of shape
+    `[num_species, num_species, num_radii]` whose element `[s, t]` is the
+    average of row `i` of the `s`-th array above over the particles `i` of
+    species `jnp.unique(species)[t]`.
+
+  Example:
+
+    .. code-block:: python
+
+       from jax import random
+       import jax.numpy as jnp
+       from jax_md import quantity, space
+
+       box_size = 10.0
+       displacement, _ = space.periodic(box_size)
+       R = random.uniform(random.PRNGKey(0), (500, 3), maxval=box_size)
+       radii = jnp.linspace(0.1, 2.0, 50)
+
+       neighbor_fn, g_fn = quantity.pair_correlation_neighbor_list(
+         displacement, box_size, radii, sigma=0.05
+       )
+       nbrs = neighbor_fn.allocate(R)
+       g = g_fn(R, neighbor=nbrs)  # g.shape == (500, 50)
   """
   metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
   inv_rad = 1 / (radii + eps)
