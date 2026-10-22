@@ -36,6 +36,7 @@ partial = functools.partial
 
 
 Array = util.Array
+PyTree = util.PyTree
 f32 = util.f32
 f64 = util.f64
 
@@ -122,7 +123,7 @@ def volume(dimension: int, box: Box) -> Array:
 
 
 def kinetic_energy(
-  *unused_args,
+  *unused_args: Any,
   momentum: Array | None = None,
   velocity: Array | None = None,
   mass: Array | float = 1.0,
@@ -160,7 +161,7 @@ def kinetic_energy(
 
 
 def temperature(
-  *unused_args,
+  *unused_args: Any,
   momentum: Array | None = None,
   velocity: Array | None = None,
   mass: Array | float = 1.0,
@@ -204,8 +205,8 @@ def pressure(
   position: Array,
   box: Box,
   kinetic_energy: float | Array = 0.0,
-  **kwargs,
-) -> float:
+  **kwargs: Any,
+) -> Array:
   """Computes the internal pressure of a system.
 
   Args:
@@ -241,7 +242,7 @@ def stress(
   box: Box,
   mass: Array | float = 1.0,
   velocity: Array | None = None,
-  **kwargs,
+  **kwargs: Any,
 ) -> Array:
   """Computes the internal stress of a system.
 
@@ -311,7 +312,9 @@ def is_integer(x: Array) -> bool:
   return x.dtype == jnp.int32 or x.dtype == jnp.int64
 
 
-def average_pair_correlation_results(gofr, species=None):
+def average_pair_correlation_results(
+  gofr: PyTree, species: Array | None = None
+) -> Array:
   """Calculate species-based averages of pair correlations.
 
   Average the results of pair_correlation or pair_correlation_neighbor_list,
@@ -351,11 +354,11 @@ def average_pair_correlation_results(gofr, species=None):
 def pair_correlation(
   displacement_or_metric: Union[DisplacementFn, MetricFn],
   radii: Array,
-  sigma: float,
+  sigma: float | Array,
   species: Array | None = None,
   eps: float = 1e-7,
   compute_average: bool = False,
-):
+) -> Callable[[Array], PyTree]:
   r"""Computes the pair correlation function at a mesh of distances.
 
   The pair correlation function measures the number of particles at a given
@@ -441,14 +444,14 @@ def pair_correlation_neighbor_list(
   displacement_or_metric: Union[DisplacementFn, MetricFn],
   box_size: Box,
   radii: Array,
-  sigma: float,
+  sigma: float | Array,
   species: Array | None = None,
   dr_threshold: float = 0.5,
   eps: float = 1e-7,
   fractional_coordinates: bool = False,
   format: partition.NeighborListFormat = partition.Dense,
   compute_average: bool = False,
-):
+) -> Tuple[partition.NeighborListFns, Callable[..., PyTree]]:
   r"""Computes the pair correlation function at a mesh of distances.
 
   The pair correlation function measures the number of particles at a given
@@ -761,7 +764,9 @@ def phop(displacement: DisplacementFn, window_size: int) -> PHopCalculator:
   return init_fn, update_fn
 
 
-def gamma_from_stokes_law_3d(eta, radii, mass):
+def gamma_from_stokes_law_3d(
+  eta: float, radii: Array | float, mass: Array | float
+) -> Array | float:
   """
   Compute gamma value for a sphere in fluid using stokes' law in three dimensions.
 
