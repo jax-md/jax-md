@@ -70,8 +70,9 @@ def calculate_reaxff_energy(
     body_3_angles, body_4_angles, hb_ang_dist: Angles and distances for
       many-body interactions
     force_field: ReaxFF parameters
-    init_charges: Initial charges for the iterative solver
-      An ndarray of shape `[n, ]` or None
+    init_charges: Initial guess for the iterative EEM solver
+      An ndarray of shape `[n+1, ]` whose first n entries are the charges and
+      last entry is the electronegativity equalization value, or None
     total_charge: Total charge of the system (float)
     tol: Tolarence for the charge solver
     max_solver_iter: Maximum number of solver iterations

@@ -199,7 +199,7 @@ def count_cell_filling(
 
   hash_multipliers = _compute_hash_constants(dim, cells_per_side)
 
-  particle_index = jnp.array(position / cell_size, dtype=i32)
+  particle_index = jnp.array(jnp.floor(position / cell_size), dtype=i32)
   particle_index = jnp.mod(particle_index, cells_per_side)
   particle_hash = jnp.sum(particle_index * hash_multipliers, axis=1)
 
@@ -418,7 +418,7 @@ def cell_list(
         (cell_count * cell_capacity,) + kwarg_shape, v.dtype
       )
     #  pytype: enable=attribute-error
-    indices = jnp.array(position / cell_size, dtype=i32)
+    indices = jnp.array(jnp.floor(position / cell_size), dtype=i32)
     indices = jnp.mod(indices, cells_per_side)
     hashes = jnp.sum(indices * hash_multipliers, axis=1)
 
