@@ -9,40 +9,60 @@ For energy-conserving forces, use jax.grad of the energy function
 Ported from FairChem's UMA implementation.
 """
 
-from __future__ import annotations
+from typing import Dict, Literal, Tuple
 
-from typing import Dict, Literal
-
-import flax.linen as nn
+import equinox as eqx
+import jax
 import jax.numpy as jnp
 
+from jax_md import util as jmd_util
+from jax_md._nn.uma.nn import primitives
 from jax_md._nn.uma.nn.so3_layers import SO3Linear
 
+Array = jmd_util.Array
 
-class MLPEnergyHead(nn.Module):
+
+class MLPEnergyHead(eqx.Module):
   """MLP head for energy prediction.
 
   Uses a 3-layer MLP to predict per-atom energies which are summed
   to get the total energy.
 
   Attributes:
-      sphere_channels: Number of input channels.
-      hidden_channels: Number of hidden channels.
-      reduce: Reduction method ('sum' or 'mean').
+      linear: The three dense layers, in application order.
+      reduce: Reduction method, 'sum' or 'mean'.
   """
 
-  sphere_channels: int
-  hidden_channels: int
-  reduce: Literal['sum', 'mean'] = 'sum'
+  linear: Tuple[primitives.Dense, ...]
+  reduce: Literal['sum', 'mean'] = eqx.field(static=True)
 
-  @nn.compact
+  def __init__(
+    self,
+    sphere_channels: int,
+    hidden_channels: int,
+    reduce: Literal['sum', 'mean'] = 'sum',
+    *,
+    key: Array,
+  ):
+    keys = jax.random.split(key, 3)
+    self.linear = (
+      primitives.Dense(
+        sphere_channels, hidden_channels, key=keys[0], use_bias=True
+      ),
+      primitives.Dense(
+        hidden_channels, hidden_channels, key=keys[1], use_bias=True
+      ),
+      primitives.Dense(hidden_channels, 1, key=keys[2], use_bias=True),
+    )
+    self.reduce = reduce
+
   def __call__(
     self,
-    node_embedding: jnp.ndarray,
-    batch: jnp.ndarray,
+    node_embedding: Array,
+    batch: Array,
     num_systems: int,
-    natoms: jnp.ndarray | None = None,
-  ) -> Dict[str, jnp.ndarray]:
+    natoms: Array | None = None,
+  ) -> Dict[str, Array]:
     """Predict energy from embeddings.
 
     Args:
@@ -58,13 +78,11 @@ class MLPEnergyHead(nn.Module):
     scalar_input = node_embedding[:, 0, :]
 
     # MLP: Linear -> SiLU -> Linear -> SiLU -> Linear
-    x = nn.Dense(self.hidden_channels, use_bias=True, name='linear_0')(
-      scalar_input
-    )
-    x = nn.silu(x)
-    x = nn.Dense(self.hidden_channels, use_bias=True, name='linear_1')(x)
-    x = nn.silu(x)
-    x = nn.Dense(1, use_bias=True, name='linear_2')(x)
+    x = self.linear[0](scalar_input)
+    x = jax.nn.silu(x)
+    x = self.linear[1](x)
+    x = jax.nn.silu(x)
+    x = self.linear[2](x)
 
     node_energy = x.squeeze(-1)
 
@@ -77,27 +95,38 @@ class MLPEnergyHead(nn.Module):
     return {'energy': energy}
 
 
-class LinearEnergyHead(nn.Module):
+class LinearEnergyHead(eqx.Module):
   """Simple linear head for energy prediction.
 
   Uses a single linear layer for fast inference.
 
   Attributes:
-      sphere_channels: Number of input channels.
-      reduce: Reduction method ('sum' or 'mean').
+      energy_block: Dense layer mapping scalars to per-atom energies.
+      reduce: Reduction method, 'sum' or 'mean'.
   """
 
-  sphere_channels: int
-  reduce: Literal['sum', 'mean'] = 'sum'
+  energy_block: primitives.Dense
+  reduce: Literal['sum', 'mean'] = eqx.field(static=True)
 
-  @nn.compact
+  def __init__(
+    self,
+    sphere_channels: int,
+    reduce: Literal['sum', 'mean'] = 'sum',
+    *,
+    key: Array,
+  ):
+    self.energy_block = primitives.Dense(
+      sphere_channels, 1, key=key, use_bias=True
+    )
+    self.reduce = reduce
+
   def __call__(
     self,
-    node_embedding: jnp.ndarray,
-    batch: jnp.ndarray,
+    node_embedding: Array,
+    batch: Array,
     num_systems: int,
-    natoms: jnp.ndarray | None = None,
-  ) -> Dict[str, jnp.ndarray]:
+    natoms: Array | None = None,
+  ) -> Dict[str, Array]:
     """Predict energy from embeddings.
 
     Args:
@@ -110,8 +139,7 @@ class LinearEnergyHead(nn.Module):
         Dictionary with 'energy' key, shape [num_systems].
     """
     scalar_input = node_embedding[:, 0, :]
-    linear = nn.Dense(1, use_bias=True, name='energy_block')
-    node_energy = linear(scalar_input).squeeze(-1)
+    node_energy = self.energy_block(scalar_input).squeeze(-1)
 
     energy = jnp.zeros(num_systems).at[batch].add(node_energy)
 
@@ -121,23 +149,31 @@ class LinearEnergyHead(nn.Module):
     return {'energy': energy}
 
 
-class LinearForceHead(nn.Module):
+class LinearForceHead(eqx.Module):
   """Linear head for direct force prediction.
 
   Uses an SO(3) linear layer to directly predict forces from
   the equivariant embeddings.
 
   Attributes:
-      sphere_channels: Number of input channels.
+      linear: SO(3) linear layer producing the force vectors.
   """
 
-  sphere_channels: int
+  linear: SO3Linear
 
-  @nn.compact
+  def __init__(self, sphere_channels: int, *, key: Array):
+    self.linear = SO3Linear(
+      sphere_channels,
+      1,
+      1,
+      key=key,
+      use_bias=False,
+    )
+
   def __call__(
     self,
-    node_embedding: jnp.ndarray,
-  ) -> Dict[str, jnp.ndarray]:
+    node_embedding: Array,
+  ) -> Dict[str, Array]:
     """Predict forces from embeddings.
 
     Args:
@@ -146,17 +182,10 @@ class LinearForceHead(nn.Module):
     Returns:
         Dictionary with 'forces' key, shape [num_atoms, 3].
     """
-    linear = SO3Linear(
-      out_features=1,
-      lmax=1,
-      use_bias=False,
-      name='linear',
-    )
-
     # Select l=0 and l=1 components
-    forces = linear(node_embedding[:, :4, :])
+    forces = self.linear(node_embedding[:, :4, :])
 
-    # Extract l=1 (vector) components (indices 1, 2, 3)
+    # l=1 components
     forces = forces[:, 1:4, 0]  # [num_atoms, 3]
 
     return {'forces': forces}

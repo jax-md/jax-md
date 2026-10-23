@@ -20,7 +20,8 @@ from typing import Callable, Tuple, TextIO, Dict, Any, Optional
 
 import re
 
-from flax import nnx
+import equinox as eqx
+import itertools
 import jax
 import jax.numpy as jnp
 from jax import ops
@@ -37,8 +38,6 @@ from jax_md import (
   interpolate,
   util,
 )
-
-from ml_collections import ConfigDict
 
 
 # Electrostatics
@@ -532,7 +531,7 @@ def gupta_gold55(displacement, cutoff=8.0):
 
 
 def multiplicative_isotropic_cutoff(
-  fn: Callable[..., Array], r_onset: float, r_cutoff: float
+  fn: Callable[..., Array], r_onset: float | Array, r_cutoff: float | Array
 ) -> Callable[..., Array]:
   """Takes an isotropic function and constructs a truncated function.
 
@@ -1163,17 +1162,17 @@ def _ters_bij(R, D, c, d, h, lam3, beta, n, m, dRij, dRik, mask_ijk) -> Array:
 
 
 def _ters_attractive(
-  B: f64,
-  lam2: f64,
-  R: f64,
-  D: f64,
-  c: f64,
-  d: f64,
-  h: f64,
-  lam3: f64,
-  beta: f64,
-  n: f64,
-  m: f64,
+  B: float,
+  lam2: float,
+  R: float,
+  D: float,
+  c: float,
+  d: float,
+  h: float,
+  lam3: float,
+  beta: float,
+  n: float,
+  m: float,
   dR12: Array,
   dR13: Array,
   mask_ijk,
@@ -1215,7 +1214,9 @@ def _ters_attractive(
   return 0.5 * fC * bij * fA
 
 
-def _ters_repulsive(A: f64, lam1: f64, R: f64, D: f64, dr: Array) -> Array:
+def _ters_repulsive(
+  A: float, lam1: float, R: float, D: float, dr: Array
+) -> Array:
   """The repulsive term of the Tersoff potential.
   Args:
     A: A scalar that determines repulsive energy (eV).
@@ -1434,7 +1435,9 @@ def tersoff_from_lammps_parameters_neighbor_list(
 # (EDIP) Environment-dependent interatomic potential
 
 
-def _edip_cutoff_function(r: Array, cutoff: f64, c: f64, alpha: f64) -> Array:
+def _edip_cutoff_function(
+  r: Array, cutoff: float, c: float, alpha: float
+) -> Array:
   x_term = (r - c) / (cutoff - c)
   expo_term = jnp.exp(alpha / (1 - (x_term ** (-3))))
   outer = jnp.where(r > cutoff, 0, expo_term)
@@ -1443,14 +1446,14 @@ def _edip_cutoff_function(r: Array, cutoff: f64, c: f64, alpha: f64) -> Array:
 
 
 def _edip_radial_interaction(
-  A: f64,
-  B: f64,
-  rho: f64,
-  sigma: f64,
-  c: f64,
-  alpha: f64,
-  beta: f64,
-  cutoff: f64,
+  A: float,
+  B: float,
+  rho: float,
+  sigma: float,
+  c: float,
+  alpha: float,
+  beta: float,
+  cutoff: float,
   mask,
   r: Array,
 ) -> Array:
@@ -1467,18 +1470,18 @@ def _edip_radial_interaction(
 
 
 def _edip_angle_interaction(
-  lam: f64,
-  gamma: f64,
-  Q_0: f64,
-  cutoff: f64,
-  u1: f64,
-  u2: f64,
-  u3: f64,
-  u4: f64,
-  c: f64,
-  eta: f64,
-  alpha: f64,
-  mu: f64,
+  lam: float,
+  gamma: float,
+  Q_0: float,
+  cutoff: float,
+  u1: float,
+  u2: float,
+  u3: float,
+  u4: float,
+  c: float,
+  eta: float,
+  alpha: float,
+  mu: float,
   mask,
   dR12: Array,
   dR13: Array,
@@ -1505,23 +1508,23 @@ def _edip_angle_interaction(
 
 def edip(
   displacement: DisplacementFn,
-  u1: f64 = -0.165799,
-  u2: f64 = 32.557,
-  u3: f64 = 0.286198,
-  u4: f64 = 0.66,
-  rho: f64 = 1.2085196,
-  eta: f64 = 0.2523244,
-  Q_0: f64 = 312.1341346,
-  mu: f64 = 0.6966326,
-  beta: f64 = 0.0070975,
-  alpha: f64 = 3.1083847,
-  A: f64 = 7.9821730,
-  lam: f64 = 1.4533108,
-  B: f64 = 1.5075463,
-  gamma: f64 = 1.1247945,
-  sigma: f64 = 0.5774108,
-  c: f64 = 2.5609104,
-  cutoff: f64 = 3.1213820,
+  u1: float = -0.165799,
+  u2: float = 32.557,
+  u3: float = 0.286198,
+  u4: float = 0.66,
+  rho: float = 1.2085196,
+  eta: float = 0.2523244,
+  Q_0: float = 312.1341346,
+  mu: float = 0.6966326,
+  beta: float = 0.0070975,
+  alpha: float = 3.1083847,
+  A: float = 7.9821730,
+  lam: float = 1.4533108,
+  B: float = 1.5075463,
+  gamma: float = 1.1247945,
+  sigma: float = 0.5774108,
+  c: float = 2.5609104,
+  cutoff: float = 3.1213820,
 ) -> Callable[[Array], Array]:
   """
   Computes the the Environment-dependent interatomic potential (EDIP).
@@ -1593,25 +1596,25 @@ def edip(
 
 def edip_neighbor_list(
   displacement: DisplacementFn,
-  box_size: f64,
-  u1: f64 = -0.165799,
-  u2: f64 = 32.557,
-  u3: f64 = 0.286198,
-  u4: f64 = 0.66,
-  rho: f64 = 1.2085196,
-  eta: f64 = 0.2523244,
-  Q_0: f64 = 312.1341346,
-  mu: f64 = 0.6966326,
-  beta: f64 = 0.0070975,
-  alpha: f64 = 3.1083847,
-  A: f64 = 7.9821730,
-  lam: f64 = 1.4533108,
-  B: f64 = 1.5075463,
-  gamma: f64 = 1.1247945,
-  sigma: f64 = 0.5774108,
-  c: f64 = 2.5609104,
-  cutoff: f64 = 3.1213820,
-  dr_threshold: f64 = 0.0,
+  box_size: Box,
+  u1: float = -0.165799,
+  u2: float = 32.557,
+  u3: float = 0.286198,
+  u4: float = 0.66,
+  rho: float = 1.2085196,
+  eta: float = 0.2523244,
+  Q_0: float = 312.1341346,
+  mu: float = 0.6966326,
+  beta: float = 0.0070975,
+  alpha: float = 3.1083847,
+  A: float = 7.9821730,
+  lam: float = 1.4533108,
+  B: float = 1.5075463,
+  gamma: float = 1.1247945,
+  sigma: float = 0.5774108,
+  c: float = 2.5609104,
+  cutoff: float = 3.1213820,
+  dr_threshold: float = 0.0,
   fractional_coordinates: bool = True,
   format: NeighborListFormat = partition.Dense,
   neighbor_list_fn: Callable = partition.neighbor_list,
@@ -1915,11 +1918,15 @@ def eam_from_lammps_parameters_neighbor_list(
   )
 
 
-class BehlerParrinelloEnergy(nnx.Module):
+class BehlerParrinelloEnergy(eqx.Module):
   """Behler-Parrinello symmetry-function energy model.
 
   Callable as ``model(R, neighbor=None, **kwargs) -> scalar``.
   """
+
+  mlp: nn.MLP
+  sym_fn: Callable = eqx.field(static=True)
+  per_particle: bool = eqx.field(static=True)
 
   def __init__(
     self,
@@ -1927,7 +1934,7 @@ class BehlerParrinelloEnergy(nnx.Module):
     in_features,
     mlp_sizes,
     *,
-    rngs,
+    key,
     per_particle=False,
     activation=jnp.tanh,
   ):
@@ -1936,23 +1943,25 @@ class BehlerParrinelloEnergy(nnx.Module):
     self.mlp = nn.MLP(
       in_features,
       mlp_sizes + (1,),
-      rngs=rngs,
+      key=key,
       activate_final=False,
       activation=activation,
     )
 
-  def __call__(self, R, neighbor=None, **kwargs):
+  def node_energies(self, R, neighbor=None, **kwargs):
+    """Per-atom energies of shape ``[n, 1]``."""
     if neighbor is not None:
       sym = self.sym_fn(R, neighbor, **kwargs)
     else:
       sym = self.sym_fn(R, **kwargs)
-    readout = vmap(self.mlp)(sym)
-    if self.per_particle:
-      return readout
-    return jnp.sum(readout)
+    return vmap(self.mlp)(sym)
+
+  def __call__(self, R, neighbor=None, **kwargs):
+    readout = self.node_energies(R, neighbor, **kwargs)
+    return readout if self.per_particle else jnp.sum(readout)
 
 
-def _probe_sym_dim(sym_fn, species, spatial_dimension=3):
+def probe_sym_dim(sym_fn, species, spatial_dimension=3):
   n = len(species) if species is not None else 3
   dummy = jnp.zeros((n, spatial_dimension))
   return sym_fn(dummy).shape[-1]
@@ -1982,20 +1991,20 @@ def behler_parrinello(
     activation: Activation function for the MLP (default ``jnp.tanh``).
 
   Returns:
-    An ``energy_fn(R, **kwargs) -> scalar``.  The underlying NNX module is
+    An ``energy_fn(R, **kwargs) -> scalar``.  The underlying equinox module is
     accessible via ``energy_fn.model`` for training.
   """
   if sym_kwargs is None:
     sym_kwargs = {}
 
   sym_fn = bp.symmetry_functions(displacement, species, **sym_kwargs)
-  sym_dim = _probe_sym_dim(sym_fn, species, spatial_dimension)
+  sym_dim = probe_sym_dim(sym_fn, species, spatial_dimension)
 
   model = BehlerParrinelloEnergy(
     sym_fn,
     sym_dim,
     mlp_sizes,
-    rngs=nnx.Rngs(key),
+    key=key,
     per_particle=per_particle,
     activation=activation,
   )
@@ -2010,12 +2019,13 @@ def behler_parrinello(
 
 def behler_parrinello_neighbor_list(
   displacement: DisplacementFn,
-  box_size: float,
+  box_size: Box,
   *,
   key: jax.Array,
   species: Array | None = None,
   mlp_sizes: Tuple[int, ...] = (30, 30),
   sym_kwargs: Dict[str, Any] | None = None,
+  per_particle: bool = False,
   dr_threshold: float = 0.5,
   fractional_coordinates: bool = False,
   format: partition.NeighborListFormat = partition.Sparse,
@@ -2032,6 +2042,7 @@ def behler_parrinello_neighbor_list(
     species: None or an integer array specifying the species of each particle.
     mlp_sizes: Layer widths for the per-particle MLP.
     sym_kwargs: Additional kwargs for symmetry function construction.
+    per_particle: If True, return per-particle energies instead of the total.
     dr_threshold: Halo radius for neighbor list construction.
     fractional_coordinates: Whether coordinates are fractional.
     format: Neighbor list format (``Dense`` or ``Sparse``).
@@ -2039,7 +2050,7 @@ def behler_parrinello_neighbor_list(
 
   Returns:
     A tuple ``(neighbor_fn, energy_fn)`` where
-    ``energy_fn(R, neighbor=nbrs) -> scalar``.  The underlying NNX module is
+    ``energy_fn(R, neighbor=nbrs) -> scalar``.  The underlying equinox module is
     accessible via ``energy_fn.model`` for training.
   """
   if sym_kwargs is None:
@@ -2065,7 +2076,7 @@ def behler_parrinello_neighbor_list(
   sym_fn = bp.symmetry_functions_neighbor_list(
     displacement, species, **sym_kwargs
   )
-  sym_dim = _probe_sym_dim(
+  sym_dim = probe_sym_dim(
     bp.symmetry_functions(displacement, species, **sym_kwargs),
     species,
     spatial_dimension,
@@ -2075,7 +2086,8 @@ def behler_parrinello_neighbor_list(
     sym_fn,
     sym_dim,
     mlp_sizes,
-    rngs=nnx.Rngs(key),
+    key=key,
+    per_particle=per_particle,
     activation=activation,
   )
 
@@ -2087,7 +2099,7 @@ def behler_parrinello_neighbor_list(
   return neighbor_fn, energy_fn
 
 
-class EnergyGraphNet(nnx.Module):
+class EnergyGraphNet(eqx.Module):
   """Graph Neural Network energy model.
 
   Combines a ``GraphNetEncoder`` with a global decoder to predict a scalar
@@ -2097,6 +2109,17 @@ class EnergyGraphNet(nnx.Module):
   ``(R, neighbor=None, **kwargs)`` directly, matching the standard jax_md
   energy function signature.
   """
+
+  GraphNetEncoder: nn.GraphNetEncoder
+  GlobalDecoder: nn.MLP
+  NodeDecoder: nn.MLP | None
+  nodes: Tuple[Tuple[Any, ...], ...] | None = eqx.field(static=True)
+  nodes_dtype: str | None = eqx.field(static=True)
+  displacement_fn: space.DisplacementFn = eqx.field(static=True)
+  r_cutoff: float = eqx.field(static=True)
+  dr_threshold: float = eqx.field(static=True)
+  format: partition.NeighborListFormat = eqx.field(static=True)
+  per_particle: bool = eqx.field(static=True)
 
   def __init__(
     self,
@@ -2115,14 +2138,22 @@ class EnergyGraphNet(nnx.Module):
     format: partition.NeighborListFormat = partition.Dense,
     dr_threshold: float = 0.0,
     nodes: Array | None = None,
+    per_particle: bool = False,
   ):
-    rngs = nnx.Rngs(key)
+    keys = (jax.random.fold_in(key, i) for i in itertools.count())
 
     self.displacement_fn = displacement_fn
     self.r_cutoff = r_cutoff
     self.dr_threshold = dr_threshold
     self.format = format
-    self.nodes = nodes
+    # Node features are inputs, so they stay out of the leaves
+    if nodes is None:
+      self.nodes, self.nodes_dtype = None, None
+    else:
+      nodes = canonicalize_node_state(jnp.asarray(nodes))
+      self.nodes = tuple(tuple(row) for row in nodes.tolist())
+      self.nodes_dtype = str(nodes.dtype)
+    self.per_particle = per_particle
 
     kw: Dict[str, Any] = dict(
       activation=activation, kernel_init=kernel_init, bias_init=bias_init
@@ -2134,36 +2165,60 @@ class EnergyGraphNet(nnx.Module):
       in_global_features=in_global_features,
       n_recurrences=n_recurrences,
       mlp_sizes=mlp_sizes,
-      rngs=rngs,
+      key=keys,
       format=format,
       **kw,
     )
     self.GlobalDecoder = nn.MLP(
       m,
       mlp_sizes + (1,),
-      rngs=rngs,
+      key=keys,
       activate_final=False,
       **kw,
     )
+    self.NodeDecoder = (
+      nn.MLP(m, mlp_sizes + (1,), key=keys, activate_final=False, **kw)
+      if per_particle
+      else None
+    )
 
-  def _build_graph(self, R, neighbor, **kwargs):
+  def build_graph(self, R, neighbor, **kwargs):
+    nodes = kwargs.pop('nodes', None)
+    if nodes is None and self.nodes is not None:
+      nodes = jnp.asarray(self.nodes, self.nodes_dtype)
+    nodes = canonicalize_node_state(nodes)
     if neighbor is None:
       return dense_graph_input(
-        self.displacement_fn, self.r_cutoff, self.nodes, R, **kwargs
+        self.displacement_fn, self.r_cutoff, nodes, R, **kwargs
       )
     return neighbor_graph_input(
       self.displacement_fn,
       self.r_cutoff,
       self.dr_threshold,
       self.format,
-      self.nodes,
+      nodes,
       R,
       neighbor,
       **kwargs,
     )
 
+  def node_energies(self, R, neighbor=None, **kwargs):
+    """Per-atom energies of shape ``[n, 1]`` from the node readout.
+
+    Needs ``per_particle=True`` at construction, which allocates the node
+    decoder.
+    """
+    if self.NodeDecoder is None:
+      raise ValueError('node_energies needs per_particle=True at construction.')
+    graph = self.build_graph(R, neighbor, **kwargs)
+    # drop the sparse graph's trailing padding node
+    nodes = self.GraphNetEncoder(graph).nodes[: R.shape[0]]
+    return self.NodeDecoder(nodes)
+
   def __call__(self, R, neighbor=None, **kwargs):
-    graph = self._build_graph(R, neighbor, **kwargs)
+    if self.per_particle:
+      return self.node_energies(R, neighbor, **kwargs)
+    graph = self.build_graph(R, neighbor, **kwargs)
     output = self.GraphNetEncoder(graph)
     output = jnp.squeeze(self.GlobalDecoder(output.globals), axis=-1)
     if self.format is partition.Sparse:
@@ -2240,14 +2295,14 @@ def neighbor_graph_input(
     return nn.GraphsTuple(nodes, dR, globals_, edge_idx)
 
   d = space.map_bond(d)
-  dR = d(R[neighbor.idx[0]], R[neighbor.idx[1]])
+  dR = d(R[neighbor.idx[1]], R[neighbor.idx[0]])
   if dr_threshold > 0.0:
     dr_2 = space.square_distance(dR)
     mask = dr_2 < r_cutoff**2 + 1e-5
     graph = partition.to_jraph(neighbor, mask)
     # TODO(schsam): It seems wasteful to recompute dR after we remask the
     # edges. If I can think of a clean way to get rid of this, I should.
-    dR = d(R[graph.receivers], R[graph.senders])
+    dR = d(R[graph.senders], R[graph.receivers])
   else:
     graph = partition.to_jraph(neighbor)
 
@@ -2289,7 +2344,7 @@ def graph_network(
       (e.g. ``activation``, ``kernel_init``, ``bias_init``).
 
   Returns:
-    An ``energy_fn(R, **kwargs) -> scalar``.  The underlying NNX module is
+    An ``energy_fn(R, **kwargs) -> scalar``.  The underlying equinox module is
     accessible via ``energy_fn.model`` for training.
   """
   nodes = canonicalize_node_state(nodes)
@@ -2361,7 +2416,7 @@ def graph_network_neighbor_list(
 
   Returns:
     A tuple ``(neighbor_fn, energy_fn)`` where
-    ``energy_fn(R, neighbor=nbrs) -> scalar``.  The underlying NNX module is
+    ``energy_fn(R, neighbor=nbrs) -> scalar``.  The underlying equinox module is
     accessible via ``energy_fn.model`` for training.
   """
   nodes = canonicalize_node_state(nodes)
@@ -2372,7 +2427,7 @@ def graph_network_neighbor_list(
     spatial_dimension = box_arr.shape[-1]
 
   model_kwargs = {}
-  for k in ('activation', 'kernel_init', 'bias_init'):
+  for k in ('activation', 'kernel_init', 'bias_init', 'per_particle'):
     if k in neighbor_kwargs:
       model_kwargs[k] = neighbor_kwargs.pop(k)
 
@@ -2412,112 +2467,87 @@ def graph_network_neighbor_list(
 def nequip_neighbor_list(
   displacement_fn,
   box,
-  cfg: ConfigDict | None = None,
-  atoms=None,
+  config: Dict[str, Any] | None = None,
+  species=None,
+  model=None,
   neighbor_list_fn: Callable = partition.neighbor_list,
-  featurizer_fn: Callable = nn.util.neighbor_list_featurizer,
+  featurizer_fn: Callable | None = None,
   **nl_kwargs,
 ):
-  """Convenience wrapper to compute NequIP energy using a neighbor list.
+  """Compute a NequIP energy using a neighbor list.
 
   Args:
     displacement_fn: Displacement function from `jax_md.space`.
     box: Box matrix with columns as lattice vectors, shape (dim, dim).
-    cfg: NequIP configuration. If None, uses default config.
-    atoms: One-hot encoding of atom types.
-    neighbor_list_fn: Neighbor list constructor. Can be `partition.neighbor_list`
-      (default, uses MIC) or `custom_partition.neighbor_list_multi_image` for
-      small boxes where r_cut > L/2.
-    featurizer_fn: Function to create a featurizer. Signature:
-      `featurizer_fn(displacement_fn) -> featurize(atoms, position, neighbor)`.
-      Defaults to `nn.util.neighbor_list_featurizer` for standard MIC.
-      Use `custom_partition.graph_featurizer` with `neighbor_list_multi_image`
-      for correct multi-image displacement computation.
-    **nl_kwargs: Additional kwargs for neighbor list (e.g., `fractional_coordinates`).
+    config: Keyword arguments for `nequip.from_config`, used to build an
+      untrained model. Ignored when `model` is given.
+    species: Integer type indices, shape `[num_atoms]`, indexing the model's
+      `type_names`. May also be passed per call.
+    model: A `nequip.NequIP`, e.g. from `nequip.load_model`. When given,
+      `r_max` is read from it and `init_fn` returns it unchanged.
+    neighbor_list_fn: Neighbor list constructor.
+    featurizer_fn: Computes edge vectors for neighbor lists that are not
+      minimum image. Use `custom_partition.graph_featurizer` with
+      `custom_partition.neighbor_list_multi_image` and `displacement_fn=None`;
+      the featurizer applies the lattice shifts itself.
+    **nl_kwargs: Additional kwargs for the neighbor list.
 
   Returns:
-    Tuple of (neighbor_fn, init_fn, energy_fn).
+    Tuple of (neighbor_fn, init_fn, energy_fn), where `init_fn(key, ...)`
+    returns the model and `energy_fn(model, position, neighbor)` the total
+    energy.
   """
-  cfg = nequip.default_config() if cfg is None else cfg
-  model = nequip.model_from_config(cfg)
+  if featurizer_fn is not None and displacement_fn is not None:
+    raise ValueError(
+      'A featurizer applies its own shifts; pass displacement_fn=None.'
+    )
+  if featurizer_fn is not None and (
+    not nl_kwargs.get('fractional_coordinates', True)
+    or nl_kwargs.get('ordered', False)
+  ):
+    raise ValueError(
+      'The featurizer needs fractional coordinates and both edge directions.'
+    )
+  config = {} if config is None else dict(config)
+  r_max = model.r_max if model is not None else config.get('r_max', 5.0)
 
   neighbor_fn = neighbor_list_fn(
-    displacement_fn, box, cfg.r_max, format=partition.Sparse, **nl_kwargs
+    displacement_fn, box, r_max, format=partition.Sparse, **nl_kwargs
   )
-
-  featurizer = featurizer_fn(displacement_fn)
+  featurizer = None if featurizer_fn is None else featurizer_fn(displacement_fn)
 
   def init_fn(key, position, neighbor, **kwargs):
-    _atoms = kwargs.pop('atoms', atoms)
-    if _atoms is None:
-      raise ValueError('A one-hot encoding of the atoms is required.')
-    # TODO: It would be nicer to do this without computing flops
-    # since we really only need the shape of the graph for initialization.
-    graph = featurizer(_atoms, position, neighbor, **kwargs)
-    return model.init(key, graph)
+    del position, neighbor, kwargs
+    if model is not None:
+      return model
+    return nequip.from_config(key, **config)
 
-  def energy_fn(params, position, neighbor, **kwargs):
-    _atoms = kwargs.pop('atoms', atoms)
-    if _atoms is None:
-      raise ValueError('A one-hot encoding of the atoms is required.')
-    graph = featurizer(_atoms, position, neighbor, **kwargs)
-    out: Any = model.apply(params, graph)
-    return out[0, 0]
+  def energy_fn(model, position, neighbor, **kwargs):
+    _species = kwargs.pop('species', species)
+    if _species is None:
+      raise ValueError('Integer species indices are required.')
+    # Featurizer edges are receiver - sender; negate.
+    if featurizer is None:
+      graph = partition.to_jraph(neighbor)
+      mask = partition.neighbor_list_mask(neighbor, True)
+      d = vmap(partial(displacement_fn, **kwargs))
+      edge_vector = d(position[graph.senders], position[graph.receivers])
+    else:
+      graph = featurizer(_species[:, None], position, neighbor, **kwargs)
+      mask = custom_partition.neighbor_list_multi_image_mask(neighbor)
+      edge_vector = -graph.edges
+
+    per_atom = model(
+      position,
+      _species,
+      graph.senders,
+      graph.receivers,
+      edge_mask=mask,
+      edge_vector=edge_vector,
+    )
+    return jnp.sum(per_atom)
 
   return neighbor_fn, init_fn, energy_fn
-
-
-def load_gnome_model_neighbor_list(
-  displacement_fn,
-  box,
-  directory,
-  atoms=None,
-  neighbor_list_fn: Callable = partition.neighbor_list,
-  featurizer_fn: Callable = nn.util.neighbor_list_featurizer,
-  **nl_kwargs,
-):
-  """Load a gnome model from a checkpoint.
-
-  Args:
-    displacement_fn: Displacement function from `jax_md.space`.
-    box: Box matrix with columns as lattice vectors, shape (dim, dim).
-    directory: Directory containing the gnome model checkpoint.
-    atoms: One-hot encoding of atom types.
-    neighbor_list_fn: Neighbor list constructor. Can be `partition.neighbor_list`
-      (default, uses MIC) or `custom_partition.neighbor_list_multi_image` for
-      small boxes where r_cut > L/2.
-    featurizer_fn: Function to create a featurizer. Signature:
-      `featurizer_fn(displacement_fn) -> featurize(atoms, position, neighbor)`.
-      Defaults to `nn.util.neighbor_list_featurizer` for standard MIC.
-      Use `custom_partition.graph_featurizer` with `neighbor_list_multi_image`
-      for correct multi-image displacement computation.
-    **nl_kwargs: Additional kwargs for neighbor list (e.g., `fractional_coordinates`).
-
-  Returns:
-    Tuple of (neighbor_fn, energy_fn).
-
-  Note:
-    When using `neighbor_list_multi_image`, you must also use a compatible
-    featurizer (e.g., `custom_partition.graph_featurizer`) to correctly compute
-    displacements using the stored shifts instead of MIC.
-  """
-  cfg, model, params = gnome.load_model(directory)
-
-  neighbor_fn = neighbor_list_fn(
-    displacement_fn, box, cfg.r_max, format=partition.Sparse, **nl_kwargs
-  )
-
-  featurizer = featurizer_fn(displacement_fn)
-
-  def energy_fn(position, neighbor, **kwargs):
-    _atoms = kwargs.pop('atoms', atoms)
-    if _atoms is None:
-      raise ValueError('A one-hot encoding of the atoms is required.')
-    graph = featurizer(_atoms, position, neighbor, **kwargs)
-    out: Any = model.apply(params, graph)
-    return out[0, 0]
-
-  return neighbor_fn, energy_fn
 
 
 def orb_neighbor_list(
@@ -2731,6 +2761,76 @@ def ani_neighbor_list(
       species,
       displacement_fn=displacement_fn,
       neighbors=neighbor,
+    )
+
+  return neighbor_fn, energy_fn
+
+
+def vivace_neighbor_list(
+  displacement_fn=None,
+  box=None,
+  species=None,
+  model: str = 'vivace-v0.1',
+  model_path=None,
+  dr_threshold: float = 0.0,
+  capacity_multiplier: float = 1.25,
+  disable_cell_list: bool = False,
+  neighbor_list_fn: Callable = partition.neighbor_list,
+  **nl_kwargs,
+):
+  """Convenience wrapper to compute Vivace energy using a neighbor list.
+
+  Args:
+    displacement_fn: Displacement function from `jax_md.space`. Defaults to
+      `space.periodic_general(box)`; pass `space.free()[0]` for free space.
+    box: Box matrix with columns as lattice vectors, shape (dim, dim).
+    species: Atomic numbers, shape (num_atoms,). May be overridden per call.
+      Elements the checkpoint has no reference energy for raise a ValueError.
+    model: Pretrained checkpoint name passed to `vivace.load_model`.
+      `vivace-v0.1` is SimPoly's VIVACE v0.1 with its `omol` energy head.
+    model_path: Optional path to a local checkpoint, overriding `model`.
+    dr_threshold: Skin distance added to the cutoff.
+    capacity_multiplier: Multiplier used to size the neighbor list buffer.
+    disable_cell_list: If True, search all atom pairs.
+    neighbor_list_fn: Neighbor list constructor.
+    **nl_kwargs: Extra neighbor list kwargs, e.g. `format`. Dense and Sparse
+      formats are supported; OrderedSparse is not a full neighbor list.
+
+  Returns:
+    A neighbor_fn and energy_fn pair. The energy is in eV.
+  """
+  from jax_md._nn import vivace
+
+  if box is None:
+    raise ValueError('vivace_neighbor_list requires a box.')
+  if displacement_fn is None:
+    displacement_fn, _ = space.periodic_general(
+      box, fractional_coordinates=False
+    )
+
+  net = vivace.load_model(model, model_path=model_path)
+  supported = jnp.flatnonzero(net.energy_head.atomic_energies[1:]) + 1
+  if species is not None and not jnp.all(jnp.isin(species, supported)):
+    raise ValueError(f'Vivace supports atomic numbers {supported.tolist()}.')
+  neighbor_fn = neighbor_list_fn(
+    displacement_fn,
+    box,
+    float(net.cutoff),
+    dr_threshold=dr_threshold,
+    capacity_multiplier=capacity_multiplier,
+    disable_cell_list=disable_cell_list,
+    **nl_kwargs,
+  )
+
+  def energy_fn(position, neighbor, species=species, **kwargs):
+    if species is None:
+      raise ValueError('Vivace requires per-atom species.')
+    return net(
+      position,
+      species,
+      displacement_fn=displacement_fn,
+      neighbors=neighbor,
+      **kwargs,
     )
 
   return neighbor_fn, energy_fn
@@ -3132,7 +3232,7 @@ def uma_neighbor_list(
     cfg: ``UMAConfig`` instance. If None, uses default config.
     atoms: Integer atomic numbers, shape ``[num_atoms]``.
     checkpoint_path: Path to a PyTorch checkpoint to load pretrained weights.
-        If provided, ``init_fn`` returns the converted weights instead of
+        If provided, ``init_fn`` loads the converted weights instead of
         random initialization.
     head_type: Energy head type: ``'mlp'`` or ``'linear'``.
     neighbor_list_fn: Neighbor list constructor (default:
@@ -3168,19 +3268,28 @@ def uma_neighbor_list(
     Tuple of ``(neighbor_fn, init_fn, energy_fn)`` where:
 
     - ``neighbor_fn``: Allocates/updates neighbor list.
-    - ``init_fn(key, position, neighbor, **kw)``: Returns model parameters.
-    - ``energy_fn(params, position, neighbor, **kw)``: Returns scalar energy.
+    - ``init_fn(key, position, neighbor, **kw)``: Returns the model.
+    - ``energy_fn(model, position, neighbor, **kw)``: Returns scalar energy.
   """
   from jax_md._nn.uma.model import UMABackbone, default_config
   from jax_md._nn.uma.heads import MLPEnergyHead, LinearEnergyHead
   from jax_md._nn.uma.featurizer import uma_multi_image_featurizer
-  import flax.linen as flax_nn
+  from jax_md._nn.uma.pretrained import (
+    load_params_into_module,
+    module_to_params,
+  )
 
   # Load pretrained checkpoint (MoE) if provided
   is_moe = False
   pretrained_params = None
   if checkpoint_path is not None:
     from jax_md._nn.uma.model_moe import load_pretrained
+
+    if head_type != 'mlp':
+      raise ValueError(
+        'Pretrained UMA checkpoints provide an MLP energy head; pass '
+        f"head_type='mlp', not {head_type!r}."
+      )
 
     moe_config, backbone_params, head_params = load_pretrained(
       checkpoint_path, head_dataset=head_dataset
@@ -3275,10 +3384,13 @@ def uma_neighbor_list(
     else:
       energy_mean = 0.0
       energy_rmsd = 1.0
+    # Static, so constants rather than trainable leaves
     if atom_refs is not None:
-      resolved_atom_refs = jnp.asarray(atom_refs, dtype=jnp.float32)
-    energy_mean = jnp.asarray(energy_mean, dtype=jnp.float32)
-    energy_rmsd = jnp.asarray(energy_rmsd, dtype=jnp.float32)
+      resolved_atom_refs = tuple(
+        jnp.asarray(atom_refs, dtype=jnp.float32).reshape(-1).tolist()
+      )
+    energy_mean = float(jnp.asarray(energy_mean, dtype=jnp.float32))
+    energy_rmsd = float(jnp.asarray(energy_rmsd, dtype=jnp.float32))
 
   # Build neighbor list. The UMA default uses explicit periodic images and
   # expects a box matrix; keep vector boxes working for common orthorhombic use.
@@ -3302,23 +3414,49 @@ def uma_neighbor_list(
 
   featurizer = featurizer_fn(displacement_fn, cutoff=cfg.cutoff)
 
-  # Combined backbone + head as a single Flax module
-  class UMAEnergyModel(flax_nn.Module):
-    config: Any
-    use_moe: bool = False
-    atom_refs: Any = None
-    energy_mean: Any = None
-    energy_rmsd: Any = None
+  # Field names reproduce the checkpoint paths.
+  class UMAEnergyModel(eqx.Module):
+    backbone: Any
+    energy_head: Any
+    atom_refs: Tuple[float, ...] | None = eqx.field(static=True)
+    energy_mean: float | None = eqx.field(static=True)
+    energy_rmsd: float | None = eqx.field(static=True)
 
-    @flax_nn.compact
-    def __call__(self, features):
-      if self.use_moe:
+    def __init__(
+      self,
+      config,
+      use_moe=False,
+      atom_refs=None,
+      energy_mean=None,
+      energy_rmsd=None,
+      *,
+      key,
+    ):
+      backbone_key, head_key = jax.random.split(key)
+      if use_moe:
         from jax_md._nn.uma.model_moe import UMAMoEBackbone
 
-        backbone = UMAMoEBackbone(config=self.config, name='backbone')
+        self.backbone = UMAMoEBackbone(config=config, key=backbone_key)
       else:
-        backbone = UMABackbone(config=self.config, name='backbone')
-      emb = backbone(
+        self.backbone = UMABackbone(config=config, key=backbone_key)
+
+      if head_type == 'mlp':
+        self.energy_head = MLPEnergyHead(
+          sphere_channels=config.sphere_channels,
+          hidden_channels=config.hidden_channels,
+          key=head_key,
+        )
+      else:
+        self.energy_head = LinearEnergyHead(
+          sphere_channels=config.sphere_channels,
+          key=head_key,
+        )
+      self.atom_refs = atom_refs
+      self.energy_mean = energy_mean
+      self.energy_rmsd = energy_rmsd
+
+    def __call__(self, features):
+      emb = self.backbone(
         features['positions'],
         features['atomic_numbers'],
         features['batch'],
@@ -3329,48 +3467,32 @@ def uma_neighbor_list(
         features.get('dataset_idx'),
       )
 
-      if head_type == 'mlp':
-        head = MLPEnergyHead(
-          sphere_channels=self.config.sphere_channels,
-          hidden_channels=self.config.hidden_channels,
-          name='energy_head',
-        )
-      else:
-        head = LinearEnergyHead(
-          sphere_channels=self.config.sphere_channels,
-          name='energy_head',
-        )
-
       num_systems = features['charge'].shape[0]
-      result = head(emb['node_embedding'], features['batch'], num_systems)
+      result = self.energy_head(
+        emb['node_embedding'], features['batch'], num_systems
+      )
       energy = result['energy']
       if self.energy_rmsd is not None:
-        energy = energy * self.energy_rmsd.astype(energy.dtype)
-        energy = energy + self.energy_mean.astype(energy.dtype)
+        energy = energy * jnp.asarray(self.energy_rmsd, energy.dtype)
+        energy = energy + jnp.asarray(self.energy_mean, energy.dtype)
       if self.atom_refs is not None:
+        atom_refs = jnp.asarray(self.atom_refs, energy.dtype)
         ref_shift = (
           jnp.zeros((num_systems,), dtype=energy.dtype)
           .at[features['batch']]
-          .add(self.atom_refs[features['atomic_numbers']].astype(energy.dtype))
+          .add(atom_refs[features['atomic_numbers']])
         )
         energy = energy + ref_shift
       return energy
 
-  model = UMAEnergyModel(
-    config=runtime_cfg,
-    use_moe=is_moe,
-    atom_refs=resolved_atom_refs,
-    energy_mean=energy_mean,
-    energy_rmsd=energy_rmsd,
-  )
-  init_model = model
-  if merge_mole:
-    init_model = UMAEnergyModel(
-      config=cfg,
+  def build_model(model_config, key):
+    return UMAEnergyModel(
+      model_config,
       use_moe=is_moe,
       atom_refs=resolved_atom_refs,
       energy_mean=energy_mean,
       energy_rmsd=energy_rmsd,
+      key=key,
     )
 
   def init_fn(key, position, neighbor, **kwargs):
@@ -3392,42 +3514,48 @@ def uma_neighbor_list(
       **kwargs,
     )
 
-    if pretrained_params is not None:
-      result_params = pretrained_params
+    template_cfg = cfg if merge_mole else runtime_cfg
+    if pretrained_params is None:
+      model = build_model(template_cfg, key)
     else:
-      result_params = init_model.init(key, features)
-
-    if merge_mole:
-      if features['charge'].shape[0] != 1:
-        raise ValueError('merge_mole=True supports only one system.')
-      from jax_md._nn.uma.model_moe import (
-        UMAMoEBackbone,
-        UMAMoEConfig,
-        merge_mole_params,
+      # The checkpoint fills every leaf, so skip random init
+      model = load_params_into_module(
+        pretrained_params,
+        eqx.filter_eval_shape(build_model, template_cfg, jax.random.PRNGKey(0)),
+        strict=True,
       )
+    if not merge_mole:
+      return model
 
-      moe_cfg = cfg
-      if not isinstance(moe_cfg, UMAMoEConfig):
-        raise ValueError('merge_mole=True requires an MoE config.')
-      routing_backbone = UMAMoEBackbone(config=moe_cfg)
-      routing_out: Any = routing_backbone.apply(
-        {'params': result_params['params']['backbone']},
-        features['positions'],
-        features['atomic_numbers'],
-        features['batch'],
-        features['edge_index'],
-        features['edge_distance_vec'],
-        features['charge'],
-        features['spin'],
-        features.get('dataset_idx'),
-      )
-      result_params = merge_mole_params(
-        result_params, routing_out['expert_coefficients']
-      )
+    if features['charge'].shape[0] != 1:
+      raise ValueError('merge_mole=True supports only one system.')
+    from jax_md._nn.uma.model_moe import UMAMoEConfig, merge_mole_params
 
-    return result_params
+    if not isinstance(cfg, UMAMoEConfig):
+      raise ValueError('merge_mole=True requires an MoE config.')
+    routing_out: Any = model.backbone(
+      features['positions'],
+      features['atomic_numbers'],
+      features['batch'],
+      features['edge_index'],
+      features['edge_distance_vec'],
+      features['charge'],
+      features['spin'],
+      features.get('dataset_idx'),
+    )
+    merged_params = merge_mole_params(
+      {'params': module_to_params(model)}, routing_out['expert_coefficients']
+    )
+    # A merged backbone has no routing weights
+    merged_params['params']['backbone'].pop('routing_mlp', None)
+    merged_params['params']['backbone'].pop('composition_embedding', None)
+    return load_params_into_module(
+      merged_params,
+      eqx.filter_eval_shape(build_model, runtime_cfg, jax.random.PRNGKey(0)),
+      strict=True,
+    )
 
-  def energy_fn(params, position, neighbor, **kwargs):
+  def energy_fn(model, position, neighbor, **kwargs):
     _atoms = kwargs.pop('atoms', atoms)
     if _atoms is None:
       raise ValueError('Integer atomic numbers are required.')
@@ -3445,9 +3573,7 @@ def uma_neighbor_list(
       dataset_idx=_dataset_idx,
       **kwargs,
     )
-    # flax apply returns a (output | variables) union; the model yields
-    # a per-atom energy array here.
-    out: Any = model.apply(params, features)
+    out: Any = model(features)
     return out.sum()
 
   return neighbor_fn, init_fn, energy_fn

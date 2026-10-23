@@ -414,11 +414,11 @@ def angular_symmetry_functions_neighbor_list(
       )
 
       mask = mask_i[:, None] & mask_j[None, :]
-      mask = mask[:, :, None, None]
-      all_angular = jnp.reshape(all_angular, (-1,) + all_angular.shape[2:])
-      neighbor_idx = jnp.repeat(neighbor.idx[0], len(neighbor.idx[0]))
-      out = ops.segment_sum(all_angular, neighbor_idx, N)
-      return out
+      mask = mask & (neighbor.idx[0][:, None] == neighbor.idx[0][None, :])
+      all_angular = util.high_precision_sum(
+        all_angular * mask[:, :, None], axis=1
+      )
+      return ops.segment_sum(all_angular, neighbor.idx[0], N)
     else:
       raise ValueError()
 
@@ -433,10 +433,10 @@ def angular_symmetry_functions_neighbor_list(
     atom_types = onp.unique(species)
     out = []
     for i in range(len(atom_types)):
-      mask_i = species == i
+      mask_i = species == atom_types[i]
       for j in range(i, len(atom_types)):
-        mask_j = species == j
-        out += [sym_fn(R, neighbor, mask_i, mask_j)]
+        mask_j = species == atom_types[j]
+        out += [sym_fn(R, neighbor, mask_i, mask_j, **kwargs)]
     return jnp.hstack(out)
 
   return compute_fn
