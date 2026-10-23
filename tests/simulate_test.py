@@ -304,33 +304,32 @@ class SimulateTest(test_util.JAXMDTestCase):
       self.assertEqual(state.position.dtype, dtype)
 
   def test_nvt_nose_hoover_single_thermostat(self):
-    # chain_length=1 is plain Nose-Hoover and must conserve the invariant
-    if not util.x64_enabled():
-      self.skipTest('Needs float64 to resolve the invariant drift.')
-
-    key = random.PRNGKey(0)
+    """chain_length=1 must match a chain whose second thermostat is frozen."""
     N = 64
-    box_size = quantity.box_size_at_number_density(N, f32(1.2), 2)
+    box_size = quantity.box_size_at_number_density(N, 1.2, 2)
     displacement_fn, shift_fn = space.periodic(box_size)
 
     bonds_i = np.arange(N)
     bonds = np.stack([bonds_i, np.roll(bonds_i, 1)])
     E = energy.simple_spring_bond(displacement_fn, bonds)
-    invariant = partial(simulate.nvt_nose_hoover_invariant, E)
 
-    pos_key, vel_key = random.split(key)
-    R = box_size * random.uniform(pos_key, (N, 2), dtype=f64)
-    kT = f64(0.8)
-    init_fn, apply_fn = simulate.nvt_nose_hoover(
-      E, shift_fn, 1e-3, kT, chain_length=1
-    )
-    apply_fn = jit(apply_fn)
+    pos_key, vel_key = random.split(random.PRNGKey(0))
+    R = box_size * random.uniform(pos_key, (N, 2), dtype=f32)
 
-    state = init_fn(vel_key, R, mass=f64(1.0))
-    initial = invariant(state, kT)
-    state = lax.fori_loop(0, DYNAMICS_STEPS, lambda i, s: apply_fn(s), state)
+    def run_chain(tau):
+      init_fn, apply_fn = simulate.nvt_nose_hoover(
+        E, shift_fn, 1e-3, 0.8, chain_length=len(tau)
+      )
+      state = init_fn(vel_key, R)
+      chain = state.chain.set(tau=np.array(tau, state.chain.mass.dtype))
+      state = state.set(chain=chain)
+      return lax.fori_loop(0, DYNAMICS_STEPS, lambda i, s: apply_fn(s), state)
 
-    self.assertAllClose(invariant(state, kT), initial, rtol=1e-6)
+    single = run_chain([0.1])
+    frozen = run_chain([0.1, 1e15])
+    self.assertAllClose(single.position, frozen.position)
+    self.assertAllClose(single.momentum, frozen.momentum)
+    self.assertAllClose(single.chain.momentum[0], frozen.chain.momentum[0])
 
   @parameterized.named_parameters(
     test_util.cases_from_list(
