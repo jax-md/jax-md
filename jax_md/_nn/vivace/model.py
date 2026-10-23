@@ -1,4 +1,5 @@
 # Credit to https://github.com/microsoft/simpoly
+# Copyright (c) Microsoft Corporation. MIT License.
 
 import json
 from functools import partial
@@ -574,10 +575,10 @@ class Vivace(eqx.Module):
         config,
         input_base_dim=input_dim,
         output_base_dim=output_dim,
-        update_node=layer_index == len(base_dims) - 1,
+        update_node=output_dim == 1,
         dtype=dtype,
       )
-      for layer_index, (input_dim, output_dim) in enumerate(base_dims)
+      for input_dim, output_dim in base_dims
     ]
     self.energy_head = EnergyHead(config, dtype=dtype)
     self.short_range_repulsion = ShortRangeRepulsion(config, dtype=dtype)
@@ -651,11 +652,19 @@ def load_model(
   model_path: str | PathLike | None = None,
   dtype=None,
 ) -> Vivace:
-  """Load a Vivace checkpoint."""
+  """Load a Vivace checkpoint.
+
+  ``vivace-v0.1`` is SimPoly's VIVACE v0.1 with its ``omol`` energy head.
+  SimPoly's own calculator defaults to the ``cp2k`` head instead.
+  """
   if model_path is not None:
     path = weights.resolve_checkpoint(model_path, allow_cache=False)
-  else:
+  elif model in VIVACE_MODEL_PATHS:
     path = weights.resolve_checkpoint(str(VIVACE_MODEL_PATHS[model]))
+  else:
+    raise ValueError(
+      f'Unknown Vivace model {model!r}; choose from {sorted(VIVACE_MODEL_PATHS)}.'
+    )
 
   if dtype is None:
     dtype = jnp.float64 if jax.config.jax_enable_x64 else jnp.float32

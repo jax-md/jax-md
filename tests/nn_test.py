@@ -21,12 +21,9 @@ import jax
 from jax import random
 import jax.numpy as np
 
-import numpy as onp
-
 from jax import jit, grad
 from jax_md import space, quantity, nn, dataclasses, partition
 from jax_md.nn import behler_parrinello as bp
-from jax_md._nn.util import convert_checkpoint_to_params
 
 from jax_md.util import f32, f64
 from jax_md import test_util
@@ -283,7 +280,7 @@ class SymmetryFunctionTest(test_util.JAXMDTestCase):
     self.assertAllClose(gr_out[2, 0], dtype(1.885791), rtol=1e-6, atol=1e-6)
 
 
-def _graph_network(graph_tuple):
+def graph_network(graph_tuple):
   update_node_fn = lambda n, se, re, g: n
   update_edge_fn = lambda e, sn, rn, g: e
   update_global_fn = lambda gn, ge, g: g
@@ -293,7 +290,7 @@ def _graph_network(graph_tuple):
   return net(graph_tuple)
 
 
-def _graph_network_no_node_update(graph_tuple):
+def graph_network_no_node_update(graph_tuple):
   update_node_fn = None
   update_edge_fn = lambda e, sn, rn, g: e
   update_global_fn = lambda gn, ge, g: g
@@ -303,7 +300,7 @@ def _graph_network_no_node_update(graph_tuple):
   return net(graph_tuple)
 
 
-def _graph_network_no_edge_update(graph_tuple):
+def graph_network_no_edge_update(graph_tuple):
   update_node_fn = lambda n, se, re, g: n
   update_edge_fn = None
   update_global_fn = lambda gn, ge, g: g
@@ -313,7 +310,7 @@ def _graph_network_no_edge_update(graph_tuple):
   return net(graph_tuple)
 
 
-def _graph_network_no_global_update(graph_tuple):
+def graph_network_no_global_update(graph_tuple):
   update_node_fn = lambda n, se, re, g: n
   update_edge_fn = lambda e, sn, rn, g: e
   update_global_fn = None
@@ -323,52 +320,29 @@ def _graph_network_no_global_update(graph_tuple):
   return net(graph_tuple)
 
 
-def _graph_independent(graph_tuple):
+def graph_independent(graph_tuple):
   id = lambda x: x
   net = nn.GraphMapFeatures(id, id, id)
   return net(graph_tuple)
 
 
 GRAPH_NETWORKS = [
-  _graph_network,
-  _graph_network_no_node_update,
-  _graph_network_no_edge_update,
-  _graph_network_no_global_update,
-  _graph_independent,
+  graph_network,
+  graph_network_no_node_update,
+  graph_network_no_edge_update,
+  graph_network_no_global_update,
+  graph_independent,
 ]
 
 
-def _get_graphs():
-  return [
-    nn.GraphsTuple(
-      nodes=np.array([[1.0], [2.0]]),
-      edges=np.array([[[1.0], [2.0]], [[3.0], [4.0]]]),
-      globals=np.array([1.0]),
-      edge_idx=np.array(
-        [
-          [
-            0,
-            1,
-          ],
-          [0, 1],
-        ]
-      ),
-    ),
-    nn.GraphsTuple(
-      nodes=np.array([[1.0], [2.0]]),
-      edges=np.array([[[1.0], [2.0]], [[3.0], [4.0]]]),
-      globals=np.array([1.0]),
-      edge_idx=np.array(
-        [
-          [
-            0,
-            1,
-          ],
-          [2, 1],
-        ]
-      ),
-    ),
-  ]
+def get_graphs():
+  graph = lambda edge_idx: nn.GraphsTuple(
+    nodes=np.array([[1.0], [2.0]]),
+    edges=np.array([[[1.0], [2.0]], [[3.0], [4.0]]]),
+    globals=np.array([1.0]),
+    edge_idx=np.array(edge_idx),
+  )
+  return [graph([[0, 1], [0, 1]]), graph([[0, 1], [2, 1]])]
 
 
 class NeuralNetworkTest(test_util.JAXMDTestCase):
@@ -384,7 +358,7 @@ class NeuralNetworkTest(test_util.JAXMDTestCase):
     )
   )
   def test_connect_graph_network(self, network_fn, dtype):
-    for g in _get_graphs():
+    for g in get_graphs():
       g = dataclasses.replace(
         g,
         nodes=np.array(g.nodes, dtype),
@@ -409,113 +383,6 @@ class NeuralNetworkTest(test_util.JAXMDTestCase):
     b = dataclasses.asdict(b)
 
     self.assertAllClose(a, b)
-
-
-class ConvertCheckpointTest(absltest.TestCase):
-  def _make_checkpoint_and_template(self):
-    checkpoint = {
-      'Energy/~/GraphNetEncoder/~/linear': {
-        'w': onp.ones((3, 4), dtype=onp.float32),
-        'b': onp.zeros((4,), dtype=onp.float32),
-      },
-      'Energy/~/GraphNetEncoder/~/linear_1': {
-        'w': onp.full((4, 2), 0.5, dtype=onp.float32),
-        'b': onp.ones((2,), dtype=onp.float32),
-      },
-    }
-    template = {
-      'GraphNetEncoder': {
-        'layers_0': {
-          'kernel': onp.empty((3, 4), dtype=onp.float32),
-          'bias': onp.empty((4,), dtype=onp.float32),
-        },
-        'layers_1': {
-          'kernel': onp.empty((4, 2), dtype=onp.float32),
-          'bias': onp.empty((2,), dtype=onp.float32),
-        },
-      },
-    }
-    return checkpoint, template
-
-  def test_basic_conversion(self):
-    checkpoint, template = self._make_checkpoint_and_template()
-    result = convert_checkpoint_to_params(checkpoint, template)
-
-    onp.testing.assert_array_equal(
-      result['GraphNetEncoder']['layers_0']['kernel'], onp.ones((3, 4))
-    )
-    onp.testing.assert_array_equal(
-      result['GraphNetEncoder']['layers_0']['bias'], onp.zeros((4,))
-    )
-    onp.testing.assert_array_equal(
-      result['GraphNetEncoder']['layers_1']['kernel'], onp.full((4, 2), 0.5)
-    )
-    onp.testing.assert_array_equal(
-      result['GraphNetEncoder']['layers_1']['bias'], onp.ones((2,))
-    )
-
-  def test_dtype_preservation(self):
-    checkpoint = {
-      'Energy/~/mod': {
-        'w': onp.ones((2, 3), dtype=onp.float64),
-        'b': onp.zeros((3,), dtype=onp.float64),
-      },
-    }
-    template = {
-      'mod': {
-        'kernel': onp.empty((2, 3), dtype=onp.float32),
-        'bias': onp.empty((3,), dtype=onp.float32),
-      },
-    }
-    result = convert_checkpoint_to_params(checkpoint, template)
-    self.assertEqual(result['mod']['kernel'].dtype, onp.float32)
-    self.assertEqual(result['mod']['bias'].dtype, onp.float32)
-
-  def test_missing_key_raises(self):
-    checkpoint = {
-      'Energy/~/mod': {'w': onp.ones((2, 3))},
-    }
-    template = {
-      'mod': {
-        'kernel': onp.empty((2, 3)),
-        'bias': onp.empty((3,)),
-      },
-    }
-    with self.assertRaises(ValueError):
-      convert_checkpoint_to_params(checkpoint, template)
-
-  def test_extra_key_raises(self):
-    checkpoint = {
-      'Energy/~/mod': {
-        'w': onp.ones((2, 3)),
-        'b': onp.zeros((3,)),
-        'extra': onp.zeros((1,)),
-      },
-    }
-    template = {
-      'mod': {
-        'kernel': onp.empty((2, 3)),
-        'bias': onp.empty((3,)),
-      },
-    }
-    with self.assertRaises(ValueError):
-      convert_checkpoint_to_params(checkpoint, template)
-
-  def test_shape_mismatch_raises(self):
-    checkpoint = {
-      'Energy/~/mod': {
-        'w': onp.ones((2, 5)),
-        'b': onp.zeros((3,)),
-      },
-    }
-    template = {
-      'mod': {
-        'kernel': onp.empty((2, 3)),
-        'bias': onp.empty((3,)),
-      },
-    }
-    with self.assertRaises(ValueError):
-      convert_checkpoint_to_params(checkpoint, template)
 
 
 if __name__ == '__main__':

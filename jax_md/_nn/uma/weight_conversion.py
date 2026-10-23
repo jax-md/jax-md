@@ -6,13 +6,11 @@ so that pretrained models can be used in JAX-MD.
 Key conventions:
 - PyTorch Linear: weight shape [out, in], JAX Dense: kernel shape [in, out]
 - PyTorch nn.Embedding: weight shape [num, dim], JAX nn.Embed: embedding shape [num, dim]
-- SO3Linear weight: shape [lmax+1, out, in] — NOT transposed (einsum handles it)
+- SO3Linear weight: shape [lmax+1, out, in], not transposed, the einsum handles it
 - RadialMLP: PyTorch net.{3*i} -> JAX linear_{i+1}, net.{3*i+1} -> norm_{i+1}
 - SO2MConv: PyTorch so2_m_conv.{i} -> JAX so2_m_conv_{i+1}
 - Blocks: PyTorch blocks.{i} -> JAX blocks_{i}
 """
-
-from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
 
@@ -28,13 +26,13 @@ def load_pytorch_checkpoint(
   """Load a PyTorch UMA checkpoint and convert to JAX format.
 
   Args:
-      checkpoint_path: Path to the PyTorch checkpoint file (.pt).
-      backbone_prefix: Prefix to strip from PyTorch keys (e.g. 'backbone.').
+      checkpoint_path: Path to the PyTorch .pt checkpoint file.
+      backbone_prefix: Prefix to strip from PyTorch keys, e.g. 'backbone.'.
           Set to '' if the state_dict already has backbone-level keys.
       map_location: Device to load the checkpoint to.
 
   Returns:
-      Dictionary of JAX-compatible parameters (nested dict under 'params').
+      Dictionary of JAX-compatible parameters, nested under 'params'.
   """
   try:
     import torch
@@ -74,7 +72,7 @@ def convert_pytorch_state_dict(
   backbone_prefix: str = 'backbone.',
   dataset_list: List[str] | None = None,
 ) -> Dict[str, Any]:
-  """Convert PyTorch state dict to JAX/Flax params format.
+  """Convert a PyTorch state dict to a nested params dict.
 
   Args:
       state_dict: PyTorch state dict with numpy arrays.
@@ -82,14 +80,14 @@ def convert_pytorch_state_dict(
       dataset_list: Ordered dataset names for stacking per-dataset embeddings.
 
   Returns:
-      Nested dictionary of parameters in Flax format: {'params': {...}}.
+      Nested dictionary of parameters under a 'params' key.
   """
   jax_params = {}
   skipped = []
   dataset_embs = {}  # Collect per-dataset embeddings
 
   for pt_key, pt_value in state_dict.items():
-    if _is_buffer(pt_key):
+    if is_buffer(pt_key):
       skipped.append(pt_key)
       continue
 
@@ -106,23 +104,25 @@ def convert_pytorch_state_dict(
           break
       continue
 
-    flax_key = _convert_key(key)
-    if flax_key is None:
+    param_key = convert_key(key)
+    if param_key is None:
       skipped.append(pt_key)
       continue
 
-    flax_value = _convert_weight(key, pt_value)
-    _set_nested(jax_params, flax_key, flax_value)
+    param_value = convert_weight(key, pt_value)
+    set_nested(jax_params, param_key, param_value)
 
-  # Stack dataset embeddings into single nn.Embed matrix
+  # Stack dataset embeddings into a single Embed matrix
   if dataset_embs:
     if dataset_list is None:
       dataset_list = sorted(dataset_embs.keys())
+    missing = [ds for ds in dataset_list if ds not in dataset_embs]
+    if missing:
+      raise ValueError(f'Checkpoint has no dataset embedding for {missing}.')
     emb_matrix = np.concatenate(
-      [dataset_embs[ds] for ds in dataset_list if ds in dataset_embs],
-      axis=0,
+      [dataset_embs[ds] for ds in dataset_list], axis=0
     )
-    _set_nested(
+    set_nested(
       jax_params,
       ('dataset_embedding', 'embedding', 'embedding'),
       jnp.array(emb_matrix),
@@ -131,7 +131,7 @@ def convert_pytorch_state_dict(
   return {'params': jax_params}
 
 
-def _is_buffer(key: str) -> bool:
+def is_buffer(key: str) -> bool:
   """Check if a key corresponds to a non-trainable buffer."""
   buffer_patterns = [
     'Jd_',
@@ -148,13 +148,13 @@ def _is_buffer(key: str) -> bool:
   return any(p in key for p in buffer_patterns)
 
 
-def _convert_key(pt_key: str) -> Tuple[str, ...] | None:
-  """Convert a PyTorch parameter key to a Flax key tuple.
+def convert_key(pt_key: str) -> Tuple[str, ...] | None:
+  """Convert a PyTorch parameter key to a checkpoint path tuple.
 
   Returns None if the key should be skipped.
   """
   parts = pt_key.split('.')
-  flax_parts = []
+  segments = []
   i = 0
 
   while i < len(parts):
@@ -168,60 +168,51 @@ def _convert_key(pt_key: str) -> Tuple[str, ...] | None:
     # Handle numbered indices (e.g., blocks.0, so2_m_conv.0, net.0)
     if part.isdigit():
       idx = int(part)
-      if flax_parts:
-        prev = flax_parts[-1]
+      if segments:
+        prev = segments[-1]
 
         # RadialMLP net indices: map sequential index to our naming
         # net: [Linear, LayerNorm, SiLU, Linear, LayerNorm, SiLU, Linear, ...]
         # Param indices (skipping SiLU): 0,1, 3,4, 6,7, 9,10, ...
-        if _is_in_radial_mlp_context(flax_parts):
+        if is_in_radial_mlp_context(segments):
           layer_pair_idx = idx // 3  # which (Linear, LayerNorm) pair
           is_norm = idx % 3 == 1
           if is_norm:
-            flax_parts.append(f'norm_{layer_pair_idx + 1}')
+            segments.append(f'norm_{layer_pair_idx + 1}')
           else:
-            flax_parts.append(f'linear_{layer_pair_idx + 1}')
+            segments.append(f'linear_{layer_pair_idx + 1}')
           i += 1
           continue
 
         # blocks.{i} -> blocks_{i}
         if prev == 'blocks':
-          flax_parts[-1] = f'blocks_{idx}'
+          segments[-1] = f'blocks_{idx}'
           i += 1
           continue
 
         # so2_m_conv.{i} -> so2_m_conv_{i+1}
         # PyTorch: 0-indexed for m=1,2,..., JAX: named by m value
         if prev == 'so2_m_conv':
-          flax_parts[-1] = f'so2_m_conv_{idx + 1}'
+          segments[-1] = f'so2_m_conv_{idx + 1}'
           i += 1
           continue
 
         # so2_m_fc.{i} -> same pattern
         if prev == 'so2_m_fc':
-          flax_parts[-1] = f'so2_m_fc_{idx + 1}'
+          segments[-1] = f'so2_m_fc_{idx + 1}'
           i += 1
           continue
 
-        # grid_mlp.{i} (Sequential) -> Dense_{i//2} or layers_{i}
-        if prev == 'grid_mlp':
-          # grid_mlp: [Dense(0), SiLU(1), Dense(2), SiLU(3), Dense(4)]
-          # Only even indices have params
-          flax_parts.append(f'layers_{idx}')
-          i += 1
-          continue
-
-        # scalar_mlp.{i} (Sequential in SpectralAtomwise) -> Dense_{i//2}
-        # PT: scalar_mlp.0.weight -> Flax: Dense_0/kernel
-        if prev == 'scalar_mlp':
-          flax_parts.pop()  # remove 'scalar_mlp'
+        # scalar_mlp.{i} and grid_mlp.{i} map to Dense_{i//2}
+        if prev in ('scalar_mlp', 'grid_mlp'):
+          segments.pop()
           dense_idx = idx // 2  # 0->Dense_0, 2->Dense_1, etc.
-          flax_parts.append(f'Dense_{dense_idx}')
+          segments.append(f'Dense_{dense_idx}')
           i += 1
           continue
 
         # Generic numbered child: parent_{idx}
-        flax_parts[-1] = f'{prev}_{idx}'
+        segments[-1] = f'{prev}_{idx}'
         i += 1
         continue
 
@@ -231,19 +222,19 @@ def _convert_key(pt_key: str) -> Tuple[str, ...] | None:
     # Handle terminal parameter names
     if part == 'weight':
       # Determine if this is a Linear weight or Embedding weight
-      if _is_embedding_context(flax_parts):
-        flax_parts.append('embedding')
-      elif _is_so3_linear_context(flax_parts):
-        flax_parts.append('weight')  # SO3Linear keeps 'weight' name
-      elif _is_layer_norm_context(flax_parts, parts, i):
-        flax_parts.append('scale')  # Flax LayerNorm uses 'scale'
+      if is_embedding_context(segments):
+        segments.append('embedding')
+      elif is_so3_linear_context(segments):
+        segments.append('weight')  # SO3Linear keeps 'weight' name
+      elif is_layer_norm_context(segments):
+        segments.append('scale')  # LayerNorm names its parameter 'scale'
       else:
-        flax_parts.append('kernel')  # Flax Dense uses 'kernel'
+        segments.append('kernel')  # Dense names its parameter 'kernel'
       i += 1
       continue
 
     if part == 'bias':
-      flax_parts.append('bias')
+      segments.append('bias')
       i += 1
       continue
 
@@ -253,23 +244,21 @@ def _convert_key(pt_key: str) -> Tuple[str, ...] | None:
 
     # rand_emb wrapper: charge_embedding.rand_emb.weight -> charge_embedding/embedding/embedding
     if part == 'rand_emb':
-      # Replace with 'embedding' (the nn.Embed module name), then 'weight' below
-      # adds the final 'embedding' via _is_embedding_context
-      flax_parts.append('embedding')
+      segments.append('embedding')
       i += 1
       continue
 
     # Default: keep the part as-is
-    flax_parts.append(part)
+    segments.append(part)
     i += 1
 
-  if not flax_parts:
+  if not segments:
     return None
 
-  return tuple(flax_parts)
+  return tuple(segments)
 
 
-def _is_embedding_context(parts: List[str]) -> bool:
+def is_embedding_context(parts: List[str]) -> bool:
   """Check if we're inside an embedding layer."""
   for p in parts:
     if p in (
@@ -285,7 +274,7 @@ def _is_embedding_context(parts: List[str]) -> bool:
   return False
 
 
-def _is_so3_linear_context(parts: List[str]) -> bool:
+def is_so3_linear_context(parts: List[str]) -> bool:
   """Check if we're inside an SO3Linear layer."""
   for p in parts:
     if (
@@ -297,9 +286,7 @@ def _is_so3_linear_context(parts: List[str]) -> bool:
   return False
 
 
-def _is_layer_norm_context(
-  parts: List[str], all_parts: List[str], current_idx: int
-) -> bool:
+def is_layer_norm_context(parts: List[str]) -> bool:
   """Check if the 'weight' parameter belongs to a LayerNorm."""
   # In RadialMLP, norm_* layers are LayerNorm
   for p in parts:
@@ -308,29 +295,29 @@ def _is_layer_norm_context(
   return False
 
 
-def _is_in_radial_mlp_context(parts: List[str]) -> bool:
+def is_in_radial_mlp_context(parts: List[str]) -> bool:
   """Check if we're inside a RadialMLP net Sequential."""
   return any(p == 'rad_func' for p in parts)
 
 
-def _convert_weight(key: str, value: np.ndarray) -> jnp.ndarray:
+def convert_weight(key: str, value: np.ndarray) -> jnp.ndarray:
   """Convert weight tensor from PyTorch to JAX format."""
   # Linear layer weights: PyTorch [out, in] -> JAX [in, out]
   if key.endswith('.weight') and len(value.shape) == 2:
     # Don't transpose embeddings
-    if not _key_is_embedding(key):
-      # Don't transpose SO3Linear (handled by einsum convention)
+    if not key_is_embedding(key):
+      # Don't transpose SO3Linear, the einsum handles the layout
       if 'so3_linear' not in key:
         # Don't transpose LayerNorm weights
         parts = key.split('.')
         idx = len(parts) - 2
-        if idx >= 0 and not _is_sequential_norm_index(parts):
+        if idx >= 0 and not is_sequential_norm_index(parts):
           value = value.T
 
   return jnp.array(value)
 
 
-def _key_is_embedding(key: str) -> bool:
+def key_is_embedding(key: str) -> bool:
   """Check if key is for an embedding layer (should NOT be transposed)."""
   embedding_parents = [
     'sphere_embedding',
@@ -347,7 +334,7 @@ def _key_is_embedding(key: str) -> bool:
   return False
 
 
-def _is_sequential_norm_index(parts: List[str]) -> bool:
+def is_sequential_norm_index(parts: List[str]) -> bool:
   """Check if the weight is from a Sequential LayerNorm (odd index in net)."""
   for i, p in enumerate(parts):
     if p == 'net' and i + 1 < len(parts) and parts[i + 1].isdigit():
@@ -357,7 +344,7 @@ def _is_sequential_norm_index(parts: List[str]) -> bool:
   return False
 
 
-def _set_nested(d: Dict, keys: Tuple[str, ...], value: Any) -> None:
+def set_nested(d: Dict, keys: Tuple[str, ...], value: Any) -> None:
   """Set a value in a nested dictionary."""
   for key in keys[:-1]:
     if key not in d:
@@ -366,7 +353,7 @@ def _set_nested(d: Dict, keys: Tuple[str, ...], value: Any) -> None:
   d[keys[-1]] = value
 
 
-def _get_nested(d: Dict, keys: Tuple[str, ...]) -> Any:
+def get_nested(d: Dict, keys: Tuple[str, ...]) -> Any:
   """Get a value from a nested dictionary. Returns None if not found."""
   for key in keys:
     if not isinstance(d, dict) or key not in d:
@@ -464,7 +451,7 @@ def verify_weight_loading(
   results = {}
 
   for pt_key, pt_value in pytorch_state_dict.items():
-    if _is_buffer(pt_key):
+    if is_buffer(pt_key):
       results[pt_key] = 'skipped'
       continue
 
@@ -472,17 +459,17 @@ def verify_weight_loading(
     if backbone_prefix and key.startswith(backbone_prefix):
       key = key[len(backbone_prefix) :]
 
-    flax_key = _convert_key(key)
-    if flax_key is None:
+    param_key = convert_key(key)
+    if param_key is None:
       results[pt_key] = 'skipped'
       continue
 
-    jax_value = _get_nested(jax_params.get('params', {}), flax_key)
+    jax_value = get_nested(jax_params.get('params', {}), param_key)
     if jax_value is None:
       results[pt_key] = 'missing'
       continue
 
-    expected = _convert_weight(key, pt_value)
+    expected = convert_weight(key, pt_value)
     if np.allclose(
       np.array(jax_value), np.array(expected), rtol=rtol, atol=atol
     ):

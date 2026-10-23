@@ -8,6 +8,7 @@ repos:
         exclude: ^(notebooks/|examples/|docs/)
       - id: check-yaml
       - id: check-added-large-files
+        exclude: ^examples/models/
       - id: check-merge-conflict
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
