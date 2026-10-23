@@ -49,6 +49,10 @@ WEIGHTS = {
     '57ae5e8e35a2690e219d8ab08fea95a6c7c133ea48643ee004ba8fe040fb4d3c',
     2139519,
   ),
+  'vivace_v0.1.eqx': (
+    '9fefdb7198904fb22b936fd76384ede86a4c6a09d882d1c006c7f06c64faf741',
+    1150055,
+  ),
 }
 
 # family -> checkpoint filenames
@@ -58,6 +62,7 @@ MODELS = {
   'aimnet2': ('aimnet2.eqx',),
   'aceff': ('aceff_v1.1.eqx', 'aceff_v2.0.eqx'),
   'so3lr': ('so3lr.eqx',),
+  'vivace': ('vivace_v0.1.eqx',),
 }
 
 

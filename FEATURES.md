@@ -108,9 +108,9 @@ energy_fn = energy.coulomb(displacement_fn, 10.0, charge, grid_points=32)
 JAX MD includes potentials for triangulated surfaces, useful for modeling membranes and vesicles whose geometry is represented by vertices and triangular faces.
 
 The membrane potentials are:
-- [`energy.triangle_area_potential()`](jax_md/energy.py#L2943) for local triangle-area conservation.
-- [`energy.volume_potential()`](jax_md/energy.py#L3006) for global volume conservation of a closed triangulated surface.
-- [`energy.bending_potential()`](jax_md/energy.py#L3063) for bending energy on a triangulated surface.
+- [`energy.triangle_area_potential()`](jax_md/energy.py#L3013) for local triangle-area conservation.
+- [`energy.volume_potential()`](jax_md/energy.py#L3076) for global volume conservation of a closed triangulated surface.
+- [`energy.bending_potential()`](jax_md/energy.py#L3133) for bending energy on a triangulated surface.
 
 Example:
 
@@ -130,9 +130,10 @@ We provide the following neural network potentials and helpers:
 - [`energy.BehlerParrinelloEnergy`](jax_md/energy.py#L1921), an object-oriented wrapper for Behler-Parrinello-style models.
 - [`energy.graph_network`](https://jax-md.readthedocs.io/en/main/jax_md.energy.html?highlight=graph_network#jax_md.energy.graph_network) a graph neural network designed for energy fitting.
 - [`energy.nequip_neighbor_list()`](jax_md/energy.py#L2467) wrapper for NequIP neighbor-list graph models.
-- [`energy.uma_neighbor_list()`](jax_md/energy.py#L3133) for UMA force-field models, including pretrained checkpoint loading, MoE heads, charge/spin/dataset embeddings, atom-reference corrections, and optional optimized kernels.
-- [`energy.mace_neighbor_list()`](jax_md/energy.py#L3512) for wrapping MACE-JAX models as JAX MD neighbor-list energies.
-- [`energy.orb_neighbor_list()`](jax_md/energy.py#L2553), [`energy.aceff_neighbor_list()`](jax_md/energy.py#L2631), [`energy.ani_neighbor_list()`](jax_md/energy.py#L2704), [`energy.so3lr_neighbor_list()`](jax_md/energy.py#L2769), and [`energy.aimnet2_neighbor_list()`](jax_md/energy.py#L2853) wrap the pretrained bio-mlff potentials Orb, AceFF, ANI-2x, SO3LR, and AIMNet2.
+- [`energy.uma_neighbor_list()`](jax_md/energy.py#L3203) for UMA force-field models, including pretrained checkpoint loading, MoE heads, charge/spin/dataset embeddings, atom-reference corrections, and optional optimized kernels.
+- [`energy.mace_neighbor_list()`](jax_md/energy.py#L3582) for wrapping MACE-JAX models as JAX MD neighbor-list energies.
+- [`energy.orb_neighbor_list()`](jax_md/energy.py#L2553), [`energy.aceff_neighbor_list()`](jax_md/energy.py#L2631), [`energy.ani_neighbor_list()`](jax_md/energy.py#L2704), [`energy.so3lr_neighbor_list()`](jax_md/energy.py#L2839), and [`energy.aimnet2_neighbor_list()`](jax_md/energy.py#L2923) wrap the pretrained bio-mlff potentials Orb, AceFF, ANI-2x, SO3LR, and AIMNet2.
+- [`energy.vivace_neighbor_list()`](jax_md/energy.py#L2769) wraps the `omol` head of SimPoly's pretrained VIVACE potential.
 - Pretrained bio-mlff checkpoints are not bundled in the PyPI wheel; [`jax_md._nn.weights`](jax_md/_nn/weights.py) resolves them from the in-tree file, a cache directory, or the `weights-v1` release, and `python -m jax_md._nn.weights <model>` fetches them with SHA-256 verification.
 
 The neural network subpackage also includes model-building pieces:
