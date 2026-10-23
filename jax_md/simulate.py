@@ -457,8 +457,10 @@ def nose_hoover_chain(
 
     M = chain_length - 1
 
-    G = p_xi[M - 1] ** f32(2) / Q[M - 1] - kT
-    p_xi = p_xi.at[M].add(delta_4 * G)
+    # A single thermostat (M == 0) has no chain above p_xi[0]
+    if M > 0:
+      G = p_xi[M - 1] ** f32(2) / Q[M - 1] - kT
+      p_xi = p_xi.at[M].add(delta_4 * G)
 
     def backward_loop_fn(p_xi_new, m):
       G = p_xi[m - 1] ** 2 / Q[m - 1] - kT
@@ -471,7 +473,7 @@ def nose_hoover_chain(
     p_xi = p_xi.at[idx].set(p_xi_update)
 
     G = f32(2.0) * KE - DOF * kT
-    scale = jnp.exp(-delta_8 * p_xi[1] / Q[1])
+    scale = jnp.exp(-delta_8 * p_xi[1] / Q[1]) if M > 0 else f32(1)
     p_xi = p_xi.at[0].set(scale * (scale * p_xi[0] + delta_4 * G))
 
     scale = jnp.exp(-delta_2 * p_xi[0] / Q[0])
