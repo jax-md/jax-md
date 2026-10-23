@@ -138,7 +138,7 @@ def canonicalize_mass(state: T) -> T:
   return state.set(mass=tree_map(canonicalize_fn, state.mass))
 
 
-def _project_momentum(momentum, mass):
+def project_momentum(momentum, mass):
   """Subtract the mass-weighted share of total momentum from each particle."""
   total_momentum = tree_reduce(
     lambda a, b: a + b, tree_map(lambda p: jnp.sum(p, axis=0), momentum)
@@ -161,7 +161,7 @@ def constrain_center_of_mass(state: T) -> T:
     raise ValueError(
       'Fixed COM requires at least one internal degree of freedom.'
     )
-  return state.set(momentum=_project_momentum(state.momentum, state.mass))
+  return state.set(momentum=project_momentum(state.momentum, state.mass))
 
 
 @dispatch_by_state
@@ -1032,7 +1032,7 @@ def npt_nose_hoover(
     P_b = P_b + dt_2 * G_e
     P = exp_iL2(alpha, P, F, P_b / M_b)
     if fix_center_of_mass:
-      P = _project_momentum(P, M)
+      P = project_momentum(P, M)
 
     R_b = R_b + P_b / M_b * dt
     state = state.set(box_position=R_b)
@@ -1044,7 +1044,7 @@ def npt_nose_hoover(
     _, F, dUdV = force_stress_fn(R, box, **kwargs)
     P = exp_iL2(alpha, P, F, P_b / M_b)
     if fix_center_of_mass:
-      P = _project_momentum(P, M)
+      P = project_momentum(P, M)
     G_e = box_force(alpha, vol, dUdV, R, P, M, _pressure, _kT)
     P_b = P_b + dt_2 * G_e
 
@@ -1633,7 +1633,7 @@ def npt_csvr(
     )
     P = P + dt_2 * F
     if fix_center_of_mass:
-      P = _project_momentum(P, M)
+      P = project_momentum(P, M)
 
     old_H = modified_hamiltonian(
       state.potential_energy,
@@ -1659,7 +1659,7 @@ def npt_csvr(
     eta = piston_half_step(eta, P, F, M, dUdV, volume, M_b, _pressure, _kT)
     P = P + dt_2 * F
     if fix_center_of_mass:
-      P = _project_momentum(P, M)
+      P = project_momentum(P, M)
     P_b = M_b * eta
 
     new_H = modified_hamiltonian(
