@@ -36,7 +36,9 @@ is represented by a RigidBody containing the linear momentum and angular
 momentum, while the mass is a RigidBody containing the total mass and the
 moment of inertia. This allows us to naturally use JAX's tree_map utilities
 to jointly map over the different related quantities. Additionally, forces
-inherit the RigidBody type with a center-of-mass force and torque.
+inherit the RigidBody type with a center-of-mass force and torque. There is no
+default mass for rigid bodies, so pass one to `init_fn`, e.g.
+`mass=shape.mass()`.
 
 2) Interactions between rigid bodies are specified. This is largely responsible
 for dictating the shape of the rigid body. While arbitrary interactions are
@@ -681,6 +683,10 @@ def _(state, dt: float, kT: float, gamma: 'RigidBody'):
 @simulate.canonicalize_mass.register(RigidBody)
 def _(state):
   mass = state.mass
+  if not isinstance(mass, RigidBody):
+    raise ValueError(
+      f'Rigid body mass must be a RigidBody, e.g. `shape.mass()`. Found {mass}.'
+    )
   if len(mass.center) == 1:
     return state.set(mass=RigidBody(mass.center[0], mass.orientation))
   elif len(mass.center) > 1:

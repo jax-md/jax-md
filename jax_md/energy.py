@@ -262,13 +262,13 @@ def lennard_jones(
   Returns:
     Matrix of energies of shape `[n, m]`.
   """
-  idr = sigma / dr
+  idr = sigma / jnp.where(dr > 0, dr, 1)
   idr = idr * idr
   idr6 = idr * idr * idr
   idr12 = idr6 * idr6
   # TODO(schsam): This seems potentially dangerous. We should do ErrorChecking
   # here.
-  return jnp.nan_to_num(f32(4) * epsilon * (idr12 - idr6))
+  return jnp.where(dr > 0, jnp.nan_to_num(f32(4) * epsilon * (idr12 - idr6)), 0)
 
 
 def lennard_jones_pair(
