@@ -1,13 +1,13 @@
 """Pretrained UMA model loading and conversion utilities.
 
 Downloads and converts pretrained UMA checkpoints from HuggingFace
-(facebook/UMA) for use with JAX-MD.
+repo facebook/UMA for use with JAX-MD.
 
-The pretrained UMA models use a Mixture-of-Experts (MoE) architecture
+The pretrained UMA models use a Mixture-of-Experts architecture
 where SO(2) convolution weights have shape [num_experts, out, in].
 This module provides two conversion strategies:
 
-1. **Full MoE conversion** (default): Preserves all expert weights for
+1. **Full MoE conversion**, the default: Preserves all expert weights for
    use with UMAMoEBackbone. This is lossless.
 
 2. **Expert averaging**: Averages expert weights for a simpler non-MoE model.
@@ -19,11 +19,9 @@ Example:
     >>> # Download from HuggingFace
     >>> ckpt_path = download_pretrained('uma-s-1p1')
     >>>
-    >>> # Convert to JAX format (with expert averaging)
+    >>> # Convert to JAX format with expert averaging
     >>> config, params, metadata = convert_checkpoint(ckpt_path)
 """
-
-from __future__ import annotations
 
 import os
 import pickle
@@ -169,7 +167,7 @@ def load_atom_references(
   return jnp.asarray(values, dtype=jnp.float32)
 
 
-def _config_get(config: Any, key: str, default: Any = None) -> Any:
+def config_get(config: Any, key: str, default: Any = None) -> Any:
   if config is None:
     return default
   if isinstance(config, dict):
@@ -188,7 +186,7 @@ def _config_get(config: Any, key: str, default: Any = None) -> Any:
     return default
 
 
-def _config_list(value: Any) -> list[Any]:
+def config_list(value: Any) -> list[Any]:
   if value is None:
     return []
   if isinstance(value, str):
@@ -199,7 +197,7 @@ def _config_list(value: Any) -> list[Any]:
     return [value]
 
 
-def _config_float(value: Any, default: float) -> float:
+def config_float(value: Any, default: float) -> float:
   if value is None:
     return default
   if hasattr(value, 'detach'):
@@ -210,14 +208,14 @@ def _config_float(value: Any, default: float) -> float:
   return float(array.reshape(-1)[0])
 
 
-def _extract_element_references(element_references: Any) -> jnp.ndarray | None:
+def extract_element_references(element_references: Any) -> jnp.ndarray | None:
   if element_references is None:
     return None
 
-  values = _config_get(element_references, 'element_references')
-  args = _config_get(values, '_args_')
-  if args is not None and len(_config_list(args)) > 0:
-    values = _config_list(args)[0]
+  values = config_get(element_references, 'element_references')
+  args = config_get(values, '_args_')
+  if args is not None and len(config_list(args)) > 0:
+    values = config_list(args)[0]
 
   if hasattr(values, 'detach'):
     values = values.detach().cpu().numpy()
@@ -235,9 +233,9 @@ def extract_energy_correction(
   energy_task = None
   expected_name = f'{dataset}_energy'
   for task in tasks_config:
-    name = _config_get(task, 'name')
-    prop = _config_get(task, 'property')
-    datasets = _config_list(_config_get(task, 'datasets'))
+    name = config_get(task, 'name')
+    prop = config_get(task, 'property')
+    datasets = config_list(config_get(task, 'datasets'))
     if name == expected_name or (prop == 'energy' and dataset in datasets):
       energy_task = task
       break
@@ -245,11 +243,11 @@ def extract_energy_correction(
   if energy_task is None:
     raise ValueError(f'No energy task found for dataset {dataset!r}.')
 
-  normalizer = _config_get(energy_task, 'normalizer')
-  mean = _config_float(_config_get(normalizer, 'mean'), 0.0)
-  rmsd = _config_float(_config_get(normalizer, 'rmsd'), 1.0)
-  element_refs = _extract_element_references(
-    _config_get(energy_task, 'element_references')
+  normalizer = config_get(energy_task, 'normalizer')
+  mean = config_float(config_get(normalizer, 'mean'), 0.0)
+  rmsd = config_float(config_get(normalizer, 'rmsd'), 1.0)
+  element_refs = extract_element_references(
+    config_get(energy_task, 'element_references')
   )
 
   return {
@@ -287,23 +285,23 @@ def load_checkpoint_raw(checkpoint_path: str) -> Any:
   """
   import torch
 
-  class _Stub:
+  class Stub:
     def __init__(self, *args, **kwargs):
       self.__dict__.update(kwargs)
 
-  class _StubUnpickler(pickle.Unpickler):
+  class StubUnpickler(pickle.Unpickler):
     def find_class(self, module, name):
       if module.startswith('fairchem'):
-        return type(name, (_Stub,), {'__module__': module})
+        return type(name, (Stub,), {'__module__': module})
       return super().find_class(module, name)
 
-  class _PickleModule:
-    Unpickler = _StubUnpickler
+  class PickleModule:
+    Unpickler = StubUnpickler
     load = pickle.load
 
   with open(checkpoint_path, 'rb') as f:
     return torch.load(
-      f, map_location='cpu', weights_only=False, pickle_module=_PickleModule
+      f, map_location='cpu', weights_only=False, pickle_module=PickleModule
     )
 
 
@@ -386,7 +384,7 @@ def convert_checkpoint(
 
   Args:
       checkpoint_path: Path to .pt checkpoint file.
-      use_ema: Use EMA weights (recommended for inference).
+      use_ema: Use EMA weights, recommended for inference.
 
   Returns:
       Tuple of (config, jax_params, metadata).
@@ -424,15 +422,15 @@ def convert_checkpoint(
     )
 
     # Skip buffers
-    if _is_buffer(pt_key):
+    if is_buffer(pt_key):
       skipped.append(pt_key)
       continue
 
     # Route to head params
     if pt_key.startswith('output_heads.'):
-      flax_key = _convert_head_key(pt_key)
-      if flax_key is not None:
-        head_params[flax_key] = _convert_value(pt_key, pt_np)
+      param_key = convert_head_key(pt_key)
+      if param_key is not None:
+        head_params[param_key] = convert_value(pt_key, pt_np)
         converted.append(pt_key)
       else:
         skipped.append(pt_key)
@@ -444,11 +442,13 @@ def convert_checkpoint(
       key = key[len('backbone.') :]
 
     # Handle MoE weights: store as 'weights' to match MOLELinear param name
-    if is_moe and len(pt_np.shape) == 3 and _is_moe_weight(key):
-      flax_key = _convert_backbone_key(key)
-      if flax_key is not None:
-        flax_key = tuple(('weights' if p == 'kernel' else p) for p in flax_key)
-        _set_nested(backbone_params, flax_key, jnp.array(pt_np))
+    if is_moe and len(pt_np.shape) == 3 and is_moe_weight(key):
+      param_key = convert_backbone_key(key)
+      if param_key is not None:
+        param_key = tuple(
+          ('weights' if p == 'kernel' else p) for p in param_key
+        )
+        set_nested(backbone_params, param_key, jnp.array(pt_np))
         converted.append(pt_key)
       continue
 
@@ -466,22 +466,22 @@ def convert_checkpoint(
     if 'charge_embedding.rand_emb.' in key or 'spin_embedding.rand_emb.' in key:
       # rand_emb.weight -> charge_embedding/embedding/embedding
       clean_key = key.replace('.rand_emb.weight', '')
-      flax_key = (clean_key, 'embedding', 'embedding')
-      _set_nested(backbone_params, flax_key, jnp.array(pt_np))
+      param_key = (clean_key, 'embedding', 'embedding')
+      set_nested(backbone_params, param_key, jnp.array(pt_np))
       converted.append(pt_key)
       continue
 
     # Handle routing_mlp (MoE-specific)
     if 'routing_mlp.' in key:
-      flax_key = _convert_routing_key(key)
-      if flax_key:
-        _set_nested(backbone_params, flax_key, _convert_value(key, pt_np))
+      param_key = convert_routing_key(key)
+      if param_key:
+        set_nested(backbone_params, param_key, convert_value(key, pt_np))
         converted.append(pt_key)
       continue
 
     # Handle composition_embedding
     if key == 'composition_embedding.weight':
-      _set_nested(
+      set_nested(
         backbone_params,
         ('composition_embedding', 'embedding'),
         jnp.array(pt_np),
@@ -490,10 +490,10 @@ def convert_checkpoint(
       continue
 
     # Standard conversion
-    flax_key = _convert_backbone_key(key)
-    if flax_key is not None:
-      val = _convert_value(key, pt_np)
-      _set_nested(backbone_params, flax_key, val)
+    param_key = convert_backbone_key(key)
+    if param_key is not None:
+      val = convert_value(key, pt_np)
+      set_nested(backbone_params, param_key, val)
       converted.append(pt_key)
     else:
       skipped.append(pt_key)
@@ -501,11 +501,11 @@ def convert_checkpoint(
   # Stack per-dataset embeddings into single matrix
   if dataset_embs:
     ds_order = config.dataset_list or sorted(dataset_embs.keys())
-    emb_matrix = np.concatenate(
-      [dataset_embs[ds] for ds in ds_order if ds in dataset_embs],
-      axis=0,
-    )
-    _set_nested(
+    missing = [ds for ds in ds_order if ds not in dataset_embs]
+    if missing:
+      raise ValueError(f'Checkpoint has no dataset embedding for {missing}.')
+    emb_matrix = np.concatenate([dataset_embs[ds] for ds in ds_order], axis=0)
+    set_nested(
       backbone_params,
       ('dataset_embedding', 'embedding', 'embedding'),
       jnp.array(emb_matrix),
@@ -528,7 +528,7 @@ def convert_checkpoint(
   return config, jax_params, metadata
 
 
-def _is_buffer(key: str) -> bool:
+def is_buffer(key: str) -> bool:
   patterns = [
     'Jd_',
     'expand_index',
@@ -546,15 +546,15 @@ def _is_buffer(key: str) -> bool:
   return any(p in key for p in patterns)
 
 
-def _is_moe_weight(key: str) -> bool:
+def is_moe_weight(key: str) -> bool:
   """Check if a key corresponds to an MoE weight (has expert dim)."""
   return 'fc_m0.weights' in key or 'so2_m_conv' in key and '.fc.weights' in key
 
 
-def _convert_backbone_key(key: str) -> Tuple[str, ...] | None:
-  """Convert a backbone state_dict key to Flax key tuple."""
+def convert_backbone_key(key: str) -> Tuple[str, ...] | None:
+  """Convert a backbone state_dict key to a nested key tuple."""
   parts = key.split('.')
-  flax_parts = []
+  segments = []
   i = 0
 
   while i < len(parts):
@@ -566,17 +566,17 @@ def _convert_backbone_key(key: str) -> Tuple[str, ...] | None:
 
     if part.isdigit():
       idx = int(part)
-      if not flax_parts:
+      if not segments:
         i += 1
         continue
 
-      prev = flax_parts[-1]
+      prev = segments[-1]
 
       # RadialMLP net indices
-      if any(p == 'rad_func' for p in flax_parts):
+      if any(p == 'rad_func' for p in segments):
         pair_idx = idx // 3
         is_norm = idx % 3 == 1
-        flax_parts.append(
+        segments.append(
           f'norm_{pair_idx + 1}' if is_norm else f'linear_{pair_idx + 1}'
         )
         i += 1
@@ -584,55 +584,54 @@ def _convert_backbone_key(key: str) -> Tuple[str, ...] | None:
 
       # blocks.{i}
       if prev == 'blocks':
-        flax_parts[-1] = f'blocks_{idx}'
+        segments[-1] = f'blocks_{idx}'
         i += 1
         continue
 
       # so2_m_conv.{i}
       if prev == 'so2_m_conv':
-        flax_parts[-1] = f'so2_m_conv_{idx + 1}'
+        segments[-1] = f'so2_m_conv_{idx + 1}'
         i += 1
         continue
 
-      # scalar_mlp.{i} in SpectralAtomwise -> Dense_{i//2}
-      # PT: atom_wise.scalar_mlp.0.weight -> Flax: atom_wise/Dense_0/kernel
-      if prev == 'scalar_mlp':
-        flax_parts.pop()  # remove 'scalar_mlp'
+      # scalar_mlp.{i} and grid_mlp.{i} map to Dense_{i//2}
+      if prev in ('scalar_mlp', 'grid_mlp'):
+        segments.pop()
         dense_idx = idx // 2
-        flax_parts.append(f'Dense_{dense_idx}')
+        segments.append(f'Dense_{dense_idx}')
         i += 1
         continue
 
       # Generic
-      flax_parts[-1] = f'{prev}_{idx}'
+      segments[-1] = f'{prev}_{idx}'
       i += 1
       continue
 
     # Terminal parameter names
     if part == 'weight' or part == 'weights':
-      if _is_embedding_key(flax_parts):
-        flax_parts.append('embedding')
-      elif _is_so3_key(flax_parts):
-        flax_parts.append('weight')
-      elif _is_norm_key(flax_parts, parts, i):
-        flax_parts.append('scale')
+      if is_embedding_key(segments):
+        segments.append('embedding')
+      elif is_so3_key(segments):
+        segments.append('weight')
+      elif is_norm_key(segments, parts, i):
+        segments.append('scale')
       else:
-        flax_parts.append('kernel')
+        segments.append('kernel')
       i += 1
       continue
 
     if part == 'bias':
-      flax_parts.append('bias')
+      segments.append('bias')
       i += 1
       continue
 
-    flax_parts.append(part)
+    segments.append(part)
     i += 1
 
-  return tuple(flax_parts) if flax_parts else None
+  return tuple(segments) if segments else None
 
 
-def _convert_head_key(key: str) -> str | None:
+def convert_head_key(key: str) -> str | None:
   """Convert head state_dict key to a flat string key."""
   # output_heads.energyandforcehead.head.energy_block.{i}.weight/bias
   if 'energy_block' in key:
@@ -642,28 +641,28 @@ def _convert_head_key(key: str) -> str | None:
       if p == 'energy_block' and j + 1 < len(parts):
         idx = parts[j + 1]
         param = parts[j + 2] if j + 2 < len(parts) else 'weight'
-        flax_param = 'kernel' if param in ('weight', 'weights') else param
-        return f'energy_block_{idx}_{flax_param}'
+        param_name = 'kernel' if param in ('weight', 'weights') else param
+        return f'energy_block_{idx}_{param_name}'
   return None
 
 
-def _convert_routing_key(key: str) -> Tuple[str, ...] | None:
+def convert_routing_key(key: str) -> Tuple[str, ...] | None:
   """Convert routing_mlp keys."""
   parts = key.split('.')
-  flax_parts = ['routing_mlp']
+  segments = ['routing_mlp']
   for i, p in enumerate(parts):
     if p == 'routing_mlp':
       continue
     if p.isdigit():
-      flax_parts.append(f'layers_{p}')
+      segments.append(f'layers_{p}')
     elif p == 'weight':
-      flax_parts.append('kernel')
+      segments.append('kernel')
     else:
-      flax_parts.append(p)
-  return tuple(flax_parts)
+      segments.append(p)
+  return tuple(segments)
 
 
-def _is_embedding_key(parts: List[str]) -> bool:
+def is_embedding_key(parts: List[str]) -> bool:
   for p in parts:
     if p in (
       'sphere_embedding',
@@ -675,11 +674,11 @@ def _is_embedding_key(parts: List[str]) -> bool:
   return False
 
 
-def _is_so3_key(parts: List[str]) -> bool:
+def is_so3_key(parts: List[str]) -> bool:
   return any('so3_linear' in p for p in parts)
 
 
-def _is_norm_key(parts: List[str], all_parts: List[str], idx: int) -> bool:
+def is_norm_key(parts: List[str], all_parts: List[str], idx: int) -> bool:
   for p in parts:
     if p.startswith('norm_') or p == 'norm_l0':
       return True
@@ -693,18 +692,18 @@ def _is_norm_key(parts: List[str], all_parts: List[str], idx: int) -> bool:
   return False
 
 
-def _convert_value(key: str, value: np.ndarray) -> jnp.ndarray:
+def convert_value(key: str, value: np.ndarray) -> jnp.ndarray:
   """Convert weight tensor from PyTorch to JAX format."""
   if (key.endswith('.weight') or key.endswith('.weights')) and len(
     value.shape
   ) == 2:
-    if not _key_is_embedding(key) and 'so3_linear' not in key:
-      if not _key_is_norm(key):
+    if not key_is_embedding(key) and 'so3_linear' not in key:
+      if not key_is_norm(key):
         value = value.T
   return jnp.array(value)
 
 
-def _key_is_embedding(key: str) -> bool:
+def key_is_embedding(key: str) -> bool:
   for p in (
     'sphere_embedding',
     'source_embedding',
@@ -718,7 +717,7 @@ def _key_is_embedding(key: str) -> bool:
   return False
 
 
-def _key_is_norm(key: str) -> bool:
+def key_is_norm(key: str) -> bool:
   parts = key.split('.')
   for i, p in enumerate(parts):
     if p == 'net' and i + 1 < len(parts) and parts[i + 1].isdigit():
@@ -727,7 +726,7 @@ def _key_is_norm(key: str) -> bool:
   return False
 
 
-def _set_nested(d: Dict, keys: Tuple[str, ...], value: Any) -> None:
+def set_nested(d: Dict, keys: Tuple[str, ...], value: Any) -> None:
   for key in keys[:-1]:
     if key not in d:
       d[key] = {}
@@ -745,3 +744,89 @@ def print_conversion_report(metadata: ConversionMetadata) -> None:
   print(f'Skipped: {len(metadata.skipped_keys)} params (buffers/MoE-specific)')
   if metadata.head_params:
     print(f'Head params: {len(metadata.head_params)} params')
+
+
+def load_params_into_module(params, module, strict=False):
+  """Return *module* with its arrays taken from a linen-shaped params dict.
+
+  Leaves are matched by path: a tuple field contributes ``name_i``, a dict
+  field contributes its key, and everything else its attribute name.
+  Module leaves the checkpoint does not name keep their computed values,
+  unless ``strict`` is set, which rejects any entry on either side that has
+  no counterpart. A full checkpoint loaded into the module it was converted
+  from matches exactly, so strict mode catches a renamed parameter path.
+
+  A matched entry must have the shape of the module leaf and keeps the
+  checkpoint dtype. The module may come from ``eqx.filter_eval_shape``, in
+  which case strict mode guarantees that every leaf is filled.
+  """
+  import jax
+
+  if 'params' in params and len(params) == 1:
+    params = params['params']
+
+  flat = {}
+  for path, value in jax.tree_util.tree_flatten_with_path(params)[0]:
+    flat['/'.join(str(getattr(e, 'key', e)) for e in path)] = value
+
+  leaves, treedef = jax.tree_util.tree_flatten_with_path(module)
+  out = []
+  keys = []
+  for path, current in leaves:
+    segments = []
+    for entry in path:
+      if isinstance(entry, jax.tree_util.SequenceKey):
+        segments[-1] = f'{segments[-1]}_{entry.idx}'
+      elif isinstance(entry, jax.tree_util.DictKey):
+        segments[-1] = str(entry.key)
+      else:
+        segments.append(entry.name)
+    keys.append('/'.join(segments))
+    if keys[-1] not in flat:
+      out.append(current)
+      continue
+    value = flat[keys[-1]]
+    if not hasattr(current, 'shape'):
+      out.append(value)
+      continue
+    if tuple(value.shape) != tuple(current.shape):
+      raise ValueError(
+        f'Shape mismatch at {keys[-1]}: checkpoint {tuple(value.shape)}, '
+        f'module {tuple(current.shape)}.'
+      )
+    out.append(jnp.asarray(value))
+
+  if strict:
+    unused = sorted(set(flat) - set(keys))
+    unmatched = [key for key in keys if key not in flat]
+    if unused or unmatched:
+      raise ValueError(
+        'Checkpoint and module parameters have different paths.\n'
+        f'Unused checkpoint entries: {unused[:5]}\n'
+        f'Module leaves not in the checkpoint: {unmatched[:5]}'
+      )
+  return jax.tree_util.tree_unflatten(treedef, out)
+
+
+def module_to_params(module):
+  """Return the linen-shaped nested params dict for an equinox *module*.
+
+  The inverse of :func:`load_params_into_module`.
+  """
+  import jax
+
+  tree = {}
+  for path, value in jax.tree_util.tree_flatten_with_path(module)[0]:
+    segments = []
+    for entry in path:
+      if isinstance(entry, jax.tree_util.SequenceKey):
+        segments[-1] = f'{segments[-1]}_{entry.idx}'
+      elif isinstance(entry, jax.tree_util.DictKey):
+        segments[-1] = str(entry.key)
+      else:
+        segments.append(entry.name)
+    cursor = tree
+    for seg in segments[:-1]:
+      cursor = cursor.setdefault(seg, {})
+    cursor[segments[-1]] = value
+  return tree

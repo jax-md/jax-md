@@ -15,13 +15,14 @@
 # routing, batched evaluation, molecular dynamics, and structure relaxation.
 #
 # ```bash
-# pip install jax jaxlib flax torch huggingface_hub
+# pip install jax jaxlib equinox torch huggingface_hub
 # huggingface-cli login  # accept license at https://huggingface.co/facebook/UMA
 # ```
 
 # %%
 import os
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 from jax import jit, random
@@ -30,6 +31,7 @@ import numpy as np
 from jax_md._nn.uma import load_pretrained, UMAMoEBackbone
 from jax_md._nn.uma.nn.embedding import dataset_names_to_indices
 from jax_md._nn.uma.heads import MLPEnergyHead
+from jax_md._nn.uma.pretrained import load_params_into_module
 
 ON_READTHEDOCS = os.environ.get('READTHEDOCS', '').lower() in {
   '1',
@@ -49,12 +51,24 @@ if not RUN_PRETRAINED_UMA:
 # %%
 if RUN_PRETRAINED_UMA:
   config, params, head_params = load_pretrained('uma-s-1p2')
-  model = UMAMoEBackbone(config=config)
-  head = MLPEnergyHead(
-    sphere_channels=config.sphere_channels,
-    hidden_channels=config.hidden_channels,
+
+  backbone_key, head_key = random.split(random.PRNGKey(0))
+  model = load_params_into_module(
+    params, UMAMoEBackbone(config=config, key=backbone_key), strict=True
   )
-  predict = jax.jit(model.apply)
+  head = load_params_into_module(
+    head_params,
+    MLPEnergyHead(
+      sphere_channels=config.sphere_channels,
+      hidden_channels=config.hidden_channels,
+      key=head_key,
+    ),
+    strict=True,
+  )
+
+  @eqx.filter_jit
+  def predict(model, pos, Z, batch, edge_index, edge_vec, charge, spin, ds):
+    return model(pos, Z, batch, edge_index, edge_vec, charge, spin, ds)
 
   print(
     f"Model: {config.num_layers} layers, {config.sphere_channels} channels, "
@@ -64,7 +78,7 @@ if RUN_PRETRAINED_UMA:
 
 
 def build_edges(pos_np, cutoff):
-  """All-pairs edges within cutoff (for small non-periodic systems)."""
+  """All-pairs edges within cutoff for small non-periodic systems."""
   n = len(pos_np)
   s, d = [], []
   for i in range(n):
@@ -92,16 +106,15 @@ if RUN_PRETRAINED_UMA:
   charge0 = jnp.array([0], dtype=jnp.int32)
   spin0 = jnp.array([0], dtype=jnp.int32)
 
-  emb = predict(params, cu_pos, cu_Z, cu_batch, cu_ei, cu_ev,
+  emb = predict(model, cu_pos, cu_Z, cu_batch, cu_ei, cu_ev,
                 charge0, spin0, cu_ds)
-  result = head.apply(head_params, emb['node_embedding'], cu_batch, 1)
+  result = head(emb['node_embedding'], cu_batch, 1)
   print(f"Cu FCC energy: {float(result['energy'][0]):.6f} eV")
 
   def cu_energy(pos):
     ev = pos[cu_ei[0]] - pos[cu_ei[1]]
-    e = model.apply(params, pos, cu_Z, cu_batch, cu_ei, ev,
-                    charge0, spin0, cu_ds)
-    return head.apply(head_params, e['node_embedding'], cu_batch, 1)['energy'][0]
+    e = model(pos, cu_Z, cu_batch, cu_ei, ev, charge0, spin0, cu_ds)
+    return head(e['node_embedding'], cu_batch, 1)['energy'][0]
 
   forces = -jax.grad(cu_energy)(cu_pos)
   print(f"Max |force|: {float(jnp.max(jnp.abs(forces))):.6f} eV/A")
@@ -114,7 +127,7 @@ if RUN_PRETRAINED_UMA:
   print("Cu FCC across datasets:")
   for ds_name in config.dataset_list:
     ds = dataset_names_to_indices([ds_name], config.dataset_list)
-    out = predict(params, cu_pos, cu_Z, cu_batch, cu_ei, cu_ev,
+    out = predict(model, cu_pos, cu_Z, cu_batch, cu_ei, cu_ev,
                   charge0, spin0, ds)
     l0 = float(out['node_embedding'][:, 0, :].mean())
     print(f"{ds_name:5s}: l=0 mean: {l0:+.6f}")
@@ -126,7 +139,6 @@ if RUN_PRETRAINED_UMA:
 if RUN_PRETRAINED_UMA:
   h2o_pos = np.array([[0, 0, .12], [0, .76, -.47], [0, -.76, -.47]],
                       dtype=np.float32)
-  h2o_Z = [8, 1, 1]
 
   all_pos_np = np.concatenate([np.asarray(cu_pos), h2o_pos])
   all_Z = jnp.array([29, 29, 29, 29, 8, 1, 1], dtype=jnp.int32)
@@ -139,10 +151,10 @@ if RUN_PRETRAINED_UMA:
   ev = all_pos[ei[0]] - all_pos[ei[1]]
   ds_idx = dataset_names_to_indices(['omat', 'omol'], config.dataset_list)
 
-  out = predict(params, all_pos, all_Z, batch, ei, ev,
+  out = predict(model, all_pos, all_Z, batch, ei, ev,
                 jnp.array([0, 0], dtype=jnp.int32),
                 jnp.array([0, 0], dtype=jnp.int32), ds_idx)
-  result = head.apply(head_params, out['node_embedding'], batch, 2)
+  result = head(out['node_embedding'], batch, 2)
   print(f"Batched energies: Cu4={float(result['energy'][0]):.4f}, "
         f"H2O={float(result['energy'][1]):.4f} eV")
 
@@ -157,7 +169,7 @@ if RUN_PRETRAINED_UMA:
     h2o_jnp = jnp.array(h2o_pos)
     h2o_ev = h2o_jnp[h2o_ei[0]] - h2o_jnp[h2o_ei[1]]
     omol = dataset_names_to_indices(['omol'], config.dataset_list)
-    out = predict(params, h2o_jnp, jnp.array([8, 1, 1], dtype=jnp.int32),
+    out = predict(model, h2o_jnp, jnp.array([8, 1, 1], dtype=jnp.int32),
                   jnp.zeros(3, dtype=jnp.int32), h2o_ei, h2o_ev,
                   jnp.array([q], dtype=jnp.int32),
                   jnp.array([s], dtype=jnp.int32), omol)
@@ -254,7 +266,7 @@ if RUN_PRETRAINED_UMA:
 # %% [markdown]
 # ## 8. Checkpoint conversion (requires torch)
 #
-# `load_pretrained` (section 1) handles this automatically, but here we
+# `load_pretrained` handles this automatically, but here we
 # show the individual steps: download, inspect, convert, save as numpy
 # for torch-free loading.
 
@@ -282,7 +294,7 @@ else:
           f"{raw_cfg.sphere_channels} ch, lmax={raw_cfg.lmax}")
     print(f"State dict: {len(ckpt.model_state_dict)} parameters")
 
-    # Convert to JAX params (preserves all MoE experts)
+    # Keeps all MoE experts
     cfg_conv, jax_params, metadata = convert_checkpoint(ckpt_path, use_ema=True)
     print_conversion_report(metadata)
 

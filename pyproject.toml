@@ -39,16 +39,13 @@ dependencies = [
     "absl-py",
     "numpy",
     # Exclude 0.10.2: https://github.com/jax-ml/jax/issues/39103
-    # Exclude 0.11.1: it drops jax.experimental.hijax.MutableHiType, which
-    # flax 0.12.8 imports at module scope.
-    "jax>=0.5.0,!=0.10.2,!=0.11.1",
-    "jaxlib>=0.5.0,!=0.10.2,!=0.11.1",
-    "flax",
+    "jax>=0.5.0,!=0.10.2",
+    "jaxlib>=0.5.0,!=0.10.2",
     "jraph",
     "einops",
-    "ml_collections",
-    "e3nn-jax",
-    "equinox",
+    # e3nn_jax.legacy for nequip; flax is an optional extra from 0.20.8
+    "e3nn-jax>=0.20.8",
+    "equinox>=0.11",
     "optax",
     "frozendict",
     "pymatgen>=2021.3.4",
@@ -88,6 +85,11 @@ testing = [
 ]
 mace = [
     "mace_jax @ git+https://github.com/ACEsuit/mace-jax@fe19806 ; python_version >= '3.11'",
+    "flax",  # mace-jax builds its modules on flax.nnx
+    # mace-jax pins cuequivariance-jax 0.10, which breaks on jax 0.12, and
+    # flax.nnx breaks on jax 0.11.1. Only binds here.
+    "jax<0.11",
+    "jaxlib<0.11",
 ]
 uma = [
     "torch>=2.0.0",           # Loading PyTorch UMA checkpoints
@@ -122,10 +124,6 @@ exclude = [
     "jax_md/_nn/uma/checkpoints/*.json",
     "jax_md/_nn/**/*.eqx",
 ]
-
-[tool.hatch.build.targets.wheel.shared-data]
-"examples/models/*.pickle" = "examples/models"
-"examples/models/*.png" = "examples/models"
 
 [tool.hatch.build.targets.wheel.force-include]
 "jax_md/_nn/uma/Jd.pt" = "jax_md/_nn/uma/Jd.pt"
@@ -223,8 +221,8 @@ python-version = "3.10"
 
 [tool.ty.analysis]
 allowed-unresolved-imports = [
-    "mace_jax.**", "torch.**", "fairchem.**", "e3nn.**",
-    "huggingface_hub.**", "openmm.**", "openmmforcefields.**",
+    "mace_jax.**", "flax.**", "torch.**", "fairchem.**", "e3nn.**",
+    "huggingface_hub.**", "yaml.**", "openmm.**", "openmmforcefields.**",
     "parmed.**", "netCDF4.**", "google.colab.**", "IPython.**",
 ]
 
