@@ -8,6 +8,7 @@ Examples
    examples/nvt_simulation
    examples/npt_simulation
    examples/npt_csvr
+   examples/npt_langevin
    examples/nve_neighbor_list
    examples/neural_networks
    examples/equivariant_neural_networks
