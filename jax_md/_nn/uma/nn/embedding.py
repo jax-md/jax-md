@@ -6,25 +6,21 @@ and dataset identifiers.
 Ported from FairChem's UMA implementation.
 """
 
-from __future__ import annotations
+from typing import List, Literal, Sequence, Tuple
 
-from typing import List, Literal, Sequence
-
-import flax.linen as nn
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 
-
-from jax.nn import initializers
-
+from jax_md import util as jmd_util
+from jax_md._nn.uma.nn import primitives
 from jax_md._nn.uma.nn.radial import RadialMLP
 
+Array = jmd_util.Array
 
-# Dataset name to index mapping (used outside JIT to convert strings to ints)
-DEFAULT_DATASET_LIST = ['oc20', 'omol', 'omat', 'odac', 'omc']
 
 # Aliases: these datasets map to 'omat'
-_DATASET_ALIASES = {
+DATASET_ALIASES = {
   'mptrj': 'omat',
   'salex': 'omat',
 }
@@ -41,7 +37,7 @@ def symmetric_uniform(scale):
 
 
 def dataset_name_to_idx(name: str, dataset_list: List[str] | None) -> int:
-  """Convert dataset name to integer index (call outside JIT).
+  """Convert dataset name to integer index; call outside JIT.
 
   Args:
       name: Dataset name string.
@@ -50,7 +46,7 @@ def dataset_name_to_idx(name: str, dataset_list: List[str] | None) -> int:
   Returns:
       Integer index into dataset_list.
   """
-  resolved = _DATASET_ALIASES.get(name, name)
+  resolved = DATASET_ALIASES.get(name, name)
   if dataset_list and resolved in dataset_list:
     return dataset_list.index(resolved)
   return 0  # Default to first dataset
@@ -59,7 +55,7 @@ def dataset_name_to_idx(name: str, dataset_list: List[str] | None) -> int:
 def dataset_names_to_indices(
   names: List[str], dataset_list: List[str] | None
 ) -> jnp.ndarray:
-  """Convert a list of dataset names to integer indices (call outside JIT).
+  """Convert a list of dataset names to integer indices; call outside JIT.
 
   Args:
       names: List of dataset name strings.
@@ -71,18 +67,24 @@ def dataset_names_to_indices(
   return jnp.array([dataset_name_to_idx(n, dataset_list) for n in names])
 
 
-class AtomicEmbedding(nn.Module):
+class AtomicEmbedding(eqx.Module):
   """Embedding layer for atomic numbers.
 
   Attributes:
-      num_elements: Maximum number of elements to embed.
-      embedding_size: Dimension of the embedding.
+      embedding: Lookup table of shape [num_elements, embedding_size].
   """
 
-  num_elements: int
-  embedding_size: int
+  embedding: primitives.Embed
 
-  @nn.compact
+  def __init__(
+    self,
+    num_elements: int,
+    embedding_size: int,
+    *,
+    key: Array,
+  ):
+    self.embedding = primitives.Embed(num_elements, embedding_size, key=key)
+
   def __call__(self, atomic_numbers: jnp.ndarray) -> jnp.ndarray:
     """Embed atomic numbers.
 
@@ -92,15 +94,10 @@ class AtomicEmbedding(nn.Module):
     Returns:
         Embeddings, shape [num_atoms, embedding_size].
     """
-    embedding = nn.Embed(
-      num_embeddings=self.num_elements,
-      features=self.embedding_size,
-      name='embedding',
-    )
-    return embedding(atomic_numbers)
+    return self.embedding(atomic_numbers)
 
 
-class ChgSpinEmbedding(nn.Module):
+class ChgSpinEmbedding(eqx.Module):
   """Embedding for charge or spin values.
 
   Supports multiple embedding types:
@@ -111,18 +108,45 @@ class ChgSpinEmbedding(nn.Module):
   Attributes:
       embedding_type: Type of embedding ('pos_emb', 'lin_emb', 'rand_emb').
       embedding_target: What to embed ('charge' or 'spin').
-      embedding_size: Dimension of the embedding.
       trainable: Whether the embedding is trainable.
-      scale: Scale factor for positional embedding.
   """
 
-  embedding_type: str  # 'pos_emb', 'lin_emb', or 'rand_emb' (checked at call)
-  embedding_target: Literal['charge', 'spin']
-  embedding_size: int
-  trainable: bool = False
-  scale: float = 1.0
+  W: Array | None
+  linear: primitives.Dense | None
+  embedding: primitives.Embed | None
+  embedding_type: str = eqx.field(static=True)
+  embedding_target: Literal['charge', 'spin'] = eqx.field(static=True)
+  trainable: bool = eqx.field(static=True)
 
-  @nn.compact
+  def __init__(
+    self,
+    embedding_type: str,
+    embedding_target: Literal['charge', 'spin'],
+    embedding_size: int,
+    trainable: bool = False,
+    scale: float = 1.0,
+    *,
+    key: Array,
+  ):
+    self.embedding_type = embedding_type
+    self.embedding_target = embedding_target
+    self.trainable = trainable
+
+    self.W = None
+    self.linear = None
+    self.embedding = None
+
+    if embedding_type == 'pos_emb':
+      self.W = jax.random.normal(key, (embedding_size // 2,)) * scale
+    elif embedding_type == 'lin_emb':
+      self.linear = primitives.Dense(1, embedding_size, key=key, use_bias=True)
+    elif embedding_type == 'rand_emb':
+      if embedding_target == 'charge':
+        num_embeddings = 201
+      else:
+        num_embeddings = 101
+      self.embedding = primitives.Embed(num_embeddings, embedding_size, key=key)
+
   def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
     """Embed charge or spin values.
 
@@ -133,15 +157,11 @@ class ChgSpinEmbedding(nn.Module):
         Embeddings, shape [batch, embedding_size].
     """
     if self.embedding_type == 'pos_emb':
-      W = self.param(
-        'W',
-        initializers.normal(stddev=self.scale),
-        (self.embedding_size // 2,),
-      )
+      W = self.W
       if not self.trainable:
         W = jax.lax.stop_gradient(W)
 
-      x_proj = x[:, None] * W[None, :] * 2 * jnp.pi
+      x_proj = x[:, None] * W[None, :] * 2 * jnp.pi  # ty: ignore[not-subscriptable]
       emb = jnp.concatenate([jnp.sin(x_proj), jnp.cos(x_proj)], axis=-1)
 
       if self.embedding_target == 'spin':
@@ -151,61 +171,55 @@ class ChgSpinEmbedding(nn.Module):
       return emb
 
     elif self.embedding_type == 'lin_emb':
-      linear = nn.Dense(
-        features=self.embedding_size,
-        use_bias=True,
-        name='linear',
-      )
       x_input = x.astype(jnp.float32)[:, None]
 
       if self.embedding_target == 'spin':
         x_input = jnp.where(x[:, None] == 0, -100.0, x_input)
 
-      out = linear(x_input)
+      out = self.linear(x_input)  # ty: ignore[call-non-callable]
       if not self.trainable:
         out = jax.lax.stop_gradient(out)
       return out
 
     elif self.embedding_type == 'rand_emb':
       if self.embedding_target == 'charge':
-        num_embeddings = 201
         x_idx = x + 100
       else:
-        num_embeddings = 101
         x_idx = x
 
       x_idx = x_idx.astype(jnp.int32)
-      embedding = nn.Embed(
-        num_embeddings=num_embeddings,
-        features=self.embedding_size,
-        name='embedding',
-      )
-      out = embedding(x_idx)
+      out = self.embedding(x_idx)  # ty: ignore[call-non-callable]
       if not self.trainable:
         out = jax.lax.stop_gradient(out)
       return out
 
-    else:
-      raise ValueError(f'Unknown embedding type: {self.embedding_type}')
+    raise ValueError(f'Unknown embedding type: {self.embedding_type}')
 
 
-class DatasetEmbedding(nn.Module):
+class DatasetEmbedding(eqx.Module):
   """Embedding for dataset identifiers.
 
   Uses integer indices instead of string names for JIT compatibility.
   Call dataset_names_to_indices() outside JIT to convert strings to ints.
 
   Attributes:
-      embedding_size: Dimension of the embedding.
-      num_datasets: Number of datasets.
       trainable: Whether the embeddings are trainable.
   """
 
-  embedding_size: int
-  num_datasets: int
-  trainable: bool = False
+  embedding: primitives.Embed
+  trainable: bool = eqx.field(static=True)
 
-  @nn.compact
+  def __init__(
+    self,
+    embedding_size: int,
+    num_datasets: int,
+    trainable: bool = False,
+    *,
+    key: Array,
+  ):
+    self.trainable = trainable
+    self.embedding = primitives.Embed(num_datasets, embedding_size, key=key)
+
   def __call__(self, dataset_idx: jnp.ndarray) -> jnp.ndarray:
     """Embed dataset indices.
 
@@ -215,39 +229,49 @@ class DatasetEmbedding(nn.Module):
     Returns:
         Embeddings, shape [num_systems, embedding_size].
     """
-    embedding = nn.Embed(
-      num_embeddings=self.num_datasets,
-      features=self.embedding_size,
-      name='embedding',
-    )
-    out = embedding(dataset_idx)
+    out = self.embedding(dataset_idx)
     if not self.trainable:
       out = jax.lax.stop_gradient(out)
     return out
 
 
-class EdgeDegreeEmbedding(nn.Module):
+class EdgeDegreeEmbedding(eqx.Module):
   """Embedding based on edge degree (neighbor aggregation).
 
   Aggregates edge features onto nodes using Wigner rotation.
 
   Attributes:
       sphere_channels: Number of spherical channels.
-      lmax: Maximum degree l.
-      mmax: Maximum order m.
-      edge_channels_list: Channel dimensions for radial MLP.
       rescale_factor: Factor to rescale aggregated features.
       m_size: List of number of coefficients for each m.
   """
 
-  sphere_channels: int
-  lmax: int
-  mmax: int
-  edge_channels_list: List[int]
-  rescale_factor: float
-  m_size: Sequence[int]
+  rad_func: RadialMLP
+  sphere_channels: int = eqx.field(static=True)
+  rescale_factor: float = eqx.field(static=True)
+  m_size: Tuple[int, ...] = eqx.field(static=True)
 
-  @nn.compact
+  def __init__(
+    self,
+    sphere_channels: int,
+    lmax: int,
+    mmax: int,
+    edge_channels_list: List[int],
+    rescale_factor: float,
+    m_size: Sequence[int],
+    *,
+    key: Array,
+  ):
+    self.sphere_channels = sphere_channels
+    self.rescale_factor = rescale_factor
+    self.m_size = tuple(m_size)
+
+    m_0_num_coefficients = m_size[0]
+
+    edge_channels = list(edge_channels_list)
+    edge_channels.append(m_0_num_coefficients * sphere_channels)
+    self.rad_func = RadialMLP(channels_list=edge_channels, key=key)
+
   def __call__(
     self,
     x: jnp.ndarray,
@@ -272,13 +296,8 @@ class EdgeDegreeEmbedding(nn.Module):
     """
     m_0_num_coefficients = self.m_size[0]
 
-    # Radial MLP
-    edge_channels = list(self.edge_channels_list)
-    edge_channels.append(m_0_num_coefficients * self.sphere_channels)
-    rad_func = RadialMLP(channels_list=edge_channels, name='rad_func')
-
     # Process edge features
-    x_edge_m_0 = rad_func(x_edge)
+    x_edge_m_0 = self.rad_func(x_edge)
     x_edge_m_0 = x_edge_m_0.reshape(
       -1, m_0_num_coefficients, self.sphere_channels
     )

@@ -6,32 +6,40 @@ distances in the UMA model.
 Ported from FairChem's UMA implementation.
 """
 
-from __future__ import annotations
+from typing import Dict, Sequence
 
-from typing import Sequence
-
-import flax.linen as nn
+import equinox as eqx
+import jax
 import jax.numpy as jnp
 
+from jax_md import util as jmd_util
+from jax_md._nn.uma.nn import primitives
 
-class PolynomialEnvelope(nn.Module):
+Array = jmd_util.Array
+
+
+class PolynomialEnvelope(eqx.Module):
   """Polynomial envelope function for smooth distance cutoff.
 
   Ensures contributions smoothly go to zero at the cutoff distance.
 
   Attributes:
-      exponent: Exponent p for the polynomial (default 5).
+      exponent: Exponent p for the polynomial, default 5.
   """
 
-  exponent: int = 5
+  exponent: int = eqx.field(static=True)
+  a: float = eqx.field(static=True)
+  b: float = eqx.field(static=True)
+  c: float = eqx.field(static=True)
 
-  def setup(self):
-    p = float(self.exponent)
+  def __init__(self, exponent: int = 5):
+    self.exponent = exponent
+    p = float(exponent)
     self.a = -(p + 1) * (p + 2) / 2
     self.b = p * (p + 2)
     self.c = -p * (p + 1) / 2
 
-  def __call__(self, d_scaled: jnp.ndarray) -> jnp.ndarray:
+  def __call__(self, d_scaled: Array) -> Array:
     """Apply polynomial envelope.
 
     Args:
@@ -47,29 +55,38 @@ class PolynomialEnvelope(nn.Module):
     return jnp.where(d_scaled < 1.0, env_val, 0.0)
 
 
-class GaussianSmearing(nn.Module):
+class GaussianSmearing(eqx.Module):
   """Gaussian basis expansion for distance encoding.
 
   Expands distances into a set of Gaussian basis functions.
 
   Attributes:
-      start: Start of the distance range.
-      stop: End of the distance range.
-      num_gaussians: Number of Gaussian basis functions.
-      basis_width_scalar: Scaling factor for basis width.
+      coeff: Shared exponent coefficient.
   """
 
-  start: float = 0.0
-  stop: float = 5.0
-  num_gaussians: int = 50
-  basis_width_scalar: float = 2.0
+  start: float = eqx.field(static=True)
+  stop: float = eqx.field(static=True)
+  num_gaussians: int = eqx.field(static=True)
+  coeff: float = eqx.field(static=True)
 
-  def setup(self):
-    offset = jnp.linspace(self.start, self.stop, self.num_gaussians)
-    self.offset = offset
-    self.coeff = -0.5 / (self.basis_width_scalar * (offset[1] - offset[0])) ** 2
+  def __init__(
+    self,
+    start: float = 0.0,
+    stop: float = 5.0,
+    num_gaussians: int = 50,
+    basis_width_scalar: float = 2.0,
+  ):
+    self.start = start
+    self.stop = stop
+    self.num_gaussians = num_gaussians
+    # Concrete even under eqx.filter_eval_shape
+    with jax.ensure_compile_time_eval():
+      offset = jnp.linspace(start, stop, num_gaussians)
+      self.coeff = float(
+        -0.5 / (basis_width_scalar * (offset[1] - offset[0])) ** 2
+      )
 
-  def __call__(self, dist: jnp.ndarray) -> jnp.ndarray:
+  def __call__(self, dist: Array) -> Array:
     """Expand distances into Gaussian basis.
 
     Args:
@@ -78,24 +95,44 @@ class GaussianSmearing(nn.Module):
     Returns:
         Gaussian basis expansion, shape [num_edges, num_gaussians].
     """
-    dist = dist.reshape(-1, 1) - self.offset.reshape(1, -1)
+    # Constants under a trace, not leaves
+    with jax.ensure_compile_time_eval():
+      offset = jnp.linspace(self.start, self.stop, self.num_gaussians)
+    dist = dist.reshape(-1, 1) - offset.reshape(1, -1)
     return jnp.exp(self.coeff * dist**2)
 
 
-class RadialMLP(nn.Module):
+class RadialMLP(eqx.Module):
   """Multi-layer perceptron for radial features.
 
   Processes edge scalar features through linear layers with LayerNorm
   and SiLU activation.
 
   Attributes:
-      channels_list: List of channel dimensions for each layer.
+      linear: Dense layers keyed by their checkpoint name.
+      norm: Layer norms keyed by their checkpoint name.
   """
 
-  channels_list: Sequence[int]
+  linear: Dict[str, primitives.Dense]
+  norm: Dict[str, primitives.LayerNorm]
+  n_layers: int = eqx.field(static=True)
 
-  @nn.compact
-  def __call__(self, inputs: jnp.ndarray) -> jnp.ndarray:
+  def __init__(self, channels_list: Sequence[int], *, key: Array):
+    n = len(channels_list)
+    keys = jax.random.split(key, max(n - 1, 1))
+    self.n_layers = n
+    self.linear = {
+      f'linear_{i}': primitives.Dense(
+        channels_list[i - 1], channels_list[i], key=keys[i - 1]
+      )
+      for i in range(1, n)
+    }
+    self.norm = {
+      f'norm_{i}': primitives.LayerNorm(channels_list[i])
+      for i in range(1, n - 1)
+    }
+
+  def __call__(self, inputs: Array) -> Array:
     """Apply radial MLP.
 
     Args:
@@ -105,16 +142,12 @@ class RadialMLP(nn.Module):
         Output features, shape [num_edges, channels_list[-1]].
     """
     x = inputs
-    for i in range(1, len(self.channels_list)):
-      x = nn.Dense(
-        features=self.channels_list[i],
-        use_bias=True,
-        name=f'linear_{i}',
-      )(x)
+    for i in range(1, self.n_layers):
+      x = self.linear[f'linear_{i}'](x)
 
       # Apply LayerNorm and SiLU for all but the last layer
-      if i < len(self.channels_list) - 1:
-        x = nn.LayerNorm(name=f'norm_{i}')(x)
-        x = nn.silu(x)
+      if i < self.n_layers - 1:
+        x = self.norm[f'norm_{i}'](x)
+        x = jax.nn.silu(x)
 
     return x
