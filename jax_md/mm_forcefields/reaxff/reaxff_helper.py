@@ -653,7 +653,7 @@ def read_force_field(
 
     elif ind1 == -1 and ind4 == -1:
       lines_with_negative_vals.append(
-        [tors, ind1, ind2, ind3, ind4, v1, v2, v3, v4, vconj]
+        (tors, ind1, ind2, ind3, ind4, v1, v2, v3, v4, vconj)
       )
     else:
       print(f'Invalid torsion parameter section, line:{tors + 1}')

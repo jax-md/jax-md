@@ -531,7 +531,7 @@ def gupta_gold55(displacement, cutoff=8.0):
 
 
 def multiplicative_isotropic_cutoff(
-  fn: Callable[..., Array], r_onset: float, r_cutoff: float
+  fn: Callable[..., Array], r_onset: float | Array, r_cutoff: float | Array
 ) -> Callable[..., Array]:
   """Takes an isotropic function and constructs a truncated function.
 
@@ -1162,17 +1162,17 @@ def _ters_bij(R, D, c, d, h, lam3, beta, n, m, dRij, dRik, mask_ijk) -> Array:
 
 
 def _ters_attractive(
-  B: f64,
-  lam2: f64,
-  R: f64,
-  D: f64,
-  c: f64,
-  d: f64,
-  h: f64,
-  lam3: f64,
-  beta: f64,
-  n: f64,
-  m: f64,
+  B: float,
+  lam2: float,
+  R: float,
+  D: float,
+  c: float,
+  d: float,
+  h: float,
+  lam3: float,
+  beta: float,
+  n: float,
+  m: float,
   dR12: Array,
   dR13: Array,
   mask_ijk,
@@ -1214,7 +1214,9 @@ def _ters_attractive(
   return 0.5 * fC * bij * fA
 
 
-def _ters_repulsive(A: f64, lam1: f64, R: f64, D: f64, dr: Array) -> Array:
+def _ters_repulsive(
+  A: float, lam1: float, R: float, D: float, dr: Array
+) -> Array:
   """The repulsive term of the Tersoff potential.
   Args:
     A: A scalar that determines repulsive energy (eV).
@@ -1433,7 +1435,9 @@ def tersoff_from_lammps_parameters_neighbor_list(
 # (EDIP) Environment-dependent interatomic potential
 
 
-def _edip_cutoff_function(r: Array, cutoff: f64, c: f64, alpha: f64) -> Array:
+def _edip_cutoff_function(
+  r: Array, cutoff: float, c: float, alpha: float
+) -> Array:
   x_term = (r - c) / (cutoff - c)
   expo_term = jnp.exp(alpha / (1 - (x_term ** (-3))))
   outer = jnp.where(r > cutoff, 0, expo_term)
@@ -1442,14 +1446,14 @@ def _edip_cutoff_function(r: Array, cutoff: f64, c: f64, alpha: f64) -> Array:
 
 
 def _edip_radial_interaction(
-  A: f64,
-  B: f64,
-  rho: f64,
-  sigma: f64,
-  c: f64,
-  alpha: f64,
-  beta: f64,
-  cutoff: f64,
+  A: float,
+  B: float,
+  rho: float,
+  sigma: float,
+  c: float,
+  alpha: float,
+  beta: float,
+  cutoff: float,
   mask,
   r: Array,
 ) -> Array:
@@ -1466,18 +1470,18 @@ def _edip_radial_interaction(
 
 
 def _edip_angle_interaction(
-  lam: f64,
-  gamma: f64,
-  Q_0: f64,
-  cutoff: f64,
-  u1: f64,
-  u2: f64,
-  u3: f64,
-  u4: f64,
-  c: f64,
-  eta: f64,
-  alpha: f64,
-  mu: f64,
+  lam: float,
+  gamma: float,
+  Q_0: float,
+  cutoff: float,
+  u1: float,
+  u2: float,
+  u3: float,
+  u4: float,
+  c: float,
+  eta: float,
+  alpha: float,
+  mu: float,
   mask,
   dR12: Array,
   dR13: Array,
@@ -1504,23 +1508,23 @@ def _edip_angle_interaction(
 
 def edip(
   displacement: DisplacementFn,
-  u1: f64 = -0.165799,
-  u2: f64 = 32.557,
-  u3: f64 = 0.286198,
-  u4: f64 = 0.66,
-  rho: f64 = 1.2085196,
-  eta: f64 = 0.2523244,
-  Q_0: f64 = 312.1341346,
-  mu: f64 = 0.6966326,
-  beta: f64 = 0.0070975,
-  alpha: f64 = 3.1083847,
-  A: f64 = 7.9821730,
-  lam: f64 = 1.4533108,
-  B: f64 = 1.5075463,
-  gamma: f64 = 1.1247945,
-  sigma: f64 = 0.5774108,
-  c: f64 = 2.5609104,
-  cutoff: f64 = 3.1213820,
+  u1: float = -0.165799,
+  u2: float = 32.557,
+  u3: float = 0.286198,
+  u4: float = 0.66,
+  rho: float = 1.2085196,
+  eta: float = 0.2523244,
+  Q_0: float = 312.1341346,
+  mu: float = 0.6966326,
+  beta: float = 0.0070975,
+  alpha: float = 3.1083847,
+  A: float = 7.9821730,
+  lam: float = 1.4533108,
+  B: float = 1.5075463,
+  gamma: float = 1.1247945,
+  sigma: float = 0.5774108,
+  c: float = 2.5609104,
+  cutoff: float = 3.1213820,
 ) -> Callable[[Array], Array]:
   """
   Computes the the Environment-dependent interatomic potential (EDIP).
@@ -1592,25 +1596,25 @@ def edip(
 
 def edip_neighbor_list(
   displacement: DisplacementFn,
-  box_size: f64,
-  u1: f64 = -0.165799,
-  u2: f64 = 32.557,
-  u3: f64 = 0.286198,
-  u4: f64 = 0.66,
-  rho: f64 = 1.2085196,
-  eta: f64 = 0.2523244,
-  Q_0: f64 = 312.1341346,
-  mu: f64 = 0.6966326,
-  beta: f64 = 0.0070975,
-  alpha: f64 = 3.1083847,
-  A: f64 = 7.9821730,
-  lam: f64 = 1.4533108,
-  B: f64 = 1.5075463,
-  gamma: f64 = 1.1247945,
-  sigma: f64 = 0.5774108,
-  c: f64 = 2.5609104,
-  cutoff: f64 = 3.1213820,
-  dr_threshold: f64 = 0.0,
+  box_size: Box,
+  u1: float = -0.165799,
+  u2: float = 32.557,
+  u3: float = 0.286198,
+  u4: float = 0.66,
+  rho: float = 1.2085196,
+  eta: float = 0.2523244,
+  Q_0: float = 312.1341346,
+  mu: float = 0.6966326,
+  beta: float = 0.0070975,
+  alpha: float = 3.1083847,
+  A: float = 7.9821730,
+  lam: float = 1.4533108,
+  B: float = 1.5075463,
+  gamma: float = 1.1247945,
+  sigma: float = 0.5774108,
+  c: float = 2.5609104,
+  cutoff: float = 3.1213820,
+  dr_threshold: float = 0.0,
   fractional_coordinates: bool = True,
   format: NeighborListFormat = partition.Dense,
   neighbor_list_fn: Callable = partition.neighbor_list,
@@ -2015,7 +2019,7 @@ def behler_parrinello(
 
 def behler_parrinello_neighbor_list(
   displacement: DisplacementFn,
-  box_size: float,
+  box_size: Box,
   *,
   key: jax.Array,
   species: Array | None = None,

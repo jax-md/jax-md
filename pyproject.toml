@@ -86,10 +86,10 @@ testing = [
 mace = [
     "mace_jax @ git+https://github.com/ACEsuit/mace-jax@fe19806 ; python_version >= '3.11'",
     "flax",  # mace-jax builds its modules on flax.nnx
-    # flax.nnx subclasses jax.experimental.hijax.MutableHiType, which 0.11.1
-    # dropped. Only binds here, since nothing else pulls flax.
-    "jax!=0.11.1",
-    "jaxlib!=0.11.1",
+    # mace-jax pins cuequivariance-jax 0.10, which breaks on jax 0.12, and
+    # flax.nnx breaks on jax 0.11.1. Only binds here.
+    "jax<0.11",
+    "jaxlib<0.11",
 ]
 uma = [
     "torch>=2.0.0",           # Loading PyTorch UMA checkpoints

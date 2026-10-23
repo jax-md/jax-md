@@ -166,7 +166,7 @@ def canonicalize_momenta(state: T, momenta: Array | None) -> T:
 
 
 @dispatch_by_state
-def momentum_step(state: T, dt: float) -> T:
+def momentum_step(state: T, dt: float | Array) -> T:
   """Apply a single step of the time evolution operator for momenta."""
   assert hasattr(state, 'momentum')
   new_momentum = tree_map(lambda p, f: p + dt * f, state.momentum, state.force)
@@ -174,7 +174,9 @@ def momentum_step(state: T, dt: float) -> T:
 
 
 @dispatch_by_state
-def position_step(state: T, shift_fn: Callable, dt: float, **kwargs) -> T:
+def position_step(
+  state: T, shift_fn: Callable, dt: float | Array, **kwargs
+) -> T:
   """Apply a single step of the time evolution operator for positions."""
   if isinstance(shift_fn, Callable):
     shift_fn = tree_map(lambda r: shift_fn, state.position)
@@ -227,7 +229,7 @@ interesting simulations that involve e.g. temperature gradients.
 def velocity_verlet(
   force_fn: Callable[..., Array],
   shift_fn: ShiftFn,
-  dt: float,
+  dt: float | Array,
   state: T,
   **kwargs,
 ) -> T:
@@ -382,7 +384,11 @@ class NoseHooverChainFns:
 
 
 def nose_hoover_chain(
-  dt: float, chain_length: int, chain_steps: int, sy_steps: int, tau: float
+  dt: float | Array,
+  chain_length: int,
+  chain_steps: int,
+  sy_steps: int,
+  tau: float | Array,
 ) -> NoseHooverChainFns:
   r"""Helper function to simulate a Nose-Hoover Chain coupled to a system.
 
@@ -518,7 +524,7 @@ def nose_hoover_chain(
 
 
 def default_nhc_kwargs(
-  tau: float, overrides: Dict[str, Any] | None
+  tau: float | Array, overrides: Dict[str, Any] | None
 ) -> Dict[str, Any]:
   default_kwargs = {
     'chain_length': 3,
@@ -565,12 +571,12 @@ class NVTNoseHooverState:
 def nvt_nose_hoover(
   energy_or_force_fn: Callable[..., Array],
   shift_fn: ShiftFn,
-  dt: float,
+  dt: float | Array,
   kT: ArrayLike,
   chain_length: int = 5,
   chain_steps: int = 2,
   sy_steps: int = 3,
-  tau: float | None = None,
+  tau: float | Array | None = None,
   **sim_kwargs,
 ) -> Simulator:
   """Simulation in the NVT ensemble using a Nose Hoover Chain thermostat.
@@ -795,7 +801,7 @@ def npt_box(state: NPTNoseHooverState) -> Array:
 def npt_nose_hoover(
   energy_fn: Callable[..., Array],
   shift_fn: ShiftFn,
-  dt: float,
+  dt: float | Array,
   pressure: float | Array,
   kT: ArrayLike,
   barostat_kwargs: Dict[str, Any] | None = None,
@@ -1100,7 +1106,10 @@ class NVTLangevinState:
 
 @dispatch_by_state
 def stochastic_step(
-  state: NVTLangevinState, dt: float, kT: ArrayLike, gamma: float
+  state: NVTLangevinState,
+  dt: float | Array,
+  kT: ArrayLike,
+  gamma: float | Array,
 ):
   """A single stochastic step (the `O` step)."""
   c1 = jnp.exp(-gamma * dt)
@@ -1113,7 +1122,7 @@ def stochastic_step(
 def nvt_langevin(
   energy_or_force_fn: Callable[..., Array],
   shift_fn: ShiftFn,
-  dt: float,
+  dt: float | Array,
   kT: ArrayLike | util.PyTree,
   gamma: float | util.PyTree = 0.1,
   center_velocity: bool = True,
@@ -1208,9 +1217,9 @@ class BrownianState:
 def brownian(
   energy_or_force: Callable[..., Array],
   shift: ShiftFn,
-  dt: float,
+  dt: float | Array,
   kT: ArrayLike,
-  gamma: float = 0.1,
+  gamma: float | Array = 0.1,
 ) -> Simulator:
   """Simulation of Brownian dynamics.
 
@@ -1312,7 +1321,7 @@ class NPTCSVRState:
 def npt_csvr(
   energy_fn: Callable[..., Array],
   shift_fn: ShiftFn,
-  dt: float,
+  dt: float | Array,
   pressure: float | Array,
   kT: ArrayLike,
   tau_p: float,
@@ -1603,7 +1612,7 @@ def hybrid_swap_mc(
   space_fns: space.Space,
   energy_fn: Callable[[Array, Array], Array],
   neighbor_fn: partition.NeighborFn,
-  dt: float,
+  dt: float | Array,
   kT: ArrayLike,
   t_md: float,
   N_swap: int,
@@ -1737,7 +1746,7 @@ def hybrid_swap_mc(
 def temp_rescale(
   energy_or_force_fn: Callable[..., Array],
   shift_fn: ShiftFn,
-  dt: float,
+  dt: float | Array,
   kT: ArrayLike,
   window: float,
   fraction: float,
@@ -1807,9 +1816,9 @@ def temp_rescale(
 def temp_berendsen(
   energy_or_force_fn: Callable[..., Array],
   shift_fn: ShiftFn,
-  dt: float,
+  dt: float | Array,
   kT: ArrayLike,
-  tau: float,
+  tau: float | Array,
   **sim_kwargs,
 ) -> Simulator:
   """Simulation using the Berendsen thermostat.
@@ -1873,7 +1882,7 @@ def temp_berendsen(
 def nvk(
   energy_or_force_fn: Callable[..., Array],
   shift_fn: ShiftFn,
-  dt: float,
+  dt: float | Array,
   kT: ArrayLike,
   **sim_kwargs,
 ) -> Simulator:
@@ -1991,9 +2000,9 @@ def nvk(
 def temp_csvr(
   energy_or_force_fn: Callable[..., Array],
   shift_fn: ShiftFn,
-  dt: float,
+  dt: float | Array,
   kT: ArrayLike,
-  tau: float,
+  tau: float | Array,
   **sim_kwargs,
 ) -> Simulator:
   """Simulation using the canonical sampling through velocity rescaling (CSVR) thermostat.

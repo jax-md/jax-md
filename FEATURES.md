@@ -56,7 +56,7 @@ We provide the following classical potentials:
 - [`energy.stillinger_weber`](https://jax-md.readthedocs.io/en/main/jax_md.energy.html?highlight=stillinger_weber#jax_md.energy.stillinger_weber) used to model Silicon-like systems.
 - [`energy.bks`](https://jax-md.readthedocs.io/en/main/jax_md.energy.html?highlight=bks#jax_md.energy.bks) Beest-Kramer-van Santen potential used to model silica.
 - [`energy.gupta_potential()`](jax_md/energy.py#L448) implements the Gupta many-body potential, and [`energy.gupta_gold55()`](jax_md/energy.py#L522) provides a gold-cluster convenience wrapper.
-- [`energy.edip()`](jax_md/energy.py#L1505) and [`energy.edip_neighbor_list()`](jax_md/energy.py#L1593) implement the Environment Dependent Interatomic Potential.
+- [`energy.edip()`](jax_md/energy.py#L1509) and [`energy.edip_neighbor_list()`](jax_md/energy.py#L1597) implement the Environment Dependent Interatomic Potential.
 
 For finite-ranged potentials it is often useful to consider only interactions within a certain neighborhood. Most of the above potentials have a `_neighbor_list` variant such as `energy.lennard_jones_neighbor_list` that uses a neighbor list, described below, for optimization. The Gupta potentials currently do not.
 
@@ -108,9 +108,9 @@ energy_fn = energy.coulomb(displacement_fn, 10.0, charge, grid_points=32)
 JAX MD includes potentials for triangulated surfaces, useful for modeling membranes and vesicles whose geometry is represented by vertices and triangular faces.
 
 The membrane potentials are:
-- [`energy.triangle_area_potential()`](jax_md/energy.py#L2939) for local triangle-area conservation.
-- [`energy.volume_potential()`](jax_md/energy.py#L3002) for global volume conservation of a closed triangulated surface.
-- [`energy.bending_potential()`](jax_md/energy.py#L3059) for bending energy on a triangulated surface.
+- [`energy.triangle_area_potential()`](jax_md/energy.py#L2943) for local triangle-area conservation.
+- [`energy.volume_potential()`](jax_md/energy.py#L3006) for global volume conservation of a closed triangulated surface.
+- [`energy.bending_potential()`](jax_md/energy.py#L3063) for bending energy on a triangulated surface.
 
 Example:
 
@@ -127,12 +127,12 @@ JAX MD provides several neural-network potential interfaces. These follow the sa
 
 We provide the following neural network potentials and helpers:
 - [`energy.behler_parrinello`](https://jax-md.readthedocs.io/en/main/jax_md.energy.html?highlight=behler_parrinello#jax_md.energy.behler_parrinello) a fixed-feature neural network architecture for molecular systems.
-- [`energy.BehlerParrinelloEnergy`](jax_md/energy.py#L1917), an object-oriented wrapper for Behler-Parrinello-style models.
+- [`energy.BehlerParrinelloEnergy`](jax_md/energy.py#L1921), an object-oriented wrapper for Behler-Parrinello-style models.
 - [`energy.graph_network`](https://jax-md.readthedocs.io/en/main/jax_md.energy.html?highlight=graph_network#jax_md.energy.graph_network) a graph neural network designed for energy fitting.
-- [`energy.nequip_neighbor_list()`](jax_md/energy.py#L2463) wrapper for NequIP neighbor-list graph models.
-- [`energy.uma_neighbor_list()`](jax_md/energy.py#L3129) for UMA force-field models, including pretrained checkpoint loading, MoE heads, charge/spin/dataset embeddings, atom-reference corrections, and optional optimized kernels.
-- [`energy.mace_neighbor_list()`](jax_md/energy.py#L3508) for wrapping MACE-JAX models as JAX MD neighbor-list energies.
-- [`energy.orb_neighbor_list()`](jax_md/energy.py#L2549), [`energy.aceff_neighbor_list()`](jax_md/energy.py#L2627), [`energy.ani_neighbor_list()`](jax_md/energy.py#L2700), [`energy.so3lr_neighbor_list()`](jax_md/energy.py#L2765), and [`energy.aimnet2_neighbor_list()`](jax_md/energy.py#L2849) wrap the pretrained bio-mlff potentials Orb, AceFF, ANI-2x, SO3LR, and AIMNet2.
+- [`energy.nequip_neighbor_list()`](jax_md/energy.py#L2467) wrapper for NequIP neighbor-list graph models.
+- [`energy.uma_neighbor_list()`](jax_md/energy.py#L3133) for UMA force-field models, including pretrained checkpoint loading, MoE heads, charge/spin/dataset embeddings, atom-reference corrections, and optional optimized kernels.
+- [`energy.mace_neighbor_list()`](jax_md/energy.py#L3512) for wrapping MACE-JAX models as JAX MD neighbor-list energies.
+- [`energy.orb_neighbor_list()`](jax_md/energy.py#L2553), [`energy.aceff_neighbor_list()`](jax_md/energy.py#L2631), [`energy.ani_neighbor_list()`](jax_md/energy.py#L2704), [`energy.so3lr_neighbor_list()`](jax_md/energy.py#L2769), and [`energy.aimnet2_neighbor_list()`](jax_md/energy.py#L2853) wrap the pretrained bio-mlff potentials Orb, AceFF, ANI-2x, SO3LR, and AIMNet2.
 - Pretrained bio-mlff checkpoints are not bundled in the PyPI wheel; [`jax_md._nn.weights`](jax_md/_nn/weights.py) resolves them from the in-tree file, a cache directory, or the `weights-v1` release, and `python -m jax_md._nn.weights <model>` fetches them with SHA-256 verification.
 
 The neural network subpackage also includes model-building pieces:
@@ -196,20 +196,20 @@ We provide the following dynamics:
 - [`simulate.nvt_langevin`](https://jax-md.readthedocs.io/en/main/jax_md.simulate.html) Simulates a system by numerically integrating the Langevin stochastic differential equation.
 - [`simulate.hybrid_swap_mc`](https://jax-md.readthedocs.io/en/main/jax_md.simulate.html) Alternates NVT dynamics with Monte Carlo swapping moves to generate low energy glasses.
 - [`simulate.brownian`](https://jax-md.readthedocs.io/en/main/jax_md.simulate.html) Simulates Brownian motion.
-- [`simulate.temp_rescale()`](jax_md/simulate.py#L1737) performs explicit velocity rescaling.
-- [`simulate.temp_berendsen()`](jax_md/simulate.py#L1807) implements the Berendsen weak-coupling thermostat.
-- [`simulate.nvk()`](jax_md/simulate.py#L1873) samples the isokinetic NVK ensemble with a Gaussian thermostat.
-- [`simulate.temp_csvr()`](jax_md/simulate.py#L1991) implements canonical sampling through velocity rescaling.
+- [`simulate.temp_rescale()`](jax_md/simulate.py#L1746) performs explicit velocity rescaling.
+- [`simulate.temp_berendsen()`](jax_md/simulate.py#L1816) implements the Berendsen weak-coupling thermostat.
+- [`simulate.nvk()`](jax_md/simulate.py#L1882) samples the isokinetic NVK ensemble with a Gaussian thermostat.
+- [`simulate.temp_csvr()`](jax_md/simulate.py#L2000) implements canonical sampling through velocity rescaling.
 
 Simulation initializers that use momenta can initialize them from a random key or accept user-provided momenta, which is useful when restarting or coupling JAX MD to external workflows.
 
 It is often desirable to find an energy minimum of the system. JAX MD provides:
 - [`minimize.gradient_descent`](https://jax-md.readthedocs.io/en/main/jax_md.minimize.html) simple gradient descent minimization.
 - [`minimize.fire_descent`](https://jax-md.readthedocs.io/en/main/jax_md.minimize.html) minimization with the fast inertial relaxation engine.
-- [`minimize.fire_descent_box()`](jax_md/minimize.py#L819) FIRE relaxation of both particle positions and simulation cell.
-- [`minimize.exp_preconditioner()`](jax_md/minimize.py#L270) and [`minimize.c1_preconditioner()`](jax_md/minimize.py#L421) graph-based preconditioners.
-- [`minimize.estimate_exp_mu()`](jax_md/minimize.py#L450) for estimating an exponential preconditioner energy scale.
-- [`minimize.precon_fire_descent()`](jax_md/minimize.py#L522) and [`minimize.precon_fire_descent_box()`](jax_md/minimize.py#L1064) preconditioned FIRE minimizers for atomic and atom-plus-cell relaxation.
+- [`minimize.fire_descent_box()`](jax_md/minimize.py#L821) FIRE relaxation of both particle positions and simulation cell.
+- [`minimize.exp_preconditioner()`](jax_md/minimize.py#L272) and [`minimize.c1_preconditioner()`](jax_md/minimize.py#L423) graph-based preconditioners.
+- [`minimize.estimate_exp_mu()`](jax_md/minimize.py#L452) for estimating an exponential preconditioner energy scale.
+- [`minimize.precon_fire_descent()`](jax_md/minimize.py#L524) and [`minimize.precon_fire_descent_box()`](jax_md/minimize.py#L1066) preconditioned FIRE minimizers for atomic and atom-plus-cell relaxation.
 
 Example:
 
@@ -293,9 +293,9 @@ The main quantities include:
 - [`quantity.gamma_from_stokes_law_3d()`](jax_md/quantity.py#L764) for hydrodynamic drag estimates.
 
 The rigid-body module includes point-union utilities and point-based rigid-body energies:
-- [`rigid_body.point_union_shape()`](jax_md/rigid_body.py#L884) builds rigid bodies from point masses.
-- [`rigid_body.union_to_points()`](jax_md/rigid_body.py#L965) expands rigid bodies back into point clouds.
-- [`rigid_body.point_energy()`](jax_md/rigid_body.py#L1020) and [`rigid_body.point_energy_neighbor_list()`](jax_md/rigid_body.py#L1054) evaluate pointwise energies on rigid bodies.
+- [`rigid_body.point_union_shape()`](jax_md/rigid_body.py#L886) builds rigid bodies from point masses.
+- [`rigid_body.union_to_points()`](jax_md/rigid_body.py#L967) expands rigid bodies back into point clouds.
+- [`rigid_body.point_energy()`](jax_md/rigid_body.py#L1022) and [`rigid_body.point_energy_neighbor_list()`](jax_md/rigid_body.py#L1056) evaluate pointwise energies on rigid bodies.
 
 ## Workflows and Utilities ([`a2c/`](jax_md/a2c), [`util.py`](jax_md/util.py))
 
