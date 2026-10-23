@@ -18,7 +18,7 @@
 #
 # This example demonstrates how to train and deploy an equivariant
 # graph neural network potential for Silicon using JAX MD.  The model is
-# ``NequIPEnergyModel`` from ``jax_md._nn.nequip``, used via the
+# ``NequIP`` from ``jax_md.nn.nequip``, used via the
 # ``nequip_neighbor_list`` convenience wrapper from ``jax_md.energy``.
 # After training on DFT energies and forces, we use the learned potential
 # for FIRE minimization, stress computation, and an NVT simulation.
@@ -28,7 +28,6 @@
 
 # %%
 import os
-import pickle
 import tempfile
 import urllib.request
 from functools import partial
@@ -39,21 +38,23 @@ warnings.simplefilter('ignore')
 
 from tqdm import tqdm
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as onp
 from jax import random, jit, grad, vmap, value_and_grad
 import matplotlib.pyplot as plt
 import optax
-from ml_collections import ConfigDict
 
-from jax_md import space, partition, quantity, energy, minimize, simulate, units
+from jax_md import space, quantity, energy, minimize, simulate, units
 from jax_md import custom_partition
+from jax_md.nn import nequip
 
-def _find_models_dir():
+def find_models_dir():
   """Find the models directory regardless of working directory."""
+  here = globals().get('__file__')
   candidates = [
-    Path(__file__).resolve().parent / 'models' if '__file__' in dir() else None,
+    Path(here).resolve().parent / 'models' if here else None,
     Path('models'),
     Path('examples/models'),
     Path('docs/examples/models'),
@@ -63,7 +64,7 @@ def _find_models_dir():
       return p
   return Path('models')
 
-MODELS_DIR = _find_models_dir()
+MODELS_DIR = find_models_dir()
 
 SMOKE_TEST = os.environ.get('READTHEDOCS', False)
 
@@ -109,10 +110,6 @@ BOX_SIZE = 10.862
 N = 64
 CUTOFF = 6.0
 
-ENERGY_SHIFT = float(jnp.mean(Es)) / N
-ENERGY_SCALE = float(jnp.std(Es)) / N
-print(f'Per-atom shift: {ENERGY_SHIFT:.4f} eV, scale: {ENERGY_SCALE:.4f} eV')
-
 # %% [markdown]
 # ## Model and Neighbor List
 #
@@ -124,44 +121,24 @@ print(f'Per-atom shift: {ENERGY_SHIFT:.4f} eV, scale: {ENERGY_SCALE:.4f} eV')
 box = jnp.eye(3) * BOX_SIZE
 _, shift = space.periodic_general(box, fractional_coordinates=True)
 
-cfg = ConfigDict()
-cfg.graph_net_steps = 4
-cfg.use_sc = True
-cfg.nonlinearities = {'e': 'raw_swish', 'o': 'tanh'}
-cfg.n_elements = 1
-cfg.hidden_irreps = '32x0e + 16x1o + 8x2e'
-cfg.sh_irreps = '1x0e + 1x1o + 1x2e'
-cfg.num_basis = 8
-cfg.r_max = CUTOFF
-cfg.radial_net_nonlinearity = 'raw_swish'
-cfg.radial_net_n_hidden = 64
-cfg.radial_net_n_layers = 2
-cfg.n_neighbors = 10.0
-cfg.scalar_mlp_std = 4.0
-cfg.shift = ENERGY_SHIFT
-cfg.scale = ENERGY_SCALE
+cfg = dict(
+  type_names=('Si',),
+  num_layers=4,
+  hidden_irreps='32x0e + 16x1o + 8x2e',
+  irreps_edge_sh='1x0e + 1x1o + 1x2e',
+  num_bessel=8,
+  r_max=CUTOFF,
+  radial_mlp_width=64,
+  zbl=True,
+)
 
-atoms = jnp.ones((N, 1))
+species = jnp.zeros(N, jnp.int32)
 
 Rs = Rs / BOX_SIZE
 val_Rs = val_Rs / BOX_SIZE
 
-tmp_neighbor_fn = custom_partition.neighbor_list_multi_image(
-  None, box, r_cutoff=CUTOFF, fractional_coordinates=True,
-  format=partition.Sparse,
-)
-tmp_nbrs = tmp_neighbor_fn.allocate(Rs[0])
-
-avg_num_neighbors = float(jnp.mean(vmap(
-  lambda R: jnp.sum(custom_partition.neighbor_list_multi_image_mask(
-    tmp_nbrs.update(R)
-  ))
-)(Rs)) / N)
-cfg.n_neighbors = avg_num_neighbors
-print(f'Average neighbors: {avg_num_neighbors:.1f}')
-
-neighbor_fn, init_fn, energy_fn = energy.nequip_neighbor_list(
-  None, box, cfg, atoms=atoms,
+neighbor_fn, _, energy_fn = energy.nequip_neighbor_list(
+  None, box, cfg, species=species,
   neighbor_list_fn=custom_partition.neighbor_list_multi_image,
   featurizer_fn=custom_partition.graph_featurizer,
   fractional_coordinates=True,
@@ -169,13 +146,37 @@ neighbor_fn, init_fn, energy_fn = energy.nequip_neighbor_list(
 nbrs = neighbor_fn.allocate(Rs[0])
 print(f'Neighbor list capacity: {nbrs.idx[0].shape[0]}')
 
+avg_num_neighbors = float(jnp.mean(vmap(
+  lambda R: jnp.sum(custom_partition.neighbor_list_multi_image_mask(
+    nbrs.update(R)
+  ))
+)(Rs)) / N)
+cfg['avg_num_neighbors'] = avg_num_neighbors
+print(f'Average neighbors: {avg_num_neighbors:.1f}')
+
 # %% [markdown]
 # ## Initialize Parameters
 
 # %%
 key = random.PRNGKey(0)
-params = init_fn(key, Rs[0], nbrs)
-print(f'Parameter count: {sum(p.size for p in jax.tree.leaves(params))}')
+
+# Fit shift and scale to the labels minus the ZBL pair energy
+pair_model = nequip.from_config(key, **{**cfg, 'shift': 0.0, 'scale': 0.0})
+def pair_energy(R):
+  return energy_fn(pair_model, R, nbrs.update(R))
+
+pair_energies = jit(vmap(pair_energy))
+pair_forces = jit(vmap(grad(lambda R: -pair_energy(R))))
+chunks = range(0, len(Rs), 64)
+residual_E = Es - jnp.concatenate([pair_energies(Rs[i:i + 64]) for i in chunks])
+residual_F = Fs - jnp.concatenate([pair_forces(Rs[i:i + 64]) for i in chunks])
+# Upstream sets scale to the force RMS.
+cfg['shift'] = float(jnp.mean(residual_E)) / N
+cfg['scale'] = float(jnp.sqrt(jnp.mean(residual_F ** 2)))
+print(f'Per-atom shift after ZBL: {cfg["shift"]:.4f} eV, scale: {cfg["scale"]:.4f} eV')
+
+params = nequip.from_config(key, **cfg)
+print(f'Parameter count: {sum(p.size for p in jax.tree.leaves(eqx.filter(params, eqx.is_inexact_array)))}')
 
 # %% [markdown]
 # ## Training
@@ -219,11 +220,9 @@ if not SMOKE_TEST:
     force_mae = jnp.mean(jnp.abs(pred_Fs - Fs_target)) * 1000
     return energy_mae, force_mae
 
-  CHECKPOINT_PATH = MODELS_DIR / 'si_equivariant.pickle'
+  CHECKPOINT_PATH = MODELS_DIR / 'si_equivariant.eqx'
   if CHECKPOINT_PATH.exists():
-    with open(CHECKPOINT_PATH, 'rb') as f:
-      ckpt = pickle.load(f)
-    params = ckpt['params']
+    params, cfg = nequip.load_model(CHECKPOINT_PATH)
     print(f'Resuming from {CHECKPOINT_PATH}')
 
   schedule = optax.warmup_cosine_decay_schedule(
@@ -231,9 +230,20 @@ if not SMOKE_TEST:
     warmup_steps=max(1, TRAINING_STEPS // 100),
     decay_steps=TRAINING_STEPS, end_value=1e-6,
   )
+  def muon_weights(params):
+    # Muon for weight matrices, Adam for leaves with a unit dimension
+    return jax.tree.map(
+      lambda p: optax.contrib.MuonDimensionNumbers()
+      if p.ndim == 2 and min(p.shape) > 1
+      else None,
+      params,
+    )
+
   opt = optax.chain(
     optax.clip_by_global_norm(100.0),
-    optax.contrib.muon(learning_rate=schedule),
+    optax.contrib.muon(
+      learning_rate=schedule, muon_weight_dimension_numbers=muon_weights
+    ),
   )
   opt_state = opt.init(params)
   ema_params = params
@@ -301,22 +311,16 @@ if not SMOKE_TEST:
 # ## Save Checkpoint
 
 # %%
-CHECKPOINT_PATH = MODELS_DIR / 'si_equivariant.pickle'
+CHECKPOINT_PATH = MODELS_DIR / 'si_equivariant.eqx'
 if SMOKE_TEST:
   if CHECKPOINT_PATH.exists():
-    with open(CHECKPOINT_PATH, 'rb') as f:
-      ckpt = pickle.load(f)
-    best_params = ckpt['params']
+    best_params, cfg = nequip.load_model(CHECKPOINT_PATH)
     print(f'Loaded checkpoint from {CHECKPOINT_PATH}')
   else:
     best_params = params
     print('No checkpoint found, using init params')
 else:
-  with open(CHECKPOINT_PATH, 'wb') as f:
-    pickle.dump({
-      'params': best_params,
-      'cfg': cfg.to_dict(),
-    }, f)
+  nequip.save_model(CHECKPOINT_PATH, best_params, cfg)
   print(f'Saved checkpoint to {CHECKPOINT_PATH} (best val loss: {best_val_loss:.4f})')
 
 params = best_params
@@ -400,10 +404,10 @@ if not SMOKE_TEST:
   print(f'Tiled system: {N_md} atoms, box = {md_box_size:.3f}')
 
   _, shift_md = space.periodic_general(md_box, fractional_coordinates=True)
-  md_atoms = jnp.ones((N_md, 1))
+  md_species = jnp.zeros(N_md, jnp.int32)
 
   md_neighbor_fn, _, md_energy_fn_raw = energy.nequip_neighbor_list(
-    None, md_box, cfg, atoms=md_atoms,
+    None, md_box, cfg, species=md_species,
     neighbor_list_fn=custom_partition.neighbor_list_multi_image,
     featurizer_fn=custom_partition.graph_featurizer,
     fractional_coordinates=True,

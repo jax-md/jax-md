@@ -8,9 +8,9 @@ Checkpoints are downloaded automatically via huggingface_hub when
 HF_TOKEN is set.  The CI workflow caches ~/.cache/fairchem across runs.
 
 Requires:
-  - torch (for checkpoint loading)
-  - huggingface_hub (for downloading gated weights)
-  - jax, flax
+  - torch, for checkpoint loading
+  - huggingface_hub, for downloading gated weights
+  - jax, equinox
 """
 
 import time
@@ -18,17 +18,19 @@ import time
 import numpy as np
 from absl.testing import absltest
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 
 from jax_md import test_util
 from jax_md._nn.uma.model_moe import UMAMoEBackbone, load_pretrained
+from jax_md._nn.uma.pretrained import load_params_into_module
 from jax_md._nn.uma.nn.embedding import dataset_names_to_indices
 
 MODEL_NAME = 'uma-s-1p2'
 
 
-def _make_test_system(num_atoms=6, cutoff=6.0):
+def make_test_system(num_atoms=6, cutoff=6.0):
   positions = np.array(
     [
       [0.0, 0.0, 0.0],
@@ -62,20 +64,23 @@ class LoadPretrainedTest(test_util.JAXMDTestCase):
     except ImportError:
       self.skipTest('torch not available')
     try:
-      self._loaded = load_pretrained(MODEL_NAME)
-    except Exception as e:
+      self.loaded = load_pretrained(MODEL_NAME)
+    except (ImportError, OSError) as e:
       self.skipTest(f'Could not load {MODEL_NAME}: {e}')
 
-  def _run_moe(self, cutoff=6.0, dataset='omat'):
-    config, params, _hp = self._loaded
-    model = UMAMoEBackbone(config=config)
+  def run_moe(self, cutoff=6.0, dataset='omat'):
+    config, params, _ = self.loaded
+    model = load_params_into_module(
+      params,
+      UMAMoEBackbone(config=config, key=jax.random.PRNGKey(0)),
+      strict=True,
+    )
 
-    pos, Z, batch, ei = _make_test_system(cutoff=cutoff)
+    pos, Z, batch, ei = make_test_system(cutoff=cutoff)
     ev = (pos[ei[0]] - pos[ei[1]]).astype(np.float32)
     ds_idx = dataset_names_to_indices([dataset], config.dataset_list)
 
-    output = model.apply(
-      params,
+    output = model(
       jnp.array(pos),
       jnp.array(Z),
       jnp.array(batch),
@@ -88,7 +93,7 @@ class LoadPretrainedTest(test_util.JAXMDTestCase):
     return output, model, params, config
 
   def test_loads_and_runs(self):
-    output, _, _, config = self._run_moe()
+    output, _, _, config = self.run_moe()
     emb = output['node_embedding']
     self.assertEqual(emb.shape, (6, 9, 128))
     self.assertTrue(jnp.all(jnp.isfinite(emb)))
@@ -96,20 +101,19 @@ class LoadPretrainedTest(test_util.JAXMDTestCase):
     self.assertEqual(config.num_layers, 4)
 
   def test_omol_task(self):
-    output, _, _, _ = self._run_moe(dataset='omol')
+    output, _, _, _ = self.run_moe(dataset='omol')
     self.assertTrue(jnp.all(jnp.isfinite(output['node_embedding'])))
 
   def test_jit_compiles(self):
-    output, model, params, config = self._run_moe()
+    output, model, params, config = self.run_moe()
     eager_emb = np.array(output['node_embedding'])
 
-    pos, Z, batch, ei = _make_test_system()
+    pos, Z, batch, ei = make_test_system()
     ev = (pos[ei[0]] - pos[ei[1]]).astype(np.float32)
     ds_idx = dataset_names_to_indices(['omat'], config.dataset_list)
 
-    jit_fn = jax.jit(model.apply)
+    jit_fn = eqx.filter_jit(model)
     jit_out = jit_fn(
-      params,
       jnp.array(pos),
       jnp.array(Z),
       jnp.array(batch),
@@ -126,13 +130,12 @@ class LoadPretrainedTest(test_util.JAXMDTestCase):
     np.testing.assert_allclose(jit_emb, eager_emb, atol=1e-4)
 
   def test_deterministic(self):
-    out1, model, params, config = self._run_moe()
-    pos, Z, batch, ei = _make_test_system()
+    out1, model, params, config = self.run_moe()
+    pos, Z, batch, ei = make_test_system()
     ev = (pos[ei[0]] - pos[ei[1]]).astype(np.float32)
     ds_idx = dataset_names_to_indices(['omat'], config.dataset_list)
 
-    out2 = model.apply(
-      params,
+    out2 = model(
       jnp.array(pos),
       jnp.array(Z),
       jnp.array(batch),
@@ -157,17 +160,20 @@ class MoEBenchmark(test_util.JAXMDTestCase):
     except ImportError:
       self.skipTest('torch not available')
     try:
-      config, params, _hp = load_pretrained(MODEL_NAME)
-    except Exception as e:
+      config, params, _ = load_pretrained(MODEL_NAME)
+    except (ImportError, OSError) as e:
       self.skipTest(f'Could not load {MODEL_NAME}: {e}')
 
-    model = UMAMoEBackbone(config=config)
+    model = load_params_into_module(
+      params,
+      UMAMoEBackbone(config=config, key=jax.random.PRNGKey(0)),
+      strict=True,
+    )
 
-    pos, Z, batch, ei = _make_test_system()
+    pos, Z, batch, ei = make_test_system()
     ev = (pos[ei[0]] - pos[ei[1]]).astype(np.float32)
     ds_idx = dataset_names_to_indices(['omat'], config.dataset_list)
     args = (
-      params,
       jnp.array(pos),
       jnp.array(Z),
       jnp.array(batch),
@@ -179,7 +185,7 @@ class MoEBenchmark(test_util.JAXMDTestCase):
     )
 
     # JIT compile
-    jit_fn = jax.jit(model.apply)
+    jit_fn = eqx.filter_jit(model)
     jit_fn(*args)['node_embedding'].block_until_ready()
 
     # Warmup

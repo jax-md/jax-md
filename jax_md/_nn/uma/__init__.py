@@ -1,4 +1,4 @@
-"""UMA (Universal Models for Atoms) force field implementation.
+"""UMA force field implementation, Universal Models for Atoms.
 
 This is a JAX port of the UMA model from FairChem, designed to enable
 loading of pretrained PyTorch weights.
@@ -9,15 +9,14 @@ representations.
 
 Example usage:
     from jax_md._nn import uma
+    from jax_md._nn.uma.pretrained import load_params_into_module
 
-    # Load pretrained weights from a PyTorch checkpoint
-    params = uma.load_pytorch_checkpoint('uma_model.pt')
-
-    # Create model
-    model = uma.UMABackbone(config)
+    config, params, head_params = uma.load_pretrained('uma-s-1p2')
+    model = load_params_into_module(
+        params, uma.UMAMoEBackbone(config=config, key=key))
 
     # Run inference
-    embeddings = model.apply(params, positions, atomic_numbers, ...)
+    embeddings = model(positions, atomic_numbers, ...)
 """
 
 from jax_md._nn.uma.model import UMABackbone

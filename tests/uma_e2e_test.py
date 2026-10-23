@@ -15,6 +15,7 @@ from absl.testing import absltest
 from ase import Atoms
 from ase.build import bulk, molecule
 
+import jax
 import jax.numpy as jnp
 
 from jax_md import test_util
@@ -200,7 +201,7 @@ E2E_STRUCTURES = [
 ]
 
 
-def _build_edges(atoms, cutoff):
+def build_edges(atoms, cutoff):
   """Build edge_index and edge_vec from ASE atoms."""
   positions = atoms.get_positions().astype(np.float32)
   n = len(atoms)
@@ -235,14 +236,14 @@ def _build_edges(atoms, cutoff):
   return edge_index, edge_vec, cell_offsets
 
 
-def _atoms_to_pt_data(atoms, task, cutoff, ds_list):
+def atoms_to_pt_data(atoms, task, cutoff):
   """Convert ASE atoms to PT model input dict."""
   import torch
 
   positions = atoms.get_positions().astype(np.float32)
   Z = atoms.get_atomic_numbers().astype(np.int64)
   n = len(atoms)
-  edge_index, _, cell_offsets = _build_edges(atoms, cutoff)
+  edge_index, _, cell_offsets = build_edges(atoms, cutoff)
   n_e = edge_index.shape[1]
   if cell_offsets is None:
     cell_offsets = np.zeros((n_e, 3), dtype=np.float32)
@@ -281,19 +282,8 @@ def _atoms_to_pt_data(atoms, task, cutoff, ds_list):
   )
 
 
-def _silu_np(x):
+def silu_np(x):
   return x / (1 + np.exp(-np.clip(x, -88, 88)))
-
-
-def dataset_names_from_config(mc):
-  get = mc.get if isinstance(mc, dict) else lambda k, d=None: getattr(mc, k, d)
-  dataset_list = get('dataset_list', None)
-  if dataset_list is not None and len(dataset_list) > 0:
-    return list(dataset_list)
-  dataset_mapping = get('dataset_mapping', None)
-  if isinstance(dataset_mapping, dict):
-    return sorted(dataset_mapping.keys())
-  return ['oc20', 'omol', 'omat', 'odac', 'omc']
 
 
 def head_dataset_order(ckpt, fallback):
@@ -349,13 +339,20 @@ class EndToEndParityTest(test_util.JAXMDTestCase):
       raise absltest.SkipTest(f'Could not load {MODEL_NAME}: {e}')
 
     cls.config = config
-    cls.jax_model = UMAMoEBackbone(config=config)
-    cls.jax_params = jax_params
-    cls.jax_head = MLPEnergyHead(
-      sphere_channels=config.sphere_channels,
-      hidden_channels=config.hidden_channels,
+    from jax_md._nn.uma.pretrained import load_params_into_module
+
+    key = jax.random.PRNGKey(0)
+    cls.jax_model = load_params_into_module(
+      jax_params, UMAMoEBackbone(config=config, key=key)
     )
-    cls.jax_head_params = jax_head_params
+    cls.jax_head = load_params_into_module(
+      jax_head_params,
+      MLPEnergyHead(
+        sphere_channels=config.sphere_channels,
+        hidden_channels=config.hidden_channels,
+        key=key,
+      ),
+    )
 
     from jax_md._nn.uma.pretrained import download_pretrained
 
@@ -371,8 +368,6 @@ class EndToEndParityTest(test_util.JAXMDTestCase):
         return mc.get(k, d)
       return getattr(mc, k, d)
 
-    ds_list = dataset_names_from_config(mc)
-    cls.ds_list = ds_list
     cls.cutoff = float(get('cutoff', 6.0))
 
     for k in list(sys.modules.keys()):
@@ -403,17 +398,24 @@ class EndToEndParityTest(test_util.JAXMDTestCase):
     }
     cls.tasks = sorted({task for _, task in cls.structures.values()})
     cls.head_weights_by_dataset = {
-      task: cls._extract_head_weights(cls.ema_sd, ckpt, task)
+      task: cls.extract_head_weights(cls.ema_sd, ckpt, task)
       for task in cls.tasks
     }
-    cls.jax_head_params_by_dataset = {'omat': jax_head_params}
+    cls.jax_head_by_dataset = {'omat': cls.jax_head}
     for task in cls.tasks:
-      if task not in cls.jax_head_params_by_dataset:
+      if task not in cls.jax_head_by_dataset:
         _, _, task_head_params = load_pretrained(MODEL_NAME, head_dataset=task)
-        cls.jax_head_params_by_dataset[task] = task_head_params
+        cls.jax_head_by_dataset[task] = load_params_into_module(
+          task_head_params,
+          MLPEnergyHead(
+            sphere_channels=config.sphere_channels,
+            hidden_channels=config.hidden_channels,
+            key=key,
+          ),
+        )
 
   @staticmethod
-  def _extract_head_weights(ema_sd, ckpt, dataset):
+  def extract_head_weights(ema_sd, ckpt, dataset):
     prefix = 'output_heads.energyandforcehead.head.energy_block.'
     head_datasets = head_dataset_order(ckpt, [])
     head_dataset_idx = (
@@ -435,33 +437,32 @@ class EndToEndParityTest(test_util.JAXMDTestCase):
       ).numpy()
     return weights
 
-  def _run_comparison(self, name):
+  def run_comparison(self, name):
     import torch
 
     atoms, task = self.structures[name]
     n = len(atoms)
 
-    data = _atoms_to_pt_data(atoms, task, self.cutoff, self.ds_list)
+    data = atoms_to_pt_data(atoms, task, self.cutoff)
     with torch.no_grad():
       pt_out = self.pt_model(data)
     pt_emb = pt_out['node_embedding'].detach().numpy()
 
     hw = self.head_weights_by_dataset[task]
     scalar = pt_emb[:, 0, :]
-    x = _silu_np(scalar @ hw['w0'].T + hw['b0'])
-    x = _silu_np(x @ hw['w2'].T + hw['b2'])
+    x = silu_np(scalar @ hw['w0'].T + hw['b0'])
+    x = silu_np(x @ hw['w2'].T + hw['b2'])
     x = x @ hw['w4'].T + hw['b4']
     pt_energy = x.squeeze(-1).sum()
 
-    edge_index, edge_vec, _ = _build_edges(atoms, self.cutoff)
+    edge_index, edge_vec, _ = build_edges(atoms, self.cutoff)
     ei = jnp.array(edge_index.astype(np.int32))
     batch = jnp.zeros(n, dtype=jnp.int32)
     from jax_md._nn.uma.nn.embedding import dataset_names_to_indices
 
     ds_idx = dataset_names_to_indices([task], self.config.dataset_list)
 
-    jax_out: Any = self.jax_model.apply(
-      self.jax_params,
+    jax_out: Any = self.jax_model(
       jnp.array(atoms.get_positions().astype(np.float32)),
       jnp.array(atoms.get_atomic_numbers()),
       batch,
@@ -473,9 +474,7 @@ class EndToEndParityTest(test_util.JAXMDTestCase):
     )
     jax_emb = np.array(jax_out['node_embedding'])
 
-    head_params: Any = self.jax_head_params_by_dataset[task]
-    e_result: Any = self.jax_head.apply(
-      head_params,
+    e_result: Any = self.jax_head_by_dataset[task](
       jax_out['node_embedding'],
       batch,
       1,
@@ -500,21 +499,21 @@ class EndToEndParityTest(test_util.JAXMDTestCase):
     )
 
 
-def _make_test_method(structure_name):
+def make_test_method(structure_name):
   def test_method(self):
     if structure_name not in self.structures:
       self.skipTest(f'{structure_name} not in uma_structures')
-    self._run_comparison(structure_name)
+    self.run_comparison(structure_name)
 
   test_method.__doc__ = f'PT vs JAX parity for {structure_name}'
   return test_method
 
 
-for _name in E2E_STRUCTURES:
+for name in E2E_STRUCTURES:
   setattr(
     EndToEndParityTest,
-    f'test_{_name}',
-    _make_test_method(_name),
+    f'test_{name}',
+    make_test_method(name),
   )
 
 

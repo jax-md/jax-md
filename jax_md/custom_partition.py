@@ -1128,8 +1128,8 @@ def graph_featurizer(displacement_fn=None):
   Converts a NeighborListMultiImage to a jraph.GraphsTuple with displacement
   vectors as edge features. Uses explicit lattice shifts instead of MIC.
 
-  This has the same signature as ``jax_md._nn.util.neighbor_list_featurizer``
-  so it can be used as a drop-in replacement for multi-image neighbor lists.
+  Pass it as ``featurizer_fn`` to ``energy.nequip_neighbor_list`` when the
+  neighbor list comes from ``neighbor_list_multi_image``.
 
   Args:
     displacement_fn: Displacement function from ``space.free()``. Must use free
@@ -1138,9 +1138,6 @@ def graph_featurizer(displacement_fn=None):
 
   Returns:
     featurize(atoms, positions, neighbor, **kwargs) -> GraphsTuple
-
-  Raises:
-    ValueError: If displacement_fn is not from ``space.free()``.
 
   Example:
     >>> from jax_md import space
@@ -1183,7 +1180,7 @@ def graph_featurizer(displacement_fn=None):
     Rb = pos_real[neighbor.senders]
     shifts_real = space.transform(box, neighbor.shifts)
 
-    # dR = (R_j + shift) - R_i, using displacement_fn which handles perturbation
+    # dR = R_receiver - (R_sender + shift)
     Rb_shifted = Rb + shifts_real
     d = jax.vmap(partial(displacement_fn, **kwargs))
     dR = d(Ra, Rb_shifted)
