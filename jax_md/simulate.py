@@ -1626,7 +1626,7 @@ class NPTLangevinState:
 def npt_langevin(
   energy_fn: Callable[..., Array],
   shift_fn: ShiftFn,
-  dt: float,
+  dt: float | Array,
   pressure: float | Array,
   kT: ArrayLike,
   tau_p: float,
