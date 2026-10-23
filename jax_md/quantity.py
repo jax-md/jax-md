@@ -500,7 +500,11 @@ def pair_correlation_neighbor_list(
   number density, so its average over particles is proportional to the
   conventional :math:`g(r)`, rather than equal to it.
 
-  This function uses neighbor lists to speed up the calculation.
+  This function uses neighbor lists to speed up the calculation. Their cutoff
+  is `jnp.max(radii) + sigma`, so farther pairs count only when they fall in
+  the `dr_threshold` halo. With `dr_threshold` below a few `sigma`, the result
+  near `jnp.max(radii)` is too low, by about 20% at `jnp.max(radii)` for a
+  uniform system.
 
   Args:
     displacement_or_metric: A function that computes the displacement or
@@ -517,8 +521,8 @@ def pair_correlation_neighbor_list(
     dr_threshold: A float specifying the halo size of the neighbor list.
     eps: A small constant added to :math:`r` in the :math:`1 / r^{d - 1}`
       factor to ensure stability if the radius is zero.
-    fractional_coordinates: Bool determining whether positions are stored in
-      the unit cube or not.
+    fractional_coordinates: Currently has no effect; the neighbor list is
+      always built with `fractional_coordinates=False`.
     format: The format of the neighbor lists. Must be `Dense` or `Sparse`.
     compute_average: If True, `g_fn` averages its output over particles
       (separately for each pair of species if `species` is specified).
