@@ -19,7 +19,7 @@ from typing import TypeVar, Callable, Union, Tuple, Optional, Any
 from absl import logging
 
 from jax import grad, vmap, eval_shape
-from jax.tree_util import tree_map, tree_reduce
+from jax.tree_util import tree_map, tree_reduce, tree_leaves
 import jax.numpy as jnp
 from jax import ops
 from jax import ShapeDtypeStruct
@@ -104,9 +104,18 @@ def canonicalize_force(energy_or_force_fn: Union[EnergyFn, ForceFn]) -> ForceFn:
 
 
 @functools.singledispatch
-def count_dof(position: Array) -> int:
+def count_dof(position: Array, fix_center_of_mass: bool = False) -> int:
+  """Count kinetic degrees of freedom, optionally excluding global translation."""
   util.check_custom_simulation_type(position)
-  return tree_reduce(lambda accum, x: accum + x.size, position, 0)
+  dof = tree_reduce(lambda accum, x: accum + x.size, position, 0)
+  if fix_center_of_mass:
+    leaves = tree_leaves(position)
+    if not leaves or any(x.ndim != 2 for x in leaves):
+      raise ValueError('Fixed COM requires particle arrays of shape [n, d].')
+    if len({x.shape[-1] for x in leaves}) != 1:
+      raise ValueError('Fixed COM requires particle arrays of shape [n, d].')
+    dof -= leaves[0].shape[-1]
+  return dof
 
 
 def volume(dimension: int, box: Box) -> Array:
@@ -165,6 +174,7 @@ def temperature(
   momentum: Array | None = None,
   velocity: Array | None = None,
   mass: Array | float = 1.0,
+  fix_center_of_mass: bool = False,
 ) -> Array | float:
   """Computes the temperature of a system.
 
@@ -175,6 +185,8 @@ def temperature(
     momentum: Array specifying the momentum of the system.
     velocity: Array specifying the velocity of the system.
     mass: Array specifying the mass of the constituents.
+    fix_center_of_mass: Exclude the translational center-of-mass degrees of
+      freedom. Momenta or velocities must already have zero total momentum.
 
   Returns:
     The temperature of the system in units of the Boltzmann constant.
@@ -194,7 +206,7 @@ def temperature(
   q = velocity if momentum is None else momentum
   util.check_custom_simulation_type(q)
 
-  dof = count_dof(q)
+  dof = count_dof(q, True) if fix_center_of_mass else count_dof(q)
 
   kT = tree_map(lambda m, q: util.high_precision_sum(t(q, m)) / dof, mass, q)
   return tree_reduce(operator.add, kT, 0.0)
