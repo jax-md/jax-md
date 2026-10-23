@@ -1,19 +1,20 @@
 """UMA model blocks.
 
 This module provides the building blocks for the UMA model, including
-Edgewise (message passing) and Atomwise (feed-forward) operations.
+Edgewise message passing and Atomwise feed-forward operations.
 
 Ported from FairChem's UMA implementation.
 """
 
-from __future__ import annotations
+from typing import List, Sequence, Tuple
 
-from typing import List, Literal, Sequence
-
-import flax.linen as nn
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 
+from jax_md import util as jmd_util
+from jax_md._nn.uma.common.so3 import create_so3_grid
+from jax_md._nn.uma.nn import primitives
 from jax_md._nn.uma.nn.so2_layers import SO2Convolution
 from jax_md._nn.uma.nn.so3_layers import SO3Linear
 from jax_md._nn.uma.nn.activation import (
@@ -22,36 +23,87 @@ from jax_md._nn.uma.nn.activation import (
 )
 from jax_md._nn.uma.nn.layer_norm import get_normalization_layer
 
+Array = jmd_util.Array
 
-class Edgewise(nn.Module):
-  """Edgewise (message passing) module.
+
+class Edgewise(eqx.Module):
+  """Edgewise message passing module.
 
   Performs SO(2) convolutions to pass messages along edges.
 
   Attributes:
-      sphere_channels: Number of spherical channels.
-      hidden_channels: Number of hidden channels.
-      lmax: Maximum degree l.
-      mmax: Maximum order m.
-      edge_channels_list: Channel dimensions for edge features.
-      m_size: List of number of coefficients for each m.
-      cutoff: Distance cutoff.
-      act_type: Type of activation ('gate' or 's2').
+      so2_conv_1: SO(2) convolution on the concatenated source/target features.
+      so2_conv_2: SO(2) convolution producing the message.
+      act: Activation applied between the two convolutions.
   """
 
-  sphere_channels: int
-  hidden_channels: int
-  lmax: int
-  mmax: int
-  edge_channels_list: List[int]
-  m_size: Sequence[int]
-  act_type: str = 'gate'  # 'gate' or 's2'
-  to_grid_mat: jnp.ndarray | None = None
-  from_grid_mat: jnp.ndarray | None = None
-  mapping_to_m: jnp.ndarray | None = None
-  use_kernels: bool = False
+  so2_conv_1: SO2Convolution
+  so2_conv_2: SO2Convolution
+  act: GateActivation | SeparableS2Activation
+  use_kernels: bool = eqx.field(static=True)
 
-  @nn.compact
+  def __init__(
+    self,
+    sphere_channels: int,
+    hidden_channels: int,
+    lmax: int,
+    mmax: int,
+    edge_channels_list: List[int],
+    m_size: Sequence[int],
+    act_type: str = 'gate',
+    grid_resolution: int | None = None,
+    use_kernels: bool = False,
+    *,
+    key: Array,
+  ):
+    self.use_kernels = use_kernels
+
+    keys = jax.random.split(key, 2)
+
+    if act_type == 'gate':
+      extra_m0_output_channels = lmax * hidden_channels
+    else:
+      extra_m0_output_channels = hidden_channels
+
+    self.so2_conv_1 = SO2Convolution(
+      sphere_channels=2 * sphere_channels,  # Concatenated source + target
+      m_output_channels=hidden_channels,
+      lmax=lmax,
+      mmax=mmax,
+      m_size=m_size,
+      internal_weights=False,
+      edge_channels_list=edge_channels_list,
+      extra_m0_output_channels=extra_m0_output_channels,
+      key=keys[0],
+    )
+
+    self.so2_conv_2 = SO2Convolution(
+      sphere_channels=hidden_channels,
+      m_output_channels=sphere_channels,
+      lmax=lmax,
+      mmax=mmax,
+      m_size=m_size,
+      internal_weights=True,
+      edge_channels_list=None,
+      extra_m0_output_channels=None,
+      key=keys[1],
+    )
+
+    if act_type == 'gate':
+      self.act = GateActivation(
+        lmax=lmax,
+        mmax=mmax,
+        num_channels=hidden_channels,
+        m_prime=True,
+      )
+    else:
+      self.act = SeparableS2Activation(
+        lmax=lmax,
+        mmax=mmax,
+        grid_resolution=grid_resolution,
+        m_prime=True,
+      )
+
   def __call__(
     self,
     x: jnp.ndarray,
@@ -78,57 +130,6 @@ class Edgewise(nn.Module):
     Returns:
         Message contribution to add to nodes, shape [num_nodes, ...].
     """
-    # Determine extra output channels for gating
-    if self.act_type == 'gate':
-      extra_m0_output_channels = self.lmax * self.hidden_channels
-    else:
-      extra_m0_output_channels = self.hidden_channels
-
-    # First SO2 convolution
-    so2_conv_1 = SO2Convolution(
-      sphere_channels=2 * self.sphere_channels,  # Concatenated source + target
-      m_output_channels=self.hidden_channels,
-      lmax=self.lmax,
-      mmax=self.mmax,
-      m_size=self.m_size,
-      internal_weights=False,
-      edge_channels_list=self.edge_channels_list,
-      extra_m0_output_channels=extra_m0_output_channels,
-      name='so2_conv_1',
-    )
-
-    # Second SO2 convolution
-    so2_conv_2 = SO2Convolution(
-      sphere_channels=self.hidden_channels,
-      m_output_channels=self.sphere_channels,
-      lmax=self.lmax,
-      mmax=self.mmax,
-      m_size=self.m_size,
-      internal_weights=True,
-      edge_channels_list=None,
-      extra_m0_output_channels=None,
-      name='so2_conv_2',
-    )
-
-    # Activation
-    if self.act_type == 'gate':
-      act = GateActivation(
-        lmax=self.lmax,
-        mmax=self.mmax,
-        num_channels=self.hidden_channels,
-        m_prime=True,
-        name='act',
-      )
-    else:
-      act = SeparableS2Activation(
-        lmax=self.lmax,
-        mmax=self.mmax,
-        to_grid_mat=jnp.asarray(self.to_grid_mat),
-        from_grid_mat=jnp.asarray(self.from_grid_mat),
-        mapping_to_m=self.mapping_to_m,
-        name='act',
-      )
-
     # Gather source/target node features and rotate to edge-aligned frames.
     if (
       self.use_kernels
@@ -156,13 +157,13 @@ class Edgewise(nn.Module):
       x_message = jnp.einsum('nmj,njc->nmc', wigner_and_M_mapping, x_message)
 
     # First SO2 convolution
-    x_message, x_0_gating = so2_conv_1(x_message, x_edge)
+    x_message, x_0_gating = self.so2_conv_1(x_message, x_edge)
 
     # Activation (m-prime)
-    x_message = act(x_0_gating, x_message)
+    x_message = self.act(x_0_gating, x_message)
 
     # Second SO2 convolution
-    x_message = so2_conv_2(x_message, x_edge)
+    x_message = self.so2_conv_2(x_message, x_edge)
     if isinstance(x_message, tuple):
       # Not reached: so2_conv_2 has no extra m0 outputs.
       x_message = x_message[0]
@@ -198,23 +199,57 @@ class Edgewise(nn.Module):
       return jnp.zeros_like(x).at[target_indices].add(x_message, mode='drop')
 
 
-class SpectralAtomwise(nn.Module):
+class SpectralAtomwise(eqx.Module):
   """Spectral atomwise feed-forward module.
 
   Uses SO(3) linear layers with gated activation.
 
   Attributes:
-      sphere_channels: Number of spherical channels.
-      hidden_channels: Number of hidden channels.
-      lmax: Maximum degree l.
-      mmax: Maximum order m.
+      Dense: Scalar MLP layers producing the gating scalars.
+      so3_linear_1: SO(3) linear layer applied before the gate.
+      act: Gate activation.
+      so3_linear_2: SO(3) linear layer applied after the gate.
   """
 
-  sphere_channels: int
-  hidden_channels: int
-  lmax: int
+  Dense: Tuple[primitives.Dense, ...]
+  so3_linear_1: SO3Linear
+  act: GateActivation
+  so3_linear_2: SO3Linear
 
-  @nn.compact
+  def __init__(
+    self,
+    sphere_channels: int,
+    hidden_channels: int,
+    lmax: int,
+    *,
+    key: Array,
+  ):
+    keys = jax.random.split(key, 3)
+
+    self.Dense = (
+      primitives.Dense(sphere_channels, lmax * hidden_channels, key=keys[0]),
+    )
+
+    self.so3_linear_1 = SO3Linear(
+      sphere_channels,
+      hidden_channels,
+      lmax,
+      key=keys[1],
+    )
+
+    self.act = GateActivation(
+      lmax=lmax,
+      mmax=lmax,
+      num_channels=hidden_channels,
+    )
+
+    self.so3_linear_2 = SO3Linear(
+      hidden_channels,
+      sphere_channels,
+      lmax,
+      key=keys[2],
+    )
+
   def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
     """Apply spectral atomwise FFN.
 
@@ -224,64 +259,59 @@ class SpectralAtomwise(nn.Module):
     Returns:
         Updated features, same shape.
     """
-    # Scalar MLP for gating
     scalar_input = x[:, 0:1, :].squeeze(1)
-    scalar_mlp = nn.Sequential(
-      [
-        nn.Dense(self.lmax * self.hidden_channels),
-        nn.silu,
-      ]
-    )
-    gating_scalars = scalar_mlp(scalar_input)
+    gating_scalars = jax.nn.silu(self.Dense[0](scalar_input))
 
-    # First SO3 linear
-    so3_linear_1 = SO3Linear(
-      out_features=self.hidden_channels,
-      lmax=self.lmax,
-      name='so3_linear_1',
-    )
-    x = so3_linear_1(x)
+    x = self.so3_linear_1(x)
 
-    # Gate activation
-    act = GateActivation(
-      lmax=self.lmax,
-      mmax=self.lmax,
-      num_channels=self.hidden_channels,
-      name='act',
-    )
-    x = act(gating_scalars, x)
+    x = self.act(gating_scalars, x)
 
-    # Second SO3 linear
-    so3_linear_2 = SO3Linear(
-      out_features=self.sphere_channels,
-      lmax=self.lmax,
-      name='so3_linear_2',
-    )
-    x = so3_linear_2(x)
+    x = self.so3_linear_2(x)
 
     return x
 
 
-class GridAtomwise(nn.Module):
+class GridAtomwise(eqx.Module):
   """Grid-based atomwise feed-forward module.
 
   Projects to grid, applies MLP, projects back.
 
   Attributes:
-      sphere_channels: Number of spherical channels.
-      hidden_channels: Number of hidden channels.
+      Dense: Grid MLP layers.
       lmax: Maximum degree l.
-      mmax: Maximum order m.
-      to_grid_mat: Matrix for coefficients -> grid transformation.
-      from_grid_mat: Matrix for grid -> coefficients transformation.
+      grid_resolution: SO(3) grid resolution, or None for the default.
   """
 
-  sphere_channels: int
-  hidden_channels: int
-  to_grid_mat: jnp.ndarray
-  from_grid_mat: jnp.ndarray
+  Dense: Tuple[primitives.Dense, ...]
+  lmax: int = eqx.field(static=True)
+  grid_resolution: int | None = eqx.field(static=True)
 
-  @nn.compact
+  def __init__(
+    self,
+    sphere_channels: int,
+    hidden_channels: int,
+    lmax: int,
+    grid_resolution: int | None = None,
+    *,
+    key: Array,
+  ):
+    self.lmax = lmax
+    self.grid_resolution = grid_resolution
+
+    keys = jax.random.split(key, 3)
+
+    self.Dense = (
+      primitives.Dense(
+        sphere_channels, hidden_channels, key=keys[0], use_bias=False
+      ),
+      primitives.Dense(
+        hidden_channels, hidden_channels, key=keys[1], use_bias=False
+      ),
+      primitives.Dense(
+        hidden_channels, sphere_channels, key=keys[2], use_bias=False
+      ),
+    )
+
   def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
     """Apply grid atomwise FFN.
 
@@ -291,29 +321,26 @@ class GridAtomwise(nn.Module):
     Returns:
         Updated features, same shape.
     """
-    grid_mlp = nn.Sequential(
-      [
-        nn.Dense(self.hidden_channels, use_bias=False),
-        nn.silu,
-        nn.Dense(self.hidden_channels, use_bias=False),
-        nn.silu,
-        nn.Dense(self.sphere_channels, use_bias=False),
-      ]
-    )
-
-    num_nodes = x.shape[0]
-    lat, lon, num_coeffs = self.to_grid_mat.shape
+    # Constants under a trace, not leaves
+    with jax.ensure_compile_time_eval():
+      grid = create_so3_grid(
+        self.lmax, self.lmax, resolution=self.grid_resolution, rescale=True
+      )
+    lat, lon, num_coeffs = grid.to_grid_mat.shape
     grid_points = lat * lon
 
     # Flatten grid dims for efficient matmul dispatch via cuBLAS.
-    to_grid_flat = self.to_grid_mat.reshape(grid_points, num_coeffs)
-    from_grid_flat = self.from_grid_mat.reshape(grid_points, num_coeffs)
+    to_grid_flat = grid.to_grid_mat.reshape(grid_points, num_coeffs)
+    from_grid_flat = grid.from_grid_mat.reshape(grid_points, num_coeffs)
 
     # Project to grid: [N, coeffs, C] -> [N, grid_points, C]
     x_grid = jnp.einsum('gi,nic->ngc', to_grid_flat, x)
 
-    # Apply MLP per grid point (Dense applies to last dim).
-    x_grid = grid_mlp(x_grid)
+    x_grid = self.Dense[0](x_grid)
+    x_grid = jax.nn.silu(x_grid)
+    x_grid = self.Dense[1](x_grid)
+    x_grid = jax.nn.silu(x_grid)
+    x_grid = self.Dense[2](x_grid)
 
     # Project back: [N, grid_points, C] -> [N, coeffs, C]
     x = jnp.einsum('gi,ngc->nic', from_grid_flat, x_grid)
@@ -321,42 +348,83 @@ class GridAtomwise(nn.Module):
     return x
 
 
-class UMABlock(nn.Module):
+class UMABlock(eqx.Module):
   """UMA transformer-like block.
 
-  Combines edgewise (message passing) and atomwise (FFN) operations
+  Combines edgewise message passing and atomwise FFN operations
   with residual connections and normalization.
 
   Attributes:
-      sphere_channels: Number of spherical channels.
-      hidden_channels: Number of hidden channels.
-      lmax: Maximum degree l.
-      mmax: Maximum order m.
-      m_size: List of number of coefficients for each m.
-      edge_channels_list: Channel dimensions for edge features.
-      cutoff: Distance cutoff.
-      norm_type: Type of normalization.
-      act_type: Type of activation for edgewise.
-      ff_type: Type of feed-forward ('spectral' or 'grid').
-      to_grid_mat: Matrix for coefficients -> grid transformation.
-      from_grid_mat: Matrix for grid -> coefficients transformation.
+      norm_1: Pre-normalization for the edgewise residual block.
+      edge_wise: Edgewise message passing.
+      norm_2: Pre-normalization for the atomwise residual block.
+      atom_wise: Atomwise feed-forward.
   """
 
-  sphere_channels: int
-  hidden_channels: int
-  lmax: int
-  mmax: int
-  m_size: Sequence[int]
-  edge_channels_list: List[int]
-  norm_type: str = 'rms_norm_sh'
-  act_type: str = 'gate'  # 'gate' or 's2'
-  ff_type: str = 'grid'  # 'spectral' or 'grid'
-  to_grid_mat: jnp.ndarray | None = None
-  from_grid_mat: jnp.ndarray | None = None
-  mapping_to_m: jnp.ndarray | None = None
-  use_kernels: bool = False
+  norm_1: eqx.Module
+  edge_wise: Edgewise
+  norm_2: eqx.Module
+  atom_wise: SpectralAtomwise | GridAtomwise
 
-  @nn.compact
+  def __init__(
+    self,
+    sphere_channels: int,
+    hidden_channels: int,
+    lmax: int,
+    mmax: int,
+    m_size: Sequence[int],
+    edge_channels_list: List[int],
+    norm_type: str = 'rms_norm_sh',
+    act_type: str = 'gate',
+    ff_type: str = 'grid',
+    grid_resolution: int | None = None,
+    use_kernels: bool = False,
+    *,
+    key: Array,
+  ):
+    keys = jax.random.split(key, 2)
+
+    self.norm_1 = get_normalization_layer(
+      norm_type,
+      lmax=lmax,
+      num_channels=sphere_channels,
+    )
+
+    self.edge_wise = Edgewise(
+      sphere_channels=sphere_channels,
+      hidden_channels=hidden_channels,
+      lmax=lmax,
+      mmax=mmax,
+      edge_channels_list=edge_channels_list,
+      m_size=m_size,
+      act_type=act_type,
+      grid_resolution=grid_resolution,
+      use_kernels=use_kernels,
+      key=keys[0],
+    )
+
+    self.norm_2 = get_normalization_layer(
+      norm_type,
+      lmax=lmax,
+      num_channels=sphere_channels,
+    )
+
+    if ff_type == 'spectral':
+      self.atom_wise = SpectralAtomwise(
+        sphere_channels=sphere_channels,
+        hidden_channels=hidden_channels,
+        lmax=lmax,
+        key=keys[1],
+      )
+    else:
+      self.atom_wise = GridAtomwise(
+        sphere_channels=sphere_channels,
+        hidden_channels=hidden_channels,
+        lmax=lmax,
+        grid_resolution=grid_resolution,
+        key=keys[1],
+      )
+
   def __call__(
     self,
     x: jnp.ndarray,
@@ -388,35 +456,13 @@ class UMABlock(nn.Module):
     # First residual block: Edgewise
     x_res = x
 
-    # Pre-normalization
-    norm_1 = get_normalization_layer(
-      self.norm_type,
-      lmax=self.lmax,
-      num_channels=self.sphere_channels,
-      name='norm_1',
-    )
-    x = norm_1(x)
+    x = self.norm_1(x)  # ty: ignore[call-non-callable]
 
     # Add system embedding to scalars
     if sys_node_embedding is not None:
       x = x.at[:, 0, :].add(sys_node_embedding)
 
-    # Edgewise message passing
-    edgewise = Edgewise(
-      sphere_channels=self.sphere_channels,
-      hidden_channels=self.hidden_channels,
-      lmax=self.lmax,
-      mmax=self.mmax,
-      edge_channels_list=self.edge_channels_list,
-      m_size=self.m_size,
-      act_type=self.act_type,
-      to_grid_mat=self.to_grid_mat,
-      from_grid_mat=self.from_grid_mat,
-      mapping_to_m=self.mapping_to_m,
-      use_kernels=self.use_kernels,
-      name='edge_wise',
-    )
-    x = edgewise(
+    x = self.edge_wise(
       x,
       x_edge,
       edge_index,
@@ -432,32 +478,9 @@ class UMABlock(nn.Module):
     # Second residual block: Atomwise
     x_res = x
 
-    # Pre-normalization
-    norm_2 = get_normalization_layer(
-      self.norm_type,
-      lmax=self.lmax,
-      num_channels=self.sphere_channels,
-      name='norm_2',
-    )
-    x = norm_2(x)
+    x = self.norm_2(x)  # ty: ignore[call-non-callable]
 
-    # Atomwise FFN
-    if self.ff_type == 'spectral':
-      atomwise = SpectralAtomwise(
-        sphere_channels=self.sphere_channels,
-        hidden_channels=self.hidden_channels,
-        lmax=self.lmax,
-        name='atom_wise',
-      )
-    else:
-      atomwise = GridAtomwise(
-        sphere_channels=self.sphere_channels,
-        hidden_channels=self.hidden_channels,
-        to_grid_mat=jnp.asarray(self.to_grid_mat),
-        from_grid_mat=jnp.asarray(self.from_grid_mat),
-        name='atom_wise',
-      )
-    x = atomwise(x)
+    x = self.atom_wise(x)
     x = x + x_res
 
     return x

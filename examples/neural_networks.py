@@ -36,7 +36,6 @@
 
 # %%
 import os
-import pickle
 import tempfile
 from functools import partial
 from pathlib import Path
@@ -65,7 +64,7 @@ import warnings
 
 warnings.simplefilter('ignore')
 
-from flax import nnx
+import equinox as eqx
 import jax
 import jax.numpy as np
 from jax import grad
@@ -79,13 +78,12 @@ import optax
 import seaborn as sns
 
 from jax_md import energy, nn, quantity, simulate, space, units
-from jax_md._nn.util import convert_checkpoint_to_params
 
 SMOKE_TEST = os.environ.get('READTHEDOCS', False)
 
 CHECKPOINT_URL = (
   'https://raw.githubusercontent.com/google/jax-md/main/examples/models/'
-  'si_gnn.pickle'
+  'si_gnn.eqx'
 )
 SILICON_DATA_BASE_URL = (
   'https://raw.githubusercontent.com/abhijeetgangan/silicon_data/main/'
@@ -93,7 +91,7 @@ SILICON_DATA_BASE_URL = (
 )
 
 CACHE_DIR = Path(tempfile.gettempdir()) / 'jax_md_neural_networks'
-CHECKPOINT_PATH = CACHE_DIR / 'si_gnn.pickle'
+CHECKPOINT_PATH = CACHE_DIR / 'si_gnn.eqx'
 ASELMDB_CACHE = CACHE_DIR / 'silicon_aselmdb'
 
 NO_SKIP = 80 if SMOKE_TEST else 15
@@ -166,11 +164,20 @@ def ensure_silicon_aselmdb(phases=('cubic_300K', 'cubic_600K', 'cubic_900K')):
   return ASELMDB_CACHE
 
 
-def ensure_silicon_assets():
-  CACHE_DIR.mkdir(parents=True, exist_ok=True)
+def find_checkpoint():
+  """The checkpoint shipped in a checkout, or else the cached download."""
+  here = globals().get('__file__')
+  candidates = [
+    Path(here).resolve().parent / 'models' if here else None,
+    Path('models'),
+    Path('examples/models'),
+    Path('docs/examples/models'),
+  ]
+  for models_dir in candidates:
+    if models_dir is not None and (models_dir / 'si_gnn.eqx').exists():
+      return models_dir / 'si_gnn.eqx'
   download_file(CHECKPOINT_URL, CHECKPOINT_PATH)
-  aselmdb_dir = ensure_silicon_aselmdb()
-  return CHECKPOINT_PATH, aselmdb_dir
+  return CHECKPOINT_PATH
 
 
 def draw_training_summary(params):
@@ -256,7 +263,7 @@ def build_dataset(aselmdb_dir):
 # the shared `abhijeetgangan/silicon_data` GitHub repository.
 
 # %%
-checkpoint_path, aselmdb_dir = ensure_silicon_assets()
+checkpoint_path, aselmdb_dir = find_checkpoint(), ensure_silicon_aselmdb()
 print(f'Using silicon dataset at {aselmdb_dir}')
 
 # %% [markdown]
@@ -307,7 +314,7 @@ key = random.PRNGKey(0)
 neighbor_fn, energy_fn = energy.graph_network_neighbor_list(
   displacement, box_size, r_cutoff=3.0, dr_threshold=0.0, key=key
 )
-nnx.display(energy_fn.model)
+eqx.tree_pprint(energy_fn.model)
 
 # %% [markdown]
 # ## Allocate a Neighbor Prototype
@@ -332,19 +339,17 @@ print(f'Allocating space for at most {neighbor.idx.shape[-1]} edges')
 # Note that if we were running a simulation using this energy, we would only
 # rebuild the neighbor list when necessary.
 #
-# For training with ``vmap``/``grad``/``optax`` we decompose the model into a
-# graphdef and state via ``nnx.split`` and use the ``graphdef.apply(state)``
-# functional forward pass.
+# For training with ``vmap``/``grad``/``optax`` we split the model into its
+# arrays and everything else with ``eqx.partition``, then put the two back
+# together for the forward pass.
 
 # %%
-graphdef, state = nnx.split(energy_fn.model)
-init_params = state
+init_params, static = eqx.partition(energy_fn.model, eqx.is_inexact_array)
 params = init_params
 
 
-def apply(state, *args, **kwargs):
-  out, _ = graphdef.apply(state)(*args, **kwargs)
-  return out
+def apply(params, *args, **kwargs):
+  return eqx.combine(params, static)(*args, **kwargs)
 
 
 def train_energy(params, R):
@@ -488,12 +493,7 @@ draw_training_summary(params)
 # 12,000 epochs on a V100 GPU.
 
 # %%
-with checkpoint_path.open('rb') as f:
-  raw_checkpoint_params = pickle.load(f)
-
-init_pure = nnx.to_pure_dict(init_params)
-converted_pure = convert_checkpoint_to_params(raw_checkpoint_params, init_pure)
-nnx.replace_by_pure_dict(params, converted_pure)
+params = eqx.tree_deserialise_leaves(checkpoint_path, init_params)
 
 # %% [markdown]
 # ## Plot Pretrained Energy and Force Predictions

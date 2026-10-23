@@ -304,8 +304,7 @@ class SimulateTest(test_util.JAXMDTestCase):
       self.assertEqual(state.position.dtype, dtype)
 
   def test_nvt_nose_hoover_single_thermostat(self):
-    # chain_length=1 must reduce to the original Nose-Hoover thermostat and
-    # conserve the extended Hamiltonian as well as longer chains do.
+    # chain_length=1 is plain Nose-Hoover and must conserve the invariant
     if not util.x64_enabled():
       self.skipTest('Needs float64 to resolve the invariant drift.')
 
