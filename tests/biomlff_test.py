@@ -18,6 +18,7 @@ from jax_md._nn.aimnet2 import load_model as load_aimnet2
 from jax_md._nn.ani import load_model as load_ani
 from jax_md._nn.orb import load_model as load_orb
 from jax_md._nn.so3lr import load_model as load_so3lr
+from jax_md._nn.vivace import load_model as load_vivace
 
 NN_DIR = Path(weights.__file__).resolve().parent
 
@@ -240,12 +241,45 @@ AIMNET2 = Model(
   force_atol=1e-12,
   supports_sparse=False,
 )
+VIVACE = Model(
+  wrapper=energy.vivace_neighbor_list,
+  load=load_vivace,
+  checkpoint='vivace/vivace_v0.1.eqx',
+  call_bare=lambda net, pos, sp: net(pos, sp),
+  make_free=lambda w, box, sp: w(space.free()[0], box, species=sp),
+  # SimPoly's omol head, run in float32 as deployed
+  toluene_reference_kjmol=-712905.0554865354,
+  toluene_forces_kjmol=jnp.asarray(
+    [
+      [25.437245010053452, -108.12766129185324, 85.61219572021088],
+      [-29.87982637650901, 40.40583974312636, -26.94749677639169],
+      [61.54703245192612, 63.85697439855068, 8.09148088265617],
+      [8.014800990402314, 69.00707508584006, 8.488359189114297],
+      [-5.389747725465686, 23.21150451073399, 1.478514747033463],
+      [-61.42415139159532, -107.74663626395244, -10.941767807313823],
+      [9.784847972705167, 15.020140712562064, 3.8286591466131528],
+      [12.222041719860433, 35.46997721280674, -59.217036859147505],
+      [27.312577229023756, -15.403134011296311, -23.136096302594225],
+      [-9.333896852579807, 65.48122197047122, 23.35091387018917],
+      [-41.41942877291956, -21.348232084131062, -3.633160897686362],
+      [2.280398474585823, -52.03851015092518, -5.084307029281788],
+      [12.590739535105316, -19.923757531959474, -1.2435409143430995],
+      [11.103819470071048, 26.015519817883852, 2.510071526758249],
+      [-22.846452812971666, -13.880346559496562, -3.1567671093825163],
+    ],
+    dtype=DTYPE,
+  ),
+  energy_rtol=1e-7,
+  force_atol=2e-3,
+  supports_sparse=True,
+)
 MODELS = (
   ('orb', ORB),
   ('aceff', ACEFF),
   ('ani', ANI),
   ('so3lr', SO3LR),
   ('aimnet2', AIMNET2),
+  ('vivace', VIVACE),
 )
 
 
@@ -398,6 +432,33 @@ class EnergyWrapperTest(parameterized.TestCase):
     disp, _ = space.periodic_general(box, fractional_coordinates=False)
     with self.assertRaises(ValueError):
       energy.aimnet2_neighbor_list(disp, box, species=species, periodic=False)
+
+  def test_vivace_water_matches_reference(self):
+    # SimPoly's omol head on the water molecule, in kJ/mol.
+    self.require(VIVACE)
+    positions, species = water_molecule()
+    box = jnp.eye(3, dtype=DTYPE) * 100.0
+    neighbor_fn, energy_fn = VIVACE.make_free(VIVACE.wrapper, box, species)
+    neighbors = neighbor_fn.allocate(positions)
+    reference_kjmol = -200674.79187916918
+    e_kjmol = float(energy_fn(positions, neighbors)) * EV_TO_KJMOL
+    self.assertLessEqual(
+      abs(e_kjmol - reference_kjmol),
+      VIVACE.energy_rtol * abs(reference_kjmol),
+    )
+    forces = -jax.grad(lambda p: energy_fn(p, neighbors))(positions)
+    onp.testing.assert_allclose(
+      onp.asarray(
+        [
+          [-11.030825233245636, -14.253386360071614, 0.0],
+          [19.304755764378168, -3.5468297928414145, 0.0],
+          [-8.273930531132532, 17.800216152913027, 0.0],
+        ]
+      ),
+      onp.asarray(forces * EV_TO_KJMOL),
+      rtol=FORCE_RTOL,
+      atol=VIVACE.force_atol,
+    )
 
 
 if __name__ == '__main__':

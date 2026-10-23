@@ -192,7 +192,7 @@ def canonicalize_momenta(state: T, momenta: Array | None) -> T:
 
 
 @dispatch_by_state
-def momentum_step(state: T, dt: float) -> T:
+def momentum_step(state: T, dt: float | Array) -> T:
   """Apply a single step of the time evolution operator for momenta."""
   assert hasattr(state, 'momentum')
   new_momentum = tree_map(lambda p, f: p + dt * f, state.momentum, state.force)
@@ -200,7 +200,9 @@ def momentum_step(state: T, dt: float) -> T:
 
 
 @dispatch_by_state
-def position_step(state: T, shift_fn: Callable, dt: float, **kwargs) -> T:
+def position_step(
+  state: T, shift_fn: Callable, dt: float | Array, **kwargs
+) -> T:
   """Apply a single step of the time evolution operator for positions."""
   if isinstance(shift_fn, Callable):
     shift_fn = tree_map(lambda r: shift_fn, state.position)
@@ -257,7 +259,7 @@ interesting simulations that involve e.g. temperature gradients.
 def velocity_verlet(
   force_fn: Callable[..., Array],
   shift_fn: ShiftFn,
-  dt: float,
+  dt: float | Array,
   state: T,
   **kwargs,
 ) -> T:
@@ -419,7 +421,11 @@ class NoseHooverChainFns:
 
 
 def nose_hoover_chain(
-  dt: float, chain_length: int, chain_steps: int, sy_steps: int, tau: float
+  dt: float | Array,
+  chain_length: int,
+  chain_steps: int,
+  sy_steps: int,
+  tau: float | Array,
 ) -> NoseHooverChainFns:
   r"""Helper function to simulate a Nose-Hoover Chain coupled to a system.
 
@@ -488,8 +494,10 @@ def nose_hoover_chain(
 
     M = chain_length - 1
 
-    G = p_xi[M - 1] ** f32(2) / Q[M - 1] - kT
-    p_xi = p_xi.at[M].add(delta_4 * G)
+    # A single thermostat (M == 0) has no chain above p_xi[0]
+    if M > 0:
+      G = p_xi[M - 1] ** f32(2) / Q[M - 1] - kT
+      p_xi = p_xi.at[M].add(delta_4 * G)
 
     def backward_loop_fn(p_xi_new, m):
       G = p_xi[m - 1] ** 2 / Q[m - 1] - kT
@@ -502,7 +510,7 @@ def nose_hoover_chain(
     p_xi = p_xi.at[idx].set(p_xi_update)
 
     G = f32(2.0) * KE - DOF * kT
-    scale = jnp.exp(-delta_8 * p_xi[1] / Q[1])
+    scale = jnp.exp(-delta_8 * p_xi[1] / Q[1]) if M > 0 else f32(1)
     p_xi = p_xi.at[0].set(scale * (scale * p_xi[0] + delta_4 * G))
 
     scale = jnp.exp(-delta_2 * p_xi[0] / Q[0])
@@ -555,7 +563,7 @@ def nose_hoover_chain(
 
 
 def default_nhc_kwargs(
-  tau: float, overrides: Dict[str, Any] | None
+  tau: float | Array, overrides: Dict[str, Any] | None
 ) -> Dict[str, Any]:
   default_kwargs = {
     'chain_length': 3,
@@ -605,12 +613,12 @@ class NVTNoseHooverState:
 def nvt_nose_hoover(
   energy_or_force_fn: Callable[..., Array],
   shift_fn: ShiftFn,
-  dt: float,
+  dt: float | Array,
   kT: ArrayLike,
   chain_length: int = 5,
   chain_steps: int = 2,
   sy_steps: int = 3,
-  tau: float | None = None,
+  tau: float | Array | None = None,
   fix_center_of_mass: bool = False,
   **sim_kwargs,
 ) -> Simulator:
@@ -853,7 +861,7 @@ def npt_box(state: NPTNoseHooverState) -> Array:
 def npt_nose_hoover(
   energy_fn: Callable[..., Array],
   shift_fn: ShiftFn,
-  dt: float,
+  dt: float | Array,
   pressure: float | Array,
   kT: ArrayLike,
   barostat_kwargs: Dict[str, Any] | None = None,
@@ -1182,7 +1190,10 @@ class NVTLangevinState:
 
 @dispatch_by_state
 def stochastic_step(
-  state: NVTLangevinState, dt: float, kT: ArrayLike, gamma: float
+  state: NVTLangevinState,
+  dt: float | Array,
+  kT: ArrayLike,
+  gamma: float | Array,
 ):
   """A single stochastic step (the `O` step)."""
   if getattr(state, 'fix_center_of_mass', False) and jnp.ndim(gamma) != 0:
@@ -1201,7 +1212,7 @@ def stochastic_step(
 def nvt_langevin(
   energy_or_force_fn: Callable[..., Array],
   shift_fn: ShiftFn,
-  dt: float,
+  dt: float | Array,
   kT: ArrayLike | util.PyTree,
   gamma: float | util.PyTree = 0.1,
   center_velocity: bool = True,
@@ -1305,9 +1316,9 @@ class BrownianState:
 def brownian(
   energy_or_force: Callable[..., Array],
   shift: ShiftFn,
-  dt: float,
+  dt: float | Array,
   kT: ArrayLike,
-  gamma: float = 0.1,
+  gamma: float | Array = 0.1,
 ) -> Simulator:
   """Simulation of Brownian dynamics.
 
@@ -1411,7 +1422,7 @@ class NPTCSVRState:
 def npt_csvr(
   energy_fn: Callable[..., Array],
   shift_fn: ShiftFn,
-  dt: float,
+  dt: float | Array,
   pressure: float | Array,
   kT: ArrayLike,
   tau_p: float,
@@ -1682,6 +1693,293 @@ def npt_csvr(
   return init_fn, apply_fn
 
 
+@dataclasses.dataclass
+class NPTLangevinState:
+  """State information for the unconstrained-COM NPT Langevin integrator.
+
+  The isotropic box is parameterized by ``box_position`` such that
+  ``box_position = log((V / V_0) ** (1 / 3))``. ``box_momentum`` is the
+  momentum conjugate to this coordinate and ``box_mass`` is the piston mass.
+  ``dUdV`` is the derivative of the potential with respect to an isotropic
+  affine perturbation, evaluated at the current state. The state uses the
+  complete particle momentum distribution; no center-of-mass projection is
+  applied.
+  """
+
+  position: Array
+  momentum: Array
+  force: Array
+  mass: Array
+
+  reference_box: Box
+  box_position: Array
+  box_momentum: Array
+  box_mass: Array
+  dUdV: Array
+  potential_energy: Array
+  rng: Array
+  conserved_quantity: Array
+
+  @property
+  def velocity(self) -> Array:
+    return self.momentum / self.mass
+
+  @property
+  def box(self) -> Array:
+    """Get the current box from an NPT Langevin simulation."""
+    dim = self.position.shape[1]
+    ref = self.reference_box
+    V_0 = quantity.volume(dim, ref)
+    V = V_0 * jnp.exp(dim * self.box_position)
+    return (V / V_0) ** (1 / dim) * ref
+
+
+def npt_langevin(
+  energy_fn: Callable[..., Array],
+  shift_fn: ShiftFn,
+  dt: float | Array,
+  pressure: float | Array,
+  kT: ArrayLike,
+  tau_p: float,
+  gamma: float = 0.1,
+) -> Simulator:
+  """Simulation in the unconstrained-COM NPT ensemble using Langevin.
+
+  This combines the isotropic Bussi-Zykova-Timan-Parrinello NPH propagator
+  [#bzp2009]_ with independent Langevin updates of the particle and piston
+  momenta. The particle center of mass and total momentum are unconstrained.
+
+  ``energy_fn`` must return a scalar potential energy and accept ``box`` and
+  ``perturbation`` keyword arguments. ``perturbation=1 + eps`` is used to
+  compute the derivative needed for the instantaneous pressure. The pressure
+  is
+
+  ``(2 * kinetic_energy - dUdV) / (3 * volume)``.
+
+  Args:
+    energy_fn: A function returning the scalar potential energy for particle
+      positions of shape ``[n, 3]``.
+    shift_fn: A function from ``space.periodic_general`` that displaces
+      fractional positions by a physical displacement.
+    dt: The integration timestep.
+    pressure: The target external pressure. It can be overridden on a step by
+      passing ``pressure=...`` to ``apply_fn``.
+    kT: The target temperature in energy units. It can be overridden on a step
+      by passing ``kT=...`` to ``apply_fn``.
+    tau_p: The piston relaxation timescale. The piston mass is initialized as
+      ``3 * N * kT * tau_p**2``.
+    gamma: The Langevin friction coefficient for particles and piston.
+
+  Returns:
+    An ``(init_fn, apply_fn)`` pair.
+
+  .. rubric:: References
+  .. [#bzp2009] G. Bussi, T. Zykova-Timan, and M. Parrinello,
+    "Isothermal-isobaric molecular dynamics using stochastic velocity
+    rescaling," *J. Chem. Phys.* 130, 074101 (2009).
+  """
+  dt_2 = dt / 2
+
+  def force_stress_fn(position, box, **kwargs):
+    def U(position, eps):
+      return energy_fn(
+        position,
+        box=box,
+        perturbation=jnp.asarray(1, dtype=position.dtype) + eps,
+        **kwargs,
+      )
+
+    eps = jnp.zeros((), dtype=position.dtype)
+    E, grads = value_and_grad(U, argnums=(0, 1))(position, eps)
+    return E, -grads[0], grads[1]
+
+  def modified_hamiltonian(
+    potential_energy,
+    momentum,
+    mass,
+    box,
+    box_momentum,
+    box_mass,
+    _pressure,
+    _kT,
+  ):
+    volume = quantity.volume(3, box)
+    kinetic = quantity.kinetic_energy(momentum=momentum, mass=mass)
+    piston_kinetic = box_momentum**2 / (2 * box_mass)
+    return (
+      potential_energy
+      + kinetic
+      + piston_kinetic
+      + _pressure * volume
+      - _kT * jnp.log(volume)
+    )
+
+  def init_fn(
+    key,
+    R,
+    box,
+    mass=f32(1.0),
+    momenta=None,
+    box_velocity=None,
+    **kwargs,
+  ):
+    N, dim = R.shape
+    if dim != 3:
+      raise ValueError('npt_langevin currently supports only three dimensions.')
+
+    _kT = kwargs.pop('kT', kT)
+    _pressure = kwargs.pop('pressure', pressure)
+
+    if jnp.isscalar(box) or box.ndim == 0:
+      # TODO(schsam): This is necessary because of JAX issue #5849.
+      box = jnp.eye(dim, dtype=R.dtype) * box
+
+    zero = jnp.zeros((), dtype=R.dtype)
+    box_position = zero
+    box_mass = jnp.asarray(3 * N, dtype=R.dtype) * _kT * tau_p**2
+    box_momentum = zero
+    potential_energy, force, dUdV = force_stress_fn(R, box, **kwargs)
+    momentum_key, piston_key, state_key = random.split(key, 3)
+
+    state = NPTLangevinState(
+      R,
+      tree_map(jnp.zeros_like, R),
+      force,
+      mass,
+      box,
+      box_position,
+      box_momentum,
+      box_mass,
+      dUdV,
+      potential_energy,
+      state_key,
+      zero,
+    )
+    state = canonicalize_mass(state)
+
+    if momenta is None:
+      momentum = jnp.sqrt(state.mass * _kT) * random.normal(
+        momentum_key, R.shape, dtype=R.dtype
+      )
+      state = state.set(momentum=momentum)
+    else:
+      state = canonicalize_momenta(state, momenta)
+
+    if box_velocity is None:
+      box_velocity = jnp.sqrt(_kT / box_mass) * random.normal(
+        piston_key, dtype=R.dtype
+      )
+    else:
+      box_velocity = jnp.asarray(box_velocity, dtype=R.dtype)
+
+    state = state.set(
+      box_momentum=box_mass * box_velocity,
+    )
+    H = modified_hamiltonian(
+      state.potential_energy,
+      state.momentum,
+      state.mass,
+      state.box,
+      state.box_momentum,
+      state.box_mass,
+      _pressure,
+      _kT,
+    )
+    return state.set(conserved_quantity=H)
+
+  def langevin_update(state, _kT):
+    """Apply one exact Langevin half-step to particles and the piston."""
+    next_key, momentum_key, piston_key = random.split(state.rng, 3)
+    c = jnp.exp(-gamma * dt_2)
+    variance = _kT * (1 - c**2)
+    return state.set(
+      momentum=c * state.momentum
+      + jnp.sqrt(variance * state.mass)
+      * random.normal(momentum_key, state.momentum.shape, state.momentum.dtype),
+      box_momentum=c * state.box_momentum
+      + jnp.sqrt(variance * state.box_mass)
+      * random.normal(piston_key, dtype=state.position.dtype),
+      rng=next_key,
+    )
+
+  def piston_half_step(
+    eta, momentum, force, mass, dUdV, volume, box_mass, pressure, kT
+  ):
+    kinetic = quantity.kinetic_energy(momentum=momentum, mass=mass)
+    internal_pressure = (2 * kinetic - dUdV) / (3 * volume)
+    eta_dot = 3 * (volume * (internal_pressure - pressure) + kT)
+    eta = eta + eta_dot * dt_2 / box_mass
+    eta += util.high_precision_sum(force * momentum / mass) * dt_2**2 / box_mass
+    eta += util.high_precision_sum(force**2 / mass) * dt_2**3 / (3 * box_mass)
+    return eta
+
+  def nph_step(state, _pressure, _kT, **kwargs):
+    """Apply the finite-step NPH part and update its conserved quantity."""
+    R, P, M, F = state.position, state.momentum, state.mass, state.force
+    P_b, M_b = state.box_momentum, state.box_mass
+    volume = quantity.volume(3, state.box)
+    eta = P_b / M_b
+    eta = piston_half_step(
+      eta, P, F, M, state.dUdV, volume, M_b, _pressure, _kT
+    )
+    P = P + dt_2 * F
+
+    old_H = modified_hamiltonian(
+      state.potential_energy,
+      state.momentum,
+      M,
+      state.box,
+      state.box_momentum,
+      M_b,
+      _pressure,
+      _kT,
+    )
+
+    x = eta * dt
+    R_b = state.box_position + x
+    V_0 = quantity.volume(3, state.reference_box)
+    volume = V_0 * jnp.exp(3 * R_b)
+    box = (volume / V_0) ** (1 / 3) * state.reference_box
+    R = shift_fn(R, dt * sinhx_x(x) * P / M, box=box, **kwargs)
+    P = jnp.exp(-x) * P
+
+    potential_energy, F, dUdV = force_stress_fn(R, box, **kwargs)
+    volume = quantity.volume(3, box)
+    eta = piston_half_step(eta, P, F, M, dUdV, volume, M_b, _pressure, _kT)
+    P = P + dt_2 * F
+    P_b = M_b * eta
+
+    new_H = modified_hamiltonian(
+      potential_energy,
+      P,
+      M,
+      box,
+      P_b,
+      M_b,
+      _pressure,
+      _kT,
+    )
+    return state.set(
+      position=R,
+      momentum=P,
+      force=F,
+      box_position=R_b,
+      box_momentum=P_b,
+      dUdV=dUdV,
+      potential_energy=potential_energy,
+      conserved_quantity=state.conserved_quantity + new_H - old_H,
+    )
+
+  def apply_fn(state, **kwargs):
+    _kT = kwargs.pop('kT', kT)
+    _pressure = kwargs.pop('pressure', pressure)
+    state = langevin_update(state, _kT)
+    state = nph_step(state, _pressure, _kT, **kwargs)
+    return langevin_update(state, _kT)
+
+  return init_fn, apply_fn
+
+
 """Experimental Simulations.
 
 
@@ -1714,7 +2012,7 @@ def hybrid_swap_mc(
   space_fns: space.Space,
   energy_fn: Callable[[Array, Array], Array],
   neighbor_fn: partition.NeighborFn,
-  dt: float,
+  dt: float | Array,
   kT: ArrayLike,
   t_md: float,
   N_swap: int,
@@ -1848,7 +2146,7 @@ def hybrid_swap_mc(
 def temp_rescale(
   energy_or_force_fn: Callable[..., Array],
   shift_fn: ShiftFn,
-  dt: float,
+  dt: float | Array,
   kT: ArrayLike,
   window: float,
   fraction: float,
@@ -1930,9 +2228,9 @@ def temp_rescale(
 def temp_berendsen(
   energy_or_force_fn: Callable[..., Array],
   shift_fn: ShiftFn,
-  dt: float,
+  dt: float | Array,
   kT: ArrayLike,
-  tau: float,
+  tau: float | Array,
   fix_center_of_mass: bool = False,
   **sim_kwargs,
 ) -> Simulator:
@@ -2008,7 +2306,7 @@ def temp_berendsen(
 def nvk(
   energy_or_force_fn: Callable[..., Array],
   shift_fn: ShiftFn,
-  dt: float,
+  dt: float | Array,
   kT: ArrayLike,
   fix_center_of_mass: bool = False,
   **sim_kwargs,
@@ -2132,9 +2430,9 @@ def nvk(
 def temp_csvr(
   energy_or_force_fn: Callable[..., Array],
   shift_fn: ShiftFn,
-  dt: float,
+  dt: float | Array,
   kT: ArrayLike,
-  tau: float,
+  tau: float | Array,
   fix_center_of_mass: bool = False,
   **sim_kwargs,
 ) -> Simulator:

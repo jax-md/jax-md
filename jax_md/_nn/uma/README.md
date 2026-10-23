@@ -1,6 +1,6 @@
 # UMA (Universal Models for Atoms) - JAX Port
 
-A JAX/Flax implementation of the UMA model from [FairChem](https://github.com/FAIR-Chem/fairchem), designed for molecular dynamics simulations with JAX-MD.
+A JAX/Equinox implementation of the UMA model from [FairChem](https://github.com/FAIR-Chem/fairchem), designed for molecular dynamics simulations with JAX-MD.
 
 ## Quick Start
 
@@ -29,11 +29,11 @@ neighbor_fn, init_fn, energy_fn = energy.uma_neighbor_list(
 key = jax.random.PRNGKey(0)
 positions = jax.random.uniform(key, (4, 3)) * box_size
 nbrs = neighbor_fn.allocate(positions)
-params = init_fn(key, positions, nbrs)
+model = init_fn(key, positions, nbrs)
 
 # Compute energy and forces
-E = energy_fn(params, positions, nbrs)
-forces = -jax.grad(energy_fn, argnums=1)(params, positions, nbrs)
+E = energy_fn(model, positions, nbrs)
+forces = -jax.grad(energy_fn, argnums=1)(model, positions, nbrs)
 ```
 
 ### Loading Pretrained Weights
@@ -52,27 +52,36 @@ neighbor_fn, init_fn, energy_fn = energy.uma_neighbor_list(
     atoms=atoms,
     dataset_idx=dataset_idx,
 )
-params = init_fn(key, positions, nbrs)  # Returns pretrained weights
+model = init_fn(key, positions, nbrs)  # Holds the pretrained weights
 ```
 
 ### Pretrained MoE (direct usage)
 
 ```python
+import jax
 from jax_md._nn.uma import load_pretrained, UMAMoEBackbone
 from jax_md._nn.uma.heads import MLPEnergyHead
+from jax_md._nn.uma.pretrained import load_params_into_module
 from jax_md._nn.uma.nn.embedding import dataset_names_to_indices
 
 config, params, head_params = load_pretrained('uma-s-1p1')
-model = UMAMoEBackbone(config=config)
-head = MLPEnergyHead(
-    sphere_channels=config.sphere_channels,
-    hidden_channels=config.hidden_channels,
+backbone_key, head_key = jax.random.split(jax.random.PRNGKey(0))
+model = load_params_into_module(
+    params, UMAMoEBackbone(config=config, key=backbone_key)
+)
+head = load_params_into_module(
+    head_params,
+    MLPEnergyHead(
+        sphere_channels=config.sphere_channels,
+        hidden_channels=config.hidden_channels,
+        key=head_key,
+    ),
 )
 dataset_idx = dataset_names_to_indices(['omat'], config.dataset_list)
 
-emb = model.apply(params, positions, atomic_numbers, batch,
-                   edge_index, edge_vec, charge, spin, dataset_idx)
-result = head.apply(head_params, emb['node_embedding'], batch, num_systems)
+emb = model(positions, atomic_numbers, batch, edge_index, edge_vec,
+            charge, spin, dataset_idx)
+result = head(emb['node_embedding'], batch, num_systems)
 energy = result['energy']
 ```
 
@@ -82,14 +91,13 @@ energy = result['energy']
 from jax_md._nn import uma
 
 config = uma.default_config()
-model = uma.UMABackbone(config=config)
+model = uma.UMABackbone(config=config, key=jax.random.PRNGKey(0))
 
 # Dataset names must be converted to integer indices outside JIT
 dataset_idx = uma.dataset_names_to_indices(['omat'], config.dataset_list)
 
-# `params` can come from model.init(...) or converted pretrained weights.
-output = model.apply(
-    params,
+# load_params_into_module copies converted weights into the module
+output = model(
     positions,           # [num_atoms, 3]
     atomic_numbers,      # [num_atoms]
     batch,               # [num_atoms]
@@ -124,7 +132,7 @@ node_embedding = output['node_embedding']  # [N, (lmax+1)^2, C]
 | `norm_type` | 'rms_norm_sh' | Normalization type |
 | `act_type` | 'gate' | Activation ('gate' or 's2') |
 | `ff_type` | 'grid' | FFN type ('grid' or 'spectral') |
-| `activation_checkpointing` | False | Use `nn.remat` for memory savings |
+| `activation_checkpointing` | False | Use `eqx.filter_checkpoint` for memory savings |
 
 Pretrained checkpoints load their own architecture values from checkpoint
 metadata. For example, the pretrained UMA cutoff and distance-basis size may
