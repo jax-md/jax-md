@@ -63,7 +63,9 @@ Minimizer = Tuple[InitFn[T], ApplyFn[T]]
 
 
 def gradient_descent(
-  energy_or_force: Callable[..., Array], shift_fn: ShiftFn, step_size: float
+  energy_or_force: Callable[..., Array],
+  shift_fn: ShiftFn,
+  step_size: float | Array,
 ) -> Minimizer[Array]:
   """Defines gradient descent minimization.
 

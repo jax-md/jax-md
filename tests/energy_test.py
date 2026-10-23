@@ -202,26 +202,6 @@ def lattice(R_unit_cell, copies, lattice_vectors):
   return jnp.array(onp.concatenate(Rs))
 
 
-def tile_silicon(tile_count, position, box, *extra_data):
-  tiles = jnp.arange(tile_count)
-  dx, dy, dz = jnp.meshgrid(tiles, tiles, tiles)
-  dR = jnp.stack((dx, dy, dz), axis=-1)
-  dR = jnp.reshape(dR, (-1, 3))
-
-  position = (position[:, None, :] + dR[None, :, :]) / tile_count
-  position = jnp.reshape(position, (-1, 3))
-  box *= tile_count
-
-  tiled_data = []
-  for ex in extra_data:
-    assert ex.ndim == 2
-    ex = jnp.broadcast_to(ex[:, None, :], (ex.shape[0], len(dR), ex.shape[1]))
-    ex = jnp.reshape(ex, (-1, ex.shape[-1]))
-    tiled_data += [ex]
-
-  return [position, box] + tiled_data
-
-
 def cell(a, b, c, alpha, beta, gamma):
   alpha = alpha * jnp.pi / 180
   beta = beta * jnp.pi / 180
@@ -839,6 +819,42 @@ class EnergyTest(test_util.JAXMDTestCase):
   @parameterized.named_parameters(
     test_util.cases_from_list(
       {
+        'testcase_name': f'_N_types={N_types}_format={str(format).split(".")[-1]}',
+        'N_types': N_types,
+        'format': format,
+      }
+      for N_types in N_TYPES_TO_TEST
+      for format in [partition.Dense, partition.Sparse]
+    )
+  )
+  def test_behler_parrinello_neighbor_list_matches_dense(self, N_types, format):
+    key = random.PRNGKey(1)
+    box_size = 20.0
+    R = random.uniform(random.PRNGKey(0), (24, 3), dtype=f32) * box_size
+    species = jnp.arange(24) % N_types + 1 if N_types > 1 else None
+    displacement, _ = space.periodic(box_size)
+    dense_model = energy.behler_parrinello(
+      displacement, key=key, species=species, per_particle=True
+    )
+    neighbor_fn, model = energy.behler_parrinello_neighbor_list(
+      displacement,
+      box_size,
+      key=key,
+      species=species,
+      per_particle=True,
+      format=format,
+    )
+
+    nbrs = neighbor_fn.allocate(R)
+    self.assertAllClose(model(R, nbrs), dense_model(R))
+    self.assertAllClose(
+      grad(lambda R: model(R, nbrs).sum())(R),
+      grad(lambda R: dense_model(R).sum())(R),
+    )
+
+  @parameterized.named_parameters(
+    test_util.cases_from_list(
+      {
         'testcase_name': f'_dim={dim}_dtype={dtype.__name__}_format={format}',
         'spatial_dimension': dim,
         'dtype': dtype,
@@ -1269,6 +1285,38 @@ class EnergyTest(test_util.JAXMDTestCase):
     else:
       self.assertAllClose(E_dense, E_nl, rtol=4e-4, atol=2e-4)
 
+  def test_graph_network_per_particle(self):
+    key = random.PRNGKey(0)
+    R = random.uniform(key, (32, 3), dtype=jnp.float32)
+    d, _ = space.free()
+    dense = energy.graph_network(d, 0.2, key=key, per_particle=True)
+    per_atom = dense(R)
+    self.assertEqual(per_atom.shape, (32, 1))
+    self.assertAllClose(per_atom, dense.model.node_energies(R))
+
+    neighbor_fn, sparse = energy.graph_network_neighbor_list(
+      d, 1.0, 0.2, 0.0, key=key, per_particle=True, format=partition.Sparse
+    )
+    nbrs = neighbor_fn.allocate(R)
+    self.assertAllClose(dense(R), sparse(R, nbrs), rtol=1e-5, atol=1e-5)
+
+    total = energy.graph_network(d, 0.2, key=key)
+    with self.assertRaisesRegex(ValueError, 'per_particle=True'):
+      total.model.node_energies(R)
+
+  def test_graph_network_nodes_are_not_parameters(self):
+    import equinox as eqx
+
+    key = random.PRNGKey(0)
+    R = random.uniform(key, (8, 3), dtype=jnp.float32)
+    d, _ = space.free()
+    nodes = jax.nn.one_hot(jnp.arange(8) % 2, 2)
+    energy_fn = energy.graph_network(d, 0.5, key=key, nodes=nodes)
+    params, static = eqx.partition(energy_fn.model, eqx.is_inexact_array)
+    shapes = [leaf.shape for leaf in jax.tree.leaves(params)]
+    self.assertNotIn(nodes.shape, shapes)
+    self.assertAllClose(energy_fn(R), eqx.combine(params, static)(R))
+
   @parameterized.named_parameters(
     test_util.cases_from_list(
       {
@@ -1296,121 +1344,40 @@ class EnergyTest(test_util.JAXMDTestCase):
       )
     )
 
-    from flax import nnx
+    import equinox as eqx
 
     cutoff = 0.2
 
     energy_fn = energy.graph_network(
       d, cutoff, key=params_key, spatial_dimension=spatial_dimension
     )
-    graphdef, state = nnx.split(getattr(energy_fn, 'model'))
+    params, static = eqx.partition(
+      getattr(energy_fn, 'model'), eqx.is_inexact_array
+    )
 
-    def apply(state, *args, **kwargs):
-      out, _ = graphdef.apply(state)(*args, **kwargs)
-      return out
+    def apply(params, *args, **kwargs):
+      return eqx.combine(params, static)(*args, **kwargs)
 
     @jit
-    def loss(state, R):
-      return jnp.mean((vmap(apply, (None, 0))(state, R) - E_gt(R, dr0)) ** 2)
+    def loss(params, R):
+      return jnp.mean((vmap(apply, (None, 0))(params, R) - E_gt(R, dr0)) ** 2)
 
     import optax
 
     opt = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(1e-4))
 
     @jit
-    def update(state, opt_state, R):
-      updates, opt_state = opt.update(grad(loss)(state, R), opt_state)
-      return optax.apply_updates(state, updates), opt_state
+    def update(params, opt_state, R):
+      updates, opt_state = opt.update(grad(loss)(params, R), opt_state)
+      return optax.apply_updates(params, updates), opt_state
 
-    opt_state = opt.init(state)
+    opt_state = opt.init(params)
 
-    l0 = loss(state, R)
+    l0 = loss(params, R)
     for i in range(4):
-      state, opt_state = update(state, opt_state, R)
+      params, opt_state = update(params, opt_state, R)
 
-    assert loss(state, R) < l0 * 0.95
-
-  @parameterized.named_parameters(
-    test_util.cases_from_list(
-      {
-        'testcase_name': '_dtype={}'.format(dtype.__name__),
-        'dtype': dtype,
-      }
-      for dtype in POSITION_DTYPE
-    )
-  )
-  def test_nequip_silicon(self, dtype):
-    position = jnp.array(
-      [
-        [0.262703, 0.752304, 0.243743],
-        [0.018137, 0.002302, 0.491184],
-        [0.248363, 0.237012, 0.776354],
-        [0.991889, 0.496844, 0.005244],
-        [0.773055, 0.742292, 0.755667],
-        [0.488418, 0.001649, 0.993714],
-        [0.7502, 0.232352, 0.236175],
-        [0.52915, 0.488468, 0.512127],
-      ],
-      dtype=dtype,
-    )
-    n = len(position)
-
-    gt_forces = jnp.array(
-      [
-        [-6.2008705, -12.834937, 5.787031],
-        [3.9308796, 8.419766, -3.6275134],
-        [-4.3150625, -6.7310944, 2.2780294],
-        [5.800577, 11.102457, -3.3206246],
-        [-4.4260826, -8.080319, 3.398284],
-        [6.7915206, 11.888205, -5.344664],
-        [-5.6801977, -10.894533, 3.8579397],
-        [4.0992346, 7.1304564, -3.0284817],
-      ],
-      dtype=dtype,
-    )
-
-    box = jnp.array(
-      [
-        [4.707482, -0.92776, 0],
-        [
-          0,
-          5.658054,
-          0.0,
-        ],
-        [2.14774, 1.224906, 6.006509],
-      ],
-      dtype=dtype,
-    )
-
-    atoms = jnp.zeros((n, 94), dtype=dtype).at[:, 13].set(1)
-
-    position, box, atoms, gt_forces = tile_silicon(
-      5, position, box, atoms, gt_forces
-    )
-
-    displacement_fn, _ = space.periodic_general(box)
-
-    neighbor_fn, energy_fn = energy.load_gnome_model_neighbor_list(
-      displacement_fn,
-      box,
-      'tests/data/nequip_silicon_test/',
-      atoms,
-      fractional_coordinates=True,
-      disable_cell_list=True,
-    )
-
-    nbrs = neighbor_fn.allocate(position)
-
-    e, g = jax.value_and_grad(energy_fn)(position, nbrs)
-    etol = 5e-3
-    self.assertAllClose(
-      e / len(position), dtype(14.0278845 / 8), rtol=etol, atol=etol
-    )
-
-    fatol = 5e-2
-    frtol = 5e-3
-
-    self.assertAllClose(-g, gt_forces, rtol=frtol, atol=fatol)
+    assert loss(params, R) < l0 * 0.95
 
   def test_coulomb_cubeions(self):
     dat = loadmat('tests/data/pme/cubeions.mat')

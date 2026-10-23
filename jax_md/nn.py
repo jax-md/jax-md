@@ -14,11 +14,14 @@
 
 """Neural Network Primitives."""
 
+from collections.abc import Iterator
+from itertools import count
 from typing import Any, Callable, Dict, Tuple
 
-from flax import nnx
+import equinox as eqx
 import jax
 from jax import vmap
+from jax.random import fold_in
 import jax.numpy as jnp
 
 from jax_md import dataclasses, partition
@@ -31,7 +34,6 @@ import jraph
 from ._nn import behler_parrinello
 from ._nn import nequip
 from ._nn import gnome
-from ._nn import util
 
 # Typing
 
@@ -46,43 +48,79 @@ DEFAULT_KERNEL_INIT = jax.nn.initializers.variance_scaling(
 DEFAULT_BIAS_INIT = jax.nn.initializers.zeros
 
 
-class MLP(nnx.Module):
+class Linear(eqx.Module):
+  """Dense layer computing ``x @ kernel + bias``, with float32 parameters."""
+
+  kernel: Array
+  bias: Array | None
+
+  def __init__(
+    self,
+    in_features: int,
+    out_features: int,
+    *,
+    key: Any,
+    kernel_init: Callable = DEFAULT_KERNEL_INIT,
+    bias_init: Callable = DEFAULT_BIAS_INIT,
+    use_bias: bool = True,
+  ):
+    keys = (
+      key if isinstance(key, Iterator) else (fold_in(key, i) for i in count())
+    )
+    self.kernel = kernel_init(
+      next(keys), (in_features, out_features), jnp.float32
+    )
+    self.bias = (
+      bias_init(next(keys), (out_features,), jnp.float32) if use_bias else None
+    )
+
+  def __call__(self, x: Array) -> Array:
+    y = jax.lax.dot_general(x, self.kernel, (((x.ndim - 1,), (0,)), ((), ())))
+    return y if self.bias is None else y + self.bias
+
+
+class MLP(eqx.Module):
   """Multi-layer perceptron with configurable activation."""
+
+  layers: Tuple[Linear, ...]
+  activation: ActivationFn = eqx.field(static=True)
+  activate_final: bool = eqx.field(static=True)
 
   def __init__(
     self,
     in_features: int,
     output_sizes: Tuple[int, ...],
     *,
-    rngs: nnx.Rngs,
+    key: Any,
     activation: ActivationFn = jax.nn.relu,
     kernel_init: Callable = DEFAULT_KERNEL_INIT,
     bias_init: Callable = DEFAULT_BIAS_INIT,
     use_bias: bool = True,
     activate_final: bool = True,
   ):
+    keys = (
+      key if isinstance(key, Iterator) else (fold_in(key, i) for i in count())
+    )
+    sizes = (in_features,) + tuple(output_sizes)
     self.activation = activation
     self.activate_final = activate_final
-    sizes = (in_features,) + tuple(output_sizes)
-    self.num_layers = len(sizes) - 1
-    for i in range(self.num_layers):
-      setattr(
-        self,
-        f'layers_{i}',
-        nnx.Linear(
-          sizes[i],
-          sizes[i + 1],
-          use_bias=use_bias,
-          kernel_init=kernel_init,
-          bias_init=bias_init,
-          rngs=rngs,
-        ),
+    self.layers = tuple(
+      Linear(
+        i,
+        o,
+        key=keys,
+        kernel_init=kernel_init,
+        bias_init=bias_init,
+        use_bias=use_bias,
       )
+      for i, o in zip(sizes, sizes[1:])
+    )
 
   def __call__(self, x: Array) -> Array:
-    for i in range(self.num_layers):
-      x = getattr(self, f'layers_{i}')(x)
-      if self.activate_final or i < self.num_layers - 1:
+    last = len(self.layers) - 1
+    for i, layer in enumerate(self.layers):
+      x = layer(x)
+      if self.activate_final or i < last:
         x = self.activation(x)
     return x
 
@@ -291,7 +329,7 @@ class GraphNetwork:
 # Prefab Networks
 
 
-class GraphNetEncoder(nnx.Module):
+class GraphNetEncoder(eqx.Module):
   """Implements a Graph Neural Network for energy fitting.
 
   Based on the network used in "Unveiling the predictive power of static
@@ -306,6 +344,15 @@ class GraphNetEncoder(nnx.Module):
   states.
   """
 
+  EdgeEncoder: Callable[..., Any]
+  NodeEncoder: Callable[..., Any]
+  GlobalEncoder: Callable[..., Any]
+  edge_fns: Tuple[MLP, ...]
+  node_fns: Tuple[MLP, ...]
+  global_fns: Tuple[MLP, ...]
+  n_recurrences: int = eqx.field(static=True)
+  format: partition.NeighborListFormat = eqx.field(static=True)
+
   def __init__(
     self,
     in_node_features: int,
@@ -314,7 +361,7 @@ class GraphNetEncoder(nnx.Module):
     n_recurrences: int,
     mlp_sizes: Tuple[int, ...],
     *,
-    rngs: nnx.Rngs,
+    key: Any,
     activation: ActivationFn = jax.nn.relu,
     kernel_init: Callable = DEFAULT_KERNEL_INIT,
     bias_init: Callable = DEFAULT_BIAS_INIT,
@@ -324,7 +371,6 @@ class GraphNetEncoder(nnx.Module):
     self.format = format
 
     kw: Dict[str, Any] = dict(
-      rngs=rngs,
       activation=activation,
       kernel_init=kernel_init,
       bias_init=bias_init,
@@ -332,22 +378,21 @@ class GraphNetEncoder(nnx.Module):
     )
     m = mlp_sizes[-1]
 
-    # Annotated as generic callables so they are accepted by both the
-    # jax_md and jraph GraphMapFeatures embed-fn signatures.
-    self.EdgeEncoder: Callable[..., Any] = MLP(
-      in_edge_features, mlp_sizes, **kw
+    keys = (
+      key if isinstance(key, Iterator) else (fold_in(key, i) for i in count())
     )
-    self.NodeEncoder: Callable[..., Any] = MLP(
-      in_node_features, mlp_sizes, **kw
-    )
-    self.GlobalEncoder: Callable[..., Any] = MLP(
-      in_global_features, mlp_sizes, **kw
-    )
+    self.EdgeEncoder = MLP(in_edge_features, mlp_sizes, key=keys, **kw)
+    self.NodeEncoder = MLP(in_node_features, mlp_sizes, key=keys, **kw)
+    self.GlobalEncoder = MLP(in_global_features, mlp_sizes, key=keys, **kw)
 
-    for i in range(n_recurrences):
-      setattr(self, f'edge_fns_{i}', MLP(8 * m, mlp_sizes, **kw))
-      setattr(self, f'node_fns_{i}', MLP(6 * m, mlp_sizes, **kw))
-      setattr(self, f'global_fns_{i}', MLP(4 * m, mlp_sizes, **kw))
+    edge_fns, node_fns, global_fns = [], [], []
+    for _ in range(n_recurrences):
+      edge_fns.append(MLP(8 * m, mlp_sizes, key=keys, **kw))
+      node_fns.append(MLP(6 * m, mlp_sizes, key=keys, **kw))
+      global_fns.append(MLP(4 * m, mlp_sizes, key=keys, **kw))
+    self.edge_fns = tuple(edge_fns)
+    self.node_fns = tuple(node_fns)
+    self.global_fns = tuple(global_fns)
 
   def __call__(self, graph: GraphsTuple) -> GraphsTuple:
     if self.format is partition.Dense:
@@ -366,9 +411,9 @@ class GraphNetEncoder(nnx.Module):
     outputs = encoded
 
     for i in range(self.n_recurrences):
-      edge_mlp = getattr(self, f'edge_fns_{i}')
-      node_mlp = getattr(self, f'node_fns_{i}')
-      global_mlp = getattr(self, f'global_fns_{i}')
+      edge_mlp = self.edge_fns[i]
+      node_mlp = self.node_fns[i]
+      global_mlp = self.global_fns[i]
 
       def edge_update(edges, sent, received, globals_, mlp=edge_mlp):
         return mlp(jnp.concatenate((edges, sent, received, globals_), axis=-1))

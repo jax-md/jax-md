@@ -658,7 +658,7 @@ def box_size_at_volume_fraction(
 
 
 def box_size_at_number_density(
-  particle_count: int, number_density: float, spatial_dimension: int
+  particle_count: int, number_density: float | Array, spatial_dimension: int
 ) -> Array:
   return jnp.power(particle_count / number_density, 1 / spatial_dimension)
 
