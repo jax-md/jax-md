@@ -640,13 +640,15 @@ def bks(
   .. [#liu] Liu, Han, et al. "Machine learning Forcefield for silicate glasses."
     arXiv preprint arXiv:1902.03486 (2019).
   """
+  mask = (dr > 0) & (dr < cutoff)
+  dr = jnp.where(dr > 0, dr, 1)
   energy = (
     dsf_coulomb(dr, Q_sq, coulomb_alpha, cutoff)
     + exp_coeff * jnp.exp(-dr / exp_decay)
     + attractive_coeff / dr**6
     + repulsive_coeff / dr**24
   )
-  return jnp.where(dr < cutoff, energy, 0.0)
+  return jnp.where(mask, energy, 0.0)
 
 
 def bks_pair(
@@ -669,7 +671,7 @@ def bks_pair(
 
   return smap.pair(
     bks,
-    displacement_or_metric,
+    space.canonicalize_displacement_or_metric(displacement_or_metric),
     species=species,
     ignore_unused_parameters=True,
     Q_sq=Q_sq,

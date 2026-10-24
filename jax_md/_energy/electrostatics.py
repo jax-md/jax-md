@@ -50,7 +50,9 @@ NeighborListFormat = partition.NeighborListFormat
 
 
 def coulomb_direct(dr: Array, charge_sq: Array, alpha: float) -> Array:
-  return charge_sq * erfc(alpha * dr) / dr
+  mask = dr > 0
+  dr = jnp.where(mask, dr, 1)
+  return jnp.where(mask, charge_sq * erfc(alpha * dr) / dr, 0)
 
 
 def coulomb_direct_pair(
