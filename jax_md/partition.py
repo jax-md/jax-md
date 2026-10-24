@@ -158,6 +158,7 @@ def _cell_dimensions(
     box_size = float(box_size)
 
   cells_per_side = onp.floor(box_size / minimum_cell_size)
+  cells_per_side = onp.where(cells_per_side < 3, 1, cells_per_side)
   cell_size = box_size / cells_per_side
   cells_per_side = onp.array(cells_per_side, dtype=i32)
 
@@ -165,13 +166,6 @@ def _cell_dimensions(
     if box_size.ndim == 1 or box_size.ndim == 2:
       assert box_size.size == spatial_dimension
       flat_cells_per_side = onp.reshape(cells_per_side, (-1,))
-      for cells in flat_cells_per_side:
-        if cells < 3:
-          msg = (
-            'Box must be at least 3x the size of the grid spacing in each '
-            'dimension.'
-          )
-          raise ValueError(msg)
       cell_count = reduce(mul, flat_cells_per_side, 1)
     elif box_size.ndim == 0:
       cell_count = cells_per_side**spatial_dimension
@@ -227,17 +221,6 @@ def _compute_hash_constants(
 def _neighboring_cells(dimension: int) -> Generator[onp.ndarray, None, None]:
   for dindex in onp.ndindex(*([3] * dimension)):
     yield onp.array(dindex, dtype=i32) - 1
-
-
-@partial(jit, static_argnums=(0, 1))
-def _neighboring_cells_arr(ndim: int, dist: int = 1) -> Array:
-  return jnp.stack(
-    [
-      lax.broadcasted_iota(i32, [dist * 2 + 1] * ndim, d) - dist
-      for d in range(ndim)
-    ],
-    axis=-1,
-  ).reshape((-1, ndim))
 
 
 def _estimate_cell_capacity(
@@ -704,6 +687,9 @@ class NeighborList:
       in cell list construction.
     cell_list_fn: The function used to construct the cell list.
     update_fn: A static python function used to update the neighbor list.
+    reference_box: The box when the neighbor list was constructed, as a
+      `[spatial_dim, spatial_dim]` matrix. With fractional coordinates, box
+      deformation since then is included when deciding to update.
   """
 
   idx: Array
@@ -718,6 +704,7 @@ class NeighborList:
   update_fn: Callable[[Array, 'NeighborList'], 'NeighborList'] = (
     dataclasses.static_field()
   )
+  reference_box: Array | None = None
 
   def update(self, position: Array, **kwargs) -> 'NeighborList':
     return self.update_fn(position, self, **kwargs)
@@ -863,7 +850,8 @@ def neighbor_list(
       i.e. the transpose of ASE's `cell`.
     r_cutoff: A scalar specifying the neighborhood radius.
     dr_threshold: A scalar specifying the maximum distance particles can move
-      before rebuilding the neighbor list.
+      before rebuilding the neighbor list. With fractional coordinates, a box
+      that shrinks after a rebuild uses up part of this distance.
     capacity_multiplier: A floating point scalar specifying the fractional
       increase in maximum neighborhood occupancy we allocate compared with the
       maximum in the example positions.
@@ -921,10 +909,12 @@ def neighbor_list(
     N, dim = positionShape
     cell_capacity = cl_id_buffer.shape[dim]
     buf_shape = cl_id_buffer.shape[:dim]
-    n_shifts = 3**dim
+    widths = [3 if c >= 3 else 1 for c in buf_shape[::-1]]
+    n_shifts = math.prod(widths)
 
     cells_per_side = jnp.array(buf_shape[::-1], i32)
-    shifts = _neighboring_cells_arr(dim)
+    shifts = jnp.array(list(onp.ndindex(*widths)), i32)
+    shifts = shifts - jnp.array(widths, i32) // 2
     shifted = particle_cell_id[:, None, :] + shifts[None, :, :]
     shifted = jnp.mod(shifted, cells_per_side[None, None, :])
 
@@ -1052,7 +1042,9 @@ def neighbor_list(
             )
             cell_size = _fractional_cell_size(_box, cutoff)
             _box = 1.0
-          if jnp.all(jnp.asarray(cell_size) < _box / 3.0):
+          if jnp.ndim(_box) < 2 and jnp.any(
+            jnp.asarray(cell_size) < _box / 3.0
+          ):
             cl_fn = cell_list(_box, cell_size, capacity_multiplier)
             cl = cl_fn.allocate(position, extra_capacity=extra_capacity)
         else:
@@ -1107,6 +1099,12 @@ def neighbor_list(
           max_occupancy = capacity_limit
       idx = idx[:, :max_occupancy]
       update_fn = neighbor_list_fn if neighbors is None else neighbors.update_fn
+      reference_box = lax.stop_gradient(
+        jnp.asarray(kwargs.get('box', box), position.dtype)
+      )
+      if reference_box.ndim < 2:
+        dim = position.shape[-1]
+        reference_box = jnp.eye(dim, dtype=position.dtype) * reference_box
       return NeighborList(
         idx,
         position,
@@ -1117,6 +1115,7 @@ def neighbor_list(
         cell_size,
         cl_fn,
         update_fn,
+        reference_box=reference_box,
       )  # pytype: disable=wrong-arg-count
 
     nbrs = neighbors
@@ -1150,8 +1149,24 @@ def neighbor_list(
 
     d = partial(metric_sq, **kwargs)
     d = vmap(d)
+    dR_sq = d(position, nbrs.reference_position)
+    rebuild = jnp.any(dR_sq > threshold_sq)
+    if (
+      'box' in kwargs
+      and fractional_coordinates
+      and nbrs.reference_box is not None
+    ):
+      new_box = lax.stop_gradient(jnp.asarray(kwargs['box'], position.dtype))
+      if new_box.ndim < 2:
+        dim = position.shape[-1]
+        new_box = jnp.eye(dim, dtype=position.dtype) * new_box
+      min_stretch = jnp.linalg.svd(
+        new_box @ jnp.linalg.inv(nbrs.reference_box), compute_uv=False
+      )[-1]
+      threshold = (min_stretch * cutoff - r_cutoff) / 2
+      rebuild = (threshold <= 0) | jnp.any(dR_sq > threshold**2)
     return lax.cond(
-      jnp.any(d(position, nbrs.reference_position) > threshold_sq),
+      rebuild,
       (position, nbrs.error),
       partial(neighbor_fn, max_occupancy=nbrs.max_occupancy),
       nbrs,

@@ -8,10 +8,10 @@ Ported from FairChem's UMA implementation.
 
 from __future__ import annotations
 
-import math
 import os
 from typing import List, Optional, Tuple
 
+import e3nn_jax as e3nn
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -187,10 +187,8 @@ def compute_jacobi_matrices(lmax: int) -> List[jnp.ndarray]:
 
   The Jacobi matrices are used in the computation of Wigner D-matrices
   via the relation D = X_a @ J @ X_b @ J @ X_c where X are z-rotation
-  matrices.
-
-  Note: For best compatibility with pretrained PyTorch weights, use
-  load_jacobi_matrices_from_file() instead.
+  matrices. Each J is (-1)^l D^l(pi/2, pi/2, pi/2) in e3nn's real basis,
+  the same matrices as Jd.pt.
 
   Args:
       lmax: Maximum degree l for which to compute matrices.
@@ -198,70 +196,10 @@ def compute_jacobi_matrices(lmax: int) -> List[jnp.ndarray]:
   Returns:
       List of Jacobi matrices for l = 0, 1, ..., lmax.
   """
-  Jd_list = []
-
-  for l in range(lmax + 1):
-    J = _compute_wigner_d_small(l, np.pi / 2)
-    Jd_list.append(jnp.array(J))
-
-  return Jd_list
-
-
-def _compute_wigner_d_small(l: int, beta: float) -> np.ndarray:
-  """Compute small Wigner d-matrix d^l(beta).
-
-  Args:
-      l: Degree of the representation.
-      beta: Rotation angle.
-
-  Returns:
-      d-matrix of shape [2l+1, 2l+1].
-  """
-  if l == 0:
-    return np.array([[1.0]])
-
-  size = 2 * l + 1
-  d = np.zeros((size, size))
-
-  c = np.cos(beta / 2)
-  s = np.sin(beta / 2)
-
-  for m in range(-l, l + 1):
-    for mp in range(-l, l + 1):
-      idx_m = m + l
-      idx_mp = mp + l
-
-      val = 0.0
-      s_min = max(0, m - mp)
-      s_max = min(l + m, l - mp)
-
-      for s_idx in range(s_min, s_max + 1):
-        sign = (-1) ** (mp - m + s_idx)
-        num = (
-          math.factorial(l + m)
-          * math.factorial(l - m)
-          * math.factorial(l + mp)
-          * math.factorial(l - mp)
-        )
-        denom = (
-          math.factorial(l + m - s_idx)
-          * math.factorial(s_idx)
-          * math.factorial(mp - m + s_idx)
-          * math.factorial(l - mp - s_idx)
-        )
-        power_c = 2 * l + m - mp - 2 * s_idx
-        power_s = mp - m + 2 * s_idx
-
-        term = sign * np.sqrt(num) / denom
-        if power_c >= 0 and power_s >= 0:
-          term *= c**power_c * s**power_s
-        else:
-          term = 0.0
-        val += term
-
-      d[idx_m, idx_mp] = val
-
-  return d
+  return [
+    (-1) ** l * e3nn.Irrep(l, 1).D_from_angles(np.pi / 2, np.pi / 2, np.pi / 2)
+    for l in range(lmax + 1)
+  ]
 
 
 def _z_rot_mat(angle: jnp.ndarray, l: int) -> jnp.ndarray:
