@@ -547,15 +547,18 @@ def multiplicative_isotropic_cutoff(
     fn: A function that takes an ndarray of distances of shape `[n, m]` as well
       as varargs. The returned function also takes distances, so map it with a
       metric such as `space.metric(displacement_fn)`, not a displacement
-      function.
+      function. Displacements are not detected and give wrong energies;
+      `space.canonicalize_displacement_or_metric` turns either into a metric.
     r_onset: A float specifying the distance marking the onset of deformation.
+      Values at or above `r_cutoff` give a hard cutoff.
     r_cutoff: A float specifying the cutoff distance.
 
   Returns:
     A new function with the same signature as fn, with the properties outlined
     above. It also takes `r_onset` and `r_cutoff` as keyword arguments, so they
     can be set per species or per pair through `smap`. Neighbor lists must then
-    be built with the largest `r_cutoff`.
+    be built with the largest `r_cutoff`. These keywords are used by the cutoff
+    and are not passed on to `fn`.
 
   .. rubric:: References
   .. [#hoomd] HOOMD Blue documentation. Accessed on 05/31/2019.
@@ -568,14 +571,14 @@ def multiplicative_isotropic_cutoff(
     r_o = r_onset ** f32(2)
 
     inner = jnp.where(
-      dr < r_cutoff,
+      dr < r_onset,
+      1,
       (r_c - r) ** 2
       * (r_c + 2 * r - 3 * r_o)
       / jnp.where(r_c > r_o, r_c - r_o, 1) ** 3,
-      0,
     )
 
-    return jnp.where(dr < r_onset, 1, inner)
+    return jnp.where(dr < r_cutoff, inner, 0)
 
   @wraps(fn)
   def cutoff_fn(dr, *args, r_onset=r_onset, r_cutoff=r_cutoff, **kwargs):

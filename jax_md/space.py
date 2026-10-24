@@ -419,8 +419,9 @@ def periodic_general(
       in the parallelepiped or the unit cube.
     wrapped: A boolean specifying whether or not particle positions are
       remapped back into the box after each step. If False, positions can be
-      wrapped back afterwards with the `shift_fn` of the same space built with
-      `wrapped=True`, called with a zero displacement.
+      wrapped back afterwards with `shift_fn(R, jnp.zeros_like(R))` from the
+      same space built with `wrapped=True`, adding `box=box` if the box has
+      changed.
   Returns:
     `(displacement_fn, shift_fn)` tuple.
   """

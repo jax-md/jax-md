@@ -1149,7 +1149,7 @@ class SimulateTest(test_util.JAXMDTestCase):
     init_fn, apply_fn = simulate.brownian(energy_fn, shift, dt, T, gamma=gamma)
     apply_fn = jit(apply_fn)
 
-    state = init_fn(key, R, mass)
+    state = init_fn(key, R, mass, kT=T)
 
     sim_t = f32(BROWNIAN_DYNAMICS_STEPS * dt)
     for _ in range(BROWNIAN_DYNAMICS_STEPS):
