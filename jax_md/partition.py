@@ -1147,15 +1147,20 @@ def neighbor_list(
         (position, nbrs.error), max_occupancy=nbrs.max_occupancy
       )
 
+    if nbrs.reference_box is None:
+      reference_box = lax.stop_gradient(
+        jnp.asarray(kwargs.get('box', box), position.dtype)
+      )
+      if reference_box.ndim < 2:
+        dim = position.shape[-1]
+        reference_box = jnp.eye(dim, dtype=position.dtype) * reference_box
+      nbrs = dataclasses.replace(nbrs, reference_box=reference_box)
+
     d = partial(metric_sq, **kwargs)
     d = vmap(d)
     dR_sq = d(position, nbrs.reference_position)
     rebuild = jnp.any(dR_sq > threshold_sq)
-    if (
-      'box' in kwargs
-      and fractional_coordinates
-      and nbrs.reference_box is not None
-    ):
+    if 'box' in kwargs and fractional_coordinates:
       new_box = lax.stop_gradient(jnp.asarray(kwargs['box'], position.dtype))
       if new_box.ndim < 2:
         dim = position.shape[-1]
