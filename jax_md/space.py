@@ -283,7 +283,8 @@ def periodic(side: Box, wrapped: bool = True) -> Space:
     side: Either a float or an ndarray of shape [spatial_dimension] specifying
       the size of each side of the periodic box.
     wrapped: A boolean specifying whether or not particle positions are
-      remapped back into the box after each step
+      remapped back into the box after each step. If False, positions can be
+      wrapped back afterwards with `periodic_shift(side, R, 0.)`.
   Returns:
     `(displacement_fn, shift_fn)` tuple.
   """
@@ -417,7 +418,9 @@ def periodic_general(
     fractional_coordinates: A boolean specifying whether positions are stored
       in the parallelepiped or the unit cube.
     wrapped: A boolean specifying whether or not particle positions are
-      remapped back into the box after each step
+      remapped back into the box after each step. If False, positions can be
+      wrapped back afterwards with the `shift_fn` of the same space built with
+      `wrapped=True`, called with a zero displacement.
   Returns:
     `(displacement_fn, shift_fn)` tuple.
   """

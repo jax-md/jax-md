@@ -1350,7 +1350,7 @@ def brownian(
 
   force_fn = quantity.canonicalize_force(energy_or_force)
 
-  def init_fn(key, R, mass=f32(1)):
+  def init_fn(key, R, mass=f32(1), **unused_kwargs):
     state = BrownianState(R, mass, key)
     return canonicalize_mass(state)
 

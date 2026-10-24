@@ -768,6 +768,7 @@ def _get_neighborhood_species_params(
   params: Parameter,
 ) -> Parameter:
   """Get parameters for interactions between species pairs."""
+  species = jnp.asarray(species)
 
   # TODO(schsam): We should do better error checking here.
   def lookup(p, species_a, species_b):

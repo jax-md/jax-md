@@ -545,36 +545,41 @@ def multiplicative_isotropic_cutoff(
 
   Args:
     fn: A function that takes an ndarray of distances of shape `[n, m]` as well
-      as varargs.
+      as varargs. The returned function also takes distances, so map it with a
+      metric such as `space.metric(displacement_fn)`, not a displacement
+      function.
     r_onset: A float specifying the distance marking the onset of deformation.
     r_cutoff: A float specifying the cutoff distance.
 
   Returns:
     A new function with the same signature as fn, with the properties outlined
-    above.
+    above. It also takes `r_onset` and `r_cutoff` as keyword arguments, so they
+    can be set per species or per pair through `smap`. Neighbor lists must then
+    be built with the largest `r_cutoff`.
 
   .. rubric:: References
   .. [#hoomd] HOOMD Blue documentation. Accessed on 05/31/2019.
       https://hoomd-blue.readthedocs.io/en/stable/module-md-pair.html#hoomd.md.pair.pair
   """
 
-  r_c = r_cutoff ** f32(2)
-  r_o = r_onset ** f32(2)
-
-  def smooth_fn(dr):
+  def smooth_fn(dr, r_onset, r_cutoff):
     r = dr ** f32(2)
+    r_c = r_cutoff ** f32(2)
+    r_o = r_onset ** f32(2)
 
     inner = jnp.where(
       dr < r_cutoff,
-      (r_c - r) ** 2 * (r_c + 2 * r - 3 * r_o) / (r_c - r_o) ** 3,
+      (r_c - r) ** 2
+      * (r_c + 2 * r - 3 * r_o)
+      / jnp.where(r_c > r_o, r_c - r_o, 1) ** 3,
       0,
     )
 
     return jnp.where(dr < r_onset, 1, inner)
 
   @wraps(fn)
-  def cutoff_fn(dr, *args, **kwargs):
-    return smooth_fn(dr) * fn(dr, *args, **kwargs)
+  def cutoff_fn(dr, *args, r_onset=r_onset, r_cutoff=r_cutoff, **kwargs):
+    return smooth_fn(dr, r_onset, r_cutoff) * fn(dr, *args, **kwargs)
 
   return cutoff_fn
 
