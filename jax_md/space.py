@@ -48,8 +48,12 @@ map_neighbor:
   neighbors such that if `Ra` has shape `[n, spatial_dim]` and `Rb` has shape
   `[n, neighbors, spatial_dim]` then the output has shape
   `[n, neighbors, spatial_dim]`.
+
+Keyword arguments to the mapped functions, such as `box`, are passed unchanged
+to every call rather than being mapped over.
 """
 
+from functools import partial
 from typing import Callable, Union, Tuple, Any, Optional, Protocol
 
 from jax.core import ShapedArray
@@ -345,7 +349,8 @@ def periodic_general(
   ways. For a parallelepiped that is: 1) a cube of side length :math:`L`, the affine
   transformation can simply be a scalar; 2) an orthorhombic unit cell can be
   specified by a vector `[Lx, Ly, Lz]` of lengths for each axis; 3) a general
-  triclinic cell can be specified by an upper triangular matrix.
+  triclinic cell can be specified by an upper triangular matrix whose columns
+  are the lattice vectors, i.e. the transpose of ASE's `cell`.
 
   There are a number of ways to parameterize a simulation on :math:`X`.
   `periodic_general` supports two parametrizations of :math:`X` that can be selected
@@ -481,14 +486,24 @@ def map_product(
   metric_or_displacement: DisplacementOrMetricFn | Callable[..., Array],
 ) -> DisplacementOrMetricFn:
   """Vectorizes a metric or displacement function over all pairs."""
-  return vmap(vmap(metric_or_displacement, (0, None), 0), (None, 0), 0)
+
+  def wrapped_fn(Ra, Rb, **kwargs):
+    fn = partial(metric_or_displacement, **kwargs)
+    return vmap(vmap(fn, (0, None), 0), (None, 0), 0)(Ra, Rb)
+
+  return wrapped_fn
 
 
 def map_bond(
   metric_or_displacement: DisplacementOrMetricFn | Callable[..., Array],
 ) -> DisplacementOrMetricFn:
   """Vectorizes a metric or displacement function over bonds."""
-  return vmap(metric_or_displacement, (0, 0), 0)
+
+  def wrapped_fn(Ra, Rb, **kwargs):
+    fn = partial(metric_or_displacement, **kwargs)
+    return vmap(fn, (0, 0), 0)(Ra, Rb)
+
+  return wrapped_fn
 
 
 def map_neighbor(
@@ -497,7 +512,8 @@ def map_neighbor(
   """Vectorizes a metric or displacement function over neighborhoods."""
 
   def wrapped_fn(Ra, Rb, **kwargs):
-    return vmap(vmap(metric_or_displacement, (0, None)))(Rb, Ra, **kwargs)
+    fn = partial(metric_or_displacement, **kwargs)
+    return vmap(vmap(fn, (0, None)))(Rb, Ra)
 
   return wrapped_fn
 
