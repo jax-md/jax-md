@@ -702,7 +702,7 @@ class NeighborListTest(test_util.JAXMDTestCase):
       format=partition.Sparse,
       fractional_coordinates=True,
       disable_cell_list=True,
-      capacity_multiplier=2.0,
+      capacity_multiplier=6.0,
     )
 
     for new_box in [box.at[0, 1].set(9.6), 0.6 * box]:
@@ -712,7 +712,8 @@ class NeighborListTest(test_util.JAXMDTestCase):
       expected = set(zip(i.tolist(), j.tolist()))
       idx_i, idx_j = onp.array(nbrs.idx)
       found = set(zip(idx_i[idx_i < N].tolist(), idx_j[idx_i < N].tolist()))
-      self.assertTrue(nbrs.did_buffer_overflow or expected <= found)
+      self.assertFalse(nbrs.did_buffer_overflow)
+      self.assertTrue(expected <= found)
 
 
 if __name__ == '__main__':
