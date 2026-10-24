@@ -646,10 +646,14 @@ def pair(
       _kwargs = merge_dicts(kwargs, dynamic_kwargs)
       s = jnp.asarray(species)
       s_kwargs = _kwargs_to_parameters(
-        (s[:, None], s[None, :]), _kwargs, param_combinators
+        (s[None, :], s[:, None]), _kwargs, param_combinators
       )
-      dr = d(R, R)
-      return high_precision_sum(_diagonal_mask(fn(dr, **s_kwargs))) * f32(0.5)
+      weight = jnp.where(
+        s[None, :] == s[:, None], 0.5, jnp.where(s[None, :] < s[:, None], 1, 0)
+      )
+      dU = _diagonal_mask(fn(d(R, R), **s_kwargs))
+      weight = jnp.reshape(weight, weight.shape + (1,) * (dU.ndim - 2))
+      return high_precision_sum(dU * weight)
   elif isinstance(species, int):
 
     def fn_mapped(R, species, **dynamic_kwargs):
