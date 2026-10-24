@@ -660,6 +660,61 @@ class NeighborListTest(test_util.JAXMDTestCase):
       elif nbrs.cell_list_fn is not None:
         self.assertTrue(jnp.any(nbrs.cell_size_too_small))
 
+  @parameterized.named_parameters(
+    test_util.cases_from_list(
+      {'testcase_name': f'_format={format.name}', 'format': format}
+      for format in partition.NeighborListFormat
+    )
+  )
+  def test_neighbor_list_short_axis_uses_cell_list(self, format):
+    N = 600
+    box = np.array([6.0, 20.0, 20.0])
+    displacement, _ = space.periodic(box)
+    R = random.uniform(random.PRNGKey(0), (N, 3)) * box
+
+    def pairs(**kwargs):
+      nbrs = partition.neighbor_list(
+        displacement, box, 2.5, 0.2, format=format, **kwargs
+      ).allocate(R)
+      idx = onp.array(nbrs.idx)
+      if format is partition.Dense:
+        i, j = onp.repeat(onp.arange(N), idx.shape[1]), idx.reshape(-1)
+      else:
+        i, j = idx
+      return nbrs, set(zip(i[j < N].tolist(), j[j < N].tolist()))
+
+    nbrs, cell_pairs = pairs()
+    _, exact_pairs = pairs(disable_cell_list=True)
+    self.assertIsNotNone(nbrs.cell_list_fn)
+    self.assertEqual(cell_pairs, exact_pairs)
+
+  def test_neighbor_list_update_after_box_change(self):
+    N = 400
+    box = 12.0 * np.eye(3)
+    displacement, _ = space.periodic_general(box)
+    metric = space.metric(displacement)
+    R = random.uniform(random.PRNGKey(0), (N, 3))
+    neighbor_fn = partition.neighbor_list(
+      displacement,
+      box,
+      2.0,
+      0.5,
+      format=partition.Sparse,
+      fractional_coordinates=True,
+      disable_cell_list=True,
+      capacity_multiplier=6.0,
+    )
+
+    for new_box in [box.at[0, 1].set(9.6), 0.6 * box]:
+      nbrs = neighbor_fn.allocate(R).update(R, box=new_box)
+      dr = onp.array(space.map_product(partial(metric, box=new_box))(R, R))
+      i, j = onp.where((dr < 2.0) & ~onp.eye(N, dtype=bool))
+      expected = set(zip(i.tolist(), j.tolist()))
+      idx_i, idx_j = onp.array(nbrs.idx)
+      found = set(zip(idx_i[idx_i < N].tolist(), idx_j[idx_i < N].tolist()))
+      self.assertFalse(nbrs.did_buffer_overflow)
+      self.assertTrue(expected <= found)
+
 
 if __name__ == '__main__':
   absltest.main()

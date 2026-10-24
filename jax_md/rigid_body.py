@@ -654,6 +654,7 @@ def _(state, dt: float, kT: float, gamma: 'RigidBody'):
 
   M = 4 / jnp.sum(1 / I, axis=-1)
   Q = orientation.position.vec
+  Q = Q / jnp.linalg.norm(Q, axis=-1, keepdims=True)
   P = MOMENTUM_PERMUTATION
 
   # First evaluate PI term
@@ -666,15 +667,15 @@ def _(state, dt: float, kT: float, gamma: 'RigidBody'):
   Pi_mean = jnp.einsum('nij,nj->ni', Pi_mean, Pi)
 
   # Then evaluate Q term
-  Pi_var = 0
+  xi = random.normal(orientation_key, (Q.shape[0], 3), dtype=Q.dtype)
+  Pi_noise = 0
   for l in range(3):
     scale = jnp.sqrt(
       4 * kT * I[:, l] * (1 - jnp.exp(-M * G * dt / (2 * I[:, l])))
     )
-    Pi_var += (scale[:, None] * P[l](Q)) ** 2
+    Pi_noise += scale[:, None] * xi[:, [l]] * P[l](Q)
 
-  momentum_dist = simulate.Normal(Pi_mean, Pi_var)
-  new_momentum = Quaternion(momentum_dist.sample(orientation_key))
+  new_momentum = Quaternion(Pi_mean + Pi_noise)
   orientation = orientation.set(momentum=new_momentum)
 
   return merge_center_and_orientation(rest.set(rng=key), center, orientation)

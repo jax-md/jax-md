@@ -513,9 +513,9 @@ def nose_hoover_chain(
     scale = jnp.exp(-delta_8 * p_xi[1] / Q[1]) if M > 0 else f32(1)
     p_xi = p_xi.at[0].set(scale * (scale * p_xi[0] + delta_4 * G))
 
-    scale = jnp.exp(-delta_2 * p_xi[0] / Q[0])
-    KE = KE * scale ** f32(2)
-    P = tree_map(lambda p: p * scale, P)
+    scale_m1 = jnp.expm1(-delta_2 * p_xi[0] / Q[0])
+    KE = KE + KE * scale_m1 * (f32(2) + scale_m1)
+    P = tree_map(lambda p: p + p * scale_m1, P)
 
     xi = xi + delta_2 * p_xi / Q
 
@@ -1002,14 +1002,14 @@ def npt_nose_hoover(
     x_2 = x / 2
     sinhV = sinhx_x(x_2)  # jnp.sinh(x_2) / x_2
     return shift_fn(
-      R, R * (jnp.exp(x) - 1) + dt * V * jnp.exp(x_2) * sinhV, box=box, **kwargs
+      R, R * jnp.expm1(x) + dt * V * jnp.exp(x_2) * sinhV, box=box, **kwargs
     )  # pytype: disable=wrong-keyword-args
 
   def exp_iL2(alpha, P, F, V_b):
     x = alpha * V_b * dt_2
     x_2 = x / 2
     sinhP = sinhx_x(x_2)  # jnp.sinh(x_2) / x_2
-    return P * jnp.exp(-x) + dt_2 * F * sinhP * jnp.exp(-x_2)
+    return P + P * jnp.expm1(-x) + dt_2 * F * sinhP * jnp.exp(-x_2)
 
   def inner_step(state, **kwargs):
     _pressure = kwargs.pop('pressure', pressure)

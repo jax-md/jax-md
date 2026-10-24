@@ -297,9 +297,8 @@ class ConvolutionalMDTest(test_util.JAXMDTestCase):
     def jmd_step_fn(state, i):
       return jmd_apply_fn(state), i
 
-    jax.config.update('jax_numpy_rank_promotion', 'warn')
-    new_jmd_state, _ = lax.scan(jmd_step_fn, jmd_state, np.arange(steps))
-    jax.config.update('jax_numpy_rank_promotion', 'raise')
+    with jax.numpy_rank_promotion('warn'):
+      new_jmd_state, _ = lax.scan(jmd_step_fn, jmd_state, np.arange(steps))
 
     # compare outputs
     grid_positions, grid_aux = tpu.from_grid(
