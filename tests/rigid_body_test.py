@@ -669,11 +669,6 @@ class RigidBodyTest(test_util.JAXMDTestCase):
     jtu.check_grads(shape_energy_fn, (shape.points,), 1, atol=5e-4, rtol=5e-4)
 
   def test_shape_derivative_3d(self):
-    # This test currently fails on CPU due to Issue #10877
-    # https://github.com/google/jax/issues/10877
-    if jax.default_backend() == 'cpu':
-      self.skipTest('Shape derivatives are broken on CPU in three-dimensions.')
-
     def shape_energy_fn(points):
       body = rigid_body.RigidBody(
         jnp.array([[0.0, 0.0, 0.0], [0.5, 0.25, 0.15]]),
@@ -707,8 +702,11 @@ class RigidBodyTest(test_util.JAXMDTestCase):
         [0.5, 0.5, -0.5],
         [0.5, 0.5, 0.5],
       ]
-    ) * jnp.array([[1.0, 1.1, 1.2]])
-    jtu.check_grads(shape_energy_fn, (points,), 1, modes='rev')
+    ) * jnp.array([[1.05, 1.1, 1.2]])
+    rotation = jax.scipy.linalg.expm(
+      jnp.array([[0.0, -0.3, 0.2], [0.3, 0.0, -0.1], [-0.2, 0.1, 0.0]])
+    )
+    jtu.check_grads(shape_energy_fn, (points @ rotation.T,), 1, modes='rev')
 
   @parameterized.named_parameters(
     test_util.cases_from_list(
