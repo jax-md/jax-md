@@ -768,10 +768,11 @@ def _get_neighborhood_species_params(
   params: Parameter,
 ) -> Parameter:
   """Get parameters for interactions between species pairs."""
+  species = jnp.asarray(species)
 
   # TODO(schsam): We should do better error checking here.
   def lookup(p, species_a, species_b):
-    return p[species_a, species_b]
+    return jnp.asarray(p)[species_a, species_b]
 
   if util.is_array(params):
     p_lookup = partial(lookup, params)
@@ -842,7 +843,7 @@ def _vectorized_cond(
 def pair_neighbor_list(
   fn: Callable[..., Array],
   displacement_or_metric: DisplacementOrMetricFn,
-  species: Array | None = None,
+  species: Array | onp.ndarray | None = None,
   reduce_axis: Tuple[int, ...] | None = None,
   ignore_unused_parameters: bool = False,
   **kwargs,

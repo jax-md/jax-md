@@ -33,6 +33,7 @@ from jax_md import quantity
 from jax_md import energy
 from jax_md import nn
 from jax_md import partition
+from jax_md import smap
 from jax_md.interpolate import spline
 from jax_md.custom_partition import (
   neighbor_list_multi_image,
@@ -540,6 +541,84 @@ class EnergyTest(test_util.JAXMDTestCase):
       self.assertAllClose(
         E(r_large, sigma, epsilon), jnp.zeros_like(r_large, dtype=dtype)
       )
+
+      E = energy.multiplicative_isotropic_cutoff(
+        energy.lennard_jones, r_cutoff, r_cutoff
+      )
+      dE = grad(lambda r: jnp.sum(E(r, sigma, epsilon)))
+      self.assertAllClose(dE(r_large), jnp.zeros_like(r_large, dtype=dtype))
+
+      E = energy.multiplicative_isotropic_cutoff(
+        energy.lennard_jones, f32(3.0 * sigma), r_cutoff
+      )
+      self.assertAllClose(
+        E(r_large, sigma, epsilon), jnp.zeros_like(r_large, dtype=dtype)
+      )
+
+  @parameterized.named_parameters(
+    test_util.cases_from_list(
+      {
+        'testcase_name': f'_dim={dim}_dtype={dtype.__name__}_format={format}',
+        'spatial_dimension': dim,
+        'dtype': dtype,
+        'format': format,
+      }
+      for dim in SPATIAL_DIMENSION
+      for dtype in POSITION_DTYPE
+      for format in NEIGHBOR_LIST_FORMAT
+    )
+  )
+  def test_isotropic_cutoff_species(self, spatial_dimension, dtype, format):
+    key = random.PRNGKey(0)
+
+    N = 40
+    box_size = f32(6.0)
+    displacement, _ = space.periodic(box_size)
+    metric = space.metric(displacement)
+    R = box_size * random.uniform(key, (N, spatial_dimension), dtype=dtype)
+
+    species = onp.where(onp.arange(N) < N // 2, 0, 1)
+    alpha = onp.array([[2.0, 3.0], [3.0, 4.0]], dtype=dtype)
+    r_onset = 1.0 + 1.0 / alpha
+    r_cutoff = 1.0 + 3.0 / alpha
+
+    E = energy.multiplicative_isotropic_cutoff(energy.morse, 2.0, 2.5)
+    pair_fn = smap.pair(
+      E,
+      metric,
+      species=species,
+      alpha=alpha,
+      r_onset=r_onset,
+      r_cutoff=r_cutoff,
+    )
+    neighbor_pair_fn = smap.pair_neighbor_list(
+      E,
+      metric,
+      species=species,
+      alpha=alpha,
+      r_onset=r_onset,
+      r_cutoff=r_cutoff,
+    )
+    neighbor_fn = partition.neighbor_list(
+      displacement, box_size, onp.max(r_cutoff), format=format
+    )
+    nbrs = neighbor_fn.allocate(R)
+
+    dr = space.distance(space.map_product(displacement)(R, R))
+    E_exact = 0.0
+    for a in range(2):
+      for b in range(2):
+        E_ab = energy.multiplicative_isotropic_cutoff(
+          energy.morse, r_onset[a, b], r_cutoff[a, b]
+        )
+        mask = (species[:, None] == a) & (species[None, :] == b)
+        mask = mask & ~onp.eye(N, dtype=bool)
+        E_exact = E_exact + 0.5 * jnp.sum(
+          jnp.where(mask, E_ab(dr, alpha=alpha[a, b]), 0)
+        )
+
+    self.assertAllClose(pair_fn(R), E_exact)
+    self.assertAllClose(jit(neighbor_pair_fn)(R, nbrs), E_exact)
 
   @parameterized.named_parameters(
     test_util.cases_from_list(
