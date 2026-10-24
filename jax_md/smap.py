@@ -291,7 +291,7 @@ def bond(
 
 
 def _get_species_parameters(
-  params: Parameter, species: Array | Tuple[int, int]
+  params: Parameter, species: Array | Tuple[int, int] | Tuple[Array, Array]
 ) -> Parameter:
   """Get parameters for interactions between species pairs."""
   # TODO(schsam): We should do better error checking here.
@@ -368,7 +368,7 @@ def _get_matrix_parameters(
 
 
 def _kwargs_to_parameters(
-  species: Array | Tuple[int, int] | None,
+  species: Array | Tuple[int, int] | Tuple[Array, Array] | None,
   kwargs: Dict[str, Parameter],
   combinators: Dict[str, Callable],
 ) -> Dict[str, Parameter]:
@@ -570,9 +570,7 @@ def pair(
       be None (in which case it is assumed that all the particles have the same
       species), an integer ndarray of shape `[n]` with species data, or an
       integer in which case the species data will be specified dynamically with
-      `species` giving the maximum number of types of particles. Note: that
-      dynamic species specification is less efficient, because we cannot
-      specialize shape information.
+      `species` giving the maximum number of types of particles.
     reduce_axis: A list of axes to reduce over. This is supplied to `jnp.sum`
       and so the same convention is used.
     keepdims: A boolean specifying whether the empty dimensions should be kept
@@ -639,49 +637,33 @@ def pair(
   elif util.is_array(species):
     species = onp.array(species)
     _check_species_dtype(species)
-    species_count = int(onp.max(species))
     if reduce_axis is not None or keepdims:
       # TODO(schsam): Support reduce_axis with static species.
       raise ValueError
 
     def fn_mapped(R, **dynamic_kwargs):
-      U = f32(0.0)
       d = space.map_product(partial(displacement_or_metric, **dynamic_kwargs))
-      for i in range(species_count + 1):
-        for j in range(i, species_count + 1):
-          _kwargs = merge_dicts(kwargs, dynamic_kwargs)
-          s_kwargs = _kwargs_to_parameters((i, j), _kwargs, param_combinators)
-          Ra = R[species == i]
-          Rb = R[species == j]
-          dr = d(Ra, Rb)
-          if j == i:
-            dU = high_precision_sum(_diagonal_mask(fn(dr, **s_kwargs)))
-            U = U + f32(0.5) * dU
-          else:
-            dU = high_precision_sum(fn(dr, **s_kwargs))
-            U = U + dU
-      return U
+      _kwargs = merge_dicts(kwargs, dynamic_kwargs)
+      s = jnp.asarray(species)
+      s_kwargs = _kwargs_to_parameters(
+        (s[:, None], s[None, :]), _kwargs, param_combinators
+      )
+      dr = d(R, R)
+      return high_precision_sum(_diagonal_mask(fn(dr, **s_kwargs))) * f32(0.5)
   elif isinstance(species, int):
-    species_count = species
 
     def fn_mapped(R, species, **dynamic_kwargs):
       _check_species_dtype(species)
-      U = f32(0.0)
-      N = R.shape[0]
       d = space.map_product(partial(displacement_or_metric, **dynamic_kwargs))
       _kwargs = merge_dicts(kwargs, dynamic_kwargs)
+      s = jnp.reshape(species, (R.shape[0],))
+      s_kwargs = _kwargs_to_parameters(
+        (s[:, None], s[None, :]), _kwargs, param_combinators
+      )
       dr = d(R, R)
-      for i in range(species_count):
-        for j in range(species_count):
-          s_kwargs = _kwargs_to_parameters((i, j), _kwargs, param_combinators)
-          mask_a = jnp.array(jnp.reshape(species == i, (N,)), dtype=R.dtype)
-          mask_b = jnp.array(jnp.reshape(species == j, (N,)), dtype=R.dtype)
-          mask = mask_a[:, jnp.newaxis] * mask_b[jnp.newaxis, :]
-          if i == j:
-            mask = mask * _diagonal_mask(mask)
-          dU = mask * fn(dr, **s_kwargs)
-          U = U + high_precision_sum(dU, axis=reduce_axis, keepdims=keepdims)
-      return U / f32(2.0)
+      return high_precision_sum(
+        _diagonal_mask(fn(dr, **s_kwargs)), axis=reduce_axis, keepdims=keepdims
+      ) * f32(0.5)
   else:
     raise ValueError(
       'Species must be None, an ndarray, or an integer. Found {}.'.format(

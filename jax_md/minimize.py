@@ -187,11 +187,8 @@ def fire_descent(
     state = nve_step_fn(state, dt=state.dt, **kwargs)
     R, P, F, M, dt, alpha, n_pos = dataclasses.unpack(state)
 
-    # NOTE(schsam): This will be wrong if F_norm ~< 1e-8.
-    # TODO(schsam): We should check for forces below 1e-6. @ErrorChecking
-    F_norm = jnp.sqrt(
-      tree_reduce(lambda accum, f: accum + jnp.sum(f**2) + 1e-6, F, 0.0)
-    )
+    F_norm_sq = tree_reduce(lambda accum, f: accum + jnp.sum(f**2), F, 0.0)
+    F_norm = jnp.sqrt(jnp.where(F_norm_sq > 0, F_norm_sq, 1))
     P_norm = jnp.sqrt(
       tree_reduce(lambda accum, p: accum + jnp.sum(p**2), P, 0.0)
     )
@@ -983,7 +980,8 @@ def fire_descent_box(
     # FIRE: combined power check
     F_dot_V = jnp.sum(F * P / M) + jnp.sum(F_b * P_b / M_b)
 
-    F_norm = jnp.sqrt(jnp.sum(F**2) + jnp.sum(F_b**2) + 1e-6)
+    F_norm_sq = jnp.sum(F**2) + jnp.sum(F_b**2)
+    F_norm = jnp.sqrt(jnp.where(F_norm_sq > 0, F_norm_sq, 1))
     P_norm = jnp.sqrt(jnp.sum(P**2) + jnp.sum(P_b**2))
 
     # FIRE: momentum mixing
