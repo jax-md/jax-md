@@ -29,7 +29,6 @@ from typing import (
   Optional,
   Dict,
   Tuple,
-  Generator,
   Union,
   Protocol,
 )
@@ -216,11 +215,6 @@ def _compute_hash_constants(
     return jnp.array(jnp.cumprod(cells_per_side), dtype=i32)
   else:
     raise ValueError()
-
-
-def _neighboring_cells(dimension: int) -> Generator[onp.ndarray, None, None]:
-  for dindex in onp.ndindex(*([3] * dimension)):
-    yield onp.array(dindex, dtype=i32) - 1
 
 
 def _estimate_cell_capacity(
@@ -1099,12 +1093,14 @@ def neighbor_list(
           max_occupancy = capacity_limit
       idx = idx[:, :max_occupancy]
       update_fn = neighbor_list_fn if neighbors is None else neighbors.update_fn
-      reference_box = lax.stop_gradient(
-        jnp.asarray(kwargs.get('box', box), position.dtype)
-      )
-      if reference_box.ndim < 2:
-        dim = position.shape[-1]
-        reference_box = jnp.eye(dim, dtype=position.dtype) * reference_box
+      reference_box = None
+      if neighbors is None or neighbors.reference_box is not None:
+        reference_box = lax.stop_gradient(
+          jnp.asarray(kwargs.get('box', box), position.dtype)
+        )
+        if reference_box.ndim < 2:
+          dim = position.shape[-1]
+          reference_box = jnp.eye(dim, dtype=position.dtype) * reference_box
       return NeighborList(
         idx,
         position,
@@ -1147,20 +1143,15 @@ def neighbor_list(
         (position, nbrs.error), max_occupancy=nbrs.max_occupancy
       )
 
-    if nbrs.reference_box is None:
-      reference_box = lax.stop_gradient(
-        jnp.asarray(kwargs.get('box', box), position.dtype)
-      )
-      if reference_box.ndim < 2:
-        dim = position.shape[-1]
-        reference_box = jnp.eye(dim, dtype=position.dtype) * reference_box
-      nbrs = dataclasses.replace(nbrs, reference_box=reference_box)
-
     d = partial(metric_sq, **kwargs)
     d = vmap(d)
     dR_sq = d(position, nbrs.reference_position)
     rebuild = jnp.any(dR_sq > threshold_sq)
-    if 'box' in kwargs and fractional_coordinates:
+    if (
+      'box' in kwargs
+      and fractional_coordinates
+      and nbrs.reference_box is not None
+    ):
       new_box = lax.stop_gradient(jnp.asarray(kwargs['box'], position.dtype))
       if new_box.ndim < 2:
         dim = position.shape[-1]

@@ -1182,6 +1182,37 @@ class RigidBodyTest(test_util.JAXMDTestCase):
 
   @parameterized.named_parameters(
     test_util.cases_from_list(
+      {'testcase_name': f'_dtype={dtype.__name__}', 'dtype': dtype}
+      for dtype in DTYPE
+    )
+  )
+  def test_langevin_rotational_noise_per_axis(self, dtype):
+    N = 10000
+    kT = 1.3
+    key, pos_key, quat_key = random.split(random.PRNGKey(0), 3)
+    body = rigid_body.RigidBody(
+      random.uniform(pos_key, (N, 3), dtype=dtype),
+      rand_quat(random.split(quat_key, N), dtype),
+    )
+    shape = rigid_body.point_union_shape(
+      rigid_body.tetrahedron.points * jnp.array([[1.0, 2.0, 3.0]], dtype),
+      rigid_body.tetrahedron.masses,
+    )
+    _, shift = space.free()
+    energy_fn = lambda body, **kwargs: jnp.sum(0.0 * body.center)
+    gamma = rigid_body.RigidBody(1e5, 1e5)
+    init_fn, _ = simulate.nvt_langevin(energy_fn, shift, 1e-3, kT, gamma)
+    state = init_fn(key, body, mass=shape.mass())
+    state = simulate.stochastic_step(state, 1e-3, kT, gamma)
+
+    L = rigid_body.conjugate_momentum_to_angular_momentum(
+      state.position.orientation, state.momentum.orientation
+    )
+    ke = jnp.mean(L**2 / (2 * state.mass.orientation), axis=0)
+    self.assertAllClose(ke, jnp.full((3,), kT / 2, dtype), rtol=0.05, atol=0)
+
+  @parameterized.named_parameters(
+    test_util.cases_from_list(
       {
         'testcase_name': f'kT={int(kT * 1e3)}_dtype={dtype.__name__}',
         'dtype': dtype,
