@@ -196,30 +196,28 @@ def fire_descent(
       tree_reduce(lambda accum, p: accum + jnp.sum(p**2), P, 0.0)
     )
 
-    # NOTE: In the original FIRE algorithm, the quantity that determines when
-    # to reset the momenta is F.V rather than F.P. However, all of the JAX MD
-    # simulations are in momentum space for easier agreement with prior work /
-    # rigid body physics. We only use the sign of F.P here, which shouldn't
-    # differ from F.V, however if there are regressions then we should
-    # reconsider this choice.
-    F_dot_P = tree_reduce(
-      lambda accum, f_dot_p: accum + f_dot_p,
-      tree_map(lambda f, p: jnp.sum(f * p), F, P),
-    )
+    # Rigid body masses do not broadcast against their momenta, so they use F.P.
+    if util.is_array(R):
+      F_dot_V = jnp.sum(F * P / M)
+    else:
+      F_dot_V = tree_reduce(
+        lambda accum, f_dot_p: accum + f_dot_p,
+        tree_map(lambda f, p: jnp.sum(f * p), F, P),
+      )
     P = tree_map(lambda p, f: p + alpha * (f * P_norm / F_norm - p), P, F)
 
     # NOTE(schsam): Can we clean this up at all?
-    n_pos = jnp.where(F_dot_P >= 0, n_pos + 1, 0)
+    n_pos = jnp.where(F_dot_V >= 0, n_pos + 1, 0)
     dt_choice = jnp.array([dt * f_inc, dt_max])
     dt = jnp.where(
-      F_dot_P > 0, jnp.where(n_pos > n_min, jnp.min(dt_choice), dt), dt
+      F_dot_V > 0, jnp.where(n_pos > n_min, jnp.min(dt_choice), dt), dt
     )
-    dt = jnp.where(F_dot_P < 0, dt * f_dec, dt)
+    dt = jnp.where(F_dot_V < 0, dt * f_dec, dt)
     alpha = jnp.where(
-      F_dot_P > 0, jnp.where(n_pos > n_min, alpha * f_alpha, alpha), alpha
+      F_dot_V > 0, jnp.where(n_pos > n_min, alpha * f_alpha, alpha), alpha
     )
-    alpha = jnp.where(F_dot_P < 0, alpha_start, alpha)
-    P = tree_map(lambda p: (F_dot_P >= 0) * p, P)
+    alpha = jnp.where(F_dot_V < 0, alpha_start, alpha)
+    P = tree_map(lambda p: (F_dot_V >= 0) * p, P)
 
     return FireDescentState(
       R, P, F, M, dt, alpha, n_pos
@@ -983,7 +981,7 @@ def fire_descent_box(
     P_b = P_b + dt_2 * F_b
 
     # FIRE: combined power check
-    F_dot_P = jnp.sum(F * P) + jnp.sum(F_b * P_b)
+    F_dot_V = jnp.sum(F * P / M) + jnp.sum(F_b * P_b / M_b)
 
     F_norm = jnp.sqrt(jnp.sum(F**2) + jnp.sum(F_b**2) + 1e-6)
     P_norm = jnp.sqrt(jnp.sum(P**2) + jnp.sum(P_b**2))
@@ -993,23 +991,23 @@ def fire_descent_box(
     P_b = P_b + alpha * (F_b * P_norm / F_norm - P_b)
 
     # FIRE: adaptive dt / alpha
-    n_pos = jnp.where(F_dot_P >= 0, n_pos + 1, 0)
+    n_pos = jnp.where(F_dot_V >= 0, n_pos + 1, 0)
     dt_choice = jnp.array([dt * f_inc, dt_max])
     dt = jnp.where(
-      F_dot_P > 0,
+      F_dot_V > 0,
       jnp.where(n_pos > n_min, jnp.min(dt_choice), dt),
       dt,
     )
-    dt = jnp.where(F_dot_P < 0, dt * f_dec, dt)
+    dt = jnp.where(F_dot_V < 0, dt * f_dec, dt)
     alpha = jnp.where(
-      F_dot_P > 0,
+      F_dot_V > 0,
       jnp.where(n_pos > n_min, alpha * f_alpha, alpha),
       alpha,
     )
-    alpha = jnp.where(F_dot_P < 0, alpha_start, alpha)
+    alpha = jnp.where(F_dot_V < 0, alpha_start, alpha)
 
     # reset momenta on overshoot
-    keep = f32(F_dot_P >= 0)
+    keep = f32(F_dot_V >= 0)
     P = keep * P
     P_b = keep * P_b
 
