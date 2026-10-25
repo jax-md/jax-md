@@ -31,6 +31,7 @@ apply_fn:
   step of optimization.
 """
 
+from dataclasses import replace
 from typing import TypeVar, Callable, Tuple, Union, Any
 
 import jax
@@ -121,6 +122,9 @@ class FireDescentState:
   dt: Array | float
   alpha: Array | float
   n_pos: Array | int
+
+  def set(self, **kwargs) -> 'FireDescentState':
+    return replace(self, **kwargs)
 
 
 def fire_descent(
@@ -262,6 +266,9 @@ class PreconFireDescentState:
   @property
   def momentum(self) -> Array:
     return self.velocity
+
+  def set(self, **kwargs) -> 'PreconFireDescentState':
+    return replace(self, **kwargs)
 
 
 def exp_preconditioner(
@@ -814,6 +821,9 @@ class FireBoxDescentState:
   alpha: Array | float
   n_pos: Array | int
 
+  def set(self, **kwargs) -> 'FireBoxDescentState':
+    return replace(self, **kwargs)
+
 
 def fire_descent_box(
   energy_fn: Callable[..., Array],
@@ -1059,6 +1069,9 @@ class PreconFireBoxDescentState:
   @property
   def box_momentum(self) -> Array:
     return self.box_velocity
+
+  def set(self, **kwargs) -> 'PreconFireBoxDescentState':
+    return replace(self, **kwargs)
 
 
 def precon_fire_descent_box(

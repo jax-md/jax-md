@@ -36,6 +36,7 @@ import functools
 
 import math
 
+from dataclasses import replace
 from typing import Optional, Union, Any, Tuple, Callable, TypeVar
 
 import einops
@@ -128,6 +129,9 @@ class TPUGrid:
   cell_size: float = dataclasses.static_field()
   max_grid_distance: int = dataclasses.static_field()
   num_dims: int = dataclasses.static_field()
+
+  def set(self, **kwargs) -> 'TPUGrid':
+    return replace(self, **kwargs)
 
 
 # Core Public API
@@ -735,6 +739,9 @@ class NVEState:
   position: TPUGrid
   velocity: Array
   force: Array
+
+  def set(self, **kwargs) -> 'NVEState':
+    return replace(self, **kwargs)
 
 
 def nve(force_fn: GridFn, dt: float) -> Simulator[NVEState]:

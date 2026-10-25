@@ -5,7 +5,7 @@ Author: Mehmet Cagri Kaymak
 """
 
 from jax_md import dataclasses, util
-from dataclasses import fields
+from dataclasses import fields, replace
 import jax
 import jax.numpy as jnp
 
@@ -323,3 +323,6 @@ class ForceField:
       softcut_2d=softcut_2d,
     )
     return force_field
+
+  def set(self, **kwargs) -> 'ForceField':
+    return replace(self, **kwargs)

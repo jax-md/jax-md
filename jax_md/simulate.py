@@ -35,6 +35,7 @@ can be used for testing purposes, but is not often used otherwise.
 
 from collections import namedtuple
 
+from dataclasses import replace
 from typing import (
   Any,
   Callable,
@@ -92,19 +93,17 @@ class StateInitFn(Protocol[StateT]):
 
   @overload
   def __call__(
-    self, key: Array, R: Array, /, *args: Any, **kwargs: Any
+    self, key: Array, R: Array, *args: Any, **kwargs: Any
   ) -> StateT: ...
 
   @overload
-  def __call__(
-    self, key: Array, R: Any, /, *args: Any, **kwargs: Any
-  ) -> Any: ...
+  def __call__(self, key: Array, R: Any, *args: Any, **kwargs: Any) -> Any: ...
 
 
 class StepFn(Protocol):
   """Advances a state by one step, keeping its type, with optional kwargs."""
 
-  def __call__(self, state: T, /, **kwargs: Any) -> T: ...
+  def __call__(self, state: T, **kwargs: Any) -> T: ...
 
 
 Simulator = Tuple[StateInitFn[T], StepFn]
@@ -348,6 +347,9 @@ class NVEState:
   def velocity(self) -> Array:
     return self.momentum / self.mass
 
+  def set(self, **kwargs) -> 'NVEState':
+    return replace(self, **kwargs)
+
 
 # pylint: disable=invalid-name
 def nve(
@@ -462,12 +464,18 @@ class NoseHooverChain:
   kinetic_energy: Array
   degrees_of_freedom: int = dataclasses.static_field()
 
+  def set(self, **kwargs) -> 'NoseHooverChain':
+    return replace(self, **kwargs)
+
 
 @dataclasses.dataclass
 class NoseHooverChainFns:
   initialize: Callable[..., NoseHooverChain]
   half_step: Callable[..., Tuple[Array, NoseHooverChain]]
   update_mass: Callable[..., NoseHooverChain]
+
+  def set(self, **kwargs) -> 'NoseHooverChainFns':
+    return replace(self, **kwargs)
 
 
 def nose_hoover_chain(
@@ -666,6 +674,9 @@ class NVTNoseHooverState:
   @property
   def velocity(self) -> Array:
     return self.momentum / self.mass
+
+  def set(self, **kwargs) -> 'NVTNoseHooverState':
+    return replace(self, **kwargs)
 
 
 def nvt_nose_hoover(
@@ -888,6 +899,9 @@ class NPTNoseHooverState:
     V_0 = quantity.volume(dim, ref)
     V = V_0 * jnp.exp(dim * self.box_position)
     return (V / V_0) ** (1 / dim) * ref
+
+  def set(self, **kwargs) -> 'NPTNoseHooverState':
+    return replace(self, **kwargs)
 
 
 def sinhx_x(x: Array) -> Array:
@@ -1232,6 +1246,9 @@ class Normal:
       - 1 / (2 * self.var) * (x - self.mean) ** 2
     )
 
+  def set(self, **kwargs) -> 'Normal':
+    return replace(self, **kwargs)
+
 
 @dataclasses.dataclass
 class NVTLangevinState:
@@ -1262,14 +1279,17 @@ class NVTLangevinState:
   def velocity(self) -> Array:
     return self.momentum / self.mass
 
+  def set(self, **kwargs) -> 'NVTLangevinState':
+    return replace(self, **kwargs)
+
 
 @dispatch_by_state
 def stochastic_step(
-  state: NVTLangevinState,
+  state: T,
   dt: float | Array,
   kT: ArrayLike,
   gamma: float | util.PyTree,
-) -> NVTLangevinState:
+) -> T:
   """A single stochastic step (the `O` step)."""
   if getattr(state, 'fix_center_of_mass', False) and jnp.ndim(gamma) != 0:
     raise ValueError(
@@ -1393,6 +1413,9 @@ class BrownianState:
   mass: Array | float
   rng: Array
 
+  def set(self, **kwargs) -> 'BrownianState':
+    return replace(self, **kwargs)
+
 
 def brownian(
   energy_or_force: Callable[..., Array],
@@ -1500,6 +1523,9 @@ class NPTCSVRState:
     V_0 = quantity.volume(dim, ref)
     V = V_0 * jnp.exp(dim * self.box_position)
     return (V / V_0) ** (1 / dim) * ref
+
+  def set(self, **kwargs) -> 'NPTCSVRState':
+    return replace(self, **kwargs)
 
 
 def npt_csvr(
@@ -1828,6 +1854,9 @@ class NPTLangevinState:
     V = V_0 * jnp.exp(dim * self.box_position)
     return (V / V_0) ** (1 / dim) * ref
 
+  def set(self, **kwargs) -> 'NPTLangevinState':
+    return replace(self, **kwargs)
+
 
 def npt_langevin(
   energy_fn: Callable[..., Array],
@@ -2113,6 +2142,9 @@ class SwapMCState:
   sigma: Array
   key: Array
   neighbor: partition.NeighborList
+
+  def set(self, **kwargs) -> 'SwapMCState':
+    return replace(self, **kwargs)
 
 
 # pytype: disable=wrong-arg-count

@@ -15,6 +15,7 @@
 """Kernel-side code for an IPython based visualization tool."""
 
 import base64
+from dataclasses import replace
 from typing import Any, Dict, Sequence
 
 from google.colab import output
@@ -88,6 +89,9 @@ class Disk:
   def __repr__(self) -> str:
     return 'Disk'
 
+  def set(self, **kwargs) -> 'Disk':
+    return replace(self, **kwargs)
+
 
 @dataclasses.dataclass
 class Sphere:
@@ -127,6 +131,9 @@ class Sphere:
 
   def __repr__(self) -> str:
     return 'Sphere'
+
+  def set(self, **kwargs) -> 'Sphere':
+    return replace(self, **kwargs)
 
 
 @dataclasses.dataclass
@@ -181,6 +188,9 @@ class Bond:
 
   def __repr__(self) -> str:
     return 'Bond'
+
+  def set(self, **kwargs) -> 'Bond':
+    return replace(self, **kwargs)
 
 
 TYPE_DIMENSIONS = {

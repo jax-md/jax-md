@@ -51,6 +51,7 @@ without neighbor lists and yields a function that computes the total energy on
 a system of rigid bodies.
 """
 
+from dataclasses import replace
 from typing import Optional, Tuple, Any, Union, Callable, TypeVar
 
 from absl import logging
@@ -227,6 +228,9 @@ class Quaternion:
       )
     return Quaternion(self.vec[idx])
 
+  def set(self, **kwargs) -> 'Quaternion':
+    return replace(self, **kwargs)
+
 
 def quaternion_rotate(q: Quaternion, v: Array) -> Array:
   """Rotates a vector by a given quaternion."""
@@ -314,6 +318,9 @@ class RigidBody:
         'Cannot index a RigidBody whose center or orientation is a scalar.'
       )
     return RigidBody(center[idx], orientation[idx])
+
+  def set(self, **kwargs) -> 'RigidBody':
+    return replace(self, **kwargs)
 
 
 util.register_custom_simulation_type(RigidBody)
@@ -873,6 +880,9 @@ class RigidPointUnion:
       jnp.array([0]),
       None if self.point_species is None else self.point_species[start:end],
     )
+
+  def set(self, **kwargs) -> 'RigidPointUnion':
+    return replace(self, **kwargs)
 
 
 def _transform_to_diagonal_frame(shape: RigidPointUnion) -> RigidPointUnion:

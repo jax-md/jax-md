@@ -11,6 +11,7 @@ from jax_md.mm_forcefields.reaxff.reaxff_energy import (
   calculate_reaxff_energy,
 )
 from jax_md.mm_forcefields.reaxff.reaxff_forcefield import ForceField
+from dataclasses import replace
 from typing import Callable, Any, Iterator, Tuple
 import jax
 import jax.numpy as jnp
@@ -42,6 +43,9 @@ class ReaxFFNeighborListFns:
 
   def __iter__(self) -> Iterator[Callable]:
     return iter((self.allocate, self.update))
+
+  def set(self, **kwargs) -> 'ReaxFFNeighborListFns':
+    return replace(self, **kwargs)
 
 
 @dataclasses.dataclass
@@ -183,6 +187,9 @@ class Filtration:
       did_buffer_overflow,
     )
 
+  def set(self, **kwargs) -> 'Filtration':
+    return replace(self, **kwargs)
+
 
 def filtration(
   candidate_fn: CandidateFn, mask_fn: MaskFn, is_dense: bool = False
@@ -281,6 +288,9 @@ class ReaxFFNeighborLists:
         self.did_buffer_overflow,
       )
     )
+
+  def set(self, **kwargs) -> 'ReaxFFNeighborLists':
+    return replace(self, **kwargs)
 
 
 def calculate_angle(disp12: Array, disp32: Array) -> Array:

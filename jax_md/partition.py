@@ -23,6 +23,7 @@ from collections import namedtuple
 from enum import Enum
 from enum import IntEnum
 
+from dataclasses import replace
 from typing import (
   Any,
   Callable,
@@ -131,6 +132,9 @@ class CellList:
     )
     return self.named_buffer
 
+  def set(self, **kwargs) -> 'CellList':
+    return replace(self, **kwargs)
+
 
 @dataclasses.dataclass
 class CellListFns:
@@ -141,6 +145,9 @@ class CellListFns:
 
   def __iter__(self) -> Iterator[Callable[..., CellList]]:
     return iter((self.allocate, self.update))
+
+  def set(self, **kwargs) -> 'CellListFns':
+    return replace(self, **kwargs)
 
 
 def _cell_dimensions(
@@ -538,6 +545,9 @@ class PartitionError:
 
   __repr__ = __str__
 
+  def set(self, **kwargs) -> 'PartitionError':
+    return replace(self, **kwargs)
+
 
 def _displacement_or_metric_to_metric_sq(
   displacement_or_metric: DisplacementOrMetricFn,
@@ -720,6 +730,9 @@ class NeighborList:
   def malformed_box(self) -> Array:
     return self.error.code & PEC.MALFORMED_BOX
 
+  def set(self, **kwargs) -> 'NeighborList':
+    return replace(self, **kwargs)
+
 
 @dataclasses.dataclass
 class NeighborListFns:
@@ -733,9 +746,7 @@ class NeighborListFns:
   """
 
   allocate: Callable[..., NeighborList] = dataclasses.static_field()
-  update: Callable[[Array, NeighborList], NeighborList] = (
-    dataclasses.static_field()
-  )
+  update: Callable[..., NeighborList] = dataclasses.static_field()
 
   def __call__(
     self,
@@ -767,6 +778,9 @@ class NeighborListFns:
 
   def __iter__(self) -> Iterator[Callable[..., NeighborList]]:
     return iter((self.allocate, self.update))
+
+  def set(self, **kwargs) -> 'NeighborListFns':
+    return replace(self, **kwargs)
 
 
 class NeighborFn(Protocol):
@@ -1321,6 +1335,9 @@ class PairedNeighborList:
   @property
   def did_buffer_overflow(self) -> Array:
     return self.short.did_buffer_overflow | self.long_range.did_buffer_overflow
+
+  def set(self, **kwargs) -> 'PairedNeighborList':
+    return replace(self, **kwargs)
 
 
 def paired_neighbor_list(

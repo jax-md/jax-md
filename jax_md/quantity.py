@@ -14,6 +14,7 @@
 
 """Describes different physical quantities."""
 
+from dataclasses import replace
 from typing import TypeVar, Callable, Union, Tuple, Optional, Any
 
 from absl import logging
@@ -768,6 +769,9 @@ def bulk_modulus(elastic_tensor: Array) -> Array:
 class PHopState:
   position_buffer: jnp.ndarray
   phop: jnp.ndarray
+
+  def set(self, **kwargs) -> 'PHopState':
+    return replace(self, **kwargs)
 
 
 InitFn = Callable[[Array], PHopState]

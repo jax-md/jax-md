@@ -14,6 +14,7 @@ Conventions (unless otherwise stated):
 """
 
 from functools import partial
+from dataclasses import replace
 from typing import Any, Callable, Optional
 
 import numpy as np
@@ -86,6 +87,9 @@ class FEOptions:
   sc_mask: Array | float = 1.0
   softcore_lrc: bool = False
   softcore_lrc_points: int = 96
+
+  def set(self, **kwargs) -> 'FEOptions':
+    return replace(self, **kwargs)
 
 
 def space_selector(
