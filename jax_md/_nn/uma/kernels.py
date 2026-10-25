@@ -506,15 +506,12 @@ def segment_mm_flatten_batch(
 def segment_mm_batching_rule(vals, dims, *, max_size):
   x, weights, sizes, starts = vals
   x_bdim, weights_bdim, sizes_bdim, starts_bdim = dims
-  if (
-    sizes_bdim is not batching.not_mapped
-    or starts_bdim is not batching.not_mapped
-  ):
+  if sizes_bdim is not None or starts_bdim is not None:
     raise NotImplementedError('Batched sizes/starts are not supported.')
-  if x_bdim is batching.not_mapped and weights_bdim is batching.not_mapped:
+  if x_bdim is None and weights_bdim is None:
     return (
       segment_mm_p.bind(x, weights, sizes, starts, max_size=max_size),
-      batching.not_mapped,
+      None,
     )
 
   batch_size = mapped_batch_size((x, weights), (x_bdim, weights_bdim))
@@ -532,20 +529,14 @@ def segment_mm_batching_rule(vals, dims, *, max_size):
 def segment_mm_jvp_batching_rule(vals, dims, *, max_size):
   x, weights, sizes, starts, tx, tw = vals
   x_bdim, weights_bdim, sizes_bdim, starts_bdim, tx_bdim, tw_bdim = dims
-  if (
-    sizes_bdim is not batching.not_mapped
-    or starts_bdim is not batching.not_mapped
-  ):
+  if sizes_bdim is not None or starts_bdim is not None:
     raise NotImplementedError('Batched sizes/starts are not supported.')
-  if all(
-    dim is batching.not_mapped
-    for dim in (x_bdim, weights_bdim, tx_bdim, tw_bdim)
-  ):
+  if all(dim is None for dim in (x_bdim, weights_bdim, tx_bdim, tw_bdim)):
     return (
       segment_mm_jvp_p.bind(
         x, weights, sizes, starts, tx, tw, max_size=max_size
       ),
-      batching.not_mapped,
+      None,
     )
 
   batch_size = mapped_batch_size(
@@ -723,17 +714,14 @@ def segment_mm_bwd_dx_jvp_transpose_rule(
 def segment_mm_bwd_dx_batching_rule(vals, dims, *, max_size):
   grad_y, weights, sizes, starts = vals
   g_bdim, weights_bdim, sizes_bdim, starts_bdim = dims
-  if (
-    sizes_bdim is not batching.not_mapped
-    or starts_bdim is not batching.not_mapped
-  ):
+  if sizes_bdim is not None or starts_bdim is not None:
     raise NotImplementedError('Batched sizes/starts are not supported.')
-  if g_bdim is batching.not_mapped and weights_bdim is batching.not_mapped:
+  if g_bdim is None and weights_bdim is None:
     return (
       segment_mm_bwd_dx_p.bind(
         grad_y, weights, sizes, starts, max_size=max_size
       ),
-      batching.not_mapped,
+      None,
     )
   batch_size = mapped_batch_size((grad_y, weights), (g_bdim, weights_bdim))
   flat_g, flat_weights, flat_sizes, flat_starts, n_rows = (
@@ -750,20 +738,14 @@ def segment_mm_bwd_dx_batching_rule(vals, dims, *, max_size):
 def segment_mm_bwd_dx_jvp_batching_rule(vals, dims, *, max_size):
   grad_y, weights, sizes, starts, tg, tw = vals
   g_bdim, weights_bdim, sizes_bdim, starts_bdim, tg_bdim, tw_bdim = dims
-  if (
-    sizes_bdim is not batching.not_mapped
-    or starts_bdim is not batching.not_mapped
-  ):
+  if sizes_bdim is not None or starts_bdim is not None:
     raise NotImplementedError('Batched sizes/starts are not supported.')
-  if all(
-    dim is batching.not_mapped
-    for dim in (g_bdim, weights_bdim, tg_bdim, tw_bdim)
-  ):
+  if all(dim is None for dim in (g_bdim, weights_bdim, tg_bdim, tw_bdim)):
     return (
       segment_mm_bwd_dx_jvp_p.bind(
         grad_y, weights, sizes, starts, tg, tw, max_size=max_size
       ),
-      batching.not_mapped,
+      None,
     )
   batch_size = mapped_batch_size(
     (grad_y, weights, tg, tw), (g_bdim, weights_bdim, tg_bdim, tw_bdim)
@@ -964,17 +946,14 @@ def segment_mm_bwd_dweights_batching_rule(
 ):
   x, grad_y, sizes, starts = vals
   x_bdim, g_bdim, sizes_bdim, starts_bdim = dims
-  if (
-    sizes_bdim is not batching.not_mapped
-    or starts_bdim is not batching.not_mapped
-  ):
+  if sizes_bdim is not None or starts_bdim is not None:
     raise NotImplementedError('Batched sizes/starts are not supported.')
-  if x_bdim is batching.not_mapped and g_bdim is batching.not_mapped:
+  if x_bdim is None and g_bdim is None:
     return (
       segment_mm_bwd_dweights_p.bind(
         x, grad_y, sizes, starts, weights_shape=weights_shape, max_size=max_size
       ),
-      batching.not_mapped,
+      None,
     )
   batch_size = mapped_batch_size((x, grad_y), (x_bdim, g_bdim))
   flat_x, _, flat_sizes, flat_starts, _ = segment_mm_flatten_batch(
@@ -983,7 +962,7 @@ def segment_mm_bwd_dweights_batching_rule(
     sizes,
     starts,
     x_bdim,
-    batching.not_mapped,
+    None,
     batch_size,
   )
   moved_grad_y = move_or_broadcast_batch(grad_y, g_bdim, batch_size)
@@ -1007,14 +986,9 @@ def segment_mm_bwd_dweights_jvp_batching_rule(
 ):
   x, grad_y, sizes, starts, tx, tg = vals
   x_bdim, g_bdim, sizes_bdim, starts_bdim, tx_bdim, tg_bdim = dims
-  if (
-    sizes_bdim is not batching.not_mapped
-    or starts_bdim is not batching.not_mapped
-  ):
+  if sizes_bdim is not None or starts_bdim is not None:
     raise NotImplementedError('Batched sizes/starts are not supported.')
-  if all(
-    dim is batching.not_mapped for dim in (x_bdim, g_bdim, tx_bdim, tg_bdim)
-  ):
+  if all(dim is None for dim in (x_bdim, g_bdim, tx_bdim, tg_bdim)):
     return (
       segment_mm_bwd_dweights_jvp_p.bind(
         x,
@@ -1026,7 +1000,7 @@ def segment_mm_bwd_dweights_jvp_batching_rule(
         weights_shape=weights_shape,
         max_size=max_size,
       ),
-      batching.not_mapped,
+      None,
     )
   batch_size = mapped_batch_size(
     (x, grad_y, tx, tg), (x_bdim, g_bdim, tx_bdim, tg_bdim)
@@ -1037,7 +1011,7 @@ def segment_mm_bwd_dweights_jvp_batching_rule(
     sizes,
     starts,
     x_bdim,
-    batching.not_mapped,
+    None,
     batch_size,
   )
   flat_tx, _, _, _, _ = segment_mm_flatten_batch(
@@ -1046,7 +1020,7 @@ def segment_mm_bwd_dweights_jvp_batching_rule(
     sizes,
     starts,
     tx_bdim,
-    batching.not_mapped,
+    None,
     batch_size,
   )
   moved_grad_y = move_or_broadcast_batch(grad_y, g_bdim, batch_size)
@@ -2313,13 +2287,13 @@ def zero_if_undefined(value):
 
 def mapped_batch_size(vals, dims):
   for val, dim in zip(vals, dims):
-    if dim is not batching.not_mapped:
+    if dim is not None:
       return val.shape[dim]
   raise ValueError('Expected at least one batched input.')
 
 
 def move_or_broadcast_batch(value, dim, batch_size):
-  if dim is batching.not_mapped:
+  if dim is None:
     return jnp.broadcast_to(value, (batch_size,) + value.shape)
   if dim != 0:
     return jnp.moveaxis(value, dim, 0)
@@ -2416,14 +2390,14 @@ def node_to_edge_backward_transpose_rule(
 def node_to_edge_backward_batching_rule(vals, dims):
   x, edge_index, wigner, gout = vals
   x_bdim, edge_bdim, w_bdim, gout_bdim = dims
-  if edge_bdim is not batching.not_mapped:
+  if edge_bdim is not None:
     raise NotImplementedError(
       'Batched edge_index is not supported by UMA kernels.'
     )
-  if all(dim is batching.not_mapped for dim in (x_bdim, w_bdim, gout_bdim)):
+  if all(dim is None for dim in (x_bdim, w_bdim, gout_bdim)):
     return node_to_edge_backward_p.bind(x, edge_index, wigner, gout), (
-      batching.not_mapped,
-      batching.not_mapped,
+      None,
+      None,
     )
   batch_size = mapped_batch_size((x, wigner, gout), (x_bdim, w_bdim, gout_bdim))
   x = move_or_broadcast_batch(x, x_bdim, batch_size)
@@ -2530,17 +2504,17 @@ def node_to_edge_backward_jvp_jvp_rule(primals, tangents):
 def node_to_edge_backward_jvp_batching_rule(vals, dims):
   x, edge_index, wigner, gout, tx, twigner, tgout = vals
   x_bdim, edge_bdim, w_bdim, gout_bdim, tx_bdim, tw_bdim, tgout_bdim = dims
-  if edge_bdim is not batching.not_mapped:
+  if edge_bdim is not None:
     raise NotImplementedError(
       'Batched edge_index is not supported by UMA kernels.'
     )
   if all(
-    dim is batching.not_mapped
+    dim is None
     for dim in (x_bdim, w_bdim, gout_bdim, tx_bdim, tw_bdim, tgout_bdim)
   ):
     return node_to_edge_backward_jvp_p.bind(
       x, edge_index, wigner, gout, tx, twigner, tgout
-    ), (batching.not_mapped, batching.not_mapped)
+    ), (None, None)
 
   batch_size = mapped_batch_size(
     (x, wigner, gout, tx, twigner, tgout),
@@ -2650,12 +2624,12 @@ def node_to_edge_transpose_rule(cotangent, x, edge_index, wigner):
 def node_to_edge_batching_rule(vals, dims):
   x, edge_index, wigner = vals
   x_bdim, edge_bdim, w_bdim = dims
-  if edge_bdim is not batching.not_mapped:
+  if edge_bdim is not None:
     raise NotImplementedError(
       'Batched edge_index is not supported by UMA kernels.'
     )
-  if all(dim is batching.not_mapped for dim in (x_bdim, w_bdim)):
-    return node_to_edge_p.bind(x, edge_index, wigner), batching.not_mapped
+  if all(dim is None for dim in (x_bdim, w_bdim)):
+    return node_to_edge_p.bind(x, edge_index, wigner), None
   batch_size = mapped_batch_size((x, wigner), (x_bdim, w_bdim))
   x = move_or_broadcast_batch(x, x_bdim, batch_size)
   wigner = move_or_broadcast_batch(wigner, w_bdim, batch_size)
@@ -2733,16 +2707,12 @@ def node_to_edge_jvp_jvp_rule(primals, tangents):
 def node_to_edge_jvp_batching_rule(vals, dims):
   x, edge_index, wigner, tx, twigner = vals
   x_bdim, edge_bdim, w_bdim, tx_bdim, tw_bdim = dims
-  if edge_bdim is not batching.not_mapped:
+  if edge_bdim is not None:
     raise NotImplementedError(
       'Batched edge_index is not supported by UMA kernels.'
     )
-  if all(
-    dim is batching.not_mapped for dim in (x_bdim, w_bdim, tx_bdim, tw_bdim)
-  ):
-    return node_to_edge_jvp_p.bind(
-      x, edge_index, wigner, tx, twigner
-    ), batching.not_mapped
+  if all(dim is None for dim in (x_bdim, w_bdim, tx_bdim, tw_bdim)):
+    return node_to_edge_jvp_p.bind(x, edge_index, wigner, tx, twigner), None
 
   batch_size = mapped_batch_size(
     (x, wigner, tx, twigner), (x_bdim, w_bdim, tx_bdim, tw_bdim)
@@ -2894,14 +2864,14 @@ def edge_to_node_backward_transpose_rule(
 def edge_to_node_backward_batching_rule(vals, dims, *, num_nodes):
   messages, edge_index, wigner, gout = vals
   m_bdim, edge_bdim, w_bdim, gout_bdim = dims
-  if edge_bdim is not batching.not_mapped:
+  if edge_bdim is not None:
     raise NotImplementedError(
       'Batched edge_index is not supported by UMA kernels.'
     )
-  if all(dim is batching.not_mapped for dim in (m_bdim, w_bdim, gout_bdim)):
+  if all(dim is None for dim in (m_bdim, w_bdim, gout_bdim)):
     return edge_to_node_backward_p.bind(
       messages, edge_index, wigner, gout, num_nodes=num_nodes
-    ), (batching.not_mapped, batching.not_mapped)
+    ), (None, None)
   batch_size = mapped_batch_size(
     (messages, wigner, gout), (m_bdim, w_bdim, gout_bdim)
   )
@@ -3049,12 +3019,12 @@ def edge_to_node_backward_jvp_jvp_rule(primals, tangents, *, num_nodes):
 def edge_to_node_backward_jvp_batching_rule(vals, dims, *, num_nodes):
   messages, edge_index, wigner, gout, tmessages, twigner, tgout = vals
   m_bdim, edge_bdim, w_bdim, gout_bdim, tm_bdim, tw_bdim, tgout_bdim = dims
-  if edge_bdim is not batching.not_mapped:
+  if edge_bdim is not None:
     raise NotImplementedError(
       'Batched edge_index is not supported by UMA kernels.'
     )
   if all(
-    dim is batching.not_mapped
+    dim is None
     for dim in (m_bdim, w_bdim, gout_bdim, tm_bdim, tw_bdim, tgout_bdim)
   ):
     return edge_to_node_backward_jvp_p.bind(
@@ -3066,7 +3036,7 @@ def edge_to_node_backward_jvp_batching_rule(vals, dims, *, num_nodes):
       twigner,
       tgout,
       num_nodes=num_nodes,
-    ), (batching.not_mapped, batching.not_mapped)
+    ), (None, None)
 
   batch_size = mapped_batch_size(
     (messages, wigner, gout, tmessages, twigner, tgout),
@@ -3182,14 +3152,14 @@ def edge_to_node_transpose_rule(
 def edge_to_node_batching_rule(vals, dims, *, num_nodes):
   messages, edge_index, wigner = vals
   m_bdim, edge_bdim, w_bdim = dims
-  if edge_bdim is not batching.not_mapped:
+  if edge_bdim is not None:
     raise NotImplementedError(
       'Batched edge_index is not supported by UMA kernels.'
     )
-  if all(dim is batching.not_mapped for dim in (m_bdim, w_bdim)):
+  if all(dim is None for dim in (m_bdim, w_bdim)):
     return (
       edge_to_node_p.bind(messages, edge_index, wigner, num_nodes=num_nodes),
-      batching.not_mapped,
+      None,
     )
   batch_size = mapped_batch_size((messages, wigner), (m_bdim, w_bdim))
   messages = move_or_broadcast_batch(messages, m_bdim, batch_size)
@@ -3275,13 +3245,11 @@ def edge_to_node_jvp_jvp_rule(primals, tangents, *, num_nodes):
 def edge_to_node_jvp_batching_rule(vals, dims, *, num_nodes):
   messages, edge_index, wigner, tmessages, twigner = vals
   m_bdim, edge_bdim, w_bdim, tm_bdim, tw_bdim = dims
-  if edge_bdim is not batching.not_mapped:
+  if edge_bdim is not None:
     raise NotImplementedError(
       'Batched edge_index is not supported by UMA kernels.'
     )
-  if all(
-    dim is batching.not_mapped for dim in (m_bdim, w_bdim, tm_bdim, tw_bdim)
-  ):
+  if all(dim is None for dim in (m_bdim, w_bdim, tm_bdim, tw_bdim)):
     return edge_to_node_jvp_p.bind(
       messages,
       edge_index,
@@ -3289,7 +3257,7 @@ def edge_to_node_jvp_batching_rule(vals, dims, *, num_nodes):
       tmessages,
       twigner,
       num_nodes=num_nodes,
-    ), batching.not_mapped
+    ), None
 
   batch_size = mapped_batch_size(
     (messages, wigner, tmessages, twigner),

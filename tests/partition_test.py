@@ -662,19 +662,36 @@ class NeighborListTest(test_util.JAXMDTestCase):
 
   @parameterized.named_parameters(
     test_util.cases_from_list(
-      {'testcase_name': f'_format={format.name}', 'format': format}
+      {
+        'testcase_name': f'_format={format.name}_fractional={fractional}',
+        'format': format,
+        'fractional': fractional,
+      }
       for format in partition.NeighborListFormat
+      for fractional in [False, True]
     )
   )
-  def test_neighbor_list_short_axis_uses_cell_list(self, format):
+  def test_neighbor_list_short_axis_uses_cell_list(self, format, fractional):
     N = 600
-    box = np.array([6.0, 20.0, 20.0])
-    displacement, _ = space.periodic(box)
-    R = random.uniform(random.PRNGKey(0), (N, 3)) * box
+    side = np.array([6.0, 20.0, 20.0])
+    R = random.uniform(random.PRNGKey(0), (N, 3))
+    if fractional:
+      box = np.diag(side)
+      displacement, _ = space.periodic_general(box)
+    else:
+      box = side
+      displacement, _ = space.periodic(box)
+      R = R * box
 
     def pairs(**kwargs):
       nbrs = partition.neighbor_list(
-        displacement, box, 2.5, 0.2, format=format, **kwargs
+        displacement,
+        box,
+        2.5,
+        0.2,
+        format=format,
+        fractional_coordinates=fractional,
+        **kwargs,
       ).allocate(R)
       idx = onp.array(nbrs.idx)
       if format is partition.Dense:
