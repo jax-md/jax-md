@@ -627,6 +627,10 @@ def nearest_valid_grid_size(
       factors = (16, 8)
     elif dimension == 3:
       factors = (8, 4, 4)
+    else:
+      raise ValueError(
+        f'No default factors for dimension {dimension}. Pass factors.'
+      )
   folded_size = _outer_grid_size_to_inner_grid_size(
     target_box_size_in_cells, topology, factors, max_grid_distance
   )

@@ -618,8 +618,10 @@ def dsf_coulomb(
   f_shift = -(erfcc / cutoffsq + 2 / jnp.sqrt(jnp.pi) * alpha * erfcd / cutoff)
   e_shift = erfcc / cutoff - f_shift * cutoff
 
+  mask = (r > 0) & (r < cutoff)
+  r = jnp.where(r > 0, r, 1)
   e = qqr2e * Q_sq / r * (erfc(alpha * r) - r * e_shift - r**2 * f_shift)
-  return jnp.where(r < cutoff, e, 0.0)
+  return jnp.where(mask, e, 0.0)
 
 
 def bks(

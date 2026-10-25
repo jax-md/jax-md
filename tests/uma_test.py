@@ -2210,5 +2210,48 @@ class UMAKernelBackendTest(test_util.JAXMDTestCase):
       self.assertAllClose(back, fn(v), atol=TEST_TOL, rtol=TEST_TOL)
 
 
+class UMAKernelBatchingTest(test_util.JAXMDTestCase):
+  """Traces the batching rules of the UMA Pallas primitives on any backend."""
+
+  def test_vmap_of_primitives_and_their_derivatives(self):
+    from jax_md._nn.uma import kernels
+
+    weights = jnp.ones((2, 5, 4))
+    sizes = jnp.array([3, 3], dtype=jnp.int32)
+    starts = jnp.array([0, 3], dtype=jnp.int32)
+    edge_index = jnp.array([[0, 1, 2, 3, 4], [1, 2, 3, 4, 5]], dtype=jnp.int32)
+    wigner = jnp.ones((5, 9, 9))
+    cases = [
+      (
+        lambda a: kernels.segment_mm_p.bind(
+          a, weights, sizes, starts, max_size=4
+        ),
+        jnp.ones((3, 6, 4)),
+        (3, 6, 5),
+      ),
+      (
+        lambda a: kernels.node_to_edge_p.bind(a, edge_index, wigner),
+        jnp.ones((3, 6, 9, 4)),
+        (3, 5, 9, 8),
+      ),
+      (
+        lambda a: kernels.edge_to_node_p.bind(
+          a, edge_index, wigner, num_nodes=6
+        ),
+        jnp.ones((3, 5, 9, 4)),
+        (3, 6, 9, 4),
+      ),
+    ]
+    for fn, arg, shape in cases:
+      out = jax.eval_shape(jax.vmap(fn), arg)
+      tangent = jax.eval_shape(
+        jax.vmap(lambda a: jax.jvp(fn, (a,), (a,))[1]), arg
+      )
+      grad = jax.eval_shape(jax.vmap(jax.grad(lambda a: fn(a).sum())), arg)
+      self.assertEqual(out.shape, shape)
+      self.assertEqual(tangent.shape, shape)
+      self.assertEqual(grad.shape, arg.shape)
+
+
 if __name__ == '__main__':
   absltest.main()

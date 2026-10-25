@@ -574,7 +574,7 @@ def _fractional_cell_size(box, cutoff) -> Array | float:
   if jnp.isscalar(box) or box.ndim == 0:
     return cutoff / box
   elif box.ndim == 1:
-    return cutoff / jnp.min(box)
+    return cutoff / box
   elif box.ndim == 2:
     if box.shape[0] == 1:
       return 1 / jnp.floor(box[0, 0] / cutoff)
@@ -586,9 +586,9 @@ def _fractional_cell_size(box, cutoff) -> Array | float:
       nx = xx / jnp.sqrt(1 + xy**2)
       ny = yy
 
-      nmin = jnp.floor(jnp.min(jnp.array([nx, ny])) / cutoff)
-      nmin = jnp.where(nmin == 0, 1, nmin)
-      return 1 / nmin
+      n = jnp.floor(jnp.array([nx, ny]) / cutoff)
+      n = jnp.where(n == 0, 1, n)
+      return 1 / n
     elif box.shape[0] == 3:
       xx = box[0, 0]
       yy = box[1, 1]
@@ -601,9 +601,9 @@ def _fractional_cell_size(box, cutoff) -> Array | float:
       ny = yy / jnp.sqrt(1 + yz**2)
       nz = zz
 
-      nmin = jnp.floor(jnp.min(jnp.array([nx, ny, nz])) / cutoff)
-      nmin = jnp.where(nmin == 0, 1, nmin)
-      return 1 / nmin
+      n = jnp.floor(jnp.array([nx, ny, nz]) / cutoff)
+      n = jnp.where(n == 0, 1, n)
+      return 1 / n
     else:
       raise ValueError(
         'Expected box to be either 1-, 2-, or 3-dimensional '
@@ -678,8 +678,8 @@ class NeighborList:
       neighbor list. Changing this will invoke a recompilation.
     format: A NeighborListFormat enum specifying the format of the neighbor
       list.
-    cell_size: A float specifying the current minimum size of the cells used
-      in cell list construction.
+    cell_size: A float, or a tuple with one value per axis, specifying the
+      current minimum size of the cells used in cell list construction.
     cell_list_fn: The function used to construct the cell list.
     update_fn: A static python function used to update the neighbor list.
     reference_box: The box when the neighbor list was constructed, as a
@@ -694,7 +694,9 @@ class NeighborList:
   max_occupancy: int = dataclasses.static_field()
 
   format: NeighborListFormat = dataclasses.static_field()
-  cell_size: ArrayLike | None = dataclasses.static_field()
+  cell_size: ArrayLike | Tuple[ArrayLike, ...] | None = (
+    dataclasses.static_field()
+  )
   cell_list_fn: CellListFns | None = dataclasses.static_field()
   update_fn: Callable[[Array, 'NeighborList'], 'NeighborList'] = (
     dataclasses.static_field()
@@ -887,7 +889,7 @@ def neighbor_list(
 
   @partial(jit, static_argnums=0)
   def candidate_fn(positionShape) -> Array:
-    candidates = jnp.arange(positionShape[0])
+    candidates = jnp.arange(positionShape[0], dtype=i32)
     return jnp.broadcast_to(
       candidates[None, :], (positionShape[0], positionShape[0])
     )
@@ -973,7 +975,7 @@ def neighbor_list(
     d = space.map_bond(d)
 
     N = position.shape[0]
-    sender_idx = jnp.broadcast_to(jnp.arange(N)[:, None], idx.shape)
+    sender_idx = jnp.broadcast_to(jnp.arange(N, dtype=i32)[:, None], idx.shape)
 
     sender_idx = jnp.reshape(sender_idx, (-1,))
     receiver_idx = jnp.reshape(idx, (-1,))
@@ -1036,12 +1038,14 @@ def neighbor_list(
               PEC.MALFORMED_BOX, jnp.logical_not(is_box_valid(_box))
             )
             cell_size = _fractional_cell_size(_box, cutoff)
-            _box = 1.0
+            _box = jnp.ones_like(cell_size)
           if jnp.ndim(_box) < 2 and jnp.any(
             jnp.asarray(cell_size) < _box / 3.0
           ):
             cl_fn = cell_list(_box, cell_size, capacity_multiplier)
             cl = cl_fn.allocate(position, extra_capacity=extra_capacity)
+          if jnp.ndim(cell_size) == 1:
+            cell_size = tuple(onp.asarray(cell_size))
         else:
           cell_size = neighbors.cell_size
           cl_fn = neighbors.cell_list_fn
@@ -1129,11 +1133,12 @@ def neighbor_list(
         )
       err = nbrs.error
       if nbrs.cell_list_fn is not None:
-        cur_cell_size = _cell_size(1.0, nbrs.cell_size)
+        cur_cell_size = _cell_size(1.0, jnp.asarray(nbrs.cell_size))
         new_cell_size = _cell_size(
           1.0, _fractional_cell_size(kwargs['box'], cutoff)
         )
-        err = err.update(PEC.CELL_SIZE_TOO_SMALL, new_cell_size > cur_cell_size)
+        too_small = (new_cell_size > cur_cell_size) & (cur_cell_size <= 1 / 3)
+        err = err.update(PEC.CELL_SIZE_TOO_SMALL, jnp.any(too_small))
       err = err.update(
         PEC.MALFORMED_BOX, jnp.logical_not(is_box_valid(kwargs['box']))
       )
