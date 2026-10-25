@@ -143,7 +143,7 @@ class dispatch_by_state(Generic[DispatchArgs, DispatchOut]):
   def __call__(
     self, *args: DispatchArgs.args, **kwargs: DispatchArgs.kwargs
   ) -> DispatchOut:
-    state = args[0]
+    state = args[0] if args else kwargs['state']
     if type(state.position) in self._registry:
       return self._registry[type(state.position)](*args, **kwargs)
     return self._fn(*args, **kwargs)
@@ -1265,11 +1265,11 @@ class NVTLangevinState:
 
 @dispatch_by_state
 def stochastic_step(
-  state: T,
+  state: NVTLangevinState,
   dt: float | Array,
   kT: ArrayLike,
   gamma: float | util.PyTree,
-) -> T:
+) -> NVTLangevinState:
   """A single stochastic step (the `O` step)."""
   if getattr(state, 'fix_center_of_mass', False) and jnp.ndim(gamma) != 0:
     raise ValueError(
