@@ -19,7 +19,7 @@ from absl.testing import parameterized
 
 import os
 
-from typing import Dict, Sequence
+from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
 import netCDF4 as nc
 
@@ -51,7 +51,7 @@ _python_scalar_dtypes: dict = {
 }
 
 
-def _dtype(x):
+def _dtype(x: Any) -> onp.dtype:
   if hasattr(x, 'dtype'):
     return x.dtype
   elif type(x) in _python_scalar_dtypes:
@@ -60,7 +60,7 @@ def _dtype(x):
     return onp.asarray(x).dtype
 
 
-def is_sequence(x):
+def is_sequence(x: Any) -> bool:
   try:
     iter(x)
   except TypeError:
@@ -69,7 +69,7 @@ def is_sequence(x):
     return True
 
 
-def device_under_test():
+def device_under_test() -> str:
   return getattr(FLAGS, 'jax_test_dut', None) or jax.default_backend()
 
 
@@ -82,7 +82,7 @@ _DEFAULT_TOLERANCE = {
 }
 
 
-def _default_tolerance():
+def _default_tolerance() -> Dict[onp.dtype, float]:
   if device_under_test() != 'tpu':
     return _DEFAULT_TOLERANCE
   tol = _DEFAULT_TOLERANCE.copy()
@@ -91,7 +91,9 @@ def _default_tolerance():
   return tol
 
 
-def _assert_numpy_allclose(a, b, atol=None, rtol=None, err_msg=''):
+def _assert_numpy_allclose(
+  a: onp.ndarray, b: onp.ndarray, atol=None, rtol=None, err_msg: str = ''
+) -> None:
   if a.dtype == b.dtype == _dtypes.float0:
     onp.testing.assert_array_equal(a, b, err_msg=err_msg)
     return
@@ -110,7 +112,9 @@ def _assert_numpy_allclose(a, b, atol=None, rtol=None, err_msg=''):
     onp.testing.assert_allclose(a, b, **kw, err_msg=err_msg)
 
 
-def _tolerance(dtype, tol=None):
+def _tolerance(
+  dtype: Any, tol: float | Dict[Any, float] | None = None
+) -> float:
   tol = {} if tol is None else tol
   if not isinstance(tol, dict):
     return tol
@@ -122,7 +126,7 @@ def _tolerance(dtype, tol=None):
 _CACHED_INDICES: Dict[int, Sequence[int]] = {}
 
 
-def cases_from_list(xs):
+def cases_from_list(xs: Iterable[Any]) -> List[Any]:
   xs = list(xs)
   return xs
 
@@ -132,15 +136,15 @@ class JAXMDTestCase(parameterized.TestCase):
 
   def _assertAllClose(
     self,
-    x,
-    y,
+    x: Any,
+    y: Any,
     *,
-    check_dtypes=True,
-    atol=None,
-    rtol=None,
-    canonicalize_dtypes=True,
-    err_msg='',
-  ):
+    check_dtypes: bool = True,
+    atol: float | Dict[Any, float] | None = None,
+    rtol: float | Dict[Any, float] | None = None,
+    canonicalize_dtypes: bool = True,
+    err_msg: str = '',
+  ) -> None:
     """Assert that x and y, either arrays or nested tuples/lists, are close."""
     if isinstance(x, dict):
       self.assertIsInstance(y, dict)
@@ -183,8 +187,15 @@ class JAXMDTestCase(parameterized.TestCase):
       raise TypeError((type(x), type(y)))
 
   def assertArraysAllClose(
-    self, x, y, *, check_dtypes=True, atol=None, rtol=None, err_msg=''
-  ):
+    self,
+    x: Any,
+    y: Any,
+    *,
+    check_dtypes: bool = True,
+    atol: float | Dict[Any, float] | None = None,
+    rtol: float | Dict[Any, float] | None = None,
+    err_msg: str = '',
+  ) -> None:
     """Assert that x and y are close (up to numerical tolerances)."""
     self.assertEqual(x.shape, y.shape)
     atol = max(_tolerance(_dtype(x), atol), _tolerance(_dtype(y), atol))
@@ -194,7 +205,9 @@ class JAXMDTestCase(parameterized.TestCase):
     if check_dtypes:
       self.assertDtypesMatch(x, y)
 
-  def assertDtypesMatch(self, x, y, *, canonicalize_dtypes=True):
+  def assertDtypesMatch(
+    self, x: Any, y: Any, *, canonicalize_dtypes: bool = True
+  ) -> None:
     if not util.x64_enabled() and canonicalize_dtypes:
       self.assertEqual(
         _dtypes.canonicalize_dtype(_dtype(x)),
@@ -205,22 +218,22 @@ class JAXMDTestCase(parameterized.TestCase):
 
   def assertAllClose(
     self,
-    x,
-    y,
+    x: Any,
+    y: Any,
     *,
     check_dtypes=True,
-    atol=None,
-    rtol=None,
+    atol: float | Dict[Any, float] | None = None,
+    rtol: float | Dict[Any, float] | None = None,
     canonicalize_dtypes=True,
     err_msg='',
-  ):
-    def is_finite(x):
+  ) -> None:
+    def is_finite(x: Any) -> None:
       self.assertTrue(jnp.all(jnp.isfinite(x)))
 
     jax.tree_util.tree_map(is_finite, x)
     jax.tree_util.tree_map(is_finite, y)
 
-    def assert_close(x, y):
+    def assert_close(x: Any, y: Any) -> None:
       self._assertAllClose(
         x,
         y,
@@ -248,7 +261,9 @@ class JAXMDTestCase(parameterized.TestCase):
 # JAX MD specific utilities.
 
 
-def make_fcc_fractional(n_cells, a, dtype):
+def make_fcc_fractional(
+  n_cells: int, a: float, dtype: Any
+) -> Tuple[jnp.ndarray, jnp.ndarray]:
   """Create an FCC crystal in fractional coordinates.
 
   Args:
@@ -274,7 +289,7 @@ def make_fcc_fractional(n_cells, a, dtype):
   return R, box
 
 
-def update_test_tolerance(f32_tol=5e-3, f64_tol=1e-5):
+def update_test_tolerance(f32_tol: float = 5e-3, f64_tol: float = 1e-5) -> None:
   _DEFAULT_TOLERANCE[onp.dtype(onp.float32)] = f32_tol
   _DEFAULT_TOLERANCE[onp.dtype(onp.float64)] = f64_tol
 
@@ -294,7 +309,9 @@ def load_silica_data() -> jnp.ndarray:
     return _load_silica_data(filename)
 
 
-def _load_elasticity_test_data(filename, spatial_dimension, dtype, index):
+def _load_elasticity_test_data(
+  filename: str, spatial_dimension: int, dtype: Any, index: int
+) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
   filename = FLAGS.test_srcdir + filename
   ds = nc.Dataset(filename)
   cijkl = jnp.array(ds.variables['Cijkl'][index], dtype=dtype)
@@ -306,7 +323,9 @@ def _load_elasticity_test_data(filename, spatial_dimension, dtype, index):
   return cijkl, R, sigma, box
 
 
-def load_elasticity_test_data(spatial_dimension, low_pressure, dtype, index):
+def load_elasticity_test_data(
+  spatial_dimension: int, low_pressure: bool, dtype: Any, index: int
+) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
   try:
     if low_pressure:
       if spatial_dimension == 2:
@@ -344,7 +363,7 @@ class JammedTestState:
   pressure: jnp.ndarray
 
 
-def _load_jammed_state(filename: str, dtype) -> JammedTestState:
+def _load_jammed_state(filename: str, dtype: Any) -> JammedTestState:
   filename = FLAGS.test_srcdir + filename
   with open(filename, 'rb') as f:
     return JammedTestState(
@@ -358,7 +377,7 @@ def _load_jammed_state(filename: str, dtype) -> JammedTestState:
     )
 
 
-def load_jammed_state(filename: str, dtype) -> JammedTestState:
+def load_jammed_state(filename: str, dtype: Any) -> JammedTestState:
   try:
     full_filename = f'tests/data/{filename}'
     return _load_jammed_state(full_filename, dtype)
@@ -367,8 +386,14 @@ def load_jammed_state(filename: str, dtype) -> JammedTestState:
     return _load_jammed_state(full_filename, dtype)
 
 
-def load_lammps_stress_data(dtype):
-  def parse_state(filename):
+def load_lammps_stress_data(
+  dtype: Any,
+) -> Tuple[
+  Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray], Tuple[jnp.ndarray, jnp.ndarray]
+]:
+  def parse_state(
+    filename: str,
+  ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     filename = FLAGS.test_srcdir + filename
     with open(filename) as f:
       data = f.read()
@@ -383,7 +408,7 @@ def load_lammps_stress_data(dtype):
       V += [[float(xx) for xx in l.split(' ')[3:]]]
     return f32(box), jnp.array(R, dtype), jnp.array(V, dtype)
 
-  def parse_results(filename):
+  def parse_results(filename: str) -> Tuple[jnp.ndarray, jnp.ndarray]:
     filename = FLAGS.test_srcdir + filename
     with open(filename) as f:
       data = f.read()
@@ -420,8 +445,10 @@ def load_lammps_stress_data(dtype):
     )
 
 
-def load_lammps_npt_test_case(dtype):
-  def parse_state(filename):
+def load_lammps_npt_test_case(dtype: Any):
+  def parse_state(
+    filename: str,
+  ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     filename = FLAGS.test_srcdir + filename
     lammps_step_0 = onp.loadtxt(filename)
     position = jnp.array(lammps_step_0[:, 2:5], dtype=dtype)

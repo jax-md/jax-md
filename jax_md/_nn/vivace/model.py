@@ -5,14 +5,14 @@ import json
 from functools import partial
 from importlib.resources import files
 from os import PathLike
-from typing import Any
+from typing import Any, Callable
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 from jax import Array
 from jax.ops import segment_sum
-from jax_md import partition
+from jax_md import partition, space
 from jax_md._nn import weights
 
 jax.config.update('jax_default_matmul_precision', 'highest')
@@ -22,8 +22,12 @@ VIVACE_MODEL_PATHS = {
 }
 
 
-def neighbor_list_featurizer(displacement_fn, *, cutoff: float):
-  def featurize(position, neighbor, **kwargs):
+def neighbor_list_featurizer(
+  displacement_fn: space.DisplacementFn, *, cutoff: float
+) -> Callable[..., tuple[Array, Array, Array, Array]]:
+  def featurize(
+    position: Array, neighbor: partition.NeighborList, **kwargs
+  ) -> tuple[Array, Array, Array, Array]:
     num_atoms = position.shape[0]
     mask = partition.neighbor_list_mask(neighbor, mask_self=True)
     if partition.is_sparse(neighbor.format):
@@ -93,7 +97,7 @@ class Linear(eqx.Module):
     *,
     use_bias: bool,
     dtype: Any = jnp.float32,
-  ):
+  ) -> None:
     self.weight = jnp.zeros((out_features, in_features), dtype=dtype)
     self.bias = (
       None if not use_bias else jnp.zeros((out_features,), dtype=dtype)
@@ -113,7 +117,7 @@ class MLP(eqx.Module):
     *,
     biases: list[bool],
     dtype: Any = jnp.float32,
-  ):
+  ) -> None:
     self.layers = [
       Linear(d_in, d_out, use_bias=use_bias, dtype=dtype)
       for d_in, d_out, use_bias in zip(
@@ -131,7 +135,7 @@ class GaussianBasis(eqx.Module):
   means: Array
   betas: Array
 
-  def __init__(self, num_radial: int, *, dtype: Any = jnp.float32):
+  def __init__(self, num_radial: int, *, dtype: Any = jnp.float32) -> None:
     self.means = jnp.zeros((1, num_radial), dtype=dtype)
     self.betas = jnp.zeros((1, num_radial), dtype=dtype)
 
@@ -152,7 +156,9 @@ class InitialEmbedding(eqx.Module):
   equivariant_clamp: list[float] = eqx.field(static=True)
   equivariant_cutoff: float = eqx.field(static=True)
 
-  def __init__(self, config: dict[str, Any], *, dtype: Any = jnp.float32):
+  def __init__(
+    self, config: dict[str, Any], *, dtype: Any = jnp.float32
+  ) -> None:
     num_species = int(config['num_species'])
     num_radial = int(config['num_radial'])
     invariant_features = int(config['num_invariant_features'])
@@ -184,12 +190,12 @@ class InitialEmbedding(eqx.Module):
 
   def __call__(
     self,
-    species,
-    vectors,
-    receivers,
-    senders,
-    edge_mask,
-  ):
+    species: Array,
+    vectors: Array,
+    receivers: Array,
+    senders: Array,
+    edge_mask: Array,
+  ) -> tuple[Array, Array, Array, Array, Array, Array, Array, Array, Array]:
     num_atoms = species.shape[0]
     lengths = jnp.linalg.norm(vectors, axis=-1)
     envelope = step_clamp(lengths, self.cutoff_clamp) * edge_mask
@@ -262,7 +268,7 @@ class EquivariantUpdate(eqx.Module):
     input_base_dim: int,
     output_base_dim: int,
     dtype: Any = jnp.float32,
-  ):
+  ) -> None:
     invariant_features = int(config['num_invariant_features'])
     channels = int(config['num_equivariant_features'])
     self.num_attention_heads = int(config['num_attention_heads'])
@@ -283,15 +289,15 @@ class EquivariantUpdate(eqx.Module):
 
   def __call__(
     self,
-    node_invariant,
-    edge_invariant,
-    node_equivariant,
-    receivers,
-    equivariant_envelope,
-    harmonics,
-    spherical_irreps,
-    attention_scale,
-  ):
+    node_invariant: Array,
+    edge_invariant: Array,
+    node_equivariant: Array,
+    receivers: Array,
+    equivariant_envelope: Array,
+    harmonics: Array,
+    spherical_irreps: Array,
+    attention_scale: float,
+  ) -> Array:
     num_atoms = node_invariant.shape[0]
     query = self.query(node_invariant)[receivers]
     shape = (-1, self.num_attention_heads, self.attention_head_dim)
@@ -337,7 +343,7 @@ class EdgeUpdate(eqx.Module):
     *,
     output_base_dim: int,
     dtype: Any = jnp.float32,
-  ):
+  ) -> None:
     invariant_features = int(config['num_invariant_features'])
     hidden_features = int(config['num_hidden_features'])
     channels = int(config['num_equivariant_features'])
@@ -358,14 +364,14 @@ class EdgeUpdate(eqx.Module):
 
   def __call__(
     self,
-    edge_invariant,
-    node_equivariant,
-    receivers,
-    equivariant_envelope,
-    equivariant_mask,
-    harmonics,
-    equivariant_embedding,
-  ):
+    edge_invariant: Array,
+    node_equivariant: Array,
+    receivers: Array,
+    equivariant_envelope: Array,
+    equivariant_mask: Array,
+    harmonics: Array,
+    equivariant_embedding: Array,
+  ) -> Array:
     inner = jnp.einsum(
       'eku,kj,ej->eu',
       node_equivariant[receivers],
@@ -388,7 +394,7 @@ class NodeUpdate(eqx.Module):
     config: dict[str, Any],
     *,
     dtype: Any = jnp.float32,
-  ):
+  ) -> None:
     invariant_features = int(config['num_invariant_features'])
     hidden_features = int(config['num_hidden_features'])
     channels = int(config['num_equivariant_features'])
@@ -403,9 +409,9 @@ class NodeUpdate(eqx.Module):
 
   def __call__(
     self,
-    node_invariant,
-    node_equivariant,
-  ):
+    node_invariant: Array,
+    node_equivariant: Array,
+  ) -> Array:
     scalars = self.invariant_out(node_equivariant[:, 0, :])
     mean = jnp.mean(scalars, axis=-1, keepdims=True)
     variance = jnp.var(scalars, axis=-1, keepdims=True)
@@ -425,7 +431,7 @@ class VivaceLayer(eqx.Module):
     output_base_dim: int,
     update_node: bool,
     dtype: Any = jnp.float32,
-  ):
+  ) -> None:
     self.equivariant_update = EquivariantUpdate(
       config,
       input_base_dim=input_base_dim,
@@ -440,17 +446,17 @@ class VivaceLayer(eqx.Module):
 
   def __call__(
     self,
-    node_invariant,
-    edge_invariant,
-    node_equivariant,
-    receivers,
-    equivariant_envelope,
-    equivariant_mask,
-    harmonics,
-    equivariant_embedding,
-    spherical_irreps,
-    attention_scale,
-  ):
+    node_invariant: Array,
+    edge_invariant: Array,
+    node_equivariant: Array,
+    receivers: Array,
+    equivariant_envelope: Array,
+    equivariant_mask: Array,
+    harmonics: Array,
+    equivariant_embedding: Array,
+    spherical_irreps: Array,
+    attention_scale: float,
+  ) -> tuple[Array, Array, Array]:
     node_equivariant = self.equivariant_update(
       node_invariant,
       edge_invariant,
@@ -485,7 +491,9 @@ class ShortRangeRepulsion(eqx.Module):
   cutoff: float = eqx.field(static=True)
   envelope_cutoff: float = eqx.field(static=True)
 
-  def __init__(self, config: dict[str, Any], *, dtype: Any = jnp.float32):
+  def __init__(
+    self, config: dict[str, Any], *, dtype: Any = jnp.float32
+  ) -> None:
     features = int(config['num_invariant_features'])
     num_powers = int(config['num_short_range_powers'])
     self.mlp = MLP(
@@ -499,12 +507,12 @@ class ShortRangeRepulsion(eqx.Module):
 
   def __call__(
     self,
-    edge_invariant,
-    receivers,
-    lengths,
-    edge_mask,
-    num_atoms,
-  ):
+    edge_invariant: Array,
+    receivers: Array,
+    lengths: Array,
+    edge_mask: Array,
+    num_atoms: int,
+  ) -> Array:
     short_mask = (lengths < self.cutoff) & edge_mask
     weights = self.mlp(edge_invariant) ** 2
     clamp = (
@@ -525,7 +533,9 @@ class EnergyHead(eqx.Module):
   node_mlp: MLP
   edge_mlp: MLP
 
-  def __init__(self, config: dict[str, Any], *, dtype: Any = jnp.float32):
+  def __init__(
+    self, config: dict[str, Any], *, dtype: Any = jnp.float32
+  ) -> None:
     num_species = int(config['num_species'])
     features = int(config['num_invariant_features'])
     hidden_features = int(config['num_hidden_features'])
@@ -539,12 +549,12 @@ class EnergyHead(eqx.Module):
 
   def __call__(
     self,
-    species,
-    node_invariant,
-    edge_invariant,
-    receivers,
-    envelope,
-  ):
+    species: Array,
+    node_invariant: Array,
+    edge_invariant: Array,
+    receivers: Array,
+    envelope: Array,
+  ) -> Array:
     node_energy = (
       self.atomic_energies[species] + self.node_mlp(node_invariant)[:, 0]
     )
@@ -567,7 +577,7 @@ class Vivace(eqx.Module):
     config: dict[str, Any],
     *,
     dtype: Any = jnp.float32,
-  ):
+  ) -> None:
     self.embedding = InitialEmbedding(config, dtype=dtype)
     base_dims = config['tensor_product_dims']
     self.layers = [
@@ -587,13 +597,13 @@ class Vivace(eqx.Module):
 
   def __call__(
     self,
-    positions,
-    species,
+    positions: Array,
+    species: Array,
     *,
-    displacement_fn=None,
-    neighbors=None,
+    displacement_fn: space.DisplacementFn | None = None,
+    neighbors: partition.NeighborList | None = None,
     **displacement_kwargs,
-  ):
+  ) -> Array:
     if displacement_fn is None or neighbors is None:
       raise ValueError(
         'Vivace requires a displacement_fn and a neighbor list. Build them '
@@ -650,7 +660,7 @@ def load_model(
   model: str = 'vivace-v0.1',
   *,
   model_path: str | PathLike | None = None,
-  dtype=None,
+  dtype: Any = None,
 ) -> Vivace:
   """Load a Vivace checkpoint.
 

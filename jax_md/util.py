@@ -14,7 +14,7 @@
 
 """Defines utility functions."""
 
-from typing import Iterable, Sequence, Union, Optional, Any
+from typing import Iterable, Sequence, Union, Optional, Any, Callable
 
 from typing_extensions import TypeIs
 
@@ -45,7 +45,7 @@ f64 = jnp.float64
 CUSTOM_SIMULATION_TYPE = []
 
 
-def register_custom_simulation_type(t: Any):
+def register_custom_simulation_type(t: Any) -> None:
   global CUSTOM_SIMULATION_TYPE
   CUSTOM_SIMULATION_TYPE += [t]
 
@@ -64,13 +64,15 @@ def static_cast(*xs):
     return (jnp.array(x, dtype=onp.min_scalar_type(x)) for x in xs)
 
 
-def register_pytree_namedtuple(cls):
+def register_pytree_namedtuple(cls: type) -> None:
   register_pytree_node(
     cls, lambda xs: (tuple(xs), None), lambda _, xs: cls(*xs)
   )
 
 
-def merge_dicts(a, b, ignore_unused_parameters=False):
+def merge_dicts(
+  a: dict[str, Any], b: dict[str, Any], ignore_unused_parameters: bool = False
+) -> dict[str, Any]:
   if not ignore_unused_parameters:
     return {**a, **b}
 
@@ -83,7 +85,12 @@ def merge_dicts(a, b, ignore_unused_parameters=False):
 
 
 @partial(jit, static_argnums=(1,))
-def safe_mask(mask, fn, operand, placeholder=0):
+def safe_mask(
+  mask: Array,
+  fn: Callable[[Array], Array],
+  operand: Array,
+  placeholder: float | Array = 0,
+) -> Array:
   masked = jnp.where(mask, operand, 0)
   return jnp.where(mask, fn(masked), placeholder)
 
@@ -92,7 +99,7 @@ def high_precision_sum(
   X: Array,
   axis: Union[Sequence[int], int] | None = None,
   keepdims: bool = False,
-):
+) -> Array:
   """Sums over axes at 64-bit precision then casts back to original dtype."""
   if jnp.issubdtype(X.dtype, jnp.integer):
     dtyp = jnp.int64

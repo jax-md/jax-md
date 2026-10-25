@@ -10,7 +10,8 @@ from jax_md.mm_forcefields.reaxff.reaxff_energy import (
   calculate_bo,
   calculate_reaxff_energy,
 )
-from typing import Callable, Any, Tuple
+from jax_md.mm_forcefields.reaxff.reaxff_forcefield import ForceField
+from typing import Callable, Any, Iterator, Tuple
 import jax
 import jax.numpy as jnp
 from jax_md import dataclasses
@@ -39,7 +40,7 @@ class ReaxFFNeighborListFns:
   allocate: Callable = dataclasses.static_field()
   update: Callable = dataclasses.static_field()
 
-  def __iter__(self):
+  def __iter__(self) -> Iterator[Callable]:
     return iter((self.allocate, self.update))
 
 
@@ -66,7 +67,7 @@ class Filtration:
   idx: Array | None
   did_buffer_overflow: Array
 
-  def count(self, candidate_args):
+  def count(self, candidate_args: Tuple[Any, ...]) -> Array:
     """
     Count the number of interactions in the filtered array
     """
@@ -79,7 +80,9 @@ class Filtration:
       size = jnp.sum(mask)
     return size
 
-  def allocate_fixed(self, candidate_args, capacity=0) -> 'Filtration':
+  def allocate_fixed(
+    self, candidate_args: Tuple[Any, ...], capacity: int = 0
+  ) -> 'Filtration':
     """
     Allocate a fixed size idx array
     """
@@ -108,7 +111,10 @@ class Filtration:
     )
 
   def allocate(
-    self, candidate_args, capacity_multiplier=1.25, min_capacity=0
+    self,
+    candidate_args: Tuple[Any, ...],
+    capacity_multiplier: float = 1.25,
+    min_capacity: int = 0,
   ) -> 'Filtration':
     """
     Initial allocation
@@ -138,7 +144,7 @@ class Filtration:
       jnp.bool_(False),
     )
 
-  def update(self, candidate_args) -> 'Filtration':
+  def update(self, candidate_args: Tuple[Any, ...]) -> 'Filtration':
     """
     Updates the filtered index array and overflow flag
     """
@@ -179,7 +185,7 @@ class Filtration:
 
 
 def filtration(
-  candidate_fn: CandidateFn, mask_fn: MaskFn, is_dense=False
+  candidate_fn: CandidateFn, mask_fn: MaskFn, is_dense: bool = False
 ) -> Filtration:
   """
   Returns an empty Filtration object to be used
@@ -187,7 +193,12 @@ def filtration(
   return Filtration(candidate_fn, mask_fn, is_dense, None, jnp.bool_(False))
 
 
-def calculate_all_angles_and_distances(R, nbr_lists, map_metric, map_disp):
+def calculate_all_angles_and_distances(
+  R: Array,
+  nbr_lists,
+  map_metric: DisplacementOrMetricFn,
+  map_disp: DisplacementOrMetricFn,
+) -> Tuple[Array, Array, Array, Array, Array]:
   N = len(R)
   atom_inds = jnp.arange(N, dtype=jnp.int32).reshape(-1, 1)
   filtered_close_idx = nbr_lists.close_nbrs.idx[
@@ -255,7 +266,7 @@ class ReaxFFNeighborLists:
   filter_hb: Filtration | None
   did_buffer_overflow: Array
 
-  def __iter__(self):
+  def __iter__(self) -> Iterator[Any]:
     return iter(
       (
         self.close_nbrs,
@@ -272,7 +283,7 @@ class ReaxFFNeighborLists:
     )
 
 
-def calculate_angle(disp12, disp32):
+def calculate_angle(disp12: Array, disp32: Array) -> Array:
   """
   Assume there are 3 atoms: atom 1,2 and 3 where 2 is the center
   disp12 = pos1 - pos2
@@ -296,7 +307,9 @@ def calculate_angle(disp12, disp32):
   return dot_prod.astype(prev_dtype)
 
 
-def calculate_all_4_body_angles(body_4_inds, nbr_inds, nbr_disps):
+def calculate_all_4_body_angles(
+  body_4_inds: Array, nbr_inds: Array, nbr_disps: Array
+) -> Array:
   """
   Calculates the angle related terms for the provided 4-body interaction list
   """
@@ -353,8 +366,8 @@ def calculate_all_4_body_angles(body_4_inds, nbr_inds, nbr_disps):
 
 
 def calculate_all_hbond_angles_and_dists(
-  hbond_inds, close_nbr_disps, far_nbr_disps
-):
+  hbond_inds: Array, close_nbr_disps: Array, far_nbr_disps: Array
+) -> Array:
   """
   Calculates the angles and distances for the provided hydrogen-bond list
   """
@@ -369,7 +382,14 @@ def calculate_all_hbond_angles_and_dists(
   return jnp.array([angles, dists13])
 
 
-def find_3_body_inter(N, ctr_ind, nbr_pot, nbr_inds, lcl_inds, cutoff2):
+def find_3_body_inter(
+  N: int,
+  ctr_ind: Array,
+  nbr_pot: Array,
+  nbr_inds: Array,
+  lcl_inds: Array,
+  cutoff2: float | Array,
+) -> Tuple[Array, Array]:
   """
   Finds all potential 3-body interactions based on bonded potentials
   """
@@ -398,7 +418,12 @@ def find_3_body_inter(N, ctr_ind, nbr_pot, nbr_inds, lcl_inds, cutoff2):
   return inds, vals
 
 
-def find_body_4_inter(body_3_item, neigh_inds, neigh_bo, cutoff2):
+def find_body_4_inter(
+  body_3_item: Array,
+  neigh_inds: Array,
+  neigh_bo: Array,
+  cutoff2: float | Array,
+) -> Tuple[Array, Array]:
   """
   Finds all potential 4 body interactions involving a 3-body item
   """
@@ -464,7 +489,13 @@ def find_body_4_inter(body_3_item, neigh_inds, neigh_bo, cutoff2):
   return jnp.vstack((inds1, inds2)), jnp.vstack((vals1, vals2))
 
 
-def body_3_candidate_fn(nbr_inds, neigh_bo, species, cutoff2, param_mask):
+def body_3_candidate_fn(
+  nbr_inds: Array,
+  neigh_bo: Array,
+  species: Array,
+  cutoff2: float | Array,
+  param_mask: Array,
+) -> Tuple[Array, Array]:
   """
   Creates full candidate index and value arrays for 3 body interactions,
   to be used by a filter.
@@ -494,8 +525,13 @@ def body_3_candidate_fn(nbr_inds, neigh_bo, species, cutoff2, param_mask):
 
 
 def body_34_candidate_fn(
-  body_3_inds, nbr_inds, neigh_bo, species, cutoff2, param_mask
-):
+  body_3_inds: Array,
+  nbr_inds: Array,
+  neigh_bo: Array,
+  species: Array,
+  cutoff2: float | Array,
+  param_mask: Array,
+) -> Tuple[Array, Array]:
   inds = body_3_inds.reshape(-1, 3)
   center = inds[:, 0]
   neigh1_lcl = inds[:, 1]
@@ -515,8 +551,13 @@ def body_34_candidate_fn(
 
 
 def body_4_candidate_fn(
-  body_3_inds, nbr_inds, neigh_bo, species, cutoff2, param_mask
-):
+  body_3_inds: Array,
+  nbr_inds: Array,
+  neigh_bo: Array,
+  species: Array,
+  cutoff2: float | Array,
+  param_mask: Array,
+) -> Tuple[Array, Array]:
   """
   Creates full candidate index and value arrays for 4 body interactions,
   to be used by a filter.
@@ -545,14 +586,14 @@ def body_4_candidate_fn(
 
 
 def hbond_candidate_fn(
-  donor_inds,
-  close_nbr_inds,
-  hb_short_inds,
-  far_nbr_inds,
-  hb_long_inds,
-  species,
-  param_mask,
-):
+  donor_inds: Array,
+  close_nbr_inds: Array,
+  hb_short_inds: Array,
+  far_nbr_inds: Array,
+  hb_long_inds: Array,
+  species: Array,
+  param_mask: Array,
+) -> Tuple[Array, Array]:
   """
   Creates full candidate index and value arrays for hydrogen bonds,
   to be used by a filter.
@@ -597,7 +638,7 @@ def reaxff_inter_list(
   box: Box,
   species: Array,
   species_AN: Array,
-  force_field,
+  force_field: ForceField,
   total_charge: float = 0.0,
   tol: float = 1e-6,
   max_solver_iter: int = 500,
@@ -606,7 +647,7 @@ def reaxff_inter_list(
   solver_model: str = 'EEM',
   short_inters_capacity_multiplier: float = 1.2,
   long_inters_capacity_multiplier: float = 1.2,
-) -> Tuple[ReaxFFNeighborListFns, Callable]:
+) -> Tuple[ReaxFFNeighborListFns, Callable[..., Array]]:
   """Contains all the necessary logic to run a reaxff simulation and allocate, reallocate, update and energy_fn functions.
 
   Args:
@@ -691,7 +732,7 @@ def reaxff_inter_list(
     force_field.body34_params_mask | force_field.body3_params_mask
   )
 
-  def update(R, reax_nbrs):
+  def update(R: Array, reax_nbrs: ReaxFFNeighborLists) -> ReaxFFNeighborLists:
     [
       close_nbrs,
       far_nbrs,
@@ -806,7 +847,7 @@ def reaxff_inter_list(
       overflow_flag,
     )
 
-  def allocate(R):
+  def allocate(R: Array) -> ReaxFFNeighborLists:
     N = len(R)
     close_nbrs = neighbor_fn1.allocate(R)
     far_nbrs = neighbor_fn2.allocate(R)
@@ -913,7 +954,12 @@ def reaxff_inter_list(
       jnp.bool_(False),
     )
 
-  def energy_fn(R, nbr_lists, init_charges=None, **kwargs):
+  def energy_fn(
+    R: Array,
+    nbr_lists: ReaxFFNeighborLists,
+    init_charges: Array | None = None,
+    **kwargs,
+  ) -> Array:
     d = partial(displacement, **kwargs)
     map_metric = space.map_neighbor(space.metric(d))
     map_disp = space.map_neighbor(d)

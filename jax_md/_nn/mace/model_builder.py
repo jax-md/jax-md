@@ -92,7 +92,7 @@ def parse_parity(parity: Any) -> int:
   return 1 if parity_int >= 0 else -1
 
 
-def as_l_parity(rep: Any):
+def as_l_parity(rep: Any) -> tuple[int, int] | None:
   """
   Best-effort extraction of (l, parity) from torch/e3nn Irrep-like objects.
   """
@@ -125,7 +125,7 @@ def as_l_parity(rep: Any):
   return None
 
 
-def as_irrep_entry(entry: Any):
+def as_irrep_entry(entry: Any) -> tuple[int, tuple[int, int]] | None:
   if isinstance(entry, dict):
     mul = entry.get('mul') or entry.get('multiplicity') or entry.get('n')
     rep = entry.get('irrep') or entry.get('rep') or entry.get('l')
@@ -166,7 +166,7 @@ def as_irrep_entry(entry: Any):
   return None
 
 
-def normalize_irreps(value: Any):
+def normalize_irreps(value: Any) -> list[Any] | None:
   if isinstance(value, dict):
     value = [value]
 
@@ -207,14 +207,14 @@ def as_irreps(value: Any) -> Irreps:
   return Irreps(str(value))
 
 
-def interaction(name_or_cls: Any):
+def interaction(name_or_cls: Any) -> type:
   name = name_or_cls if isinstance(name_or_cls, str) else name_or_cls.__name__
   if name not in interaction_classes:
     raise ValueError(f'Unsupported interaction class {name!r} in config')
   return interaction_classes[name]
 
 
-def readout(name_or_cls: Any):
+def readout(name_or_cls: Any) -> type:
   if name_or_cls is None:
     return readout_classes['NonLinearReadoutBlock']
   name = name_or_cls if isinstance(name_or_cls, str) else name_or_cls.__name__
@@ -223,7 +223,9 @@ def readout(name_or_cls: Any):
   return readout_classes[name]
 
 
-def build_configuration(atomic_numbers: tuple[int, ...], r_max: float):
+def build_configuration(
+  atomic_numbers: tuple[int, ...], r_max: float
+) -> tuple[np.ndarray, np.ndarray]:
   num_atoms = len(atomic_numbers)
   spacing = max(r_max / max(num_atoms, 1), 0.5)
   positions = np.zeros((num_atoms, 3), dtype=float)
@@ -240,7 +242,7 @@ def pad_template_dict(
 ) -> dict[str, jnp.ndarray]:
   out = dict(data)
 
-  def pad0(x, n):
+  def pad0(x: jnp.ndarray, n: int) -> jnp.ndarray:
     cur = int(x.shape[0])
     if cur > n:
       raise ValueError(f'Template has {cur} > cap {n}')
@@ -332,7 +334,7 @@ def build_jax_model(
   *,
   cueq_config: CuEquivarianceConfig | None = None,
   rngs: nnx.Rngs | None = None,
-):
+) -> MACE:
   if rngs is None:
     rngs = nnx.Rngs(0)
   collapse_hidden_irreps = config.get('collapse_hidden_irreps', None)

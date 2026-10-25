@@ -17,6 +17,8 @@
 This code was adapted from the way learning rate schedules are are built in JAX.
 """
 
+from typing import Any, Callable
+
 import jax.numpy as np
 from scipy.interpolate import splrep, PPoly
 
@@ -27,18 +29,21 @@ from jax_md import util
 
 f32 = util.f32
 f64 = util.f64
+Array = util.Array
 
 #
 
 
-def constant(f):
-  def schedule(unused_t):
+def constant(f: float | Array) -> Callable[..., float | Array]:
+  def schedule(unused_t: float | Array) -> float | Array:
     return f
 
   return schedule
 
 
-def canonicalize(scalar_or_schedule_fun):
+def canonicalize(
+  scalar_or_schedule_fun: float | Array | Callable[..., float | Array],
+) -> Callable[..., Any]:
   if callable(scalar_or_schedule_fun):
     return scalar_or_schedule_fun
   elif np.ndim(scalar_or_schedule_fun) == 0:
@@ -47,7 +52,9 @@ def canonicalize(scalar_or_schedule_fun):
     raise TypeError(type(scalar_or_schedule_fun))
 
 
-def spline(y, dx, degree=3):
+def spline(
+  y: Array, dx: float | Array, degree: int = 3
+) -> Callable[[Array], Array]:
   """Spline fit a given scalar function.
 
   Args:
@@ -68,7 +75,7 @@ def spline(y, dx, degree=3):
   # Store the coefficients of the spline fit to an array.
   coeffs = np.array(params.c)
 
-  def spline_fn(x):
+  def spline_fn(x: Array) -> Array:
     """Evaluates the spline fit for values of x."""
     ind = np.array(x / dx, dtype=np.int64)
     # The spline is defined for x values between 0 and largest value of y. If x

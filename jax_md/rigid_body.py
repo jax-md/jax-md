@@ -51,7 +51,7 @@ without neighbor lists and yields a function that computes the total energy on
 a system of rigid bodies.
 """
 
-from typing import Optional, Tuple, Any, Union, Callable
+from typing import Optional, Tuple, Any, Union, Callable, TypeVar
 
 from absl import logging
 
@@ -78,6 +78,7 @@ f32 = util.f32
 KeyArray = jax.Array
 NeighborListFns = partition.NeighborListFns
 ShiftFn = space.ShiftFn
+T = TypeVar('T')
 
 
 """Quaternion Utilities.
@@ -156,7 +157,9 @@ def _quaternion_rotate_fwd(
   return _quaternion_rotate(q, v), (q, v)
 
 
-def _quaternion_rotate_bwd(res, g: Array) -> Tuple[Array, Array]:
+def _quaternion_rotate_bwd(
+  res: Tuple[Array, Array], g: Array
+) -> Tuple[Array, Array]:
   q, v = res
   _, vjp_fn = jax.vjp(_quaternion_rotate_raw, q, v)
   dq, dv = vjp_fn(g)
@@ -205,7 +208,7 @@ class Quaternion:
   def ndim(self) -> int:
     return self.vec.ndim
 
-  def conj(self):
+  def conj(self) -> 'Quaternion':
     return Quaternion(_quaternion_conjugate(self.vec))
 
   def __mul__(self, qp: 'Quaternion') -> 'Quaternion':
@@ -214,7 +217,7 @@ class Quaternion:
   def __rmul__(self, qp: 'Quaternion') -> 'Quaternion':
     return Quaternion(_quaternion_multiply(qp.vec, self.vec))
 
-  def __getitem__(self, idx):
+  def __getitem__(self, idx: Any) -> 'Quaternion':
     if self.vec.ndim == 1:
       # NOTE: This will not catch the case where `idx` indexes into b
       raise ValueError(
@@ -237,7 +240,7 @@ def random_quaternion(key: KeyArray, dtype: DType) -> Quaternion:
   return Quaternion(rand_quat(key))
 
 
-def tree_map_no_quat(fn: Callable[..., Any], tree: Any, *rest: Any):
+def tree_map_no_quat(fn: Callable[..., Any], tree: Any, *rest: Any) -> PyTree:
   """Tree map over a PyTree treating Quaternions as leaves."""
   return tree_map(
     fn, tree, *rest, is_leaf=lambda node: isinstance(node, Quaternion)
@@ -301,7 +304,7 @@ class RigidBody:
   center: Array | float
   orientation: Union[Array, Quaternion, float]
 
-  def __getitem__(self, idx):
+  def __getitem__(self, idx: Any) -> 'RigidBody':
     center = self.center
     orientation = self.orientation
     if isinstance(center, (int, float)) or isinstance(
@@ -446,7 +449,7 @@ def temperature(
   return tree_reduce(operator.add, ke, 0.0)
 
 
-def get_moment_of_inertia_diagonal(I: Array, eps=1e-5):
+def get_moment_of_inertia_diagonal(I: Array, eps: float = 1e-5) -> Array:
   """Raises a ValueError if the moment of inertia tensor is not diagonal."""
   I_diag = vmap(jnp.diag)(I)
   # NOTE: Here epsilon has to take into account numerical error from
@@ -490,7 +493,7 @@ def _(position: RigidBody) -> int:
 
 
 @simulate.initialize_momenta.register(RigidBody)
-def _(state, key: Array, kT: float):
+def _(state: T, key: Array, kT: float) -> T:
   R, mass = state.position, state.mass
   center_key, angular_key = random.split(key)
 
@@ -526,7 +529,7 @@ class EmptyLeaf:
 _EMPTY_LEAF = EmptyLeaf()
 
 
-def split_center_and_orientation(dc):
+def split_center_and_orientation(dc: PyTree) -> Tuple[PyTree, PyTree, PyTree]:
   def grab_center(x):
     if isinstance(x, RigidBody):
       return x.center
@@ -549,7 +552,9 @@ def split_center_and_orientation(dc):
   return r, c, o
 
 
-def merge_center_and_orientation(rest, center, orientation):
+def merge_center_and_orientation(
+  rest: PyTree, center: PyTree, orientation: PyTree
+) -> PyTree:
   def merge_fn(r, c, o):
     if r is _EMPTY_LEAF:
       return RigidBody(c, o)
@@ -566,11 +571,13 @@ MOMENTUM_PERMUTATION = [
 
 
 def _rigid_body_3d_position_step(
-  state, shift_fn: ShiftFn, dt, m_rot: int, **kwargs
-):
+  state: T, shift_fn: ShiftFn, dt: float | Array, m_rot: int, **kwargs
+) -> T:
   """A symplectic update function for 3d rigid bodies."""
 
-  def free_rotor(k, dt, quat, p_quat, M):
+  def free_rotor(
+    k: int, dt: float | Array, quat: Array, p_quat: Array, M: Array
+  ) -> Tuple[Array, Array]:
     delta = dt / m_rot
 
     P = MOMENTUM_PERMUTATION
@@ -589,7 +596,7 @@ def _rigid_body_3d_position_step(
 
     return quat, p_quat
 
-  def orientation_update(state, dt, **kwargs):
+  def orientation_update(state: T, dt: float | Array, **kwargs) -> T:
     dt_2 = dt / 2
     R = state.position
     P = state.momentum
@@ -616,7 +623,9 @@ def _rigid_body_3d_position_step(
   return merge_center_and_orientation(rest, center, orientation)
 
 
-def _rigid_body_2d_position_step(state, shift_fn: ShiftFn, dt, **kwargs):
+def _rigid_body_2d_position_step(
+  state: T, shift_fn: ShiftFn, dt: float | Array, **kwargs
+) -> T:
   """A symplectic update function for 2d rigid bodies."""
   rest, center, orientation = split_center_and_orientation(state)
   center = simulate.position_step(center, shift_fn, dt, **kwargs)
@@ -627,7 +636,9 @@ def _rigid_body_2d_position_step(state, shift_fn: ShiftFn, dt, **kwargs):
 
 
 @simulate.position_step.register(RigidBody)
-def _(state, shift_fn, dt, m_rot=1, **kwargs):
+def _(
+  state: T, shift_fn: ShiftFn, dt: float | Array, m_rot: int = 1, **kwargs
+) -> T:
   if isinstance(state.position.orientation, Quaternion):
     return _rigid_body_3d_position_step(
       state, shift_fn, dt, m_rot=m_rot, **kwargs
@@ -682,7 +693,7 @@ def _(state, dt: float, kT: float, gamma: 'RigidBody'):
 
 
 @simulate.canonicalize_mass.register(RigidBody)
-def _(state):
+def _(state: T) -> T:
   mass = state.mass
   if not isinstance(mass, RigidBody):
     raise ValueError(
@@ -699,12 +710,12 @@ def _(state):
 
 
 @simulate.kinetic_energy.register(RigidBody)
-def _(state) -> Array | float:
+def _(state: T) -> Array | float:
   return kinetic_energy(state.position, state.momentum, state.mass)
 
 
 @simulate.temperature.register(RigidBody)
-def _(state) -> Array | float:
+def _(state: T) -> Array | float:
   return temperature(state.position, state.momentum, state.mass)
 
 
@@ -777,7 +788,7 @@ class RigidPointUnion:
     """Returns the spatial dimension of the shape."""
     return self.points.shape[-1]
 
-  def _sum_over_shapes(self, x):
+  def _sum_over_shapes(self, x: Array) -> Array:
     shape_count = len(self.point_count)
     shape_idx = jnp.repeat(
       jnp.arange(shape_count),
@@ -1051,7 +1062,7 @@ def point_energy(
     energy.
   """
 
-  def wrapped_energy_fn(body, **kwargs):
+  def wrapped_energy_fn(body: RigidBody, **kwargs) -> Array:
     pos, point_species = union_to_points(body, shape, shape_species)
     if point_species is None:
       return energy_fn(pos, **kwargs)
@@ -1091,17 +1102,21 @@ def point_energy_neighbor_list(
     energy.
   """
 
-  def wrapped_energy_fn(body, neighbor, **kwargs):
+  def wrapped_energy_fn(
+    body: RigidBody, neighbor: partition.NeighborList, **kwargs
+  ) -> Array:
     pos, species = union_to_points(body, shape, shape_species)
     return energy_fn(pos, neighbor=neighbor, species=species, **kwargs)
 
-  def neighbor_allocate_fn(body, **kwargs):
+  def neighbor_allocate_fn(body: RigidBody, **kwargs) -> partition.NeighborList:
     pos, species = union_to_points(body, shape, shape_species)
     nbrs = neighbor_fn.allocate(pos, **kwargs)
     nbrs = dataclasses.replace(nbrs, update_fn=neighbor_update_fn)
     return nbrs
 
-  def neighbor_update_fn(body, neighbor, **kwargs):
+  def neighbor_update_fn(
+    body, neighbor: partition.NeighborList, **kwargs
+  ) -> partition.NeighborList:
     pos, species = union_to_points(body, shape, shape_species)
     return neighbor_fn.update(pos, neighbor, **kwargs)
 

@@ -85,7 +85,7 @@ class CutoffCoulomb(CoulombHandler):
     r_cut: float | None = 12.0,
     use_erfc: bool = False,
     alpha: float = 0.3,
-  ):
+  ) -> None:
     """Initialize cutoff coulomb handler.
 
     Args:
@@ -219,7 +219,9 @@ class CutoffCoulomb(CoulombHandler):
 class EwaldCoulomb(CoulombHandler):
   """Ewald summation for coulomb interactions."""
 
-  def __init__(self, alpha: float = 0.23, kmax: int = 5, r_cut: float = 12.0):
+  def __init__(
+    self, alpha: float = 0.23, kmax: int = 5, r_cut: float = 12.0
+  ) -> None:
     """Initialize Ewald coulomb handler.
 
     Args:
@@ -364,7 +366,7 @@ class PMECoulomb(CoulombHandler):
     grid_size: int | Array = 32,
     alpha: float | Array = 0.3,
     r_cut: float = 12.0,
-  ):
+  ) -> None:
     """Initialize PME coulomb handler.
 
     Args:
@@ -534,7 +536,7 @@ class PMECoulomb(CoulombHandler):
     return Q.at[gp[:, 0], gp[:, 1], gp[:, 2]].add(ac)
 
   @staticmethod
-  def b(m, n=4):
+  def b(m: Array, n: int = 4) -> Array:
     if n not in (4, 5):
       raise ValueError(f'Unsupported PME spline order {n}.')
     k = jnp.arange(n - 1)
@@ -548,7 +550,7 @@ class PMECoulomb(CoulombHandler):
     return prefix / denom
 
   @staticmethod
-  def B(mx, my, mz, n=4):
+  def B(mx: Array, my: Array, mz: Array, n: int = 4) -> Array:
     """Compute the B factors from Essmann et al. equation 4.7.
 
     Uses OpenMM's fix for tiny moduli: if |A|^2 < 1e-7, replace with the
@@ -580,10 +582,10 @@ class PMECoulomb(CoulombHandler):
     fractional_coordinates: bool = False,
     alpha: float | Array = 0.34,
     order: int = 5,
-  ) -> Callable[[Array], Array]:
+  ) -> EnergyFn:
     _ibox = space.inverse(box)
 
-    def energy_fn(R, **kwargs):
+    def energy_fn(R: Array, **kwargs) -> Array:
       q = kwargs.pop('charge', charge)
       box_overridden = 'box' in kwargs
       _box = kwargs.pop('box', box)

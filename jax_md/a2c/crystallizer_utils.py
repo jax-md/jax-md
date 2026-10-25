@@ -29,7 +29,10 @@ from pymatgen.core.composition import Composition
 class Box(onp.ndarray):
   """A 3x3 matrix to hold the lattice vectors."""
 
-  def __new__(cls, input_array):
+  def __new__(
+    cls,
+    input_array: Union[onp.ndarray, jnp.ndarray, Sequence[Sequence[float]]],
+  ):
     obj = onp.asarray(input_array).view(cls)
     assert obj.shape == (3, 3)
     return obj
@@ -39,7 +42,7 @@ class BoxRowMatrix(Box):
   """Row-ordered box matrix (as in pyamtgen)."""
 
   @property
-  def T(self):  # pylint: disable=invalid-name
+  def T(self) -> 'BoxColumnMatrix':  # pylint: disable=invalid-name
     return BoxColumnMatrix(self.transpose())
 
 
@@ -47,7 +50,7 @@ class BoxColumnMatrix(Box):
   """Column-ordered box matrix (as in jax-md)."""
 
   @property
-  def T(self):  # pylint: disable=invalid-name
+  def T(self) -> BoxRowMatrix:  # pylint: disable=invalid-name
     return BoxRowMatrix(self.transpose())
 
 
@@ -350,7 +353,7 @@ def subcells_to_structures(
 
 def get_candidate_subset(
   candidates: Sequence[Any], n_workers: int = 1, worker_id: int = 0
-):
+) -> onp.ndarray:
   """Conveinence method to split candidates into subsets for parallel processing.
 
   Args:
@@ -374,7 +377,7 @@ def valid_subcell(
   fe_upper_limit: float = 0.0,
   fusion_distance: float = 1.5,
   distance_tolerance: float = 0.0001,
-):
+) -> bool:
   """Validate the relaxed subcell."""
   # Unphysically negative formation energies indicate a problem
   if final_energy < fe_lower_limit:

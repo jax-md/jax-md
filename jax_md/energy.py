@@ -15,6 +15,7 @@
 """Definitions of various standard energy functions."""
 
 from functools import wraps, partial
+from os import PathLike
 
 from typing import Callable, Tuple, TextIO, Dict, Any, Optional
 
@@ -28,6 +29,8 @@ from jax import ops
 from jax.tree_util import tree_map
 from jax import vmap
 from jax.scipy.special import erfc  # error function
+import jraph
+import numpy as onp
 from jax_md import (
   custom_partition,
   space,
@@ -445,7 +448,15 @@ def morse_neighbor_list(
   return neighbor_fn, energy_fn
 
 
-def gupta_potential(displacement, p, q, r_0n, U_n, A, cutoff):
+def gupta_potential(
+  displacement: DisplacementFn,
+  p: float | Array,
+  q: float | Array,
+  r_0n: float | Array,
+  U_n: float | Array,
+  A: float | Array,
+  cutoff: float,
+) -> Callable[[Array], Array]:
   """.. _gupta-pot:
 
   Gupta potential with default parameters for Au_55 cluster. Gupta
@@ -496,7 +507,7 @@ def gupta_potential(displacement, p, q, r_0n, U_n, A, cutoff):
     term2 = jnp.exp(-2.0 * q * (r / r_0n - 1))
     return jnp.where(within_cutoff, term2, 0.0)
 
-  def compute_fn(R):
+  def compute_fn(R: Array) -> Array:
     dR = space.map_product(displacement)(R, R)
     dr = space.distance(dR)
     first_term = A * jnp.sum(_gupta_term1(dr, p, r_0n, cutoff), axis=1)
@@ -519,12 +530,14 @@ GUPTA_GOLD55_DICT = {
 }
 
 
-def gupta_gold55(displacement, cutoff=8.0):
+def gupta_gold55(
+  displacement: DisplacementFn, cutoff: float = 8.0
+) -> Callable[[Array], Array]:
   gupta_gold_fn = gupta_potential(
     displacement, cutoff=cutoff, **GUPTA_GOLD55_DICT
   )
 
-  def energy_fn(R, **unused_kwargs):
+  def energy_fn(R: Array, **unused_kwargs) -> Array:
     return gupta_gold_fn(R)
 
   return energy_fn
@@ -581,7 +594,13 @@ def multiplicative_isotropic_cutoff(
     return jnp.where(dr < r_cutoff, inner, 0)
 
   @wraps(fn)
-  def cutoff_fn(dr, *args, r_onset=r_onset, r_cutoff=r_cutoff, **kwargs):
+  def cutoff_fn(
+    dr: Array,
+    *args,
+    r_onset: float | Array = r_onset,
+    r_cutoff: float | Array = r_cutoff,
+    **kwargs,
+  ) -> Array:
     return smooth_fn(dr, r_onset, r_cutoff) * fn(dr, *args, **kwargs)
 
   return cutoff_fn
@@ -784,7 +803,7 @@ def bks_silica_pair(
   displacement_or_metric: DisplacementOrMetricFn,
   species: Array,
   cutoff: float = 8.0,
-):
+) -> Callable[[Array], Array]:
   """Convenience wrapper to compute :ref:`BKS energy <bks-pot>` for SiO2."""
   bks_pair_fn = bks_pair(
     displacement_or_metric, species, cutoff=cutoff, **BKS_SILICA_DICT
@@ -794,7 +813,7 @@ def bks_silica_pair(
 
   e_self = partial(_bks_silica_self, alpha=0.25, cutoff=cutoff)
 
-  def energy_fn(R, **kwargs):
+  def energy_fn(R: Array, **kwargs) -> Array:
     return (
       bks_pair_fn(R, **kwargs)
       + N_0 * e_self(CHARGE_SILICON**2)
@@ -835,7 +854,7 @@ def bks_silica_neighbor_list(
 
   e_self = partial(_bks_silica_self, alpha=0.25, cutoff=cutoff)
 
-  def energy_fn(R, neighbor, **kwargs):
+  def energy_fn(R: Array, neighbor: NeighborList, **kwargs) -> Array:
     return (
       bks_pair_fn(R, neighbor, **kwargs)
       + N_0 * e_self(CHARGE_SILICON**2)
@@ -957,7 +976,7 @@ def stillinger_weber(
   three_body_fn = partial(_sw_angle_interaction, gamma, sigma, cutoff)
   three_body_fn = vmap(vmap(vmap(three_body_fn, (0, None)), (None, 0)))
 
-  def compute_fn(R, **kwargs):
+  def compute_fn(R: Array, **kwargs) -> Array:
     d = partial(displacement, **kwargs)
     dR = space.map_product(d)(R, R)
     dr = space.distance(dR)
@@ -970,7 +989,7 @@ def stillinger_weber(
 
 def stillinger_weber_neighbor_list(
   displacement: DisplacementFn,
-  box_size: float,
+  box_size: Box,
   sigma: float = 2.0951,
   A: float = 7.049556277,
   B: float = 0.6022245584,
@@ -1000,7 +1019,7 @@ def stillinger_weber_neighbor_list(
     **neighbor_kwargs,
   )
 
-  def compute_fn(R, neighbor, **kwargs):
+  def compute_fn(R: Array, neighbor: NeighborList, **kwargs) -> Array:
     d = partial(displacement, **kwargs)
     mask = partition.neighbor_list_mask(neighbor)
 
@@ -1097,7 +1116,7 @@ def load_lammps_tersoff_parameters(file: TextIO) -> list[Dict[str, Any]]:
   return params
 
 
-def _ters_cutoff(dr, R, D) -> Array:
+def _ters_cutoff(dr: Array, R: float | Array, D: float | Array) -> Array:
   """The cut-off function of the Tersoff potential.
   Args:
     R: A Parameter that is the average of inner and outer cutoff radii
@@ -1114,7 +1133,20 @@ def _ters_cutoff(dr, R, D) -> Array:
   return inner
 
 
-def _ters_bij(R, D, c, d, h, lam3, beta, n, m, dRij, dRik, mask_ijk) -> Array:
+def _ters_bij(
+  R: float | Array,
+  D: float | Array,
+  c: float | Array,
+  d: float | Array,
+  h: float | Array,
+  lam3: float | Array,
+  beta: float | Array,
+  n: float | Array,
+  m: float | Array,
+  dRij: Array,
+  dRik: Array,
+  mask_ijk: Array,
+) -> Array:
   """The bond-order term of the Tersoff potential.
   Args:
     # parameters for cut-off functions
@@ -1185,7 +1217,7 @@ def _ters_attractive(
   m: float,
   dR12: Array,
   dR13: Array,
-  mask_ijk,
+  mask_ijk: Array,
 ) -> Array:
   """The attractive term of the Tersoff potential.
   Args:
@@ -1297,7 +1329,7 @@ def tersoff(
   )
 
   # define compute functions.
-  def compute_fn(R, **kwargs):
+  def compute_fn(R: Array, **kwargs) -> Array:
     d = partial(displacement, **kwargs)
     dR = space.map_product(d)(R, R)
     dr = space.distance(dR)
@@ -1324,7 +1356,7 @@ def tersoff_from_lammps_parameters(
 
 def tersoff_neighbor_list(
   displacement: DisplacementFn,
-  box_size: float,
+  box_size: Box,
   params: list[Dict[str, Any]],
   species: Array | None = None,
   dr_threshold: float = 0.5,
@@ -1405,7 +1437,7 @@ def tersoff_neighbor_list(
     )
 
   # define compute functions
-  def compute_fn(R, neighbor, **kwargs):
+  def compute_fn(R: Array, neighbor: NeighborList, **kwargs) -> Array:
     d = partial(displacement, **kwargs)
     mask = partition.neighbor_list_mask(neighbor, mask_self=True)
     mask_ijk = mask[:, None, :] * mask[:, :, None]
@@ -1423,10 +1455,10 @@ def tersoff_neighbor_list(
 
 def tersoff_from_lammps_parameters_neighbor_list(
   displacement: DisplacementFn,
-  box_size: float,
+  box_size: Box,
   f: TextIO,
   dr_threshold: float = 0.5,
-  fractional_coordinates=True,
+  fractional_coordinates: bool = True,
   neighbor_list_fn: Callable = partition.neighbor_list,
   **neighbor_kwargs,
 ) -> Tuple[NeighborListFns, Callable[..., Array]]:
@@ -1464,7 +1496,7 @@ def _edip_radial_interaction(
   alpha: float,
   beta: float,
   cutoff: float,
-  mask,
+  mask: Array,
   r: Array,
 ) -> Array:
   within_cutoff = (r > 0) & (r < cutoff)
@@ -1492,7 +1524,7 @@ def _edip_angle_interaction(
   eta: float,
   alpha: float,
   mu: float,
-  mask,
+  mask: Array,
   dR12: Array,
   dR13: Array,
 ) -> Array:
@@ -1588,7 +1620,7 @@ def edip(
     mu,
   )
 
-  def compute_fn(R, **kwargs):
+  def compute_fn(R: Array, **kwargs) -> Array:
     _three_body_fn = vmap(
       vmap(vmap(three_body_fn, (None, 0, None)), (None, None, 0))
     )
@@ -1659,7 +1691,7 @@ def edip_neighbor_list(
     **neighbor_kwargs,
   )
 
-  def compute_fn(R, neighbor, **kwargs):
+  def compute_fn(R: Array, neighbor: NeighborList, **kwargs) -> Array:
     d = partial(displacement, **kwargs)
     mask = partition.neighbor_list_mask(neighbor, mask_self=True)
     if format is partition.Dense:
@@ -1825,7 +1857,7 @@ def eam(
   """
   metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
 
-  def energy(R, **kwargs):
+  def energy(R: Array, **kwargs) -> Array:
     d = partial(metric, **kwargs)
     dr = space.map_product(d)(R, R)
     total_charge = util.high_precision_sum(charge_fn(dr), axis=1)
@@ -1849,7 +1881,7 @@ def eam_from_lammps_parameters(
 
 def eam_neighbor_list(
   displacement_or_metric: DisplacementOrMetricFn,
-  box_size: float,
+  box_size: Box,
   charge_fn: Callable[[Array], Array],
   embedding_fn: Callable[[Array], Array],
   pairwise_fn: Callable[[Array], Array],
@@ -1874,7 +1906,7 @@ def eam_neighbor_list(
     **neighbor_kwargs,
   )
 
-  def energy_fn(R, neighbor, **kwargs):
+  def energy_fn(R: Array, neighbor: NeighborList, **kwargs) -> Array:
     mask = partition.neighbor_list_mask(neighbor)
     self_mask = partition.neighbor_list_mask(neighbor, mask_self=True)
     d = partial(metric, **kwargs)
@@ -1908,11 +1940,11 @@ def eam_neighbor_list(
 
 def eam_from_lammps_parameters_neighbor_list(
   displacement: DisplacementFn,
-  box_size: float,
+  box_size: Box,
   f: TextIO,
-  axis=None,
+  axis: Tuple[int, ...] | None = None,
   dr_threshold: float = 0.5,
-  fractional_coordinates=True,
+  fractional_coordinates: bool = True,
   neighbor_list_fn: Callable = partition.neighbor_list,
   **neighbor_kwargs,
 ) -> Tuple[NeighborListFns, Callable[..., Array]]:
@@ -1940,14 +1972,14 @@ class BehlerParrinelloEnergy(eqx.Module):
 
   def __init__(
     self,
-    sym_fn,
-    in_features,
-    mlp_sizes,
+    sym_fn: Callable[..., Array],
+    in_features: int,
+    mlp_sizes: Tuple[int, ...],
     *,
-    key,
-    per_particle=False,
-    activation=jnp.tanh,
-  ):
+    key: jax.Array,
+    per_particle: bool = False,
+    activation: Callable = jnp.tanh,
+  ) -> None:
     self.sym_fn = sym_fn
     self.per_particle = per_particle
     self.mlp = nn.MLP(
@@ -1958,7 +1990,9 @@ class BehlerParrinelloEnergy(eqx.Module):
       activation=activation,
     )
 
-  def node_energies(self, R, neighbor=None, **kwargs):
+  def node_energies(
+    self, R: Array, neighbor: NeighborList | None = None, **kwargs
+  ) -> Array:
     """Per-atom energies of shape ``[n, 1]``."""
     if neighbor is not None:
       sym = self.sym_fn(R, neighbor, **kwargs)
@@ -1966,12 +2000,18 @@ class BehlerParrinelloEnergy(eqx.Module):
       sym = self.sym_fn(R, **kwargs)
     return vmap(self.mlp)(sym)
 
-  def __call__(self, R, neighbor=None, **kwargs):
+  def __call__(
+    self, R: Array, neighbor: NeighborList | None = None, **kwargs
+  ) -> Array:
     readout = self.node_energies(R, neighbor, **kwargs)
     return readout if self.per_particle else jnp.sum(readout)
 
 
-def probe_sym_dim(sym_fn, species, spatial_dimension=3):
+def probe_sym_dim(
+  sym_fn: Callable[..., Array],
+  species: Array | None,
+  spatial_dimension: int = 3,
+) -> int:
   n = len(species) if species is not None else 3
   dummy = jnp.zeros((n, spatial_dimension))
   return sym_fn(dummy).shape[-1]
@@ -1987,7 +2027,7 @@ def behler_parrinello(
   per_particle: bool = False,
   spatial_dimension: int = 3,
   activation: Callable = jnp.tanh,
-):
+) -> Callable[..., Array]:
   """Build a Behler-Parrinello symmetry-function energy model.
 
   Args:
@@ -2019,7 +2059,7 @@ def behler_parrinello(
     activation=activation,
   )
 
-  def energy_fn(R, **kwargs):
+  def energy_fn(R: Array, **kwargs) -> Array:
     return model(R, **kwargs)
 
   setattr(energy_fn, 'model', model)
@@ -2042,7 +2082,7 @@ def behler_parrinello_neighbor_list(
   neighbor_list_fn: Callable = partition.neighbor_list,
   activation: Callable = jnp.tanh,
   **neighbor_kwargs,
-):
+) -> Tuple[NeighborListFns, Callable[..., Array]]:
   """Build a Behler-Parrinello energy model with neighbor lists.
 
   Args:
@@ -2101,7 +2141,9 @@ def behler_parrinello_neighbor_list(
     activation=activation,
   )
 
-  def energy_fn(R, neighbor=None, **kwargs):
+  def energy_fn(
+    R: Array, neighbor: NeighborList | None = None, **kwargs
+  ) -> Array:
     return model(R, neighbor, **kwargs)
 
   setattr(energy_fn, 'model', model)
@@ -2149,7 +2191,7 @@ class EnergyGraphNet(eqx.Module):
     dr_threshold: float = 0.0,
     nodes: Array | None = None,
     per_particle: bool = False,
-  ):
+  ) -> None:
     keys = (jax.random.fold_in(key, i) for i in itertools.count())
 
     self.displacement_fn = displacement_fn
@@ -2192,7 +2234,7 @@ class EnergyGraphNet(eqx.Module):
       else None
     )
 
-  def build_graph(self, R, neighbor, **kwargs):
+  def build_graph(self, R: Array, neighbor: NeighborList | None, **kwargs):
     nodes = kwargs.pop('nodes', None)
     if nodes is None and self.nodes is not None:
       nodes = jnp.asarray(self.nodes, self.nodes_dtype)
@@ -2212,7 +2254,9 @@ class EnergyGraphNet(eqx.Module):
       **kwargs,
     )
 
-  def node_energies(self, R, neighbor=None, **kwargs):
+  def node_energies(
+    self, R: Array, neighbor: NeighborList | None = None, **kwargs
+  ) -> Array:
     """Per-atom energies of shape ``[n, 1]`` from the node readout.
 
     Needs ``per_particle=True`` at construction, which allocates the node
@@ -2225,7 +2269,9 @@ class EnergyGraphNet(eqx.Module):
     nodes = self.GraphNetEncoder(graph).nodes[: R.shape[0]]
     return self.NodeDecoder(nodes)
 
-  def __call__(self, R, neighbor=None, **kwargs):
+  def __call__(
+    self, R: Array, neighbor: NeighborList | None = None, **kwargs
+  ) -> Array:
     if self.per_particle:
       return self.node_energies(R, neighbor, **kwargs)
     graph = self.build_graph(R, neighbor, **kwargs)
@@ -2289,7 +2335,7 @@ def neighbor_graph_input(
   R: Array,
   neighbor: NeighborList,
   **kwargs,
-):
+) -> nn.GraphsTuple | jraph.GraphsTuple:
   N = R.shape[0]
   d = partial(displacement_fn, **kwargs)
   nodes = node_state_or_default(nodes, R, kwargs)
@@ -2372,7 +2418,7 @@ def graph_network(
     **model_kwargs,
   )
 
-  def energy_fn(R, **kwargs):
+  def energy_fn(R: Array, **kwargs) -> Array:
     return model(R, **kwargs)
 
   setattr(energy_fn, 'model', model)
@@ -2395,7 +2441,7 @@ def graph_network_neighbor_list(
   format: partition.NeighborListFormat = partition.Sparse,
   neighbor_list_fn: Callable = partition.neighbor_list,
   **neighbor_kwargs,
-):
+) -> Tuple[NeighborListFns, Callable[..., Array]]:
   """Convenience wrapper around EnergyGraphNet model using neighbor lists.
 
   Args:
@@ -2466,7 +2512,9 @@ def graph_network_neighbor_list(
     **model_kwargs,
   )
 
-  def energy_fn(R, neighbor=None, **kwargs):
+  def energy_fn(
+    R: Array, neighbor: NeighborList | None = None, **kwargs
+  ) -> Array:
     return model(R, neighbor, **kwargs)
 
   setattr(energy_fn, 'model', model)
@@ -2476,14 +2524,18 @@ def graph_network_neighbor_list(
 
 def nequip_neighbor_list(
   displacement_fn,
-  box,
+  box: Box,
   config: Dict[str, Any] | None = None,
-  species=None,
-  model=None,
+  species: Array | None = None,
+  model: nequip.NequIP | None = None,
   neighbor_list_fn: Callable = partition.neighbor_list,
   featurizer_fn: Callable | None = None,
   **nl_kwargs,
-):
+) -> Tuple[
+  NeighborListFns | custom_partition.NeighborListMultiImageFns,
+  Callable[..., nequip.NequIP],
+  Callable[..., Array],
+]:
   """Compute a NequIP energy using a neighbor list.
 
   Args:
@@ -2526,13 +2578,18 @@ def nequip_neighbor_list(
   )
   featurizer = None if featurizer_fn is None else featurizer_fn(displacement_fn)
 
-  def init_fn(key, position, neighbor, **kwargs):
+  def init_fn(
+    key: jax.Array,
+    position: Array,
+    neighbor: NeighborList | custom_partition.NeighborListMultiImage,
+    **kwargs,
+  ) -> nequip.NequIP:
     del position, neighbor, kwargs
     if model is not None:
       return model
     return nequip.from_config(key, **config)
 
-  def energy_fn(model, position, neighbor, **kwargs):
+  def energy_fn(model, position: Array, neighbor, **kwargs) -> Array:
     _species = kwargs.pop('species', species)
     if _species is None:
       raise ValueError('Integer species indices are required.')
@@ -2561,11 +2618,11 @@ def nequip_neighbor_list(
 
 
 def orb_neighbor_list(
-  displacement_fn=None,
-  box=None,
-  species=None,
+  displacement_fn: DisplacementFn | None = None,
+  box: Box | None = None,
+  species: Array | None = None,
   model: str = 'orb-jax-v3-conservative-omol',
-  model_path=None,
+  model_path: str | PathLike | None = None,
   total_charge: float = 0.0,
   total_spin: float = 1.0,
   dr_threshold: float = 0.0,
@@ -2573,7 +2630,7 @@ def orb_neighbor_list(
   disable_cell_list: bool = False,
   neighbor_list_fn: Callable = partition.neighbor_list,
   **nl_kwargs,
-):
+) -> Tuple[NeighborListFns, Callable[..., Array]]:
   """Convenience wrapper to compute Orb energy using a neighbor list.
 
   Args:
@@ -2617,13 +2674,13 @@ def orb_neighbor_list(
   )
 
   def energy_fn(
-    position,
-    neighbor,
-    species=species,
-    total_charge=total_charge,
-    total_spin=total_spin,
+    position: Array,
+    neighbor: NeighborList,
+    species: Array | None = species,
+    total_charge: float | Array = total_charge,
+    total_spin: float | Array = total_spin,
     **kwargs,
-  ):
+  ) -> Array:
     if species is None:
       raise ValueError('Orb requires per-atom species.')
     return net(
@@ -2639,18 +2696,18 @@ def orb_neighbor_list(
 
 
 def aceff_neighbor_list(
-  displacement_fn=None,
-  box=None,
-  species=None,
+  displacement_fn: DisplacementFn | None = None,
+  box: Box | None = None,
+  species: Array | None = None,
   model: str = 'aceff-jax-2.0',
-  model_path=None,
+  model_path: str | PathLike | None = None,
   total_charge: float = 0.0,
   dr_threshold: float = 0.0,
   capacity_multiplier: float = 1.25,
   disable_cell_list: bool = False,
   neighbor_list_fn: Callable = partition.neighbor_list,
   **nl_kwargs,
-):
+) -> Tuple[NeighborListFns, Callable[..., Array]]:
   """Convenience wrapper to compute AceFF energy using a neighbor list.
 
   Args:
@@ -2692,12 +2749,12 @@ def aceff_neighbor_list(
   )
 
   def energy_fn(
-    position,
-    neighbor,
-    species=species,
-    total_charge=total_charge,
+    position: Array,
+    neighbor: NeighborList,
+    species: Array | None = species,
+    total_charge: float | Array = total_charge,
     **kwargs,
-  ):
+  ) -> Array:
     if species is None:
       raise ValueError('AceFF requires per-atom species.')
     return net(
@@ -2712,17 +2769,17 @@ def aceff_neighbor_list(
 
 
 def ani_neighbor_list(
-  displacement_fn=None,
-  box=None,
-  species=None,
+  displacement_fn: DisplacementFn | None = None,
+  box: Box | None = None,
+  species: Array | None = None,
   model: str = 'ani2x-jax-ensemble',
-  model_path=None,
+  model_path: str | PathLike | None = None,
   dr_threshold: float = 0.0,
   capacity_multiplier: float = 1.25,
   disable_cell_list: bool = False,
   neighbor_list_fn: Callable = partition.neighbor_list,
   **nl_kwargs,
-):
+) -> Tuple[NeighborListFns, Callable[..., Array]]:
   """Convenience wrapper to compute ANI-2x energy using a neighbor list.
 
   Args:
@@ -2763,7 +2820,12 @@ def ani_neighbor_list(
     **nl_kwargs,
   )
 
-  def energy_fn(position, neighbor, species=species, **kwargs):
+  def energy_fn(
+    position: Array,
+    neighbor: NeighborList,
+    species: Array | None = species,
+    **kwargs,
+  ) -> Array:
     if species is None:
       raise ValueError('ANI requires per-atom species.')
     return net(
@@ -2777,17 +2839,17 @@ def ani_neighbor_list(
 
 
 def vivace_neighbor_list(
-  displacement_fn=None,
-  box=None,
-  species=None,
+  displacement_fn: DisplacementFn | None = None,
+  box: Box | None = None,
+  species: Array | None = None,
   model: str = 'vivace-v0.1',
-  model_path=None,
+  model_path: str | PathLike | None = None,
   dr_threshold: float = 0.0,
   capacity_multiplier: float = 1.25,
   disable_cell_list: bool = False,
   neighbor_list_fn: Callable = partition.neighbor_list,
   **nl_kwargs,
-):
+) -> Tuple[NeighborListFns, Callable[..., Array]]:
   """Convenience wrapper to compute Vivace energy using a neighbor list.
 
   Args:
@@ -2832,7 +2894,12 @@ def vivace_neighbor_list(
     **nl_kwargs,
   )
 
-  def energy_fn(position, neighbor, species=species, **kwargs):
+  def energy_fn(
+    position: Array,
+    neighbor: NeighborList,
+    species: Array | None = species,
+    **kwargs,
+  ) -> Array:
     if species is None:
       raise ValueError('Vivace requires per-atom species.')
     return net(
@@ -2847,11 +2914,11 @@ def vivace_neighbor_list(
 
 
 def so3lr_neighbor_list(
-  displacement_fn=None,
-  box=None,
-  species=None,
+  displacement_fn: DisplacementFn | None = None,
+  box: Box | None = None,
+  species: Array | None = None,
   model: str = 'so3lr',
-  model_path=None,
+  model_path: str | PathLike | None = None,
   total_charge: float = 0.0,
   total_spin: float = 0.0,
   dr_threshold: float = 0.0,
@@ -2859,7 +2926,7 @@ def so3lr_neighbor_list(
   disable_cell_list: bool = False,
   neighbor_list_fn: Callable = partition.neighbor_list,
   **nl_kwargs,
-):
+) -> Tuple[NeighborListFns, Callable[..., Array]]:
   """Convenience wrapper to compute SO3LR energy using neighbor lists.
 
   SO3LR has a short-range and a long-range cutoff, so the neighbor_fn
@@ -2908,13 +2975,13 @@ def so3lr_neighbor_list(
   )
 
   def energy_fn(
-    position,
-    neighbor,
-    species=species,
-    total_charge=total_charge,
-    total_spin=total_spin,
+    position: Array,
+    neighbor: partition.PairedNeighborList,
+    species: Array | None = species,
+    total_charge: float | Array = total_charge,
+    total_spin: float | Array = total_spin,
     **kwargs,
-  ):
+  ) -> Array:
     if species is None:
       raise ValueError('SO3LR requires per-atom species.')
     return net(
@@ -2931,11 +2998,11 @@ def so3lr_neighbor_list(
 
 
 def aimnet2_neighbor_list(
-  displacement_fn=None,
-  box=None,
-  species=None,
+  displacement_fn: DisplacementFn | None = None,
+  box: Box | None = None,
+  species: Array | None = None,
   model: str = 'aimnet2-jax',
-  model_path=None,
+  model_path: str | PathLike | None = None,
   total_charge: float = 0.0,
   periodic: bool = True,
   dr_threshold: float = 0.0,
@@ -2943,7 +3010,7 @@ def aimnet2_neighbor_list(
   disable_cell_list: bool = False,
   neighbor_list_fn: Callable = partition.neighbor_list,
   **nl_kwargs,
-):
+) -> Tuple[NeighborListFns, Callable[..., Array]]:
   """Convenience wrapper to compute AIMNet2 energy using neighbor lists.
 
   AIMNet2 has a short-range and a long-range cutoff, so the neighbor_fn
@@ -3001,7 +3068,12 @@ def aimnet2_neighbor_list(
     **nl_kwargs,
   )
 
-  def energy_fn(position, neighbor, total_charge=total_charge, **kwargs):
+  def energy_fn(
+    position: Array,
+    neighbor: partition.PairedNeighborList,
+    total_charge: float | Array = total_charge,
+    **kwargs,
+  ) -> Array:
     if species is None:
       raise ValueError('AIMNet2 requires per-atom species.')
     return net(
@@ -3083,7 +3155,9 @@ def _calc_triangle_areas(
   return 0.5 * dr1 * dr2 * sin
 
 
-def volume_potential(R_mem: Array, triangles: Array, V_0: float, k: float):
+def volume_potential(
+  R_mem: Array, triangles: Array, V_0: float, k: float
+) -> Array:
   """.. _volume_potential
   Global volume conservation of the vesicle as used by Vutukuri HR et al.
   (Gompper Group) https://doi.org/10.1038/s41586-020-2730-x
@@ -3211,25 +3285,29 @@ def bending_potential(
 
 
 def uma_neighbor_list(
-  displacement_fn,
-  box,
+  displacement_fn: DisplacementFn,
+  box: Box,
   cfg=None,
-  atoms=None,
-  checkpoint_path=None,
-  head_type='mlp',
+  atoms: Array | None = None,
+  checkpoint_path: str | None = None,
+  head_type: str = 'mlp',
   neighbor_list_fn: Callable = custom_partition.neighbor_list_multi_image,
   featurizer_fn: Callable | None = None,
-  charge=None,
-  spin=None,
-  dataset_idx=None,
-  head_dataset='omat',
-  apply_atom_refs=True,
+  charge: Array | None = None,
+  spin: Array | None = None,
+  dataset_idx: Array | None = None,
+  head_dataset: str = 'omat',
+  apply_atom_refs: bool = True,
   atom_refs=None,
-  use_kernels=True,
-  merge_mole=None,
-  so2_block_gemm=None,
+  use_kernels: bool | None = True,
+  merge_mole: bool | None = None,
+  so2_block_gemm: bool | None = None,
   **nl_kwargs,
-):
+) -> Tuple[
+  NeighborListFns | custom_partition.NeighborListMultiImageFns,
+  Callable[..., eqx.Module],
+  Callable[..., Array],
+]:
   """Convenience wrapper to compute UMA energy using a neighbor list.
 
   This follows the standard JAX-MD pattern of returning
@@ -3435,13 +3513,13 @@ def uma_neighbor_list(
     def __init__(
       self,
       config,
-      use_moe=False,
-      atom_refs=None,
-      energy_mean=None,
-      energy_rmsd=None,
+      use_moe: bool = False,
+      atom_refs: Tuple[float, ...] | None = None,
+      energy_mean: float | None = None,
+      energy_rmsd: float | None = None,
       *,
-      key,
-    ):
+      key: jax.Array,
+    ) -> None:
       backbone_key, head_key = jax.random.split(key)
       if use_moe:
         from jax_md._nn.uma.model_moe import UMAMoEBackbone
@@ -3465,7 +3543,7 @@ def uma_neighbor_list(
       self.energy_mean = energy_mean
       self.energy_rmsd = energy_rmsd
 
-    def __call__(self, features):
+    def __call__(self, features: Dict[str, Array]) -> Array:
       emb = self.backbone(
         features['positions'],
         features['atomic_numbers'],
@@ -3505,7 +3583,12 @@ def uma_neighbor_list(
       key=key,
     )
 
-  def init_fn(key, position, neighbor, **kwargs):
+  def init_fn(
+    key: jax.Array,
+    position: Array,
+    neighbor: NeighborList | custom_partition.NeighborListMultiImage,
+    **kwargs,
+  ) -> UMAEnergyModel:
     _atoms = kwargs.pop('atoms', atoms)
     if _atoms is None:
       raise ValueError('Integer atomic numbers are required.')
@@ -3565,7 +3648,12 @@ def uma_neighbor_list(
       strict=True,
     )
 
-  def energy_fn(model, position, neighbor, **kwargs):
+  def energy_fn(
+    model: UMAEnergyModel,
+    position: Array,
+    neighbor: NeighborList | custom_partition.NeighborListMultiImage,
+    **kwargs,
+  ) -> Array:
     _atoms = kwargs.pop('atoms', atoms)
     if _atoms is None:
       raise ValueError('Integer atomic numbers are required.')
@@ -3590,20 +3678,23 @@ def uma_neighbor_list(
 
 
 def mace_neighbor_list(
-  displacement_fn,
-  box,
+  displacement_fn: DisplacementFn,
+  box: Box,
   *,
-  model,
+  model: Callable[..., Any],
   config: Dict[str, Any],
-  z_atomic,
+  z_atomic: Array | onp.ndarray,
   r_cutoff: float,
   dr_threshold: float = 0.5,
   fractional_coordinates: bool = False,
   neighbor_list_fn: Callable = partition.neighbor_list,
-  featurizer_fn=None,
-  head=None,
+  featurizer_fn: Callable | None = None,
+  head: Array | None = None,
   **neighbor_kwargs,
-):
+) -> Tuple[
+  NeighborListFns | custom_partition.NeighborListMultiImageFns,
+  Callable[..., Array],
+]:
   """Wraps a MACE-JAX potential as a JAX MD neighbor-list energy.
 
   Args:
@@ -3658,7 +3749,16 @@ def mace_neighbor_list(
     )
 
   @jax.jit
-  def energy_fn(R, *, box=None, neighbor=None, perturbation=None, **kwargs):
+  def energy_fn(
+    R: Array,
+    *,
+    box: Box | None = None,
+    neighbor: NeighborList
+    | custom_partition.NeighborListMultiImage
+    | None = None,
+    perturbation: float | Array | None = None,
+    **kwargs,
+  ) -> Array:
     box_now = box if box is not None else box_default
     batch = featurize(R, neighbor, box=box_now, perturbation=perturbation)
     model_kwargs = dict(kwargs)

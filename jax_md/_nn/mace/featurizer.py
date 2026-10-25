@@ -1,15 +1,22 @@
 """MACE featurizers: convert JAX-MD neighbor lists into MACE batch dicts."""
 
+from typing import Any, Callable
+
 import jax
 import jax.numpy as jnp
 import jax.lax as lax
 import numpy as np
-from jax_md import space, partition
+from jax_md import space, partition, custom_partition
 
 
 def mace_featurizer(
-  displacement_fn, config, z_atomic, *, fractional_coordinates=False, head=None
-):
+  displacement_fn: space.DisplacementFn,
+  config: dict[str, Any],
+  z_atomic: jnp.ndarray | np.ndarray,
+  *,
+  fractional_coordinates: bool = False,
+  head: jnp.ndarray | None = None,
+) -> Callable[..., dict[str, jnp.ndarray]]:
   """Create a featurizer for standard MIC neighbor lists.
 
   Works with Dense, Sparse, and OrderedSparse formats from
@@ -51,7 +58,13 @@ def mace_featurizer(
   if head is not None:
     head_value = jnp.asarray(head, dtype=jnp.int32).reshape(-1)
 
-  def featurize(R, neighbor, *, box, perturbation=None):
+  def featurize(
+    R: jnp.ndarray,
+    neighbor: partition.NeighborList,
+    *,
+    box: space.Box,
+    perturbation: jnp.ndarray | float | None = None,
+  ) -> dict[str, jnp.ndarray]:
     R_in = jnp.asarray(R, dtype=jnp.float32)
     cell = jnp.asarray(box)
     if cell.shape == (3,):
@@ -138,8 +151,12 @@ def mace_featurizer(
 
 
 def mace_multi_image_featurizer(
-  config, z_atomic, *, fractional_coordinates=False, head=None
-):
+  config: dict[str, Any],
+  z_atomic: jnp.ndarray | np.ndarray,
+  *,
+  fractional_coordinates: bool = False,
+  head: jnp.ndarray | None = None,
+) -> Callable[..., dict[str, jnp.ndarray]]:
   """Create a featurizer for multi-image neighbor lists with explicit shifts.
 
   Works with ``custom_partition.neighbor_list_multi_image`` which stores
@@ -180,7 +197,13 @@ def mace_multi_image_featurizer(
   if head is not None:
     head_value = jnp.asarray(head, dtype=jnp.int32).reshape(-1)
 
-  def featurize(R, neighbor, *, box, perturbation=None):
+  def featurize(
+    R: jnp.ndarray,
+    neighbor: custom_partition.NeighborListMultiImage,
+    *,
+    box: space.Box,
+    perturbation: jnp.ndarray | float | None = None,
+  ) -> dict[str, jnp.ndarray]:
     R_in = jnp.asarray(R, dtype=jnp.float32)
     cell = jnp.asarray(box)
     if cell.shape == (3,):

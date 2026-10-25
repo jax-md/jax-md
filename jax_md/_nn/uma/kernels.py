@@ -1,6 +1,7 @@
 """Pallas implementations for UMA Wigner edge kernels."""
 
 from functools import partial
+from typing import Sequence
 
 import jax
 import jax.numpy as jnp
@@ -29,7 +30,7 @@ def next_power_of_two(x: int) -> int:
 
 def compiler_params(
   block_c: int, *, num_stages: int = 1, num_warps: int | None = None
-):
+) -> plt.CompilerParams:
   """Compute Triton compiler parameters for a given channel block size.
 
   Warp count heuristic: each warp handles 32 threads. For the 9-coefficient
@@ -115,15 +116,15 @@ def segment_mm_fwd_kernel(
 
 
 def segment_mm_fwd(
-  x,  # [N, I]
-  weights,  # [B, O, I]
-  sizes,  # [B]
-  starts,  # [B]
-  max_size=None,
-  block_m=64,
-  block_n=128,
-  block_k=32,
-):
+  x: jnp.ndarray,  # [N, I]
+  weights: jnp.ndarray,  # [B, O, I]
+  sizes: jnp.ndarray,  # [B]
+  starts: jnp.ndarray,  # [B]
+  max_size: int | None = None,
+  block_m: int = 64,
+  block_n: int = 128,
+  block_k: int = 32,
+) -> jnp.ndarray:
   """Pallas/Triton forward segmented matmul.
 
   Each program owns one ``[block_m, block_n]`` output tile of a segment and
@@ -214,15 +215,15 @@ def segment_mm_bwd_dx_kernel(
 
 
 def segment_mm_bwd_dx(
-  grad_y,  # [N, O]
-  weights,  # [B, O, I]
-  sizes,  # [B]
-  starts,  # [B]
-  max_size=None,
-  block_m=64,
-  block_n=128,
-  block_k=32,
-):
+  grad_y: jnp.ndarray,  # [N, O]
+  weights: jnp.ndarray,  # [B, O, I]
+  sizes: jnp.ndarray,  # [B]
+  starts: jnp.ndarray,  # [B]
+  max_size: int | None = None,
+  block_m: int = 64,
+  block_n: int = 128,
+  block_k: int = 32,
+) -> jnp.ndarray:
   max_size = grad_y.shape[0] if max_size is None else max_size
   sizes = jnp.minimum(sizes, max_size)
   init = jnp.zeros(
@@ -311,17 +312,17 @@ def segment_mm_bwd_dweights_kernel(
 
 
 def segment_mm_bwd_dweights(
-  x,  # [N, I]
-  grad_y,  # [N, O]
-  sizes,  # [B]
-  starts,  # [B]
-  weights_shape,  # (B, O, I)
-  max_size=None,
-  block_m=16,
-  block_n=128,
-  block_k=128,
-  num_splits=4,
-):
+  x: jnp.ndarray,  # [N, I]
+  grad_y: jnp.ndarray,  # [N, O]
+  sizes: jnp.ndarray,  # [B]
+  starts: jnp.ndarray,  # [B]
+  weights_shape: tuple[int, ...],  # (B, O, I)
+  max_size: int | None = None,
+  block_m: int = 16,
+  block_n: int = 128,
+  block_k: int = 128,
+  num_splits: int = 4,
+) -> jnp.ndarray:
   max_size = x.shape[0] if max_size is None else max_size
   sizes = jnp.minimum(sizes, max_size)
   if x.shape[0] == 0:
@@ -353,35 +354,68 @@ def segment_mm_bwd_dweights(
   return jnp.sum(partial_sums, axis=0)  # [B, O, I]
 
 
-def segment_mm_impl(x, weights, sizes, starts, *, max_size):
+def segment_mm_impl(
+  x: jnp.ndarray,
+  weights: jnp.ndarray,
+  sizes: jnp.ndarray,
+  starts: jnp.ndarray,
+  *,
+  max_size: int | None,
+) -> jnp.ndarray:
   return segment_mm_fwd(x, weights, sizes, starts, max_size=max_size)
 
 
 def segment_mm_abstract_eval(
-  x_aval, weights_aval, sizes_aval, starts_aval, *, max_size
-):
+  x_aval: core.ShapedArray,
+  weights_aval: core.ShapedArray,
+  sizes_aval: core.ShapedArray,
+  starts_aval: core.ShapedArray,
+  *,
+  max_size: int | None,
+) -> core.ShapedArray:
   del sizes_aval, starts_aval, max_size
   return core.ShapedArray(
     (x_aval.shape[0], weights_aval.shape[1]), x_aval.dtype
   )
 
 
-def segment_mm_jvp_impl(x, weights, sizes, starts, tx, tw, *, max_size):
+def segment_mm_jvp_impl(
+  x: jnp.ndarray,
+  weights: jnp.ndarray,
+  sizes: jnp.ndarray,
+  starts: jnp.ndarray,
+  tx: jnp.ndarray,
+  tw: jnp.ndarray,
+  *,
+  max_size: int | None,
+) -> jnp.ndarray:
   return segment_mm_p.bind(
     tx, weights, sizes, starts, max_size=max_size
   ) + segment_mm_p.bind(x, tw, sizes, starts, max_size=max_size)
 
 
 def segment_mm_jvp_abstract_eval(
-  x_aval, weights_aval, sizes_aval, starts_aval, tx_aval, tw_aval, *, max_size
-):
+  x_aval: core.ShapedArray,
+  weights_aval: core.ShapedArray,
+  sizes_aval: core.ShapedArray,
+  starts_aval: core.ShapedArray,
+  tx_aval: core.ShapedArray,
+  tw_aval: core.ShapedArray,
+  *,
+  max_size: int | None,
+) -> core.ShapedArray:
   del sizes_aval, starts_aval, tx_aval, tw_aval, max_size
   return core.ShapedArray(
     (x_aval.shape[0], weights_aval.shape[1]), x_aval.dtype
   )
 
 
-def segment_mm_jvp_rule(primals, tangents, *, max_size):
+def segment_mm_jvp_rule(
+  primals: Sequence[jnp.ndarray],
+  tangents: Sequence[jnp.ndarray | ad.Zero],
+  *,
+  max_size: int | None,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
   x, weights, sizes, starts = primals
   tx, tw, _, _ = tangents
   out = segment_mm_p.bind(x, weights, sizes, starts, max_size=max_size)
@@ -398,8 +432,14 @@ def segment_mm_jvp_rule(primals, tangents, *, max_size):
 
 
 def segment_mm_transpose_rule(
-  cotangent, x, weights, sizes, starts, *, max_size
-):
+  cotangent: jnp.ndarray | ad.Zero,
+  x: jnp.ndarray | ad.UndefinedPrimal,
+  weights: jnp.ndarray | ad.UndefinedPrimal,
+  sizes: jnp.ndarray,
+  starts: jnp.ndarray,
+  *,
+  max_size: int | None,
+) -> tuple[jnp.ndarray | None, ...]:
   if type(cotangent) is ad.Zero:
     return None, None, None, None
 
@@ -421,7 +461,12 @@ def segment_mm_transpose_rule(
   return grad_x, grad_weights, None, None
 
 
-def segment_mm_jvp_jvp_rule(primals, tangents, *, max_size):
+def segment_mm_jvp_jvp_rule(
+  primals: Sequence[jnp.ndarray],
+  tangents: Sequence[jnp.ndarray | ad.Zero],
+  *,
+  max_size: int | None,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
   x, weights, sizes, starts, tx, tw = primals
   tx0, tw0, _, _, ttx, ttw = tangents
   x_tangent = zero_tangent(tx0, x)
@@ -441,8 +486,16 @@ def segment_mm_jvp_jvp_rule(primals, tangents, *, max_size):
 
 
 def segment_mm_jvp_transpose_rule(
-  cotangent, x, weights, sizes, starts, tx, tw, *, max_size
-):
+  cotangent: jnp.ndarray | ad.Zero,
+  x: jnp.ndarray | ad.UndefinedPrimal,
+  weights: jnp.ndarray | ad.UndefinedPrimal,
+  sizes: jnp.ndarray,
+  starts: jnp.ndarray,
+  tx: jnp.ndarray | ad.UndefinedPrimal,
+  tw: jnp.ndarray | ad.UndefinedPrimal,
+  *,
+  max_size: int | None,
+) -> tuple[jnp.ndarray | None, ...]:
   if type(cotangent) is ad.Zero:
     return None, None, None, None, None, None
 
@@ -485,8 +538,14 @@ def segment_mm_jvp_transpose_rule(
 
 
 def segment_mm_flatten_batch(
-  x, weights, sizes, starts, x_bdim, weights_bdim, batch_size
-):
+  x: jnp.ndarray,
+  weights: jnp.ndarray,
+  sizes: jnp.ndarray,
+  starts: jnp.ndarray,
+  x_bdim: int | None,
+  weights_bdim: int | None,
+  batch_size: int,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, int]:
   x = move_or_broadcast_batch(x, x_bdim, batch_size)
   weights = move_or_broadcast_batch(weights, weights_bdim, batch_size)
   n_rows = x.shape[1]
@@ -503,7 +562,12 @@ def segment_mm_flatten_batch(
   return flat_x, flat_weights, flat_sizes, flat_starts, n_rows
 
 
-def segment_mm_batching_rule(vals, dims, *, max_size):
+def segment_mm_batching_rule(
+  vals: Sequence[jnp.ndarray],
+  dims: Sequence[int | None],
+  *,
+  max_size: int | None,
+) -> tuple[jnp.ndarray, int | None]:
   x, weights, sizes, starts = vals
   x_bdim, weights_bdim, sizes_bdim, starts_bdim = dims
   if (
@@ -529,7 +593,12 @@ def segment_mm_batching_rule(vals, dims, *, max_size):
   return out.reshape(batch_size, n_rows, out.shape[-1]), 0
 
 
-def segment_mm_jvp_batching_rule(vals, dims, *, max_size):
+def segment_mm_jvp_batching_rule(
+  vals: Sequence[jnp.ndarray],
+  dims: Sequence[int | None],
+  *,
+  max_size: int | None,
+) -> tuple[jnp.ndarray, int | None]:
   x, weights, sizes, starts, tx, tw = vals
   x_bdim, weights_bdim, sizes_bdim, starts_bdim, tx_bdim, tw_bdim = dims
   if (
@@ -571,20 +640,37 @@ def segment_mm_jvp_batching_rule(vals, dims, *, max_size):
   return out.reshape(batch_size, n_rows, out.shape[-1]), 0
 
 
-def segment_mm_bwd_dx_impl(grad_y, weights, sizes, starts, *, max_size):
+def segment_mm_bwd_dx_impl(
+  grad_y: jnp.ndarray,
+  weights: jnp.ndarray,
+  sizes: jnp.ndarray,
+  starts: jnp.ndarray,
+  *,
+  max_size: int | None,
+) -> jnp.ndarray:
   return segment_mm_bwd_dx(grad_y, weights, sizes, starts, max_size=max_size)
 
 
 def segment_mm_bwd_dx_abstract_eval(
-  grad_y_aval, weights_aval, sizes_aval, starts_aval, *, max_size
-):
+  grad_y_aval: core.ShapedArray,
+  weights_aval: core.ShapedArray,
+  sizes_aval: core.ShapedArray,
+  starts_aval: core.ShapedArray,
+  *,
+  max_size: int | None,
+) -> core.ShapedArray:
   del sizes_aval, starts_aval, max_size
   return core.ShapedArray(
     (grad_y_aval.shape[0], weights_aval.shape[2]), grad_y_aval.dtype
   )
 
 
-def segment_mm_bwd_dx_jvp_rule(primals, tangents, *, max_size):
+def segment_mm_bwd_dx_jvp_rule(
+  primals: Sequence[jnp.ndarray],
+  tangents: Sequence[jnp.ndarray | ad.Zero],
+  *,
+  max_size: int | None,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
   grad_y, weights, sizes, starts = primals
   tg, tw, _, _ = tangents
   out = segment_mm_bwd_dx_p.bind(
@@ -603,8 +689,14 @@ def segment_mm_bwd_dx_jvp_rule(primals, tangents, *, max_size):
 
 
 def segment_mm_bwd_dx_transpose_rule(
-  cotangent, grad_y, weights, sizes, starts, *, max_size
-):
+  cotangent: jnp.ndarray | ad.Zero,
+  grad_y: jnp.ndarray | ad.UndefinedPrimal,
+  weights: jnp.ndarray | ad.UndefinedPrimal,
+  sizes: jnp.ndarray,
+  starts: jnp.ndarray,
+  *,
+  max_size: int | None,
+) -> tuple[jnp.ndarray | None, ...]:
   if type(cotangent) is ad.Zero:
     return None, None, None, None
   grad_y_value = zero_if_undefined(grad_y)
@@ -628,30 +720,42 @@ def segment_mm_bwd_dx_transpose_rule(
 
 
 def segment_mm_bwd_dx_jvp_impl(
-  grad_y, weights, sizes, starts, tg, tw, *, max_size
-):
+  grad_y: jnp.ndarray,
+  weights: jnp.ndarray,
+  sizes: jnp.ndarray,
+  starts: jnp.ndarray,
+  tg: jnp.ndarray,
+  tw: jnp.ndarray,
+  *,
+  max_size: int | None,
+) -> jnp.ndarray:
   return segment_mm_bwd_dx_p.bind(
     tg, weights, sizes, starts, max_size=max_size
   ) + segment_mm_bwd_dx_p.bind(grad_y, tw, sizes, starts, max_size=max_size)
 
 
 def segment_mm_bwd_dx_jvp_abstract_eval(
-  grad_y_aval,
-  weights_aval,
-  sizes_aval,
-  starts_aval,
-  tg_aval,
-  tw_aval,
+  grad_y_aval: core.ShapedArray,
+  weights_aval: core.ShapedArray,
+  sizes_aval: core.ShapedArray,
+  starts_aval: core.ShapedArray,
+  tg_aval: core.ShapedArray,
+  tw_aval: core.ShapedArray,
   *,
-  max_size,
-):
+  max_size: int | None,
+) -> core.ShapedArray:
   del sizes_aval, starts_aval, tg_aval, tw_aval, max_size
   return core.ShapedArray(
     (grad_y_aval.shape[0], weights_aval.shape[2]), grad_y_aval.dtype
   )
 
 
-def segment_mm_bwd_dx_jvp_jvp_rule(primals, tangents, *, max_size):
+def segment_mm_bwd_dx_jvp_jvp_rule(
+  primals: Sequence[jnp.ndarray],
+  tangents: Sequence[jnp.ndarray | ad.Zero],
+  *,
+  max_size: int | None,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
   grad_y, weights, sizes, starts, tg, tw = primals
   tg0, tw0, _, _, ttg, ttw = tangents
   grad_y_tangent = zero_tangent(tg0, grad_y)
@@ -679,8 +783,16 @@ def segment_mm_bwd_dx_jvp_jvp_rule(primals, tangents, *, max_size):
 
 
 def segment_mm_bwd_dx_jvp_transpose_rule(
-  cotangent, grad_y, weights, sizes, starts, tg, tw, *, max_size
-):
+  cotangent: jnp.ndarray | ad.Zero,
+  grad_y: jnp.ndarray | ad.UndefinedPrimal,
+  weights: jnp.ndarray | ad.UndefinedPrimal,
+  sizes: jnp.ndarray,
+  starts: jnp.ndarray,
+  tg: jnp.ndarray | ad.UndefinedPrimal,
+  tw: jnp.ndarray | ad.UndefinedPrimal,
+  *,
+  max_size: int | None,
+) -> tuple[jnp.ndarray | None, ...]:
   if type(cotangent) is ad.Zero:
     return None, None, None, None, None, None
   grad_y_value = zero_if_undefined(grad_y)
@@ -720,7 +832,12 @@ def segment_mm_bwd_dx_jvp_transpose_rule(
   return grad_grad_y, grad_weights, None, None, grad_tg, grad_tw
 
 
-def segment_mm_bwd_dx_batching_rule(vals, dims, *, max_size):
+def segment_mm_bwd_dx_batching_rule(
+  vals: Sequence[jnp.ndarray],
+  dims: Sequence[int | None],
+  *,
+  max_size: int | None,
+) -> tuple[jnp.ndarray, int | None]:
   grad_y, weights, sizes, starts = vals
   g_bdim, weights_bdim, sizes_bdim, starts_bdim = dims
   if (
@@ -747,7 +864,12 @@ def segment_mm_bwd_dx_batching_rule(vals, dims, *, max_size):
   return out.reshape(batch_size, n_rows, out.shape[-1]), 0
 
 
-def segment_mm_bwd_dx_jvp_batching_rule(vals, dims, *, max_size):
+def segment_mm_bwd_dx_jvp_batching_rule(
+  vals: Sequence[jnp.ndarray],
+  dims: Sequence[int | None],
+  *,
+  max_size: int | None,
+) -> tuple[jnp.ndarray, int | None]:
   grad_y, weights, sizes, starts, tg, tw = vals
   g_bdim, weights_bdim, sizes_bdim, starts_bdim, tg_bdim, tw_bdim = dims
   if (
@@ -789,23 +911,39 @@ def segment_mm_bwd_dx_jvp_batching_rule(vals, dims, *, max_size):
 
 
 def segment_mm_bwd_dweights_impl(
-  x, grad_y, sizes, starts, *, weights_shape, max_size
-):
+  x: jnp.ndarray,
+  grad_y: jnp.ndarray,
+  sizes: jnp.ndarray,
+  starts: jnp.ndarray,
+  *,
+  weights_shape: tuple[int, ...],
+  max_size: int | None,
+) -> jnp.ndarray:
   return segment_mm_bwd_dweights(
     x, grad_y, sizes, starts, weights_shape, max_size=max_size
   )
 
 
 def segment_mm_bwd_dweights_abstract_eval(
-  x_aval, grad_y_aval, sizes_aval, starts_aval, *, weights_shape, max_size
-):
+  x_aval: core.ShapedArray,
+  grad_y_aval: core.ShapedArray,
+  sizes_aval: core.ShapedArray,
+  starts_aval: core.ShapedArray,
+  *,
+  weights_shape: tuple[int, ...],
+  max_size: int | None,
+) -> core.ShapedArray:
   del x_aval, sizes_aval, starts_aval, max_size
   return core.ShapedArray(weights_shape, grad_y_aval.dtype)
 
 
 def segment_mm_bwd_dweights_jvp_rule(
-  primals, tangents, *, weights_shape, max_size
-):
+  primals: Sequence[jnp.ndarray],
+  tangents: Sequence[jnp.ndarray | ad.Zero],
+  *,
+  weights_shape: tuple[int, ...],
+  max_size: int | None,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
   x, grad_y, sizes, starts = primals
   tx, tg, _, _ = tangents
   out = segment_mm_bwd_dweights_p.bind(
@@ -825,8 +963,15 @@ def segment_mm_bwd_dweights_jvp_rule(
 
 
 def segment_mm_bwd_dweights_transpose_rule(
-  cotangent, x, grad_y, sizes, starts, *, weights_shape, max_size
-):
+  cotangent: jnp.ndarray | ad.Zero,
+  x: jnp.ndarray | ad.UndefinedPrimal,
+  grad_y: jnp.ndarray | ad.UndefinedPrimal,
+  sizes: jnp.ndarray,
+  starts: jnp.ndarray,
+  *,
+  weights_shape: tuple[int, ...],
+  max_size: int | None,
+) -> tuple[jnp.ndarray | None, ...]:
   del weights_shape
   if type(cotangent) is ad.Zero:
     return None, None, None, None
@@ -846,8 +991,16 @@ def segment_mm_bwd_dweights_transpose_rule(
 
 
 def segment_mm_bwd_dweights_jvp_impl(
-  x, grad_y, sizes, starts, tx, tg, *, weights_shape, max_size
-):
+  x: jnp.ndarray,
+  grad_y: jnp.ndarray,
+  sizes: jnp.ndarray,
+  starts: jnp.ndarray,
+  tx: jnp.ndarray,
+  tg: jnp.ndarray,
+  *,
+  weights_shape: tuple[int, ...],
+  max_size: int | None,
+) -> jnp.ndarray:
   return segment_mm_bwd_dweights_p.bind(
     tx, grad_y, sizes, starts, weights_shape=weights_shape, max_size=max_size
   ) + segment_mm_bwd_dweights_p.bind(
@@ -856,23 +1009,27 @@ def segment_mm_bwd_dweights_jvp_impl(
 
 
 def segment_mm_bwd_dweights_jvp_abstract_eval(
-  x_aval,
-  grad_y_aval,
-  sizes_aval,
-  starts_aval,
-  tx_aval,
-  tg_aval,
+  x_aval: core.ShapedArray,
+  grad_y_aval: core.ShapedArray,
+  sizes_aval: core.ShapedArray,
+  starts_aval: core.ShapedArray,
+  tx_aval: core.ShapedArray,
+  tg_aval: core.ShapedArray,
   *,
-  weights_shape,
-  max_size,
-):
+  weights_shape: tuple[int, ...],
+  max_size: int | None,
+) -> core.ShapedArray:
   del x_aval, sizes_aval, starts_aval, tx_aval, tg_aval, max_size
   return core.ShapedArray(weights_shape, grad_y_aval.dtype)
 
 
 def segment_mm_bwd_dweights_jvp_jvp_rule(
-  primals, tangents, *, weights_shape, max_size
-):
+  primals: Sequence[jnp.ndarray],
+  tangents: Sequence[jnp.ndarray | ad.Zero],
+  *,
+  weights_shape: tuple[int, ...],
+  max_size: int | None,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
   x, grad_y, sizes, starts, tx, tg = primals
   tx0, tg0, _, _, ttx, ttg = tangents
   x_tangent = zero_tangent(tx0, x)
@@ -927,8 +1084,17 @@ def segment_mm_bwd_dweights_jvp_jvp_rule(
 
 
 def segment_mm_bwd_dweights_jvp_transpose_rule(
-  cotangent, x, grad_y, sizes, starts, tx, tg, *, weights_shape, max_size
-):
+  cotangent: jnp.ndarray | ad.Zero,
+  x: jnp.ndarray | ad.UndefinedPrimal,
+  grad_y: jnp.ndarray | ad.UndefinedPrimal,
+  sizes: jnp.ndarray,
+  starts: jnp.ndarray,
+  tx: jnp.ndarray | ad.UndefinedPrimal,
+  tg: jnp.ndarray | ad.UndefinedPrimal,
+  *,
+  weights_shape: tuple[int, ...],
+  max_size: int | None,
+) -> tuple[jnp.ndarray | None, ...]:
   del weights_shape
   if type(cotangent) is ad.Zero:
     return None, None, None, None, None, None
@@ -960,8 +1126,12 @@ def segment_mm_bwd_dweights_jvp_transpose_rule(
 
 
 def segment_mm_bwd_dweights_batching_rule(
-  vals, dims, *, weights_shape, max_size
-):
+  vals: Sequence[jnp.ndarray],
+  dims: Sequence[int | None],
+  *,
+  weights_shape: tuple[int, ...],
+  max_size: int | None,
+) -> tuple[jnp.ndarray, int | None]:
   x, grad_y, sizes, starts = vals
   x_bdim, g_bdim, sizes_bdim, starts_bdim = dims
   if (
@@ -1003,8 +1173,12 @@ def segment_mm_bwd_dweights_batching_rule(
 
 
 def segment_mm_bwd_dweights_jvp_batching_rule(
-  vals, dims, *, weights_shape, max_size
-):
+  vals: Sequence[jnp.ndarray],
+  dims: Sequence[int | None],
+  *,
+  weights_shape: tuple[int, ...],
+  max_size: int | None,
+) -> tuple[jnp.ndarray, int | None]:
   x, grad_y, sizes, starts, tx, tg = vals
   x_bdim, g_bdim, sizes_bdim, starts_bdim, tx_bdim, tg_bdim = dims
   if (
@@ -1166,7 +1340,9 @@ batching.primitive_batchers[segment_mm_bwd_dweights_p] = (
 )
 
 
-def segment_mm_reference(x, weights, sizes):
+def segment_mm_reference(
+  x: jnp.ndarray, weights: jnp.ndarray, sizes: jnp.ndarray
+) -> jnp.ndarray:
   """Reference segmented matmul.
 
   Computes ``out[start_b:end_b] = x[start_b:end_b] @ weights[b].T``.
@@ -1185,7 +1361,12 @@ def segment_mm_reference(x, weights, sizes):
   return out
 
 
-def segment_mm_2d_fwd(x, weights, sizes, max_size):
+def segment_mm_2d_fwd(
+  x: jnp.ndarray,
+  weights: jnp.ndarray,
+  sizes: jnp.ndarray,
+  max_size: int | None,
+) -> jnp.ndarray:
   return segment_mm_p.bind(
     x,
     weights,
@@ -1195,7 +1376,13 @@ def segment_mm_2d_fwd(x, weights, sizes, max_size):
   )
 
 
-def segment_mm(x, weights, sizes, use_pallas=False, max_size=None):
+def segment_mm(
+  x: jnp.ndarray,
+  weights: jnp.ndarray,
+  sizes: jnp.ndarray,
+  use_pallas: bool = False,
+  max_size: int | None = None,
+) -> jnp.ndarray:
   """Segmented matmul with support for ``[N, I]`` and ``[N, C, I]`` inputs."""
   sizes = sizes.astype(jnp.int32)
   use_pallas = use_pallas and jax.default_backend() == 'gpu'
@@ -2301,24 +2488,26 @@ def edge_to_node_scatter(
   )
 
 
-def zero_tangent(tangent, primal):
+def zero_tangent(tangent, primal: jnp.ndarray) -> jnp.ndarray:
   return jnp.zeros_like(primal) if type(tangent) is ad.Zero else tangent
 
 
-def zero_if_undefined(value):
+def zero_if_undefined(value) -> jnp.ndarray:
   if ad.is_undefined_primal(value):
     return jnp.zeros(value.aval.shape, value.aval.dtype)
   return value
 
 
-def mapped_batch_size(vals, dims):
+def mapped_batch_size(vals: Sequence[jnp.ndarray], dims) -> int:
   for val, dim in zip(vals, dims):
     if dim is not batching.not_mapped:
       return val.shape[dim]
   raise ValueError('Expected at least one batched input.')
 
 
-def move_or_broadcast_batch(value, dim, batch_size):
+def move_or_broadcast_batch(
+  value: jnp.ndarray, dim, batch_size: int
+) -> jnp.ndarray:
   if dim is batching.not_mapped:
     return jnp.broadcast_to(value, (batch_size,) + value.shape)
   if dim != 0:
@@ -2326,7 +2515,9 @@ def move_or_broadcast_batch(value, dim, batch_size):
   return value
 
 
-def batched_edge_index(edge_index, batch_size, num_nodes):
+def batched_edge_index(
+  edge_index: jnp.ndarray, batch_size: int, num_nodes: int
+) -> jnp.ndarray:
   edge = edge_index[None, :, :]
   offsets = (jnp.arange(batch_size, dtype=edge_index.dtype) * num_nodes)[
     :, None, None
@@ -2338,7 +2529,12 @@ def batched_edge_index(edge_index, batch_size, num_nodes):
   )
 
 
-def node_to_edge_backward_impl(x, edge_index, wigner, gout):
+def node_to_edge_backward_impl(
+  x,
+  edge_index: jnp.ndarray,
+  wigner: jnp.ndarray,
+  gout: jnp.ndarray,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
   dx = node_to_edge_bwd_dx_scatter(gout, edge_index, wigner, x.shape)
   dwigner = node_to_edge_bwd_dwigner_gather(x, edge_index, gout)
   return dx, dwigner
@@ -2349,8 +2545,11 @@ node_to_edge_backward_p.multiple_results = True
 
 
 def node_to_edge_backward_abstract_eval(
-  x_aval, edge_index_aval, w_aval, gout_aval
-):
+  x_aval: core.ShapedArray,
+  edge_index_aval: core.ShapedArray,
+  w_aval: core.ShapedArray,
+  gout_aval: core.ShapedArray,
+) -> tuple[core.ShapedArray, core.ShapedArray]:
   del edge_index_aval
   return (
     core.ShapedArray(x_aval.shape, gout_aval.dtype),
@@ -2358,7 +2557,10 @@ def node_to_edge_backward_abstract_eval(
   )
 
 
-def node_to_edge_backward_jvp_rule(primals, tangents):
+def node_to_edge_backward_jvp_rule(
+  primals: Sequence[jnp.ndarray],
+  tangents: Sequence[jnp.ndarray | ad.Zero],
+) -> tuple[tuple[jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]]:
   x, edge_index, wigner, gout = primals
   tx, _, twigner, tgout = tangents
   dx, dwigner = node_to_edge_backward_p.bind(x, edge_index, wigner, gout)
@@ -2375,8 +2577,12 @@ def node_to_edge_backward_jvp_rule(primals, tangents):
 
 
 def node_to_edge_backward_transpose_rule(
-  cotangents, x, edge_index, wigner, gout
-):
+  cotangents: Sequence[jnp.ndarray | ad.Zero],
+  x: jnp.ndarray | ad.UndefinedPrimal,
+  edge_index: jnp.ndarray,
+  wigner: jnp.ndarray | ad.UndefinedPrimal,
+  gout: jnp.ndarray | ad.UndefinedPrimal,
+) -> tuple[jnp.ndarray | None, ...]:
   ddx, ddwigner = cotangents
   grad_x = None
   grad_wigner = None
@@ -2413,7 +2619,9 @@ def node_to_edge_backward_transpose_rule(
   return grad_x, None, grad_wigner, grad_gout
 
 
-def node_to_edge_backward_batching_rule(vals, dims):
+def node_to_edge_backward_batching_rule(
+  vals: Sequence[jnp.ndarray], dims: Sequence[int | None]
+) -> tuple[Sequence[jnp.ndarray], tuple[int | None, int | None]]:
   x, edge_index, wigner, gout = vals
   x_bdim, edge_bdim, w_bdim, gout_bdim = dims
   if edge_bdim is not batching.not_mapped:
@@ -2448,8 +2656,14 @@ node_to_edge_backward_jvp_p.multiple_results = True
 
 
 def node_to_edge_backward_jvp_impl(
-  x, edge_index, wigner, gout, tx, twigner, tgout
-):
+  x: jnp.ndarray,
+  edge_index: jnp.ndarray,
+  wigner: jnp.ndarray,
+  gout: jnp.ndarray,
+  tx: jnp.ndarray,
+  twigner: jnp.ndarray,
+  tgout: jnp.ndarray,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
   dx_from_gout, dw_from_gout = node_to_edge_backward_p.bind(
     x, edge_index, wigner, tgout
   )
@@ -2461,8 +2675,14 @@ def node_to_edge_backward_jvp_impl(
 
 
 def node_to_edge_backward_jvp_abstract_eval(
-  x_aval, edge_index_aval, w_aval, gout_aval, tx_aval, tw_aval, tgout_aval
-):
+  x_aval: core.ShapedArray,
+  edge_index_aval: core.ShapedArray,
+  w_aval: core.ShapedArray,
+  gout_aval: core.ShapedArray,
+  tx_aval: core.ShapedArray,
+  tw_aval: core.ShapedArray,
+  tgout_aval: core.ShapedArray,
+) -> tuple[core.ShapedArray, core.ShapedArray]:
   del edge_index_aval, tx_aval, tw_aval, tgout_aval
   return (
     core.ShapedArray(x_aval.shape, gout_aval.dtype),
@@ -2471,8 +2691,15 @@ def node_to_edge_backward_jvp_abstract_eval(
 
 
 def node_to_edge_backward_jvp_transpose_rule(
-  cotangents, x, edge_index, wigner, gout, tx, twigner, tgout
-):
+  cotangents: Sequence[jnp.ndarray | ad.Zero],
+  x: jnp.ndarray | ad.UndefinedPrimal,
+  edge_index: jnp.ndarray,
+  wigner: jnp.ndarray | ad.UndefinedPrimal,
+  gout: jnp.ndarray | ad.UndefinedPrimal,
+  tx: jnp.ndarray | ad.UndefinedPrimal,
+  twigner: jnp.ndarray | ad.UndefinedPrimal,
+  tgout: jnp.ndarray | ad.UndefinedPrimal,
+) -> tuple[jnp.ndarray | None, ...]:
   ddx, ddwigner = cotangents
   x = zero_if_undefined(x)
   wigner = zero_if_undefined(wigner)
@@ -2508,7 +2735,10 @@ def node_to_edge_backward_jvp_transpose_rule(
   return None, None, None, None, grad_tx, grad_twigner, grad_tgout
 
 
-def node_to_edge_backward_jvp_jvp_rule(primals, tangents):
+def node_to_edge_backward_jvp_jvp_rule(
+  primals: Sequence[jnp.ndarray],
+  tangents: Sequence[jnp.ndarray | ad.Zero],
+) -> tuple[Sequence[jnp.ndarray], Sequence[jnp.ndarray]]:
   x, edge_index, wigner, gout, tx, twigner, tgout = primals
   tx0, _, tw0, tgout0, ttx, ttw, ttgout = tangents
   diff_primals = (x, wigner, gout, tx, twigner, tgout)
@@ -2527,7 +2757,9 @@ def node_to_edge_backward_jvp_jvp_rule(primals, tangents):
   return jax.jvp(func, diff_primals, diff_tangents)
 
 
-def node_to_edge_backward_jvp_batching_rule(vals, dims):
+def node_to_edge_backward_jvp_batching_rule(
+  vals: Sequence[jnp.ndarray], dims: Sequence[int | None]
+) -> tuple[Sequence[jnp.ndarray], tuple[int | None, int | None]]:
   x, edge_index, wigner, gout, tx, twigner, tgout = vals
   x_bdim, edge_bdim, w_bdim, gout_bdim, tx_bdim, tw_bdim, tgout_bdim = dims
   if edge_bdim is not batching.not_mapped:
@@ -2607,7 +2839,11 @@ node_to_edge_p = core.Primitive('uma_node_to_edge')
 node_to_edge_p.multiple_results = False
 
 
-def node_to_edge_abstract_eval(x_aval, edge_index_aval, w_aval):
+def node_to_edge_abstract_eval(
+  x_aval: core.ShapedArray,
+  edge_index_aval: core.ShapedArray,
+  w_aval: core.ShapedArray,
+) -> core.ShapedArray:
   del w_aval
   return core.ShapedArray(
     (edge_index_aval.shape[1], COEFFICIENT_DIM, 2 * x_aval.shape[-1]),
@@ -2615,7 +2851,10 @@ def node_to_edge_abstract_eval(x_aval, edge_index_aval, w_aval):
   )
 
 
-def node_to_edge_jvp_rule(primals, tangents):
+def node_to_edge_jvp_rule(
+  primals: Sequence[jnp.ndarray],
+  tangents: Sequence[jnp.ndarray | ad.Zero],
+) -> tuple[jnp.ndarray, jnp.ndarray]:
   x, edge_index, wigner = primals
   tx, _, twigner = tangents
   out = node_to_edge_p.bind(x, edge_index, wigner)
@@ -2629,7 +2868,12 @@ def node_to_edge_jvp_rule(primals, tangents):
   return out, tangent_out
 
 
-def node_to_edge_transpose_rule(cotangent, x, edge_index, wigner):
+def node_to_edge_transpose_rule(
+  cotangent: jnp.ndarray | ad.Zero,
+  x: jnp.ndarray | ad.UndefinedPrimal,
+  edge_index: jnp.ndarray,
+  wigner: jnp.ndarray | ad.UndefinedPrimal,
+) -> tuple[jnp.ndarray | None, ...]:
   if type(cotangent) is ad.Zero:
     return None, None, None
   grad_x = None
@@ -2647,7 +2891,9 @@ def node_to_edge_transpose_rule(cotangent, x, edge_index, wigner):
   return grad_x, None, grad_wigner
 
 
-def node_to_edge_batching_rule(vals, dims):
+def node_to_edge_batching_rule(
+  vals: Sequence[jnp.ndarray], dims: Sequence[int | None]
+) -> tuple[jnp.ndarray, int | None]:
   x, edge_index, wigner = vals
   x_bdim, edge_bdim, w_bdim = dims
   if edge_bdim is not batching.not_mapped:
@@ -2673,15 +2919,25 @@ node_to_edge_jvp_p = core.Primitive('uma_node_to_edge_jvp')
 node_to_edge_jvp_p.multiple_results = False
 
 
-def node_to_edge_jvp_impl(x, edge_index, wigner, tx, twigner):
+def node_to_edge_jvp_impl(
+  x: jnp.ndarray,
+  edge_index: jnp.ndarray,
+  wigner: jnp.ndarray,
+  tx: jnp.ndarray,
+  twigner: jnp.ndarray,
+) -> jnp.ndarray:
   return node_to_edge_p.bind(tx, edge_index, wigner) + node_to_edge_p.bind(
     x, edge_index, twigner
   )
 
 
 def node_to_edge_jvp_abstract_eval(
-  x_aval, edge_index_aval, w_aval, tx_aval, tw_aval
-):
+  x_aval: core.ShapedArray,
+  edge_index_aval: core.ShapedArray,
+  w_aval: core.ShapedArray,
+  tx_aval: core.ShapedArray,
+  tw_aval: core.ShapedArray,
+) -> core.ShapedArray:
   del w_aval, tx_aval, tw_aval
   return core.ShapedArray(
     (edge_index_aval.shape[1], COEFFICIENT_DIM, 2 * x_aval.shape[-1]),
@@ -2690,8 +2946,13 @@ def node_to_edge_jvp_abstract_eval(
 
 
 def node_to_edge_jvp_transpose_rule(
-  cotangent, x, edge_index, wigner, tx, twigner
-):
+  cotangent: jnp.ndarray | ad.Zero,
+  x: jnp.ndarray | ad.UndefinedPrimal,
+  edge_index: jnp.ndarray,
+  wigner: jnp.ndarray | ad.UndefinedPrimal,
+  tx: jnp.ndarray | ad.UndefinedPrimal,
+  twigner: jnp.ndarray | ad.UndefinedPrimal,
+) -> tuple[jnp.ndarray | None, ...]:
   if type(cotangent) is ad.Zero:
     return None, None, None, None, None
   x = zero_if_undefined(x)
@@ -2715,7 +2976,10 @@ def node_to_edge_jvp_transpose_rule(
   return None, None, None, grad_tx, grad_twigner
 
 
-def node_to_edge_jvp_jvp_rule(primals, tangents):
+def node_to_edge_jvp_jvp_rule(
+  primals: Sequence[jnp.ndarray],
+  tangents: Sequence[jnp.ndarray | ad.Zero],
+) -> tuple[jnp.ndarray, jnp.ndarray]:
   x, edge_index, wigner, tx, twigner = primals
   tx0, _, tw0, ttx, ttw = tangents
   diff_primals = (x, wigner, tx, twigner)
@@ -2730,7 +2994,9 @@ def node_to_edge_jvp_jvp_rule(primals, tangents):
   return jax.jvp(func, diff_primals, diff_tangents)
 
 
-def node_to_edge_jvp_batching_rule(vals, dims):
+def node_to_edge_jvp_batching_rule(
+  vals: Sequence[jnp.ndarray], dims: Sequence[int | None]
+) -> tuple[jnp.ndarray, int | None]:
   x, edge_index, wigner, tx, twigner = vals
   x_bdim, edge_bdim, w_bdim, tx_bdim, tw_bdim = dims
   if edge_bdim is not batching.not_mapped:
@@ -2794,8 +3060,13 @@ def node_to_edge_wigner_permute(
 
 
 def edge_to_node_backward_impl(
-  messages, edge_index, wigner, gout, *, num_nodes
-):
+  messages,
+  edge_index: jnp.ndarray,
+  wigner: jnp.ndarray,
+  gout: jnp.ndarray,
+  *,
+  num_nodes: int,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
   del num_nodes
   dmessages = edge_to_node_bwd_dmessages(
     gout, edge_index, wigner, messages.shape
@@ -2809,8 +3080,13 @@ edge_to_node_backward_p.multiple_results = True
 
 
 def edge_to_node_backward_abstract_eval(
-  messages_aval, edge_index_aval, w_aval, gout_aval, *, num_nodes
-):
+  messages_aval: core.ShapedArray,
+  edge_index_aval: core.ShapedArray,
+  w_aval: core.ShapedArray,
+  gout_aval: core.ShapedArray,
+  *,
+  num_nodes: int,
+) -> tuple[core.ShapedArray, core.ShapedArray]:
   del edge_index_aval, num_nodes
   return (
     core.ShapedArray(messages_aval.shape, gout_aval.dtype),
@@ -2818,7 +3094,12 @@ def edge_to_node_backward_abstract_eval(
   )
 
 
-def edge_to_node_backward_jvp_rule(primals, tangents, *, num_nodes):
+def edge_to_node_backward_jvp_rule(
+  primals: Sequence[jnp.ndarray],
+  tangents: Sequence[jnp.ndarray | ad.Zero],
+  *,
+  num_nodes: int,
+) -> tuple[tuple[jnp.ndarray, jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]]:
   messages, edge_index, wigner, gout = primals
   tmessages, _, twigner, tgout = tangents
   dmessages, dwigner = edge_to_node_backward_p.bind(
@@ -2838,8 +3119,14 @@ def edge_to_node_backward_jvp_rule(primals, tangents, *, num_nodes):
 
 
 def edge_to_node_backward_transpose_rule(
-  cotangents, messages, edge_index, wigner, gout, *, num_nodes
-):
+  cotangents: Sequence[jnp.ndarray | ad.Zero],
+  messages: jnp.ndarray | ad.UndefinedPrimal,
+  edge_index: jnp.ndarray,
+  wigner: jnp.ndarray | ad.UndefinedPrimal,
+  gout: jnp.ndarray | ad.UndefinedPrimal,
+  *,
+  num_nodes: int,
+) -> tuple[jnp.ndarray | None, ...]:
   ddmessages, ddwigner = cotangents
   grad_messages = None
   grad_wigner = None
@@ -2891,7 +3178,12 @@ def edge_to_node_backward_transpose_rule(
   return grad_messages, None, grad_wigner, grad_gout
 
 
-def edge_to_node_backward_batching_rule(vals, dims, *, num_nodes):
+def edge_to_node_backward_batching_rule(
+  vals: Sequence[jnp.ndarray],
+  dims: Sequence[int | None],
+  *,
+  num_nodes: int,
+) -> tuple[Sequence[jnp.ndarray], tuple[int | None, int | None]]:
   messages, edge_index, wigner, gout = vals
   m_bdim, edge_bdim, w_bdim, gout_bdim = dims
   if edge_bdim is not batching.not_mapped:
@@ -2928,8 +3220,16 @@ edge_to_node_backward_jvp_p.multiple_results = True
 
 
 def edge_to_node_backward_jvp_impl(
-  messages, edge_index, wigner, gout, tmessages, twigner, tgout, *, num_nodes
-):
+  messages: jnp.ndarray,
+  edge_index: jnp.ndarray,
+  wigner: jnp.ndarray,
+  gout: jnp.ndarray,
+  tmessages: jnp.ndarray,
+  twigner: jnp.ndarray,
+  tgout: jnp.ndarray,
+  *,
+  num_nodes: int,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
   dmessages_from_gout, dw_from_gout = edge_to_node_backward_p.bind(
     messages, edge_index, wigner, tgout, num_nodes=num_nodes
   )
@@ -2950,16 +3250,16 @@ def edge_to_node_backward_jvp_impl(
 
 
 def edge_to_node_backward_jvp_abstract_eval(
-  messages_aval,
-  edge_index_aval,
-  w_aval,
-  gout_aval,
-  tmessages_aval,
-  tw_aval,
-  tgout_aval,
+  messages_aval: core.ShapedArray,
+  edge_index_aval: core.ShapedArray,
+  w_aval: core.ShapedArray,
+  gout_aval: core.ShapedArray,
+  tmessages_aval: core.ShapedArray,
+  tw_aval: core.ShapedArray,
+  tgout_aval: core.ShapedArray,
   *,
-  num_nodes,
-):
+  num_nodes: int,
+) -> tuple[core.ShapedArray, core.ShapedArray]:
   del edge_index_aval, tmessages_aval, tw_aval, tgout_aval, num_nodes
   return (
     core.ShapedArray(messages_aval.shape, gout_aval.dtype),
@@ -2968,17 +3268,17 @@ def edge_to_node_backward_jvp_abstract_eval(
 
 
 def edge_to_node_backward_jvp_transpose_rule(
-  cotangents,
-  messages,
-  edge_index,
-  wigner,
-  gout,
-  tmessages,
-  twigner,
-  tgout,
+  cotangents: Sequence[jnp.ndarray | ad.Zero],
+  messages: jnp.ndarray | ad.UndefinedPrimal,
+  edge_index: jnp.ndarray,
+  wigner: jnp.ndarray | ad.UndefinedPrimal,
+  gout: jnp.ndarray | ad.UndefinedPrimal,
+  tmessages: jnp.ndarray | ad.UndefinedPrimal,
+  twigner: jnp.ndarray | ad.UndefinedPrimal,
+  tgout: jnp.ndarray | ad.UndefinedPrimal,
   *,
-  num_nodes,
-):
+  num_nodes: int,
+) -> tuple[jnp.ndarray | None, ...]:
   ddmessages, ddwigner = cotangents
   messages = zero_if_undefined(messages)
   wigner = zero_if_undefined(wigner)
@@ -3020,7 +3320,12 @@ def edge_to_node_backward_jvp_transpose_rule(
   return None, None, None, None, grad_tmessages, grad_twigner, grad_tgout
 
 
-def edge_to_node_backward_jvp_jvp_rule(primals, tangents, *, num_nodes):
+def edge_to_node_backward_jvp_jvp_rule(
+  primals: Sequence[jnp.ndarray],
+  tangents: Sequence[jnp.ndarray | ad.Zero],
+  *,
+  num_nodes: int,
+) -> tuple[Sequence[jnp.ndarray], Sequence[jnp.ndarray]]:
   messages, edge_index, wigner, gout, tmessages, twigner, tgout = primals
   tm0, _, tw0, tgout0, ttm, ttw, ttgout = tangents
   diff_primals = (messages, wigner, gout, tmessages, twigner, tgout)
@@ -3046,7 +3351,12 @@ def edge_to_node_backward_jvp_jvp_rule(primals, tangents, *, num_nodes):
   return jax.jvp(func, diff_primals, diff_tangents)
 
 
-def edge_to_node_backward_jvp_batching_rule(vals, dims, *, num_nodes):
+def edge_to_node_backward_jvp_batching_rule(
+  vals: Sequence[jnp.ndarray],
+  dims: Sequence[int | None],
+  *,
+  num_nodes: int,
+) -> tuple[Sequence[jnp.ndarray], tuple[int | None, int | None]]:
   messages, edge_index, wigner, gout, tmessages, twigner, tgout = vals
   m_bdim, edge_bdim, w_bdim, gout_bdim, tm_bdim, tw_bdim, tgout_bdim = dims
   if edge_bdim is not batching.not_mapped:
@@ -3135,8 +3445,12 @@ edge_to_node_p.multiple_results = False
 
 
 def edge_to_node_abstract_eval(
-  messages_aval, edge_index_aval, w_aval, *, num_nodes
-):
+  messages_aval: core.ShapedArray,
+  edge_index_aval: core.ShapedArray,
+  w_aval: core.ShapedArray,
+  *,
+  num_nodes: int,
+) -> core.ShapedArray:
   del edge_index_aval, w_aval
   return core.ShapedArray(
     (num_nodes, COEFFICIENT_DIM, messages_aval.shape[-1]),
@@ -3144,7 +3458,12 @@ def edge_to_node_abstract_eval(
   )
 
 
-def edge_to_node_jvp_rule(primals, tangents, *, num_nodes):
+def edge_to_node_jvp_rule(
+  primals: Sequence[jnp.ndarray],
+  tangents: Sequence[jnp.ndarray | ad.Zero],
+  *,
+  num_nodes: int,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
   messages, edge_index, wigner = primals
   tmessages, _, twigner = tangents
   out = edge_to_node_p.bind(messages, edge_index, wigner, num_nodes=num_nodes)
@@ -3160,8 +3479,13 @@ def edge_to_node_jvp_rule(primals, tangents, *, num_nodes):
 
 
 def edge_to_node_transpose_rule(
-  cotangent, messages, edge_index, wigner, *, num_nodes
-):
+  cotangent: jnp.ndarray | ad.Zero,
+  messages: jnp.ndarray | ad.UndefinedPrimal,
+  edge_index: jnp.ndarray,
+  wigner: jnp.ndarray | ad.UndefinedPrimal,
+  *,
+  num_nodes: int,
+) -> tuple[jnp.ndarray | None, ...]:
   if type(cotangent) is ad.Zero:
     return None, None, None
   grad_messages = None
@@ -3179,7 +3503,12 @@ def edge_to_node_transpose_rule(
   return grad_messages, None, grad_wigner
 
 
-def edge_to_node_batching_rule(vals, dims, *, num_nodes):
+def edge_to_node_batching_rule(
+  vals: Sequence[jnp.ndarray],
+  dims: Sequence[int | None],
+  *,
+  num_nodes: int,
+) -> tuple[jnp.ndarray, int | None]:
   messages, edge_index, wigner = vals
   m_bdim, edge_bdim, w_bdim = dims
   if edge_bdim is not batching.not_mapped:
@@ -3210,16 +3539,28 @@ edge_to_node_jvp_p.multiple_results = False
 
 
 def edge_to_node_jvp_impl(
-  messages, edge_index, wigner, tmessages, twigner, *, num_nodes
-):
+  messages: jnp.ndarray,
+  edge_index: jnp.ndarray,
+  wigner: jnp.ndarray,
+  tmessages: jnp.ndarray,
+  twigner: jnp.ndarray,
+  *,
+  num_nodes: int,
+) -> jnp.ndarray:
   return edge_to_node_p.bind(
     tmessages, edge_index, wigner, num_nodes=num_nodes
   ) + edge_to_node_p.bind(messages, edge_index, twigner, num_nodes=num_nodes)
 
 
 def edge_to_node_jvp_abstract_eval(
-  messages_aval, edge_index_aval, w_aval, tmessages_aval, tw_aval, *, num_nodes
-):
+  messages_aval: core.ShapedArray,
+  edge_index_aval: core.ShapedArray,
+  w_aval: core.ShapedArray,
+  tmessages_aval: core.ShapedArray,
+  tw_aval: core.ShapedArray,
+  *,
+  num_nodes: int,
+) -> core.ShapedArray:
   del edge_index_aval, w_aval, tmessages_aval, tw_aval
   return core.ShapedArray(
     (num_nodes, COEFFICIENT_DIM, messages_aval.shape[-1]),
@@ -3228,8 +3569,15 @@ def edge_to_node_jvp_abstract_eval(
 
 
 def edge_to_node_jvp_transpose_rule(
-  cotangent, messages, edge_index, wigner, tmessages, twigner, *, num_nodes
-):
+  cotangent: jnp.ndarray | ad.Zero,
+  messages: jnp.ndarray | ad.UndefinedPrimal,
+  edge_index: jnp.ndarray,
+  wigner: jnp.ndarray | ad.UndefinedPrimal,
+  tmessages: jnp.ndarray | ad.UndefinedPrimal,
+  twigner: jnp.ndarray | ad.UndefinedPrimal,
+  *,
+  num_nodes: int,
+) -> tuple[jnp.ndarray | None, ...]:
   if type(cotangent) is ad.Zero:
     return None, None, None, None, None
   messages = zero_if_undefined(messages)
@@ -3255,7 +3603,12 @@ def edge_to_node_jvp_transpose_rule(
   return None, None, None, grad_tmessages, grad_twigner
 
 
-def edge_to_node_jvp_jvp_rule(primals, tangents, *, num_nodes):
+def edge_to_node_jvp_jvp_rule(
+  primals: Sequence[jnp.ndarray],
+  tangents: Sequence[jnp.ndarray | ad.Zero],
+  *,
+  num_nodes: int,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
   messages, edge_index, wigner, tmessages, twigner = primals
   tm0, _, tw0, ttm, ttw = tangents
   diff_primals = (messages, wigner, tmessages, twigner)
@@ -3272,7 +3625,12 @@ def edge_to_node_jvp_jvp_rule(primals, tangents, *, num_nodes):
   return jax.jvp(func, diff_primals, diff_tangents)
 
 
-def edge_to_node_jvp_batching_rule(vals, dims, *, num_nodes):
+def edge_to_node_jvp_batching_rule(
+  vals: Sequence[jnp.ndarray],
+  dims: Sequence[int | None],
+  *,
+  num_nodes: int,
+) -> tuple[jnp.ndarray, int | None]:
   messages, edge_index, wigner, tmessages, twigner = vals
   m_bdim, edge_bdim, w_bdim, tm_bdim, tw_bdim = dims
   if edge_bdim is not batching.not_mapped:

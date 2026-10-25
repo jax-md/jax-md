@@ -680,7 +680,9 @@ def precon_fire_descent(
     precon_kwargs['preconditioner_position'] = precon_R
     G = preconditioned_force(R, F, **precon_kwargs)
 
-    def finish_step(V_bar, dt_bar, alpha_bar, n_pos_bar):
+    def finish_step(
+      V_bar: PyTree, dt_bar: Array, alpha_bar: Array, n_pos_bar: Array
+    ) -> PreconFireDescentState:
       V_new = tree_map(lambda v, g: v + dt_bar * g, V_bar, G)
       dR_raw = tree_map(lambda v: dt_bar * v, V_new)
       dR_norm = jnp.sqrt(tree_dot(dR_raw, dR_raw))
@@ -856,7 +858,7 @@ def fire_descent_box(
   )
   force_fn = quantity.canonicalize_force(energy_fn)
 
-  def virial_fn(R, box, **kwargs):
+  def virial_fn(R: Array, box: Array, **kwargs) -> Array:
     """Compute the constrained virial for the box force.
 
     The virial is ``W = -dE/deps - P_ext * V * I`` where ``dE/deps`` is
@@ -873,7 +875,7 @@ def fire_descent_box(
     I_d = jnp.eye(dim, dtype=box.dtype)
     zero = jnp.zeros((dim, dim), dtype=box.dtype)
 
-    def U(eps):
+    def U(eps: Array) -> Array:
       return energy_fn(R, box=box, perturbation=(I_d + eps), **kwargs)
 
     dUdeps = jax.grad(U)(zero)
@@ -896,7 +898,7 @@ def fire_descent_box(
 
     return v
 
-  def box_force_fn(virial, F_deform, bf):
+  def box_force_fn(virial: Array, F_deform: Array, bf: Array) -> Array:
     """Transform virial to deformation-gradient space and scale.
 
     Maps the virial from box-space to F-space via the Jacobian
@@ -1123,12 +1125,12 @@ def precon_fire_descent_box(
       0.0,
     )
 
-  def virial_fn(R, box, **kwargs):
+  def virial_fn(R: Array, box: Array, **kwargs) -> Array:
     dim = R.shape[1]
     I_d = jnp.eye(dim, dtype=box.dtype)
     zero = jnp.zeros((dim, dim), dtype=box.dtype)
 
-    def U(eps):
+    def U(eps: Array) -> Array:
       return energy_fn(R, box=box, perturbation=(I_d + eps), **kwargs)
 
     dUdeps = jax.grad(U)(zero)
@@ -1147,19 +1149,19 @@ def precon_fire_descent_box(
       v = v - jnp.eye(dim, dtype=v.dtype) * (tr / dim)
     return v
 
-  def actual_box(ref_box, F_deform):
+  def actual_box(ref_box: Array, F_deform: Array) -> Array:
     return ref_box @ F_deform.T
 
-  def actual_position(q_R, F_deform):
+  def actual_position(q_R: Array, F_deform: Array) -> Array:
     return q_R @ F_deform.T
 
-  def generalized_position(R, F_deform):
+  def generalized_position(R: Array, F_deform: Array) -> Array:
     return jnp.linalg.solve(F_deform, R.T).T
 
-  def generalized_force(F_real, F_deform):
+  def generalized_force(F_real: Array, F_deform: Array) -> Array:
     return F_real @ F_deform
 
-  def box_force_fn(virial, F_deform, bf):
+  def box_force_fn(virial: Array, F_deform: Array, bf: Array) -> Array:
     W_F = jnp.linalg.solve(F_deform, virial.T).T
     return W_F / bf
 

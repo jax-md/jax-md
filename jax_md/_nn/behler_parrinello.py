@@ -177,7 +177,7 @@ def radial_symmetry_functions_neighbor_list(
   """
   metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
 
-  def radial_fn(eta, dr):
+  def radial_fn(eta: Array, dr: Array) -> Array:
     return jnp.exp(-eta * dr**2) * _cutoff_fn(dr, cutoff_distance)
 
   radial_fn = vmap(radial_fn, (0, None))
@@ -298,7 +298,7 @@ def angular_symmetry_functions(
 
   if species is None:
 
-    def compute_fn(R, **kwargs):
+    def compute_fn(R: Array, **kwargs) -> Array:
       D_fn = partial(displacement, **kwargs)
       D_fn = space.map_product(D_fn)
       dR = D_fn(R, R)
@@ -310,7 +310,7 @@ def angular_symmetry_functions(
     onp.array(species) if isinstance(species, jnp.ndarray) else species
   )
 
-  def compute_fn(R, **kwargs):
+  def compute_fn(R: Array, **kwargs) -> Array:
     atom_types = onp.unique(species_arr)
     D_fn = partial(displacement, **kwargs)
     D_fn = space.map_product(D_fn)

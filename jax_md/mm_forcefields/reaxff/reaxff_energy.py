@@ -55,7 +55,7 @@ def calculate_reaxff_energy(
   tors_2013: bool = False,
   tapered_reaxff: bool = False,
   solver_model: str = 'EEM',
-):
+) -> tuple[Array, Array]:
   """Calculate full ReaxFF potential.
 
   Args:
@@ -337,7 +337,7 @@ def calculate_eem_charges(
   backprop_solve: bool = False,
   tol: float = 1e-06,
   max_solver_iter: int = 500,
-):
+) -> Array:
   """EEM charge solver.
 
   If max_solver_iter is set to -1, use direct solve.
@@ -415,7 +415,7 @@ def calculate_acks2_charges(
   total_charge: float,
   backprop_solve: bool = False,
   tol: float = 1e-06,
-):
+) -> tuple[Array, Array]:
   if not backprop_solve:
     tapered_dists = jax.lax.stop_gradient(tapered_dists)
     hulp2_mat = jax.lax.stop_gradient(hulp2_mat)
@@ -486,7 +486,7 @@ def calculate_coulomb_pot(
   hulp2_mat: Array,
   tapered_dists: Array,
   charges: Array,
-):
+) -> Array:
   N = len(atom_mask)
   mask = (atom_mask.reshape(-1, 1) * atom_mask[nbr_inds]) * (nbr_inds != N)
   charge_mat = charges.reshape(-1, 1) * charges[nbr_inds]
@@ -501,7 +501,7 @@ def calculate_coulomb_pot(
 
 def calculate_charge_energy(
   species: Array, charges: Array, idempotential: Array, electronegativity: Array
-):
+) -> Array:
   ech = high_precision_sum(
     23.02
     * (
@@ -514,14 +514,14 @@ def calculate_charge_energy(
 
 def calculate_acks2_coulomb_pot(
   nbr_inds: Array, atom_mask: Array, effpot: Array, bond_softness: Array
-):
+) -> Array:
   hulp2 = effpot.reshape(-1, 1) - effpot[nbr_inds]
   eph = (-0.25 * 23.02) * bond_softness * hulp2 * hulp2
 
   return high_precision_sum(eph)
 
 
-def calculate_charge_energy_acks2(charges: Array, effpot: Array):
+def calculate_charge_energy_acks2(charges: Array, effpot: Array) -> Array:
   ech_acks2 = high_precision_sum(23.02 * charges * effpot)
   return ech_acks2
 
@@ -533,7 +533,7 @@ def calculate_vdw_pot(
   dists: Array,
   tapered_dists: Array,
   force_field: ForceField,
-):
+) -> Array:
   N = len(species)
   neigh_types = species[nbr_inds]
   vop = jnp.power(
@@ -571,7 +571,7 @@ def calculate_bo(
   species: Array,
   species_AN: Array,
   force_field: ForceField,
-):
+) -> Array:
   """
   Usage:
       first update/allocate neighborlist will be called
@@ -602,7 +602,7 @@ def calculate_covbon_pot(
   triple_bond: Array,
   force_field: ForceField,
   tapered_reaxff: bool = False,
-):
+) -> list[Array]:
   N = len(species)
   nbr_mask = nbr_mask & (nbr_dist > 0)
 
@@ -745,7 +745,7 @@ def calculate_boncor_pot(
   bopi2: Array,
   abo: Array,
   force_field: ForceField,
-):
+) -> tuple[Array, Array, Array]:
   neigh_types = species[nbr_inds]
   species = species.reshape(-1, 1)
 
@@ -816,8 +816,13 @@ def calculate_boncor_pot(
 
 
 def smooth_lone_pair_casting(
-  number, p_lambda=0.9999, l1=-1.3, l2=-0.3, r1=0.3, r2=1.3
-):
+  number: Array,
+  p_lambda: float = 0.9999,
+  l1: float = -1.3,
+  l2: float = -0.3,
+  r1: float = 0.3,
+  r2: float = 1.3,
+) -> Array:
   part_2 = (1 / jnp.pi) * (
     jnp.arctan(
       p_lambda
@@ -849,7 +854,7 @@ def smooth_lone_pair_casting(
 
 def calculate_lonpar_pot(
   species: Array, atom_mask: Array, abo: Array, force_field: ForceField
-):
+) -> list[Array]:
   # handle this part in double preicison
   prev_type = abo.dtype
   # abo = abo.astype(jnp.float64)
@@ -889,7 +894,7 @@ def calculate_ovcor_pot(
   abo: Array,
   vlp: Array,
   force_field: ForceField,
-):
+) -> Array:
   my_stlp = force_field.stlp[species]
   my_aval = force_field.aval[species]
   my_amas = force_field.amas[species]
@@ -990,7 +995,7 @@ def calculate_valency_pot(
   abo: Array,
   force_field: ForceField,
   tapered_reaxff: bool = False,
-):
+) -> list[Array]:
   prev_type = bo.dtype
   center = body_3_inds[:, 0]
   neigh1_lcl = body_3_inds[:, 1]
@@ -1172,7 +1177,7 @@ def calculate_torsion_pot(
   force_field: ForceField,
   tapered_reaxff: bool = False,
   tors_2013: bool = False,
-):
+) -> list[Array]:
   hsin = body_4_angles[0]  # hsin = sinhd * sinhe
   arg = body_4_angles[1]
   prev_type = hsin.dtype
@@ -1315,7 +1320,7 @@ def calculate_hb_pot(
   bo: Array,
   force_field: ForceField,
   tapered_reaxff: bool = False,
-):
+) -> Array:
   # inds: donor ind, local acceptor ind (close neigh.), local ind_2 (far neigh)
   angles = hbond_angles[0, :]
   dists = hbond_angles[1, :]
@@ -1370,7 +1375,9 @@ def calculate_hb_pot(
   return hb_pot
 
 
-def taper(value, low_tap_rad, up_tap_rad):
+def taper(
+  value: Array, low_tap_rad: float | Array, up_tap_rad: float | Array
+) -> Array:
   """
   Decreasing tapering function
   1 at low_tap_rad and 0 at up_tap_rad
@@ -1422,7 +1429,9 @@ def taper(value, low_tap_rad, up_tap_rad):
   return SW
 
 
-def taper_inc(dist, low_tap_rad=0, up_tap_rad=10):
+def taper_inc(
+  dist: Array, low_tap_rad: float | Array = 0, up_tap_rad: float | Array = 10
+) -> Array:
   """
   Increasing tapering function
   0 at low_tap_rad and 1 at up_tap_rad

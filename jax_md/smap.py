@@ -16,7 +16,7 @@
 
 from functools import reduce, partial
 
-from typing import Dict, Callable, List, Tuple, Union, Optional
+from typing import Dict, Callable, List, Tuple, Union, Optional, Any
 
 import math
 import enum
@@ -145,7 +145,9 @@ def _kwargs_to_bond_parameters(
   return kwargs
 
 
-def _apply_combinator(indices: Array, param: Parameter, combinator: Callable):
+def _apply_combinator(
+  indices: Array, param: Parameter, combinator: Callable
+) -> PyTree:
   """Combine per-particle parameters into per-interaction parameters."""
 
   def _combine_leaf(p):
@@ -412,7 +414,7 @@ def _diagonal_mask(X: Array) -> Array:
   return mask * X
 
 
-def _check_species_dtype(species):
+def _check_species_dtype(species: Array | onp.ndarray) -> None:
   if species.dtype == i32 or species.dtype == i64:
     return
   msg = 'Species has wrong dtype. Expected integer but found {}.'.format(
@@ -421,7 +423,9 @@ def _check_species_dtype(species):
   raise ValueError(msg)
 
 
-def _split_params_and_combinators(kwargs):
+def _split_params_and_combinators(
+  kwargs: Dict[str, Any],
+) -> Tuple[Dict[str, Any], Dict[str, Callable]]:
   combinators = {}
   params = {}
 
@@ -444,7 +448,7 @@ def angle(
   static_angle_types: Array | None = None,
   ignore_unused_parameters: bool = False,
   **kwargs,
-) -> Callable[..., PyTree]:
+) -> Callable[..., Array]:
   """Promotes a function acting on a single angle to a set of angles.
 
   The mapped function passes two displacement vectors (i->j and k->j) to `fn`.
@@ -476,7 +480,7 @@ def angle(
     angles: Array | None = None,
     angle_types: Array | None = None,
     **dynamic_kwargs,
-  ):
+  ) -> Array:
     accum = f32(0)
     if angles is not None:
       accum = accum + compute_fn(R, angles, angle_types, kwargs, dynamic_kwargs)
@@ -496,7 +500,7 @@ def torsion(
   static_torsion_types: Array | None = None,
   ignore_unused_parameters: bool = False,
   **kwargs,
-) -> Callable[..., PyTree]:
+) -> Callable[..., Array]:
   """Promotes a function acting on a single torsion (dihedral) to many.
 
   The mapped function passes three bond vectors (p1-p0, p2-p1, p3-p2) to `fn`.
@@ -530,7 +534,7 @@ def torsion(
     torsions: Array | None = None,
     torsion_types: Array | None = None,
     **dynamic_kwargs,
-  ):
+  ) -> Array:
     accum = f32(0)
     if torsions is not None:
       accum = accum + compute_fn(
@@ -641,7 +645,7 @@ def pair(
       # TODO(schsam): Support reduce_axis with static species.
       raise ValueError
 
-    def fn_mapped(R, **dynamic_kwargs):
+    def fn_mapped(R: Array, **dynamic_kwargs) -> Array:
       d = space.map_product(partial(displacement_or_metric, **dynamic_kwargs))
       _kwargs = merge_dicts(kwargs, dynamic_kwargs)
       s = jnp.asarray(species)
@@ -656,7 +660,7 @@ def pair(
       return high_precision_sum(dU * weight)
   elif isinstance(species, int):
 
-    def fn_mapped(R, species, **dynamic_kwargs):
+    def fn_mapped(R: Array, species: Array, **dynamic_kwargs) -> Array:
       _check_species_dtype(species)
       d = space.map_product(partial(displacement_or_metric, **dynamic_kwargs))
       _kwargs = merge_dicts(kwargs, dynamic_kwargs)
@@ -1039,7 +1043,9 @@ def triplet(
     util.merge_dicts, ignore_unused_parameters=ignore_unused_parameters
   )
 
-  def extract_parameters_by_dim(kwargs, dim: Union[int, List[int]] = 0):
+  def extract_parameters_by_dim(
+    kwargs: Dict[str, Array], dim: Union[int, List[int]] = 0
+  ) -> Dict[str, Array]:
     """Extract parameters from a dictionary via dimension."""
     if isinstance(dim, int):
       dim = [dim]
@@ -1047,7 +1053,7 @@ def triplet(
 
   if species is None:
 
-    def fn_mapped(R, **dynamic_kwargs) -> Array:
+    def fn_mapped(R: Array, **dynamic_kwargs) -> Array:
       d = space.map_product(partial(displacement_or_metric, **dynamic_kwargs))
       _kwargs = merge_dicts(kwargs, dynamic_kwargs)
       _kwargs = _kwargs_to_parameters(species, _kwargs, {})
@@ -1061,7 +1067,7 @@ def triplet(
       )
   elif util.is_array(species):
 
-    def fn_mapped(R, **dynamic_kwargs):
+    def fn_mapped(R: Array, **dynamic_kwargs) -> Array:
       d = partial(displacement_or_metric, **dynamic_kwargs)
       idx = onp.tile(onp.arange(R.shape[0]), [R.shape[0], 1])
       dR = vmap(vmap(d, (None, 0)))(R, R[idx])
