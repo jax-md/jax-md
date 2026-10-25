@@ -23,7 +23,6 @@ from typing import (
   Callable,
   Dict,
   Optional,
-  Protocol,
   TextIO,
   Tuple,
   cast,
@@ -96,14 +95,6 @@ NeighborFn = partition.NeighborFn
 NeighborListFns = partition.NeighborListFns
 NeighborList = partition.NeighborList
 NeighborListFormat = partition.NeighborListFormat
-
-
-class ModelEnergyFn(Protocol):
-  """An energy function with its Equinox model attached as `model`."""
-
-  model: Any
-
-  def __call__(self, *args: Any, **kwargs: Any) -> Array: ...
 
 
 # Energy Functions
@@ -2053,7 +2044,7 @@ def behler_parrinello(
   per_particle: bool = False,
   spatial_dimension: int = 3,
   activation: Callable = jnp.tanh,
-) -> ModelEnergyFn:
+) -> Any:
   """Build a Behler-Parrinello symmetry-function energy model.
 
   Args:
@@ -2090,7 +2081,7 @@ def behler_parrinello(
 
   setattr(energy_fn, 'model', model)
 
-  return cast(ModelEnergyFn, energy_fn)
+  return energy_fn
 
 
 def behler_parrinello_neighbor_list(
@@ -2108,7 +2099,7 @@ def behler_parrinello_neighbor_list(
   neighbor_list_fn: Callable = partition.neighbor_list,
   activation: Callable = jnp.tanh,
   **neighbor_kwargs,
-) -> Tuple[NeighborListFns, ModelEnergyFn]:
+) -> Tuple[NeighborListFns, Any]:
   """Build a Behler-Parrinello energy model with neighbor lists.
 
   Args:
@@ -2174,7 +2165,7 @@ def behler_parrinello_neighbor_list(
 
   setattr(energy_fn, 'model', model)
 
-  return neighbor_fn, cast(ModelEnergyFn, energy_fn)
+  return neighbor_fn, energy_fn
 
 
 class EnergyGraphNet(eqx.Module):
@@ -2415,7 +2406,7 @@ def graph_network(
   n_recurrences: int = 2,
   mlp_sizes: Tuple[int, ...] = (64, 64),
   **model_kwargs,
-) -> ModelEnergyFn:
+) -> Any:
   """Convenience wrapper around EnergyGraphNet model.
 
   Args:
@@ -2457,7 +2448,7 @@ def graph_network(
 
   setattr(energy_fn, 'model', model)
 
-  return cast(ModelEnergyFn, energy_fn)
+  return energy_fn
 
 
 def graph_network_neighbor_list(
@@ -2475,7 +2466,7 @@ def graph_network_neighbor_list(
   format: partition.NeighborListFormat = partition.Sparse,
   neighbor_list_fn: Callable = partition.neighbor_list,
   **neighbor_kwargs,
-) -> Tuple[NeighborListFns, ModelEnergyFn]:
+) -> Tuple[NeighborListFns, Any]:
   """Convenience wrapper around EnergyGraphNet model using neighbor lists.
 
   Args:
@@ -2553,7 +2544,7 @@ def graph_network_neighbor_list(
 
   setattr(energy_fn, 'model', model)
 
-  return neighbor_fn, cast(ModelEnergyFn, energy_fn)
+  return neighbor_fn, energy_fn
 
 
 def nequip_neighbor_list(

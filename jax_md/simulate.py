@@ -39,16 +39,13 @@ from dataclasses import replace
 from typing import (
   Any,
   Callable,
-  ClassVar,
   Dict,
   Generic,
   ParamSpec,
-  Protocol,
   Tuple,
   TypeVar,
   Union,
   cast,
-  overload,
 )
 
 import functools
@@ -82,72 +79,12 @@ Box = space.Box
 
 ShiftFn = space.ShiftFn
 
-T = TypeVar('T')
-StateT_co = TypeVar('StateT_co', covariant=True)
+T = TypeVar('T', bound=util.PyTree)
 DispatchArgs = ParamSpec('DispatchArgs')
 DispatchOut = TypeVar('DispatchOut')
 InitFn = Callable[..., T]
 ApplyFn = Callable[..., T]
-
-
-class HasMass(Protocol):
-  """A dataclass state with `position` and `mass` fields."""
-
-  __dataclass_fields__: ClassVar[dict[str, Any]]
-
-  @property
-  def position(self) -> Any: ...
-
-  @property
-  def mass(self) -> Any: ...
-
-
-class HasMomentum(HasMass, Protocol):
-  """A `HasMass` state that also has a `momentum` field."""
-
-  @property
-  def momentum(self) -> Any: ...
-
-
-class State(HasMomentum, Protocol):
-  """A simulation state with `position`, `momentum`, `force` and `mass`."""
-
-  @property
-  def force(self) -> Any: ...
-
-
-class StochasticState(HasMomentum, Protocol):
-  """A `HasMomentum` state that also has a random key in `rng`."""
-
-  @property
-  def rng(self) -> Any: ...
-
-
-HasMassT = TypeVar('HasMassT', bound=HasMass)
-HasMomentumT = TypeVar('HasMomentumT', bound=HasMomentum)
-StateT = TypeVar('StateT', bound=State)
-StochasticStateT = TypeVar('StochasticStateT', bound=StochasticState)
-
-
-class StateInitFn(Protocol[StateT_co]):
-  """Builds a state from positions. Non-array positions give `Any`."""
-
-  @overload
-  def __call__(
-    self, key: Array, R: Array, *args: Any, **kwargs: Any
-  ) -> StateT_co: ...
-
-  @overload
-  def __call__(self, key: Array, R: Any, *args: Any, **kwargs: Any) -> Any: ...
-
-
-class StepFn(Protocol):
-  """Advances a state by one step, keeping its type, with optional kwargs."""
-
-  def __call__(self, state: T, **kwargs: Any) -> T: ...
-
-
-Simulator = Tuple[StateInitFn[T], StepFn]
+Simulator = Tuple[InitFn[T], ApplyFn[T]]
 
 
 """Dispatch By State Code.
@@ -196,7 +133,7 @@ class dispatch_by_state(Generic[DispatchArgs, DispatchOut]):
 
 
 @dispatch_by_state
-def canonicalize_mass(state: HasMassT) -> HasMassT:
+def canonicalize_mass(state: T) -> T:
   """Reshape mass vector for broadcasting with positions."""
 
   def canonicalize_fn(mass: Array | float) -> Array | float:
@@ -214,7 +151,7 @@ def canonicalize_mass(state: HasMassT) -> HasMassT:
     )
     raise ValueError(msg)
 
-  return replace(state, mass=tree_map(canonicalize_fn, state.mass))
+  return state.set(mass=tree_map(canonicalize_fn, state.mass))
 
 
 def project_momentum(momentum: Array, mass: Array | float) -> Array:
@@ -232,7 +169,7 @@ def project_momentum(momentum: Array, mass: Array | float) -> Array:
 
 
 @dispatch_by_state
-def constrain_center_of_mass(state: HasMomentumT) -> HasMomentumT:
+def constrain_center_of_mass(state: T) -> T:
   """Remove COM momentum without changing positions or cached forces."""
   if not getattr(state, 'fix_center_of_mass', False):
     return state
@@ -240,13 +177,11 @@ def constrain_center_of_mass(state: HasMomentumT) -> HasMomentumT:
     raise ValueError(
       'Fixed COM requires at least one internal degree of freedom.'
     )
-  return replace(state, momentum=project_momentum(state.momentum, state.mass))
+  return state.set(momentum=project_momentum(state.momentum, state.mass))
 
 
 @dispatch_by_state
-def initialize_momenta(
-  state: HasMomentumT, key: Array, kT: ArrayLike
-) -> HasMomentumT:
+def initialize_momenta(state: T, key: Array, kT: ArrayLike) -> T:
   """Initialize momenta with the Maxwell-Boltzmann distribution."""
   R, mass = state.position, state.mass
 
@@ -263,29 +198,27 @@ def initialize_momenta(
 
   P = [initialize_fn(k, r, m) for k, r, m in zip(keys, R, mass)]
 
-  return replace(state, momentum=tree_unflatten(treedef, P))
+  return state.set(momentum=tree_unflatten(treedef, P))
 
 
-def canonicalize_momenta(
-  state: HasMomentumT, momenta: Array | None
-) -> HasMomentumT:
+def canonicalize_momenta(state: T, momenta: Array | None) -> T:
   if momenta is None:
     return state
-  return replace(state, momentum=momenta)
+  return state.set(momentum=momenta)
 
 
 @dispatch_by_state
-def momentum_step(state: StateT, dt: float | Array) -> StateT:
+def momentum_step(state: T, dt: float | Array) -> T:
   """Apply a single step of the time evolution operator for momenta."""
   assert hasattr(state, 'momentum')
   new_momentum = tree_map(lambda p, f: p + dt * f, state.momentum, state.force)
-  return constrain_center_of_mass(replace(state, momentum=new_momentum))
+  return constrain_center_of_mass(state.set(momentum=new_momentum))
 
 
 @dispatch_by_state
 def position_step(
-  state: HasMomentumT, shift_fn: Callable, dt: float | Array, **kwargs
-) -> HasMomentumT:
+  state: T, shift_fn: Callable, dt: float | Array, **kwargs
+) -> T:
   """Apply a single step of the time evolution operator for positions."""
   if isinstance(shift_fn, Callable):
     shift_fn = tree_map(lambda r: shift_fn, state.position)
@@ -296,17 +229,17 @@ def position_step(
     state.momentum,
     state.mass,
   )
-  return replace(state, position=new_position)
+  return state.set(position=new_position)
 
 
 @dispatch_by_state
-def kinetic_energy(state: HasMomentumT) -> Array | float:
+def kinetic_energy(state: T) -> Array | float:
   """Compute the kinetic energy of a state."""
   return quantity.kinetic_energy(momentum=state.momentum, mass=state.mass)
 
 
 @dispatch_by_state
-def temperature(state: HasMomentumT) -> Array | float:
+def temperature(state: T) -> Array | float:
   """Compute the temperature of a state."""
   return quantity.temperature(
     momentum=state.momentum,
@@ -343,16 +276,16 @@ def velocity_verlet(
   force_fn: Callable[..., Array],
   shift_fn: ShiftFn,
   dt: float | Array,
-  state: StateT,
+  state: T,
   **kwargs,
-) -> StateT:
+) -> T:
   """Apply a single step of velocity Verlet integration to a state."""
   dt = f32(dt)
   dt_2 = f32(dt / 2)
 
   state = momentum_step(state, dt_2)
   state = position_step(state, shift_fn, dt, **kwargs)
-  state = replace(state, force=force_fn(state.position, **kwargs))
+  state = state.set(force=force_fn(state.position, **kwargs))
   state = momentum_step(state, dt_2)
 
   return state
@@ -380,10 +313,10 @@ class NVEState:
       particles.
   """
 
-  position: Array
-  momentum: Array
-  force: Array
-  mass: Array | float
+  position: util.PyTree
+  momentum: util.PyTree
+  force: util.PyTree
+  mass: util.PyTree
   fix_center_of_mass: bool = dataclasses.static_field(
     default=False, kw_only=True
   )
@@ -446,7 +379,7 @@ def nve(
     return constrain_center_of_mass(state)
 
   @jit
-  def step_fn(state: StateT, **kwargs) -> StateT:
+  def step_fn(state: T, **kwargs) -> T:
     _dt = kwargs.pop('dt', dt)
     return velocity_verlet(force_fn, shift_fn, _dt, state, **kwargs)
 
@@ -707,10 +640,10 @@ class NVTNoseHooverState:
     chain: The variables describing the Nose-Hoover chain.
   """
 
-  position: Array
-  momentum: Array
-  force: Array
-  mass: Array | float
+  position: util.PyTree
+  momentum: util.PyTree
+  force: util.PyTree
+  mass: util.PyTree
   chain: NoseHooverChain
   fix_center_of_mass: bool = dataclasses.static_field(
     default=False, kw_only=True
@@ -1311,10 +1244,10 @@ class NVTLangevinState:
     rng: The current state of the random number generator.
   """
 
-  position: Array
-  momentum: Array
-  force: Array
-  mass: Array | float
+  position: util.PyTree
+  momentum: util.PyTree
+  force: util.PyTree
+  mass: util.PyTree
   rng: Array
   fix_center_of_mass: bool = dataclasses.static_field(
     default=False, kw_only=True
@@ -1330,11 +1263,11 @@ class NVTLangevinState:
 
 @dispatch_by_state
 def stochastic_step(
-  state: StochasticStateT,
+  state: T,
   dt: float | Array,
   kT: ArrayLike,
   gamma: float | util.PyTree,
-) -> StochasticStateT:
+) -> T:
   """A single stochastic step (the `O` step)."""
   if getattr(state, 'fix_center_of_mass', False) and jnp.ndim(gamma) != 0:
     raise ValueError(
@@ -1345,7 +1278,7 @@ def stochastic_step(
   momentum_dist = Normal(c1 * state.momentum, c2**2 * state.mass)
   key, split = random.split(state.rng)
   return constrain_center_of_mass(
-    replace(state, momentum=momentum_dist.sample(split), rng=key)
+    state.set(momentum=momentum_dist.sample(split), rng=key)
   )
 
 
@@ -2203,7 +2136,7 @@ def hybrid_swap_mc(
   t_md: float,
   N_swap: int,
   sigma_fn: Callable[[Array, Array], Array] | None = None,
-) -> Tuple[InitFn[SwapMCState], ApplyFn[SwapMCState]]:
+) -> Simulator[SwapMCState]:
   """Simulation of Hybrid Swap Monte-Carlo.
 
   This code simulates the hybrid Swap Monte Carlo algorithm introduced in

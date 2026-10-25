@@ -37,7 +37,7 @@ import functools
 import math
 
 from dataclasses import replace
-from typing import Optional, Union, Any, Tuple, Callable, TypeVar
+from typing import Optional, Union, Any, Tuple, Callable
 
 import einops
 
@@ -68,8 +68,7 @@ partial = functools.partial
 Array = space.Array
 PyTree = Any
 TreeDef = Any
-T = TypeVar('T')
-Simulator = Tuple[simulate.InitFn[T], simulate.ApplyFn[T]]
+Simulator = simulate.Simulator
 
 # TPU Grid Type
 # -----------------------------------------------------------------------------

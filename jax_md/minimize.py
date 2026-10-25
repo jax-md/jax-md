@@ -188,8 +188,9 @@ def fire_descent(
     return simulate.canonicalize_mass(state)
 
   def apply_fn(state: FireDescentState, **kwargs) -> FireDescentState:
-    state = nve_step_fn(state, dt=state.dt, **kwargs)
-    R, P, F, M, dt, alpha, n_pos = dataclasses.unpack(state)
+    R, P, F, M, dt, alpha, n_pos = dataclasses.unpack(
+      nve_step_fn(state, dt=state.dt, **kwargs)
+    )
 
     F_norm_sq = tree_reduce(lambda accum, f: accum + jnp.sum(f**2), F, 0.0)
     F_norm = jnp.sqrt(jnp.where(F_norm_sq > 0, F_norm_sq, 1))
