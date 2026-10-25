@@ -11,6 +11,7 @@ from pathlib import Path
 import jupytext
 import nbformat
 from nbclient import NotebookClient
+from nbconvert.preprocessors import CoalesceStreamsPreprocessor
 
 example, out = sys.argv[1], Path(sys.argv[2])
 script = Path('examples') / f'{example}.py'
@@ -23,6 +24,7 @@ try:
     resources={'metadata': {'path': str(script.parent)}},
   ).execute()
 finally:
+  CoalesceStreamsPreprocessor().preprocess(notebook, {})
   path = out / f'{example}.ipynb'
   path.parent.mkdir(parents=True, exist_ok=True)
   nbformat.write(notebook, path)
