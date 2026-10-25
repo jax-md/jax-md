@@ -888,7 +888,7 @@ def neighbor_list(
   metric_sq = _displacement_or_metric_to_metric_sq(displacement_or_metric)
 
   @partial(jit, static_argnums=0)
-  def candidate_fn(positionShape) -> Array:
+  def candidate_fn(positionShape: Tuple[int, ...]) -> Array:
     candidates = jnp.arange(positionShape[0], dtype=i32)
     return jnp.broadcast_to(
       candidates[None, :], (positionShape[0], positionShape[0])
@@ -896,11 +896,11 @@ def neighbor_list(
 
   @partial(jit, static_argnums=2)
   def cell_list_candidate_fn(
-    cl_id_buffer,
-    particle_cell_id,
-    positionShape,
-    position,
-    position_buffer,
+    cl_id_buffer: Array,
+    particle_cell_id: Array,
+    positionShape: Tuple[int, ...],
+    position: Array,
+    position_buffer: Array,
     **metric_kwargs,
   ) -> Array:
     N, dim = positionShape
@@ -1022,7 +1022,10 @@ def neighbor_list(
   def neighbor_list_fn(
     position: Array, neighbors=None, extra_capacity: int = 0, **kwargs
   ) -> NeighborList:
-    def neighbor_fn(position_and_error, max_occupancy=None):
+    def neighbor_fn(
+      position_and_error: Tuple[Array, PartitionError],
+      max_occupancy: int | None = None,
+    ) -> NeighborList:
       position, err = position_and_error
       N = position.shape[0]
 
@@ -1175,10 +1178,14 @@ def neighbor_list(
       lambda x: x,
     )
 
-  def allocate_fn(position: Array, extra_capacity: int = 0, **kwargs):
+  def allocate_fn(
+    position: Array, extra_capacity: int = 0, **kwargs
+  ) -> NeighborList:
     return neighbor_list_fn(position, extra_capacity=extra_capacity, **kwargs)
 
-  def update_fn(position: Array, neighbors, **kwargs):
+  def update_fn(
+    position: Array, neighbors: NeighborList, **kwargs
+  ) -> NeighborList:
     return neighbor_list_fn(position, neighbors, **kwargs)
 
   return NeighborListFns(

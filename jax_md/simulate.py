@@ -35,7 +35,18 @@ can be used for testing purposes, but is not often used otherwise.
 
 from collections import namedtuple
 
-from typing import Any, Callable, TypeVar, Union, Tuple, Dict
+from typing import (
+  Any,
+  Callable,
+  Dict,
+  Generic,
+  ParamSpec,
+  Protocol,
+  Tuple,
+  TypeVar,
+  Union,
+  overload,
+)
 
 import functools
 
@@ -69,9 +80,34 @@ Box = space.Box
 ShiftFn = space.ShiftFn
 
 T = TypeVar('T')
+StateT = TypeVar('StateT', covariant=True)
+DispatchArgs = ParamSpec('DispatchArgs')
+DispatchOut = TypeVar('DispatchOut')
 InitFn = Callable[..., T]
 ApplyFn = Callable[..., T]
-Simulator = Tuple[InitFn[T], ApplyFn[T]]
+
+
+class StateInitFn(Protocol[StateT]):
+  """Builds a state from positions. Non-array positions give `Any`."""
+
+  @overload
+  def __call__(
+    self, key: Array, R: Array, /, *args: Any, **kwargs: Any
+  ) -> StateT: ...
+
+  @overload
+  def __call__(
+    self, key: Array, R: Any, /, *args: Any, **kwargs: Any
+  ) -> Any: ...
+
+
+class StepFn(Protocol):
+  """Advances a state by one step, keeping its type, with optional kwargs."""
+
+  def __call__(self, state: T, /, **kwargs: Any) -> T: ...
+
+
+Simulator = Tuple[StateInitFn[T], StepFn]
 
 
 """Dispatch By State Code.
@@ -97,17 +133,20 @@ momentum step for deterministic and stochastic simulations or the
 """
 
 
-class dispatch_by_state:
+class dispatch_by_state(Generic[DispatchArgs, DispatchOut]):
   """Wrap a function and dispatch based on the type of positions."""
 
-  def __init__(self, fn: Callable):
+  def __init__(self, fn: Callable[DispatchArgs, DispatchOut]):
     self._fn = fn
     self._registry = {}
 
-  def __call__(self, state: Any, *args, **kwargs) -> Any:
+  def __call__(
+    self, *args: DispatchArgs.args, **kwargs: DispatchArgs.kwargs
+  ) -> DispatchOut:
+    state = args[0]
     if type(state.position) in self._registry:
-      return self._registry[type(state.position)](state, *args, **kwargs)
-    return self._fn(state, *args, **kwargs)
+      return self._registry[type(state.position)](*args, **kwargs)
+    return self._fn(*args, **kwargs)
 
   def register(self, oftype: type) -> Callable[[Callable], None]:
     def register_fn(fn: Callable) -> None:
@@ -317,7 +356,7 @@ def nve(
   dt: float | Array = 1e-3,
   fix_center_of_mass: bool = False,
   **sim_kwargs,
-) -> Simulator:
+) -> Simulator[NVEState]:
   """Simulates a system in the NVE ensemble.
 
   Samples from the microcanonical ensemble in which the number of particles
@@ -640,7 +679,7 @@ def nvt_nose_hoover(
   tau: float | Array | None = None,
   fix_center_of_mass: bool = False,
   **sim_kwargs,
-) -> Simulator:
+) -> Simulator[NVTNoseHooverState]:
   """Simulation in the NVT ensemble using a Nose Hoover Chain thermostat.
 
   Samples from the canonical ensemble in which the number of particles (N),
@@ -1226,11 +1265,11 @@ class NVTLangevinState:
 
 @dispatch_by_state
 def stochastic_step(
-  state: NVTLangevinState,
+  state: T,
   dt: float | Array,
   kT: ArrayLike,
-  gamma: float | Array,
-) -> NVTLangevinState:
+  gamma: float | util.PyTree,
+) -> T:
   """A single stochastic step (the `O` step)."""
   if getattr(state, 'fix_center_of_mass', False) and jnp.ndim(gamma) != 0:
     raise ValueError(
@@ -1254,7 +1293,7 @@ def nvt_langevin(
   center_velocity: bool = True,
   fix_center_of_mass: bool = False,
   **sim_kwargs,
-) -> Simulator:
+) -> Simulator[NVTLangevinState]:
   """Simulation in the NVT ensemble using the BAOAB Langevin thermostat.
 
   Samples from the canonical ensemble in which the number of particles (N),
@@ -2087,7 +2126,7 @@ def hybrid_swap_mc(
   t_md: float,
   N_swap: int,
   sigma_fn: Callable[[Array, Array], Array] | None = None,
-) -> Simulator[SwapMCState]:
+) -> Tuple[InitFn[SwapMCState], ApplyFn[SwapMCState]]:
   """Simulation of Hybrid Swap Monte-Carlo.
 
   This code simulates the hybrid Swap Monte Carlo algorithm introduced in
@@ -2227,7 +2266,7 @@ def temp_rescale(
   fraction: float,
   fix_center_of_mass: bool = False,
   **sim_kwargs,
-) -> Simulator:
+) -> Simulator[NVEState]:
   """Simulation using explicit velocity rescaling.
 
   Rescale the velocities of atoms explicitly so that the desired temperature is
@@ -2316,7 +2355,7 @@ def temp_berendsen(
   tau: float | Array,
   fix_center_of_mass: bool = False,
   **sim_kwargs,
-) -> Simulator:
+) -> Simulator[NVEState]:
   """Simulation using the Berendsen thermostat.
 
   Berendsen (weak coupling) thermostat rescales the velocities of atoms such
@@ -2401,7 +2440,7 @@ def nvk(
   kT: ArrayLike,
   fix_center_of_mass: bool = False,
   **sim_kwargs,
-) -> Simulator:
+) -> Simulator[NVEState]:
   """Simulation in the NVK (isokinetic) ensemble using the Gaussian thermostat.
 
   Samples from the isokinetic ensemble in which the number of particles (N),
@@ -2534,7 +2573,7 @@ def temp_csvr(
   tau: float | Array,
   fix_center_of_mass: bool = False,
   **sim_kwargs,
-) -> Simulator:
+) -> Simulator[NVTLangevinState]:
   """Simulation using the canonical sampling through velocity rescaling (CSVR) thermostat.
 
   Samples from the canonical ensemble in which the number of particles (N),

@@ -2472,7 +2472,9 @@ def zero_if_undefined(value) -> jnp.ndarray:
   return value
 
 
-def mapped_batch_size(vals: Sequence[jnp.ndarray], dims) -> int:
+def mapped_batch_size(
+  vals: Sequence[jnp.ndarray], dims: Sequence[int | None]
+) -> int:
   for val, dim in zip(vals, dims):
     if dim is not None:
       return val.shape[dim]
@@ -2480,7 +2482,7 @@ def mapped_batch_size(vals: Sequence[jnp.ndarray], dims) -> int:
 
 
 def move_or_broadcast_batch(
-  value: jnp.ndarray, dim, batch_size: int
+  value: jnp.ndarray, dim: int | None, batch_size: int
 ) -> jnp.ndarray:
   if dim is None:
     return jnp.broadcast_to(value, (batch_size,) + value.shape)

@@ -648,7 +648,7 @@ def _(
 
 
 @simulate.stochastic_step.register(RigidBody)
-def _(state, dt: float, kT: float, gamma: 'RigidBody'):
+def _(state: T, dt: float, kT: float, gamma: 'RigidBody') -> T:
   key, center_key, orientation_key = random.split(state.rng, 3)
 
   rest, center, orientation = split_center_and_orientation(state)

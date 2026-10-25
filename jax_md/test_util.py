@@ -445,7 +445,9 @@ def load_lammps_stress_data(
     )
 
 
-def load_lammps_npt_test_case(dtype: Any):
+def load_lammps_npt_test_case(
+  dtype: Any,
+) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
   def parse_state(
     filename: str,
   ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:

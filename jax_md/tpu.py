@@ -36,7 +36,7 @@ import functools
 
 import math
 
-from typing import Optional, Union, Any, Tuple, Callable
+from typing import Optional, Union, Any, Tuple, Callable, TypeVar
 
 import einops
 
@@ -67,7 +67,8 @@ partial = functools.partial
 Array = space.Array
 PyTree = Any
 TreeDef = Any
-Simulator = simulate.Simulator
+T = TypeVar('T')
+Simulator = Tuple[simulate.InitFn[T], simulate.ApplyFn[T]]
 
 # TPU Grid Type
 # -----------------------------------------------------------------------------
@@ -1686,7 +1687,7 @@ def _get_aux_spec(num_dims: int, aux: PyTree) -> Tuple[TreeDef, onp.ndarray]:
 def _outer_grid_size_to_inner_grid_size(
   tiled_size: Union[int, Tuple[int, ...]],
   topology: Union[int, Tuple, None],
-  factors,
+  factors: Tuple[int, ...],
   max_grid_distance: int,
 ) -> onp.ndarray:
   if topology:
@@ -1701,7 +1702,7 @@ def _outer_grid_size_to_inner_grid_size(
 def _inner_grid_size_to_outer_grid_size(
   folded_size: onp.ndarray,
   topology: Union[int, Tuple, None],
-  factors,
+  factors: Tuple[int, ...],
   max_grid_distance: int,
 ) -> onp.ndarray:
   padded_size = folded_size * onp.array(factors)
