@@ -63,6 +63,7 @@ read_test_data('tests/data/reax_data')
 
 def read_and_process_FF_file(filename, cutoff2=0.001, dtype=jnp.float64):
   force_field = read_force_field(filename, cutoff2=cutoff2, dtype=dtype)
+  assert force_field is not None
   force_field = ForceField.fill_off_diag(force_field)
   force_field = ForceField.fill_symm(force_field)
 

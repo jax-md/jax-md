@@ -5,6 +5,7 @@ Note: custom_smap currently only supports pair potentials via
 implemented for multi-image neighbor lists.
 """
 
+from typing import Any
 from absl.testing import absltest
 from absl.testing import parameterized
 
@@ -37,6 +38,7 @@ NEIGHBOR_LIST_FORMAT = [
 # Smaller particle count for multi-image tests (small boxes)
 PARTICLE_COUNT = 50
 
+POSITION_DTYPE: list[Any]
 if util.x64_enabled():
   POSITION_DTYPE = [f32, f64]
 else:

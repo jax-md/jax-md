@@ -227,5 +227,4 @@ allowed-unresolved-imports = [
 ]
 
 [tool.ty.rules]
-unresolved-attribute = "ignore"
 unused-ignore-comment = "error"

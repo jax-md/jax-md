@@ -9,7 +9,7 @@ from typing import Optional
 
 def create_neighbor_list(
   displacement_fn: space.DisplacementFn,
-  box,
+  box: space.Box,
   r_cut: float | Array,
   dr_threshold: float = 0.5,
   **kwargs,

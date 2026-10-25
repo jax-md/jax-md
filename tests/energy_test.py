@@ -14,6 +14,7 @@
 
 """Tests for jax_md.energy."""
 
+from typing import Any
 from absl.testing import absltest
 from absl.testing import parameterized
 
@@ -50,6 +51,7 @@ UNIT_CELL_SIZE = [7, 8]
 SOFT_SPHERE_ALPHA = [2.0, 2.5, 3.0]
 N_TYPES_TO_TEST = [1, 2]
 
+POSITION_DTYPE: list[Any]
 if util.x64_enabled():
   POSITION_DTYPE = [f32, f64]
 else:

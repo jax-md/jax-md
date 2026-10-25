@@ -37,10 +37,12 @@ def test_registry_matches_checkpoints():
       sha256, size = weights.WEIGHTS[filename]
       if weights.is_lfs_pointer(path):
         text = path.read_text()
-        assert re.search(r'sha256:([0-9a-f]+)', text).group(1) == sha256, (
+        sha_match = re.search(r'sha256:([0-9a-f]+)', text)
+        size_match = re.search(r'size (\d+)', text)
+        assert sha_match is not None and sha_match.group(1) == sha256, filename
+        assert size_match is not None and int(size_match.group(1)) == size, (
           filename
         )
-        assert int(re.search(r'size (\d+)', text).group(1)) == size, filename
       else:
         data = path.read_bytes()
         assert hashlib.sha256(data).hexdigest() == sha256, filename

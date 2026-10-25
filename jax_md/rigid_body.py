@@ -500,7 +500,9 @@ def _(position: RigidBody) -> int:
 
 
 @simulate.initialize_momenta.register(RigidBody)
-def _(state: T, key: Array, kT: float) -> T:
+def _(
+  state: simulate.HasMomentumT, key: Array, kT: float
+) -> simulate.HasMomentumT:
   R, mass = state.position, state.mass
   center_key, angular_key = random.split(key)
 
@@ -526,7 +528,7 @@ def _(state: T, key: Array, kT: float) -> T:
     shape, dtype = R.orientation.shape, R.orientation.dtype
     P_orientation = scale * random.normal(angular_key, shape, dtype=dtype)
 
-  return state.set(momentum=RigidBody(P_center, P_orientation))
+  return replace(state, momentum=RigidBody(P_center, P_orientation))
 
 
 class EmptyLeaf:
@@ -603,7 +605,9 @@ def _rigid_body_3d_position_step(
 
     return quat, p_quat
 
-  def orientation_update(state: T, dt: float | Array, **kwargs) -> T:
+  def orientation_update(
+    state: simulate.HasMomentumT, dt: float | Array, **kwargs
+  ) -> simulate.HasMomentumT:
     dt_2 = dt / 2
     R = state.position
     P = state.momentum
@@ -622,7 +626,7 @@ def _rigid_body_3d_position_step(
       R, P = free_rotor(0, dt, R, P, M)
       R, P = free_rotor(1, dt_2, R, P, M)
       R, P = free_rotor(2, dt_2, R, P, M)
-    return state.set(position=Quaternion(R), momentum=Quaternion(P))
+    return replace(state, position=Quaternion(R), momentum=Quaternion(P))
 
   rest, center, orientation = split_center_and_orientation(state)
   center = simulate.position_step(center, shift_fn, dt, **kwargs)
@@ -644,8 +648,12 @@ def _rigid_body_2d_position_step(
 
 @simulate.position_step.register(RigidBody)
 def _(
-  state: T, shift_fn: ShiftFn, dt: float | Array, m_rot: int = 1, **kwargs
-) -> T:
+  state: simulate.HasMomentumT,
+  shift_fn: ShiftFn,
+  dt: float | Array,
+  m_rot: int = 1,
+  **kwargs,
+) -> simulate.HasMomentumT:
   if isinstance(state.position.orientation, Quaternion):
     return _rigid_body_3d_position_step(
       state, shift_fn, dt, m_rot=m_rot, **kwargs
@@ -655,7 +663,9 @@ def _(
 
 
 @simulate.stochastic_step.register(RigidBody)
-def _(state: T, dt: float, kT: float, gamma: 'RigidBody') -> T:
+def _(
+  state: simulate.StochasticStateT, dt: float, kT: float, gamma: 'RigidBody'
+) -> simulate.StochasticStateT:
   key, center_key, orientation_key = random.split(state.rng, 3)
 
   rest, center, orientation = split_center_and_orientation(state)
@@ -700,16 +710,18 @@ def _(state: T, dt: float, kT: float, gamma: 'RigidBody') -> T:
 
 
 @simulate.canonicalize_mass.register(RigidBody)
-def _(state: T) -> T:
+def _(state: simulate.HasMassT) -> simulate.HasMassT:
   mass = state.mass
   if not isinstance(mass, RigidBody):
     raise ValueError(
       f'Rigid body mass must be a RigidBody, e.g. `shape.mass()`. Found {mass}.'
     )
   if len(mass.center) == 1:
-    return state.set(mass=RigidBody(mass.center[0], mass.orientation))
+    return replace(state, mass=RigidBody(mass.center[0], mass.orientation))
   elif len(mass.center) > 1:
-    return state.set(mass=RigidBody(mass.center[:, None], mass.orientation))
+    return replace(
+      state, mass=RigidBody(mass.center[:, None], mass.orientation)
+    )
   raise NotImplementedError(
     'Center of mass must be either a scalar or a vector. Found an array of '
     f'shape {mass.center.shape}.'
@@ -717,12 +729,12 @@ def _(state: T) -> T:
 
 
 @simulate.kinetic_energy.register(RigidBody)
-def _(state: T) -> Array | float:
+def _(state: simulate.HasMomentumT) -> Array | float:
   return kinetic_energy(state.position, state.momentum, state.mass)
 
 
 @simulate.temperature.register(RigidBody)
-def _(state: T) -> Array | float:
+def _(state: simulate.HasMomentumT) -> Array | float:
   return temperature(state.position, state.momentum, state.mass)
 
 
@@ -939,7 +951,7 @@ def point_union_shape(
   return _transform_to_diagonal_frame(shape)
 
 
-def concatenate_shapes(*shapes) -> RigidPointUnion:
+def concatenate_shapes(*shapes: RigidPointUnion) -> RigidPointUnion:
   """Concatenate a list of RigidPointUnions into a single RigidPointUnion."""
   shape_tuples = zip(*[dataclasses.astuple(s) for s in shapes])
   points, masses, point_count, point_offset, point_species, _ = shape_tuples

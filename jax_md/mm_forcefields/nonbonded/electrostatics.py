@@ -799,6 +799,7 @@ class PMECoulomb(CoulombHandler):
     )
 
     ### Remove exceptions implicitly included in reciprocal term
+    assert displacement_fn is not None
     bond_corr_fn = smap.bond(
       pair_correction,
       space.canonicalize_displacement_or_metric(displacement_fn),

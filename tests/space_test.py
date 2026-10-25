@@ -14,6 +14,7 @@
 
 """Tests for jax_md.space."""
 
+from typing import Any
 from absl.testing import absltest
 from absl.testing import parameterized
 
@@ -39,6 +40,7 @@ SHIFT_STEPS = 10
 SPATIAL_DIMENSION = [2, 3]
 BOX_FORMATS = ['scalar', 'vector', 'matrix']
 
+POSITION_DTYPE: list[Any]
 if util.x64_enabled():
   POSITION_DTYPE = [f32, f64]
 else:

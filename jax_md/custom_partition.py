@@ -806,7 +806,8 @@ def estimate_max_neighbors_from_box(
 
 
 def neighbor_list_multi_image(
-  displacement_or_metric,  # Ignored, for API compatibility
+  displacement_or_metric: space.DisplacementOrMetricFn
+  | None,  # Ignored, for API compatibility
   box: util.ArrayLike,  # [dim, dim]
   r_cutoff: util.ArrayLike,
   dr_threshold: float = 0.0,

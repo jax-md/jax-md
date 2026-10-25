@@ -14,6 +14,7 @@
 
 """Tests for jax_md.minimize."""
 
+from typing import Any
 import numpy as onp
 
 from absl.testing import absltest
@@ -45,6 +46,7 @@ OPTIMIZATION_STEPS = 10
 STOCHASTIC_SAMPLES = 10
 SPATIAL_DIMENSION = [2, 3]
 
+DTYPE: list[Any]
 if util.x64_enabled():
   DTYPE = [f32, f64]
 else:

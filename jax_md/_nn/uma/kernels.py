@@ -440,7 +440,7 @@ def segment_mm_transpose_rule(
   *,
   max_size: int | None,
 ) -> tuple[jnp.ndarray | None, ...]:
-  if type(cotangent) is ad.Zero:
+  if isinstance(cotangent, ad.Zero):
     return None, None, None, None
 
   grad_x = None
@@ -496,7 +496,7 @@ def segment_mm_jvp_transpose_rule(
   *,
   max_size: int | None,
 ) -> tuple[jnp.ndarray | None, ...]:
-  if type(cotangent) is ad.Zero:
+  if isinstance(cotangent, ad.Zero):
     return None, None, None, None, None, None
 
   x_value = zero_if_undefined(x)
@@ -688,7 +688,7 @@ def segment_mm_bwd_dx_transpose_rule(
   *,
   max_size: int | None,
 ) -> tuple[jnp.ndarray | None, ...]:
-  if type(cotangent) is ad.Zero:
+  if isinstance(cotangent, ad.Zero):
     return None, None, None, None
   grad_y_value = zero_if_undefined(grad_y)
   weights_value = zero_if_undefined(weights)
@@ -784,7 +784,7 @@ def segment_mm_bwd_dx_jvp_transpose_rule(
   *,
   max_size: int | None,
 ) -> tuple[jnp.ndarray | None, ...]:
-  if type(cotangent) is ad.Zero:
+  if isinstance(cotangent, ad.Zero):
     return None, None, None, None, None, None
   grad_y_value = zero_if_undefined(grad_y)
   weights_value = zero_if_undefined(weights)
@@ -955,7 +955,7 @@ def segment_mm_bwd_dweights_transpose_rule(
   max_size: int | None,
 ) -> tuple[jnp.ndarray | None, ...]:
   del weights_shape
-  if type(cotangent) is ad.Zero:
+  if isinstance(cotangent, ad.Zero):
     return None, None, None, None
   x_value = zero_if_undefined(x)
   grad_y_value = zero_if_undefined(grad_y)
@@ -1078,7 +1078,7 @@ def segment_mm_bwd_dweights_jvp_transpose_rule(
   max_size: int | None,
 ) -> tuple[jnp.ndarray | None, ...]:
   del weights_shape
-  if type(cotangent) is ad.Zero:
+  if isinstance(cotangent, ad.Zero):
     return None, None, None, None, None, None
   x_value = zero_if_undefined(x)
   grad_y_value = zero_if_undefined(grad_y)
@@ -2463,7 +2463,7 @@ def edge_to_node_scatter(
 
 
 def zero_tangent(tangent, primal: jnp.ndarray) -> jnp.ndarray:
-  return jnp.zeros_like(primal) if type(tangent) is ad.Zero else tangent
+  return jnp.zeros_like(primal) if isinstance(tangent, ad.Zero) else tangent
 
 
 def zero_if_undefined(value) -> jnp.ndarray:
@@ -2568,14 +2568,14 @@ def node_to_edge_backward_transpose_rule(
   x_value = zero_if_undefined(x)
   wigner_value = zero_if_undefined(wigner)
 
-  if ad.is_undefined_primal(x) and type(ddwigner) is not ad.Zero:
+  if ad.is_undefined_primal(x) and not isinstance(ddwigner, ad.Zero):
     grad_x, _ = node_to_edge_backward_p.bind(
       jnp.zeros(x.aval.shape, dtype=ddwigner.dtype),
       edge_index,
       ddwigner,
       gout_value,
     )
-  if ad.is_undefined_primal(wigner) and type(ddx) is not ad.Zero:
+  if ad.is_undefined_primal(wigner) and not isinstance(ddx, ad.Zero):
     _, grad_wigner = node_to_edge_backward_p.bind(
       ddx,
       edge_index,
@@ -2584,9 +2584,9 @@ def node_to_edge_backward_transpose_rule(
     )
   if ad.is_undefined_primal(gout):
     terms = []
-    if type(ddx) is not ad.Zero:
+    if not isinstance(ddx, ad.Zero):
       terms.append(node_to_edge_p.bind(ddx, edge_index, wigner_value))
-    if type(ddwigner) is not ad.Zero:
+    if not isinstance(ddwigner, ad.Zero):
       terms.append(node_to_edge_p.bind(x_value, edge_index, ddwigner))
     if terms:
       grad_gout = terms[0]
@@ -2684,14 +2684,14 @@ def node_to_edge_backward_jvp_transpose_rule(
   grad_tx = None
   grad_twigner = None
   grad_tgout = None
-  if ad.is_undefined_primal(tx) and type(ddwigner) is not ad.Zero:
+  if ad.is_undefined_primal(tx) and not isinstance(ddwigner, ad.Zero):
     grad_tx, _ = node_to_edge_backward_p.bind(
       jnp.zeros(tx.aval.shape, dtype=ddwigner.dtype),
       edge_index,
       ddwigner,
       gout,
     )
-  if ad.is_undefined_primal(twigner) and type(ddx) is not ad.Zero:
+  if ad.is_undefined_primal(twigner) and not isinstance(ddx, ad.Zero):
     _, grad_twigner = node_to_edge_backward_p.bind(
       ddx,
       edge_index,
@@ -2700,9 +2700,9 @@ def node_to_edge_backward_jvp_transpose_rule(
     )
   if ad.is_undefined_primal(tgout):
     terms = []
-    if type(ddx) is not ad.Zero:
+    if not isinstance(ddx, ad.Zero):
       terms.append(node_to_edge_p.bind(ddx, edge_index, wigner))
-    if type(ddwigner) is not ad.Zero:
+    if not isinstance(ddwigner, ad.Zero):
       terms.append(node_to_edge_p.bind(x, edge_index, ddwigner))
     if terms:
       grad_tgout = terms[0]
@@ -2719,7 +2719,7 @@ def node_to_edge_backward_jvp_jvp_rule(
   tx0, _, tw0, tgout0, ttx, ttw, ttgout = tangents
   diff_primals = (x, wigner, gout, tx, twigner, tgout)
   diff_tangents = tuple(
-    jnp.zeros_like(primal) if type(tangent) is ad.Zero else tangent
+    jnp.zeros_like(primal) if isinstance(tangent, ad.Zero) else tangent
     for primal, tangent in zip(
       diff_primals, (tx0, tw0, tgout0, ttx, ttw, ttgout)
     )
@@ -2850,7 +2850,7 @@ def node_to_edge_transpose_rule(
   edge_index: jnp.ndarray,
   wigner: jnp.ndarray | ad.UndefinedPrimal,
 ) -> tuple[jnp.ndarray | None, ...]:
-  if type(cotangent) is ad.Zero:
+  if isinstance(cotangent, ad.Zero):
     return None, None, None
   grad_x = None
   grad_wigner = None
@@ -2929,7 +2929,7 @@ def node_to_edge_jvp_transpose_rule(
   tx: jnp.ndarray | ad.UndefinedPrimal,
   twigner: jnp.ndarray | ad.UndefinedPrimal,
 ) -> tuple[jnp.ndarray | None, ...]:
-  if type(cotangent) is ad.Zero:
+  if isinstance(cotangent, ad.Zero):
     return None, None, None, None, None
   x = zero_if_undefined(x)
   wigner = zero_if_undefined(wigner)
@@ -2960,7 +2960,7 @@ def node_to_edge_jvp_jvp_rule(
   tx0, _, tw0, ttx, ttw = tangents
   diff_primals = (x, wigner, tx, twigner)
   diff_tangents = tuple(
-    jnp.zeros_like(primal) if type(tangent) is ad.Zero else tangent
+    jnp.zeros_like(primal) if isinstance(tangent, ad.Zero) else tangent
     for primal, tangent in zip(diff_primals, (tx0, tw0, ttx, ttw))
   )
 
@@ -3107,7 +3107,7 @@ def edge_to_node_backward_transpose_rule(
   messages_value = zero_if_undefined(messages)
   wigner_value = zero_if_undefined(wigner)
 
-  if ad.is_undefined_primal(messages) and type(ddwigner) is not ad.Zero:
+  if ad.is_undefined_primal(messages) and not isinstance(ddwigner, ad.Zero):
     grad_messages, _ = edge_to_node_backward_p.bind(
       jnp.zeros(messages.aval.shape, dtype=ddwigner.dtype),
       edge_index,
@@ -3115,7 +3115,7 @@ def edge_to_node_backward_transpose_rule(
       gout_value,
       num_nodes=num_nodes,
     )
-  if ad.is_undefined_primal(wigner) and type(ddmessages) is not ad.Zero:
+  if ad.is_undefined_primal(wigner) and not isinstance(ddmessages, ad.Zero):
     _, grad_wigner = edge_to_node_backward_p.bind(
       ddmessages,
       edge_index,
@@ -3125,7 +3125,7 @@ def edge_to_node_backward_transpose_rule(
     )
   if ad.is_undefined_primal(gout):
     terms = []
-    if type(ddmessages) is not ad.Zero:
+    if not isinstance(ddmessages, ad.Zero):
       terms.append(
         edge_to_node_p.bind(
           ddmessages,
@@ -3134,7 +3134,7 @@ def edge_to_node_backward_transpose_rule(
           num_nodes=num_nodes,
         )
       )
-    if type(ddwigner) is not ad.Zero:
+    if not isinstance(ddwigner, ad.Zero):
       terms.append(
         edge_to_node_p.bind(
           messages_value,
@@ -3259,7 +3259,7 @@ def edge_to_node_backward_jvp_transpose_rule(
   grad_tmessages = None
   grad_twigner = None
   grad_tgout = None
-  if ad.is_undefined_primal(tmessages) and type(ddwigner) is not ad.Zero:
+  if ad.is_undefined_primal(tmessages) and not isinstance(ddwigner, ad.Zero):
     grad_tmessages, _ = edge_to_node_backward_p.bind(
       jnp.zeros(tmessages.aval.shape, dtype=ddwigner.dtype),
       edge_index,
@@ -3267,7 +3267,7 @@ def edge_to_node_backward_jvp_transpose_rule(
       gout,
       num_nodes=num_nodes,
     )
-  if ad.is_undefined_primal(twigner) and type(ddmessages) is not ad.Zero:
+  if ad.is_undefined_primal(twigner) and not isinstance(ddmessages, ad.Zero):
     _, grad_twigner = edge_to_node_backward_p.bind(
       ddmessages,
       edge_index,
@@ -3277,11 +3277,11 @@ def edge_to_node_backward_jvp_transpose_rule(
     )
   if ad.is_undefined_primal(tgout):
     terms = []
-    if type(ddmessages) is not ad.Zero:
+    if not isinstance(ddmessages, ad.Zero):
       terms.append(
         edge_to_node_p.bind(ddmessages, edge_index, wigner, num_nodes=num_nodes)
       )
-    if type(ddwigner) is not ad.Zero:
+    if not isinstance(ddwigner, ad.Zero):
       terms.append(
         edge_to_node_p.bind(messages, edge_index, ddwigner, num_nodes=num_nodes)
       )
@@ -3302,7 +3302,7 @@ def edge_to_node_backward_jvp_jvp_rule(
   tm0, _, tw0, tgout0, ttm, ttw, ttgout = tangents
   diff_primals = (messages, wigner, gout, tmessages, twigner, tgout)
   diff_tangents = tuple(
-    jnp.zeros_like(primal) if type(tangent) is ad.Zero else tangent
+    jnp.zeros_like(primal) if isinstance(tangent, ad.Zero) else tangent
     for primal, tangent in zip(
       diff_primals, (tm0, tw0, tgout0, ttm, ttw, ttgout)
     )
@@ -3458,7 +3458,7 @@ def edge_to_node_transpose_rule(
   *,
   num_nodes: int,
 ) -> tuple[jnp.ndarray | None, ...]:
-  if type(cotangent) is ad.Zero:
+  if isinstance(cotangent, ad.Zero):
     return None, None, None
   grad_messages = None
   grad_wigner = None
@@ -3550,7 +3550,7 @@ def edge_to_node_jvp_transpose_rule(
   *,
   num_nodes: int,
 ) -> tuple[jnp.ndarray | None, ...]:
-  if type(cotangent) is ad.Zero:
+  if isinstance(cotangent, ad.Zero):
     return None, None, None, None, None
   messages = zero_if_undefined(messages)
   wigner = zero_if_undefined(wigner)
@@ -3585,7 +3585,7 @@ def edge_to_node_jvp_jvp_rule(
   tm0, _, tw0, ttm, ttw = tangents
   diff_primals = (messages, wigner, tmessages, twigner)
   diff_tangents = tuple(
-    jnp.zeros_like(primal) if type(tangent) is ad.Zero else tangent
+    jnp.zeros_like(primal) if isinstance(tangent, ad.Zero) else tangent
     for primal, tangent in zip(diff_primals, (tm0, tw0, ttm, ttw))
   )
 

@@ -88,3 +88,7 @@ Data Types
 .. autoclass:: BrownianState
 .. autoclass:: NPTCSVRState
 .. autoclass:: NPTLangevinState
+.. autoclass:: State
+.. autoclass:: HasMass
+.. autoclass:: HasMomentum
+.. autoclass:: StochasticState

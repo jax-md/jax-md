@@ -17,7 +17,18 @@
 from functools import wraps, partial
 from os import PathLike
 
-from typing import Callable, Tuple, TextIO, Dict, Any, Optional, Protocol, cast
+from typing import (
+  TYPE_CHECKING,
+  Any,
+  Callable,
+  Dict,
+  Optional,
+  Protocol,
+  TextIO,
+  Tuple,
+  cast,
+  overload,
+)
 
 import re
 
@@ -41,6 +52,9 @@ from jax_md import (
   interpolate,
   util,
 )
+
+if TYPE_CHECKING:
+  from jax_md._nn.uma.model import UMAConfig
 
 
 # Electrostatics
@@ -216,7 +230,7 @@ def soft_sphere_neighbor_list(
   sigma: Array | float = 1.0,
   epsilon: Array | float = 1.0,
   alpha: Array | float = 2.0,
-  dr_threshold: float = 0.2,
+  dr_threshold: Array | float = 0.2,
   per_particle: bool = False,
   fractional_coordinates: bool = False,
   format: NeighborListFormat = partition.OrderedSparse,
@@ -315,9 +329,9 @@ def lennard_jones_neighbor_list(
   species: Array | None = None,
   sigma: Array | float = 1.0,
   epsilon: Array | float = 1.0,
-  r_onset: float = 2.0,
-  r_cutoff: float = 2.5,
-  dr_threshold: float = 0.5,
+  r_onset: Array | float = 2.0,
+  r_cutoff: Array | float = 2.5,
+  dr_threshold: Array | float = 0.5,
   per_particle: bool = False,
   fractional_coordinates: bool = False,
   format: partition.NeighborListFormat = partition.OrderedSparse,
@@ -416,9 +430,9 @@ def morse_neighbor_list(
   sigma: Array | float = 1.0,
   epsilon: Array | float = 5.0,
   alpha: Array | float = 5.0,
-  r_onset: float = 2.0,
-  r_cutoff: float = 2.5,
-  dr_threshold: float = 0.5,
+  r_onset: Array | float = 2.0,
+  r_cutoff: Array | float = 2.5,
+  dr_threshold: Array | float = 0.5,
   per_particle: bool = False,
   fractional_coordinates: bool = False,
   format: partition.NeighborListFormat = partition.OrderedSparse,
@@ -734,7 +748,7 @@ def bks_neighbor_list(
   repulsive_coeff: ArrayLike | list,
   coulomb_alpha: ArrayLike,
   cutoff: float,
-  dr_threshold: float = 0.8,
+  dr_threshold: Array | float = 0.8,
   fractional_coordinates: bool = False,
   format: partition.NeighborListFormat = partition.OrderedSparse,
   neighbor_list_fn: Callable = partition.neighbor_list,
@@ -2294,6 +2308,14 @@ class EnergyGraphNet(eqx.Module):
     return output
 
 
+@overload
+def canonicalize_node_state(nodes: Array) -> Array: ...
+
+
+@overload
+def canonicalize_node_state(nodes: None) -> None: ...
+
+
 def canonicalize_node_state(nodes: Array | None) -> Array | None:
   if nodes is None:
     return nodes
@@ -2535,7 +2557,7 @@ def graph_network_neighbor_list(
 
 
 def nequip_neighbor_list(
-  displacement_fn,
+  displacement_fn: DisplacementFn | None,
   box: Box,
   config: Dict[str, Any] | None = None,
   species: Array | None = None,
@@ -2609,6 +2631,7 @@ def nequip_neighbor_list(
     if featurizer is None:
       graph = partition.to_jraph(neighbor)
       mask = partition.neighbor_list_mask(neighbor, True)
+      assert displacement_fn is not None
       d = vmap(partial(displacement_fn, **kwargs))
       edge_vector = d(position[graph.senders], position[graph.receivers])
     else:
@@ -3299,7 +3322,7 @@ def bending_potential(
 def uma_neighbor_list(
   displacement_fn: DisplacementFn,
   box: Box,
-  cfg=None,
+  cfg: 'UMAConfig | None' = None,
   atoms: Array | None = None,
   checkpoint_path: str | None = None,
   head_type: str = 'mlp',
@@ -3310,7 +3333,7 @@ def uma_neighbor_list(
   dataset_idx: Array | None = None,
   head_dataset: str = 'omat',
   apply_atom_refs: bool = True,
-  atom_refs=None,
+  atom_refs: Array | Dict[str, Any] | None = None,
   use_kernels: bool | None = True,
   merge_mole: bool | None = None,
   so2_block_gemm: bool | None = None,
@@ -3477,7 +3500,7 @@ def uma_neighbor_list(
         energy_mean = 0.0
         energy_rmsd = 1.0
     elif isinstance(atom_refs, dict):
-      correction = atom_refs
+      correction = cast(Dict[str, Any], atom_refs)
       atom_refs = correction.get('element_refs', correction.get('atom_refs'))
       energy_mean = correction.get('mean', 0.0)
       energy_rmsd = correction.get('rmsd', 1.0)

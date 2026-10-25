@@ -46,7 +46,7 @@ renderer_code = IPython.display.HTML(
 SIMULATION_IDX = 0
 
 
-def to_np(*xs) -> list:
+def to_np(*xs: Any) -> list:
   return [np.array(x) if isinstance(x, jnp.ndarray) else x for x in xs]
 
 
@@ -221,7 +221,7 @@ def _to_json(data: Dict[str, Any]) -> IPython.display.JSON:
 
 def render(
   box_size: float | Sequence[float] | jnp.ndarray | np.ndarray,
-  geometry,
+  geometry: Any,
   buffer_size: int | None = None,
   background_color: Sequence[float] | None = None,
   resolution: Sequence[int] | None = None,

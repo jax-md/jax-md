@@ -527,7 +527,7 @@ def map_neighbor(
 
 
 def canonicalize_displacement_or_metric(
-  displacement_or_metric,
+  displacement_or_metric: DisplacementOrMetricFn,
 ) -> DisplacementOrMetricFn:
   """Checks whether or not a displacement or metric was provided."""
   for dim in range(1, 4):

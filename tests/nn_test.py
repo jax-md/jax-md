@@ -14,6 +14,7 @@
 
 """Tests jax_md.nn."""
 
+from typing import Any
 from absl.testing import absltest
 from absl.testing import parameterized
 
@@ -31,6 +32,7 @@ from jax_md import util
 
 jax.config.parse_flags_with_absl()
 
+DTYPES: list[Any]
 if util.x64_enabled():
   DTYPES = [f32, f64]
 else:

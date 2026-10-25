@@ -56,7 +56,7 @@ def random_packed_structure(
   composition: Composition,
   lattice: jax_md_util.ArrayLike,
   seed: int = 42,
-  diameter: float | None = None,
+  diameter: float | jnp.ndarray | None = None,
   auto_diameter: bool = False,
   max_iter: int = 30,
   distance_tolerance: float = 0.0001,
