@@ -7,13 +7,14 @@ import json
 from functools import partial
 from importlib.resources import files
 from os import PathLike
-from typing import Any
+from typing import Any, Callable
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax_md import partition
+from jax import Array
+from jax_md import partition, space
 from jax_md._nn import weights
 
 jax.config.update('jax_default_matmul_precision', 'highest')
@@ -24,8 +25,12 @@ ACEFF_MODEL_PATHS = {
 }
 
 
-def neighbor_list_featurizer(displacement_fn, *, cutoff: float):
-  def featurize(position, neighbor, **kwargs):
+def neighbor_list_featurizer(
+  displacement_fn: space.DisplacementFn, *, cutoff: float
+) -> Callable[..., tuple[Array, Array, Array, Array]]:
+  def featurize(
+    position: Array, neighbor: partition.NeighborList, **kwargs
+  ) -> tuple[Array, Array, Array, Array]:
     num_atoms = position.shape[0]
     atom_ids = jnp.arange(num_atoms, dtype=jnp.int32)
     mask = partition.neighbor_list_mask(neighbor, True)
@@ -55,7 +60,7 @@ def neighbor_list_featurizer(displacement_fn, *, cutoff: float):
   return featurize
 
 
-def unique_pairs(num_atoms: int):
+def unique_pairs(num_atoms: int) -> tuple[Array, Array]:
   pair_src, pair_dst = np.triu_indices(int(num_atoms), k=1)
   return (
     jnp.asarray(pair_src, dtype=jnp.int32),
@@ -63,13 +68,15 @@ def unique_pairs(num_atoms: int):
   )
 
 
-def safe_norm(x, *, axis=-1, keepdims: bool = False, eps: float = 1.0e-24):
+def safe_norm(
+  x: Array, *, axis: int = -1, keepdims: bool = False, eps: float = 1.0e-24
+) -> Array:
   return jnp.sqrt(
     jnp.maximum(jnp.sum(x * x, axis=axis, keepdims=keepdims), eps)
   )
 
 
-def cosine_cutoff(d, cutoff, cutoff_lower=0.0):
+def cosine_cutoff(d: Array, cutoff: float, cutoff_lower: float = 0.0) -> Array:
   if cutoff_lower > 0:
     x = 2.0 * (d - cutoff_lower) / (cutoff - cutoff_lower) + 1.0
     c = 0.5 * (jnp.cos(jnp.pi * x) + 1.0)
@@ -79,7 +86,7 @@ def cosine_cutoff(d, cutoff, cutoff_lower=0.0):
     return jnp.where(d < cutoff, c, 0.0)
 
 
-def decompose_tensor(X):
+def decompose_tensor(X: Array) -> tuple[Array, Array, Array]:
   """Decompose into scalar, antisymmetric, and symmetric components."""
   antisymmetric = 0.5 * (X - jnp.swapaxes(X, 1, 2))
   symmetric_full = X - antisymmetric
@@ -89,7 +96,7 @@ def decompose_tensor(X):
   return scalar, antisymmetric, symmetric
 
 
-def vector_to_skewtensor(vec):
+def vector_to_skewtensor(vec: Array) -> Array:
   """[N, 3, F] -> [N, 3, 3, F] skew-symmetric."""
   N, _, F = vec.shape
   zero = jnp.zeros((N, F), dtype=vec.dtype)
@@ -110,7 +117,7 @@ def vector_to_skewtensor(vec):
   return tensor.reshape(N, 3, 3, F)
 
 
-def skewtensor_to_vector(A):
+def skewtensor_to_vector(A: Array) -> Array:
   """[N, 3, 3, F] -> [N, 3, F]."""
   A_flat = A.reshape(A.shape[0], 9, A.shape[3])
   return 0.5 * jnp.stack(
@@ -123,7 +130,7 @@ def skewtensor_to_vector(A):
   )
 
 
-def outer_to_symtensor(T):
+def outer_to_symtensor(T: Array) -> Array:
   """Symmetrize and remove trace. [N, 3, 3, F] -> [N, 3, 3, F]."""
   symmetric = 0.5 * (T + jnp.swapaxes(T, 1, 2))
   scalar = jnp.diagonal(T, axis1=1, axis2=2).mean(axis=-1)
@@ -131,7 +138,7 @@ def outer_to_symtensor(T):
   return symmetric - scalar[:, None, None, :] * identity
 
 
-def tensor_matmul_o3(Y, msg):
+def tensor_matmul_o3(Y: Array, msg: Array) -> Array:
   """O(3)-equivariant contraction: Y*msg + msg*Y."""
   Yp = jnp.transpose(Y, (0, 3, 1, 2))
   Mp = jnp.transpose(msg, (0, 3, 1, 2))
@@ -140,7 +147,7 @@ def tensor_matmul_o3(Y, msg):
   )
 
 
-def tensor_matmul_so3(Y, msg):
+def tensor_matmul_so3(Y: Array, msg: Array) -> Array:
   """SO(3)-equivariant contraction: Y*msg."""
   Yp = jnp.transpose(Y, (0, 3, 1, 2))
   Mp = jnp.transpose(msg, (0, 3, 1, 2))
@@ -151,11 +158,11 @@ class Linear(eqx.Module):
   kernel: Any
   bias: Any
 
-  def __init__(self, d_in, d_out, *, bias=True):
+  def __init__(self, d_in: int, d_out: int, *, bias: bool = True) -> None:
     self.kernel = jnp.zeros((d_in, d_out), dtype=jnp.float32)
     self.bias = jnp.zeros((d_out,), dtype=jnp.float32) if bias else None
 
-  def __call__(self, x):
+  def __call__(self, x: Array) -> Array:
     out = x @ self.kernel
     if self.bias is not None:
       out = out + self.bias
@@ -165,14 +172,14 @@ class Linear(eqx.Module):
 class MLP(eqx.Module):
   layers: tuple[Linear, ...]
 
-  def __init__(self, d_in, dims):
+  def __init__(self, d_in: int, dims: list[int]) -> None:
     layers = []
     for d_out in dims:
       layers.append(Linear(d_in, int(d_out)))
       d_in = int(d_out)
     self.layers = tuple(layers)
 
-  def __call__(self, x):
+  def __call__(self, x: Array) -> Array:
     for i, layer in enumerate(self.layers):
       x = layer(x)
       if i < len(self.layers) - 1:
@@ -185,12 +192,12 @@ class LayerNorm(eqx.Module):
   bias: Any
   eps: float = eqx.field(static=True)
 
-  def __init__(self, dim, *, eps: float = 1.0e-5):
+  def __init__(self, dim: int, *, eps: float = 1.0e-5) -> None:
     self.weight = jnp.zeros((dim,), dtype=jnp.float32)
     self.bias = jnp.zeros((dim,), dtype=jnp.float32)
     self.eps = float(eps)
 
-  def __call__(self, x):
+  def __call__(self, x: Array) -> Array:
     mean = x.mean(axis=-1, keepdims=True)
     var = ((x - mean) ** 2).mean(axis=-1, keepdims=True)
     return self.weight * (x - mean) * jax.lax.rsqrt(var + self.eps) + self.bias
@@ -208,7 +215,15 @@ class TensorEmbedding(eqx.Module):
   cutoff: float = eqx.field(static=True)
   cutoff_lower: float = eqx.field(static=True)
 
-  def __init__(self, num_rbf, hidden, *, cutoff, cutoff_lower, eps):
+  def __init__(
+    self,
+    num_rbf: int,
+    hidden: int,
+    *,
+    cutoff: float,
+    cutoff_lower: float,
+    eps: float,
+  ) -> None:
     self.distance_proj1 = Linear(num_rbf, hidden)
     self.distance_proj2 = Linear(num_rbf, hidden)
     self.distance_proj3 = Linear(num_rbf, hidden)
@@ -227,15 +242,15 @@ class TensorEmbedding(eqx.Module):
 
   def __call__(
     self,
-    species,
-    edge_src,
-    edge_dst,
-    distances,
-    unit_vectors,
-    radial_features,
+    species: Array,
+    edge_src: Array,
+    edge_dst: Array,
+    distances: Array,
+    unit_vectors: Array,
+    radial_features: Array,
     *,
-    edge_mask=None,
-  ):
+    edge_mask: Array | None = None,
+  ) -> Array:
     num_features = self.emb.shape[1]
     num_atoms = species.shape[0]
 
@@ -306,16 +321,16 @@ class PartialChargesHead(eqx.Module):
   q_mlp: MLP
   q_norm: LayerNorm
 
-  def __init__(self, in_dim, mlp_dims, *, eps):
+  def __init__(self, in_dim: int, mlp_dims: list[int], *, eps: float) -> None:
     self.q_mlp = MLP(in_dim, mlp_dims)
     self.q_norm = LayerNorm(in_dim, eps=eps)
 
   def _neural_charge_equilibration(
     self,
-    partial_charges,
-    charge_weights,
-    total_charge=0.0,
-  ):
+    partial_charges: Array,
+    charge_weights: Array,
+    total_charge: float | Array = 0.0,
+  ) -> Array:
     weights = charge_weights**2
     weight_sum = jnp.sum(weights, axis=0, keepdims=True) + 1.0e-6
     predicted_charge = jnp.sum(partial_charges, axis=0, keepdims=True)
@@ -323,7 +338,9 @@ class PartialChargesHead(eqx.Module):
       total_charge - predicted_charge
     )
 
-  def __call__(self, tensor_features, total_charge=0.0):
+  def __call__(
+    self, tensor_features: Array, total_charge: float | Array = 0.0
+  ) -> Array:
     scalar, antisymmetric, symmetric = decompose_tensor(tensor_features)
     charge_features = jnp.concatenate(
       [
@@ -358,15 +375,15 @@ class AceFFLayer(eqx.Module):
 
   def __init__(
     self,
-    scalar_in,
-    hidden,
+    scalar_in: int,
+    hidden: int,
     *,
     cutoff: float,
     cutoff_lower: float,
     group: str,
     edge_charge_features: bool,
     total_charge_interaction_scale: bool,
-  ):
+  ) -> None:
     self.linears_scalar = (
       Linear(scalar_in, hidden),
       Linear(hidden, 2 * hidden),
@@ -383,16 +400,16 @@ class AceFFLayer(eqx.Module):
 
   def __call__(
     self,
-    tensor_features,
+    tensor_features: Array,
     partial_charges,
-    total_charge,
-    edge_src,
-    edge_dst,
-    distances,
-    radial_features,
+    total_charge: float | Array,
+    edge_src: Array,
+    edge_dst: Array,
+    distances: Array,
+    radial_features: Array,
     *,
-    edge_mask=None,
-  ):
+    edge_mask: Array | None = None,
+  ) -> Array:
     num_atoms = tensor_features.shape[0]
     num_features = tensor_features.shape[3]
 
@@ -511,12 +528,14 @@ class LocalEnergyHead(eqx.Module):
   linear: Linear
   output_network: MLP
 
-  def __init__(self, hidden, output_network_dims, *, eps):
+  def __init__(
+    self, hidden: int, output_network_dims: list[int], *, eps: float
+  ) -> None:
     self.out_norm = LayerNorm(3 * hidden, eps=eps)
     self.linear = Linear(3 * hidden, hidden)
     self.output_network = MLP(hidden, output_network_dims)
 
-  def __call__(self, tensor_features):
+  def __call__(self, tensor_features: Array) -> Array:
     _, antisymmetric, symmetric = decompose_tensor(tensor_features)
     trace = jnp.diagonal(tensor_features, axis1=1, axis2=2).sum(axis=-1)
     warp_one_third = jnp.asarray(
@@ -548,14 +567,14 @@ class CoulombHead(eqx.Module):
 
   def __init__(
     self,
-    qweights_dim,
+    qweights_dim: int,
     *,
     coulomb_factor: float,
     coulomb_damp_cutoff: float,
     coulomb_cutoff: float | None,
     coulomb_epsilon_solvent: float,
     exp_minus_1: float,
-  ):
+  ) -> None:
     self.qweights = jnp.zeros((qweights_dim,), dtype=jnp.float32)
     self.coulomb_factor = float(coulomb_factor)
     self.coulomb_damp_cutoff = float(coulomb_damp_cutoff)
@@ -567,12 +586,12 @@ class CoulombHead(eqx.Module):
 
   def __call__(
     self,
-    positions,
+    positions: Array,
     partial_charges,
     *,
-    displacement_fn,
-    coulomb_edges=None,
-  ):
+    displacement_fn: space.DisplacementFn,
+    coulomb_edges: tuple[Array, Array, Array, Array] | None = None,
+  ) -> Array:
     partial_charges = jnp.concatenate(partial_charges, axis=-1)
     if coulomb_edges is None:
       # No Coulomb neighbor list supplied: sum over all unique atom pairs.
@@ -634,7 +653,7 @@ class AceFF(eqx.Module):
   neighbor_cell_atom_threshold: int = eqx.field(static=True)
   neighbor_cell_capacity_multiplier: float = eqx.field(static=True)
 
-  def __init__(self, config):
+  def __init__(self, config: dict[str, Any]) -> None:
     self.cutoff = config['cutoff']
     self.ev_to_kjmol = config['ev_to_kjmol']
     self.cutoff_lower = config['cutoff_lower']
@@ -710,12 +729,12 @@ class AceFF(eqx.Module):
 
   def edge_features(
     self,
-    positions,
-    edge_src,
-    edge_dst,
-    offsets,
-    edge_mask,
-  ):
+    positions: Array,
+    edge_src: Array,
+    edge_dst: Array,
+    offsets: Array,
+    edge_mask: Array,
+  ) -> tuple[Array, Array, Array, Array]:
     edge_vectors = positions[edge_src] - positions[edge_dst] + offsets
     distances = jnp.where(
       edge_src == edge_dst,
@@ -746,14 +765,14 @@ class AceFF(eqx.Module):
 
   def local_node_energies_and_charges(
     self,
-    positions,
-    species,
-    edge_src,
-    edge_dst,
-    offsets,
-    edge_mask,
-    total_charge,
-  ):
+    positions: Array,
+    species: Array,
+    edge_src: Array,
+    edge_dst: Array,
+    offsets: Array,
+    edge_mask: Array,
+    total_charge: float | Array,
+  ) -> tuple[Array, list[Array]]:
     distances, unit_vectors, radial_features, edge_mask = self.edge_features(
       positions,
       edge_src,
@@ -802,14 +821,14 @@ class AceFF(eqx.Module):
 
   def __call__(
     self,
-    positions,
-    species,
+    positions: Array,
+    species: Array,
     *,
-    displacement_fn=None,
-    neighbors=None,
-    coulomb_neighbors=None,
-    total_charge=0.0,
-  ):
+    displacement_fn: space.DisplacementFn | None = None,
+    neighbors: partition.NeighborList | None = None,
+    coulomb_neighbors: partition.NeighborList | None = None,
+    total_charge: float | Array = 0.0,
+  ) -> Array:
     if displacement_fn is None or neighbors is None:
       raise ValueError(
         'AceFF requires a displacement_fn and a neighbor list. Build them '
@@ -860,8 +879,8 @@ def load_model(
   model: str = 'aceff-jax-2.0',
   *,
   model_path: str | PathLike | None = None,
-  dtype=None,
-):
+  dtype: Any = None,
+) -> AceFF:
   if model_path is not None:
     path = weights.resolve_checkpoint(model_path, allow_cache=False)
   else:

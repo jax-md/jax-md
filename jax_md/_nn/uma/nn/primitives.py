@@ -5,6 +5,8 @@ all have to match the reference implementation for the checkpoints to
 reproduce.
 """
 
+from typing import Callable
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -36,7 +38,7 @@ class Dense(eqx.Module):
     *,
     key: Array,
     use_bias: bool = True,
-    kernel_init=DEFAULT_KERNEL_INIT,
+    kernel_init: Callable[..., Array] = DEFAULT_KERNEL_INIT,
   ):
     self.kernel = kernel_init(key, (in_features, out_features), jnp.float32)
     self.bias = jnp.zeros((out_features,), jnp.float32) if use_bias else None
@@ -83,7 +85,7 @@ class Embed(eqx.Module):
     features: int,
     *,
     key: Array,
-    embedding_init=DEFAULT_EMBED_INIT,
+    embedding_init: Callable[..., Array] = DEFAULT_EMBED_INIT,
   ):
     self.embedding = embedding_init(
       key, (num_embeddings, features), jnp.float32

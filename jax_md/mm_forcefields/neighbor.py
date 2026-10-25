@@ -1,14 +1,14 @@
 """Neighbor list utilities for molecular mechanics forcefields."""
 
 import jax.numpy as jnp
-from jax_md import partition
+from jax_md import partition, space
 from jax_md.partition import NeighborListFns
 from jax_md.util import Array
 from typing import Optional
 
 
 def create_neighbor_list(
-  displacement_fn,
+  displacement_fn: space.DisplacementFn,
   box,
   r_cut: float | Array,
   dr_threshold: float = 0.5,

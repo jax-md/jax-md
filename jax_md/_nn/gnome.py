@@ -14,8 +14,10 @@
 
 """GNoME checkpoints are not supported; :func:`load_model` raises."""
 
+from typing import NoReturn
 
-def load_model(directory: str):
+
+def load_model(directory: str) -> NoReturn:
   """Not supported; see google-deepmind/materials_discovery."""
   raise NotImplementedError(
     f'jax-md does not read GNoME checkpoints such as {directory}: they use '

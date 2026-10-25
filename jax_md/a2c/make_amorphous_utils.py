@@ -28,7 +28,7 @@ from pymatgen.core.composition import Composition
 from pymatgen.core.structure import Structure
 
 
-def get_diameter(composition) -> float:
+def get_diameter(composition: Composition) -> float:
   """Auto diamater tries to calculate min separation from radii."""
   if len(composition.elements) > 1:
     diameter = onp.array(
@@ -87,7 +87,7 @@ def random_packed_structure(
   _, split = random.split(key)
   R = random.uniform(split, (sum(element_counts), 3), dtype=onp.float32)
 
-  def min_distance(s):
+  def min_distance(s: Structure) -> float:
     return onp.where(
       s.distance_matrix < distance_tolerance, 10, s.distance_matrix
     ).min()

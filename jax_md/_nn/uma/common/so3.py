@@ -117,8 +117,8 @@ def _complex_idx(
   m: int,
   lmax: int,
   mmax: int,
-  m_complex,
-  l_harmonic,
+  m_complex: np.ndarray | jnp.ndarray,
+  l_harmonic: np.ndarray | jnp.ndarray,
 ) -> Tuple[List[int], List[int]]:
   """Get indices for real and imaginary parts of order m coefficients."""
   # Ensure numpy arrays (not JAX arrays) for index computation

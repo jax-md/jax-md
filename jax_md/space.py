@@ -173,7 +173,9 @@ def transform(box: Box, R: Array) -> Array:
 
 
 @transform.defjvp
-def transform_jvp(primals, tangents):
+def transform_jvp(
+  primals: Tuple[Box, Array], tangents: Tuple[Box, Array]
+) -> Tuple[Array, Array]:
   """Custom JVP for transform that preserves gradient coordinate system.
 
   This JVP causes gradients to flow through unchanged (dR passes through
@@ -427,7 +429,9 @@ def periodic_general(
   """
   inv_box = inverse(box)
 
-  def displacement_fn(Ra, Rb, perturbation=None, **kwargs):
+  def displacement_fn(
+    Ra: Array, Rb: Array, perturbation: Array | None = None, **kwargs
+  ) -> Array:
     _box, _inv_box = box, inv_box
 
     if 'box' in kwargs:
@@ -451,12 +455,12 @@ def periodic_general(
 
     return dR
 
-  def u(R, dR):
+  def u(R: Array, dR: Array) -> Array:
     if wrapped:
       return periodic_shift(f32(1.0), R, dR)
     return R + dR
 
-  def shift_fn(R, dR, **kwargs):
+  def shift_fn(R: Array, dR: Array, **kwargs) -> Array:
     if not fractional_coordinates and not wrapped:
       return R + dR
 
@@ -491,7 +495,7 @@ def map_product(
 ) -> DisplacementOrMetricFn:
   """Vectorizes a metric or displacement function over all pairs."""
 
-  def wrapped_fn(Ra, Rb, **kwargs):
+  def wrapped_fn(Ra: Array, Rb: Array, **kwargs) -> Array:
     fn = partial(metric_or_displacement, **kwargs)
     return vmap(vmap(fn, (0, None), 0), (None, 0), 0)(Ra, Rb)
 
@@ -503,7 +507,7 @@ def map_bond(
 ) -> DisplacementOrMetricFn:
   """Vectorizes a metric or displacement function over bonds."""
 
-  def wrapped_fn(Ra, Rb, **kwargs):
+  def wrapped_fn(Ra: Array, Rb: Array, **kwargs) -> Array:
     fn = partial(metric_or_displacement, **kwargs)
     return vmap(fn, (0, 0), 0)(Ra, Rb)
 
@@ -515,14 +519,16 @@ def map_neighbor(
 ) -> DisplacementOrMetricFn:
   """Vectorizes a metric or displacement function over neighborhoods."""
 
-  def wrapped_fn(Ra, Rb, **kwargs):
+  def wrapped_fn(Ra: Array, Rb: Array, **kwargs) -> Array:
     fn = partial(metric_or_displacement, **kwargs)
     return vmap(vmap(fn, (0, None)))(Rb, Ra)
 
   return wrapped_fn
 
 
-def canonicalize_displacement_or_metric(displacement_or_metric):
+def canonicalize_displacement_or_metric(
+  displacement_or_metric,
+) -> DisplacementOrMetricFn:
   """Checks whether or not a displacement or metric was provided."""
   for dim in range(1, 4):
     try:

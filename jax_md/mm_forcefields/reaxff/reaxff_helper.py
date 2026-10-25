@@ -4,25 +4,29 @@ Contains helper functions ReaxFF
 Author: Mehmet Cagri Kaymak
 """
 
-from typing import Any
+from os import PathLike
+from typing import Any, Callable
 
 import jax
 import jax.numpy as jnp
 import numpy as onp
 from jax_md.mm_forcefields.reaxff.reaxff_forcefield import ForceField
+from jax_md.util import Array
 from dataclasses import fields
 from jax import custom_jvp
 from frozendict import frozendict
 
 
 @custom_jvp
-def safe_sqrt(x):
+def safe_sqrt(x: Array) -> Array:
   """Safe sqrt function (no nan gradients)."""
   return jnp.sqrt(x)
 
 
 @safe_sqrt.defjvp
-def safe_sqrt_jvp(primals, tangents):
+def safe_sqrt_jvp(
+  primals: tuple[Array], tangents: tuple[Array]
+) -> tuple[Array, Array]:
   x = primals[0]
   x_dot = tangents[0]
   # print(x[0])
@@ -32,14 +36,19 @@ def safe_sqrt_jvp(primals, tangents):
 
 
 # it fixes nan values issue, from: https://github.com/google/jax/issues/1052
-def vectorized_cond(pred, true_fun, false_fun, operand):
+def vectorized_cond(
+  pred: Array,
+  true_fun: Callable[[Array], Array],
+  false_fun: Callable[[Array], Array],
+  operand: Array,
+) -> Array:
   # true_fun and false_fun must act elementwise (i.e. be vectorized)
   true_op = jnp.where(pred, operand, 0)
   false_op = jnp.where(pred, 0, operand)
   return jnp.where(pred, true_fun(true_op), false_fun(false_op))
 
 
-def init_params_for_filler_atom_type(FF_field_dict):
+def init_params_for_filler_atom_type(FF_field_dict: dict[str, Any]) -> None:
   # TODO: make sure that index -1 doesnt belong to a real atom!!!
 
   FF_field_dict['rvdw'][-1] = 1
@@ -58,11 +67,11 @@ def init_params_for_filler_atom_type(FF_field_dict):
 
 
 def read_force_field(
-  force_field_file,
-  cutoff2=1e-3,
-  hbond_close_cutoff=0.01,
-  hbond_far_cutoff=7.5,
-  dtype=jnp.float32,
+  force_field_file: str | PathLike,
+  cutoff2: float = 1e-3,
+  hbond_close_cutoff: float = 0.01,
+  hbond_far_cutoff: float = 7.5,
+  dtype: Any = jnp.float32,
 ):
   # to store all arguments together before creating the class
   FF_field_dict = {f.name: None for f in fields(ForceField) if f.init}

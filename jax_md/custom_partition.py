@@ -2,10 +2,11 @@ from functools import partial
 
 import jax
 import jax.numpy as jnp
+import jraph
 import numpy as onp
 from jax_md import dataclasses, partition, space, util
 from jax_md.partition import NeighborListFormat
-from typing import Callable, Tuple, Union
+from typing import Callable, Iterator, Tuple, Union
 
 # Type aliases
 Array = jnp.ndarray
@@ -139,7 +140,7 @@ class NeighborListMultiImageFns:
   allocate: AllocateFn = dataclasses.static_field()
   update: UpdateFn = dataclasses.static_field()
 
-  def __iter__(self):
+  def __iter__(self) -> Iterator[Callable[..., NeighborListMultiImage]]:
     """Allow unpacking: allocate_fn, update_fn = neighbor_fn."""
     return iter((self.allocate, self.update))
 
@@ -901,7 +902,9 @@ def neighbor_list_multi_image(
   num_shifts = shifts.shape[0]
 
   # Placeholder for circular reference in NeighborListMultiImage.update
-  def update_fn_placeholder(position, neighbors, **kwargs):
+  def update_fn_placeholder(
+    position: Array, neighbors: NeighborListMultiImage, **kwargs
+  ) -> NeighborListMultiImage:
     raise NotImplementedError()
 
   update_fn_ref = [update_fn_placeholder]
@@ -931,11 +934,13 @@ def neighbor_list_multi_image(
   else:
     build_nl_fn = _build_neighbor_list_sparse
 
-  def make_build_fn(capacity):
+  def make_build_fn(capacity: int) -> Callable[..., NeighborListMultiImage]:
     """Create a build function for given capacity."""
 
     @jax.jit
-    def build_fn(pos, box, nl_shifts):
+    def build_fn(
+      pos: Array, box: Array, nl_shifts: Array
+    ) -> NeighborListMultiImage:
       shifts_real = nl_shifts @ box.T
       zero_idx = jnp.argmin(jnp.sum(nl_shifts**2, axis=1))
       return build_nl_fn(
@@ -1069,7 +1074,7 @@ def neighbor_list_multi_image(
     capacity = neighbors.max_occupancy
     build_fn = get_build_fn(capacity)
 
-    def rebuild(pos):
+    def rebuild(pos: Array) -> NeighborListMultiImage:
       updated = build_fn(pos, current_box, neighbors.search_shifts)
       return dataclasses.replace(
         updated,
@@ -1122,7 +1127,9 @@ def neighbor_list_multi_image_mask(
   return neighbors.idx[0] < N  # [capacity]
 
 
-def graph_featurizer(displacement_fn=None):
+def graph_featurizer(
+  displacement_fn: space.DisplacementFn | None = None,
+) -> Callable[..., jraph.GraphsTuple]:
   """Create graph featurizer for multi-image neighbor lists.
 
   Converts a NeighborListMultiImage to a jraph.GraphsTuple with displacement
@@ -1152,8 +1159,11 @@ def graph_featurizer(displacement_fn=None):
     displacement_fn, _ = space.free()
 
   def featurize(
-    atoms, positions: Array, neighbor: NeighborListMultiImage, **kwargs
-  ):
+    atoms: util.PyTree,
+    positions: Array,
+    neighbor: NeighborListMultiImage,
+    **kwargs,
+  ) -> jraph.GraphsTuple:
     """Convert neighbor list to graph with displacement edges.
 
     Args:

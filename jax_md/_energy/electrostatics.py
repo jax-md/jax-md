@@ -115,7 +115,7 @@ def coulomb_recip_ewald(
     masked = jnp.where(mask, operand, placeholder_in)
     return jnp.where(mask, fn(masked), placeholder_out)
 
-  def energy_fn(position, **kwargs):
+  def energy_fn(position: Array, **kwargs) -> Array:
     dim = position.shape[-1]
     V = side_length**dim
 
@@ -147,7 +147,7 @@ def coulomb_recip_pme(
 ) -> Callable[[Array], Array]:
   _ibox = space.inverse(box)
 
-  def energy_fn(R, **kwargs):
+  def energy_fn(R: Array, **kwargs) -> Array:
     q = kwargs.pop('charge', charge)
     _box = kwargs.pop('box', box)
     ibox = space.inverse(kwargs['box']) if 'box' in kwargs else _ibox
@@ -198,7 +198,7 @@ def coulomb_ewald_neighbor_list(
   )
   recip_fn = coulomb_recip_ewald(charge, box, alpha, g_max)
 
-  def total_energy(R, neighbor, **kwargs):
+  def total_energy(R: Array, neighbor: NeighborList, **kwargs) -> Array:
     return direct_fn(R, neighbor=neighbor, **kwargs) + recip_fn(R, **kwargs)
 
   return neighbor_fn, total_energy
@@ -220,7 +220,7 @@ def coulomb(
     charge, box, grid_points, fractional_coordinates, alpha
   )
 
-  def total_energy(R, **kwargs):
+  def total_energy(R: Array, **kwargs) -> Array:
     return direct_fn(R, **kwargs) + recip_fn(R, **kwargs)
 
   return total_energy
@@ -252,7 +252,7 @@ def coulomb_neighbor_list(
     charge, box, grid_points, fractional_coordinates, alpha
   )
 
-  def total_energy(R, neighbor, **kwargs):
+  def total_energy(R: Array, neighbor: NeighborList, **kwargs) -> Array:
     return direct_fn(R, neighbor=neighbor, **kwargs) + recip_fn(R, **kwargs)
 
   return neighbor_fn, total_energy
@@ -261,7 +261,7 @@ def coulomb_neighbor_list(
 # Utility functions.
 
 
-def structure_factor(g, R, q=1):
+def structure_factor(g: Array, R: Array, q: Array | float = 1) -> Array:
   if isinstance(q, jnp.ndarray):
     q = q[None, :]
   return util.high_precision_sum(
@@ -276,7 +276,7 @@ def structure_factor(g, R, q=1):
 
 
 @partial(jnp.vectorize, signature='()->(p)')
-def optimized_bspline_4(w):
+def optimized_bspline_4(w: Array) -> Array:
   coeffs = jnp.zeros((4,))
 
   coeffs = coeffs.at[2].set(0.5 * w * w)
@@ -348,7 +348,7 @@ def map_charges_to_grid(
 
 
 @partial(jnp.vectorize, signature='()->()')
-def b(m, n=4):
+def b(m: Array, n: int = 4) -> Array:
   assert n == 4
   k = jnp.arange(n - 1)
   M = optimized_bspline_4(1.0)[1:][::-1]
@@ -356,7 +356,7 @@ def b(m, n=4):
   return prefix / jnp.sum(M * jnp.exp(2 * jnp.pi * 1j * m * k))
 
 
-def B(mx, my, mz, n=4):
+def B(mx: Array, my: Array, mz: Array, n: int = 4) -> Array:
   """Compute the B factors from Essmann et al. equation 4.7."""
   b_x = b(mx)
   b_y = b(my)
@@ -365,14 +365,16 @@ def B(mx, my, mz, n=4):
 
 
 @jax.custom_jvp
-def transform_gradients(box, coords):
+def transform_gradients(box: Box, coords: Array) -> Array:
   # This function acts as a no-op in the forward pass, but it transforms the
   # gradients into fractional coordinates in the backward pass.
   return coords
 
 
 @transform_gradients.defjvp
-def _(primals, tangents):
+def _(
+  primals: Tuple[Box, Array], tangents: Tuple[Array, Array]
+) -> Tuple[Array, Array]:
   box, coords = primals
   dbox, dcoords = tangents
   return coords, space.transform(dbox, coords) + space.transform(box, dcoords)

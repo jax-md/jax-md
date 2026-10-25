@@ -23,7 +23,7 @@ dtype and inputs are cast to it.
 import functools
 import json
 import math
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from itertools import count
 from typing import Any, Callable, Dict, List, Tuple
 
@@ -84,7 +84,9 @@ def split_irreps(x: Array, irreps: str) -> Tuple[Array, ...]:
   return tuple(blocks)
 
 
-def join_irreps(blocks, irreps: str, leading) -> Array:
+def join_irreps(
+  blocks: Sequence[Array | None], irreps: str, leading: Tuple[int, ...]
+) -> Array:
   filled = next((b for b in blocks if b is not None), None)
   dtype = jnp.float32 if filled is None else filled.dtype
   parts = []
@@ -187,7 +189,11 @@ class FullyConnectedTensorProduct(eqx.Module):
 
 
 def fully_connected_tensor_product(
-  irreps_out, irreps_in1, irreps_in2, *, keys
+  irreps_out: Irreps | str,
+  irreps_in1: Irreps | str,
+  irreps_in2: Irreps | str,
+  *,
+  keys: Iterator[Array],
 ) -> FullyConnectedTensorProduct:
   """``o3.FullyConnectedTensorProduct`` with all e3nn paths."""
   irreps_in1 = Irreps(irreps_in1).simplify()
@@ -432,7 +438,13 @@ class NequIP(eqx.Module):
     return bessel * cutoff * self.bessel_factor
 
   def zbl_energy(
-    self, r, species, senders, receivers, normed, edge_mask
+    self,
+    r: Array,
+    species: Array,
+    senders: Array,
+    receivers: Array,
+    normed: Array,
+    edge_mask: Array | None,
   ) -> Array:
     # LAMMPS pair_zbl constants
     p_zbl, a0 = 0.23, 0.46850
@@ -470,7 +482,7 @@ ACTIVATION_PROBES = {
 }
 
 
-def activation_of(fn):
+def activation_of(fn: Any) -> Tuple[str, float]:
   """``(name, scale)`` such that ``fn(x) == scale * NONLINEARITY[name](x)``."""
   import torch
 
@@ -488,7 +500,7 @@ def activation_of(fn):
   raise ValueError(f'unrecognized activation {fn}')
 
 
-def slice_flat_weight(weight, instructions) -> List[onp.ndarray]:
+def slice_flat_weight(weight: Any, instructions: Any) -> List[onp.ndarray]:
   """Split e3nn-torch's flat weight into one array per instruction."""
   flat = weight.detach().cpu().numpy()
   out, offset = [], 0
@@ -501,7 +513,7 @@ def slice_flat_weight(weight, instructions) -> List[onp.ndarray]:
   return out
 
 
-def linear_spec(module) -> Dict[str, Any]:
+def linear_spec(module: Any) -> Dict[str, Any]:
   if getattr(module, 'bias', None) is not None and module.bias.numel():
     raise ValueError('biased o3.Linear is not supported')
   return {
@@ -515,7 +527,7 @@ def linear_spec(module) -> Dict[str, Any]:
   }
 
 
-def uvu_tp_spec(module) -> Dict[str, Any]:
+def uvu_tp_spec(module: Any) -> Dict[str, Any]:
   for ins in module.instructions:
     if ins.connection_mode != 'uvu' or not ins.has_weight:
       raise ValueError(f'unsupported tp instruction {ins.connection_mode}')
@@ -532,7 +544,7 @@ def uvu_tp_spec(module) -> Dict[str, Any]:
   }
 
 
-def fctp_spec(module) -> Dict[str, Any]:
+def fctp_spec(module: Any) -> Dict[str, Any]:
   for ins in module.instructions:
     if ins.connection_mode != 'uvw' or not ins.has_weight:
       raise ValueError(f'unsupported sc instruction {ins.connection_mode}')
@@ -548,7 +560,7 @@ def fctp_spec(module) -> Dict[str, Any]:
   }
 
 
-def scalar_mlp_spec(module) -> Dict[str, Any]:
+def scalar_mlp_spec(module: Any) -> Dict[str, Any]:
   if hasattr(module.mlp, 'weights'):
     weights = [w.detach().cpu().numpy().copy() for w in module.mlp.weights]
     return {
@@ -573,7 +585,7 @@ def scalar_mlp_spec(module) -> Dict[str, Any]:
   }
 
 
-def activations_of(activation) -> Tuple[str, List[Tuple[str, float]]]:
+def activations_of(activation: Any) -> Tuple[str, List[Tuple[str, float]]]:
   """Blocks of an ``e3nn.nn.Activation`` with one ``(name, scale)`` each."""
   acts = [
     ('none', 1.0) if act is None else activation_of(act)
@@ -582,7 +594,7 @@ def activations_of(activation) -> Tuple[str, List[Tuple[str, float]]]:
   return str(activation.irreps_in), acts
 
 
-def gate_spec(module) -> Dict[str, Any]:
+def gate_spec(module: Any) -> Dict[str, Any]:
   if type(module).__name__ != 'Gate':
     raise ValueError(
       f'only o3.Gate is supported, found {type(module).__name__}'
@@ -608,7 +620,7 @@ def gate_spec(module) -> Dict[str, Any]:
   }
 
 
-def tensor_product_of(tp_scatter):
+def tensor_product_of(tp_scatter: Any) -> Any:
   """The e3nn tensor product inside a ``TensorProductScatter``.
 
   Also present with OpenEquivariance or CuEquivariance enabled.
@@ -622,7 +634,7 @@ def tensor_product_of(tp_scatter):
   return tp
 
 
-def convert(torch_model) -> Dict[str, Any]:
+def convert(torch_model: Any) -> Dict[str, Any]:
   """Turn a loaded nequip model into a dict of specs and numpy arrays."""
   sequential = torch_model.model.func
   blocks = dict(sequential.named_children())
@@ -661,7 +673,7 @@ def convert(torch_model) -> Dict[str, Any]:
   type_names = str(torch_model.metadata['type_names']).split()
   scale_shift = blocks['per_type_energy_scale_shift']
 
-  def per_type(name, default):
+  def per_type(name: str, default: float) -> onp.ndarray:
     value = getattr(scale_shift, name, None)
     if value is None or value.numel() == 0:
       return onp.full((len(type_names), 1), default, onp.float32)
@@ -699,7 +711,7 @@ def convert(torch_model) -> Dict[str, Any]:
   }
 
 
-def strip_arrays(node):
+def strip_arrays(node: Any) -> Any:
   """Replace every array in a description with its shape."""
   if isinstance(node, onp.ndarray):
     return {'__shape__': list(node.shape)}
@@ -710,7 +722,7 @@ def strip_arrays(node):
   return node
 
 
-def zero_arrays(node):
+def zero_arrays(node: Any) -> Any:
   """Inverse of :func:`strip_arrays`; shapes become float32 zeros."""
   if isinstance(node, dict):
     if '__shape__' in node:
@@ -867,7 +879,9 @@ def build(description: Dict[str, Any]) -> NequIP:
   )
 
 
-def equivariant_linear(irreps_in, irreps_out, *, keys) -> EquivariantLinear:
+def equivariant_linear(
+  irreps_in: Irreps | str, irreps_out: Irreps | str, *, keys: Iterator[Array]
+) -> EquivariantLinear:
   """``o3.Linear`` with all e3nn paths between the two irreps."""
   irreps_in, irreps_out = Irreps(irreps_in), Irreps(irreps_out)
   weights, instructions = [], []
@@ -884,7 +898,9 @@ def equivariant_linear(irreps_in, irreps_out, *, keys) -> EquivariantLinear:
   )
 
 
-def uvu_tensor_product(irreps_in1, irreps_in2, keep) -> UVUTensorProduct:
+def uvu_tensor_product(
+  irreps_in1: Irreps | str, irreps_in2: Irreps | str, keep
+) -> UVUTensorProduct:
   """All ``uvu`` paths into *keep*. Outputs grouped by irrep, unsimplified."""
   irreps_in1, irreps_in2 = Irreps(irreps_in1), Irreps(irreps_in2)
   if any(mul != 1 for mul, _ in irreps_in2):
@@ -920,7 +936,9 @@ def uvu_tensor_product(irreps_in1, irreps_in2, keep) -> UVUTensorProduct:
   )
 
 
-def scalar_mlp(dims, nonlinearity, *, keys) -> ScalarMLP:
+def scalar_mlp(
+  dims: Sequence[int], nonlinearity: str, *, keys: Iterator[Array]
+) -> ScalarMLP:
   """MLP without bias. ``alpha`` is ``1/sqrt(fan_in)``, Kaiming after an act."""
   weights, alphas = [], []
   for i, (fan_in, fan_out) in enumerate(zip(dims, dims[1:])):
@@ -935,7 +953,9 @@ def scalar_mlp(dims, nonlinearity, *, keys) -> ScalarMLP:
   )
 
 
-def reachable(irreps_in, edge_sh, irreps) -> Irreps:
+def reachable(
+  irreps_in: Irreps | str, edge_sh: Irreps | str, irreps: Irreps | str
+) -> Irreps:
   """Blocks of ``irreps`` reachable from ``irreps_in ⊗ edge_sh``."""
   irreps_in, edge_sh = Irreps(irreps_in), Irreps(edge_sh)
   return Irreps(
@@ -949,7 +969,7 @@ def reachable(irreps_in, edge_sh, irreps) -> Irreps:
   )
 
 
-def gate_irreps(hidden_irreps) -> Tuple[str, str, str]:
+def gate_irreps(hidden_irreps: Irreps | str) -> Tuple[str, str, str]:
   """``(scalars, gates, gated)`` of hidden irreps, a ``0e`` gate per channel."""
   hidden_irreps = Irreps(hidden_irreps)
   scalars = Irreps([(mul, ir) for mul, ir in hidden_irreps if ir.l == 0])
@@ -963,7 +983,7 @@ def gate_irreps(hidden_irreps) -> Tuple[str, str, str]:
   )
 
 
-ELEMENTS = (
+ELEMENTS: Sequence[str] = (
   'H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co Ni '
   'Cu Zn Ga Ge As Se Br Kr Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb Te I '
   'Xe Cs Ba La Ce Pr Nd Pm Sm Eu Gd Tb Dy Ho Er Tm Yb Lu Hf Ta W Re Os Ir Pt '
@@ -975,7 +995,7 @@ ELEMENTS = (
 ZBL_PREFACTOR = 14.399645 / 2
 
 
-def atomic_numbers(type_names) -> Tuple[float, ...]:
+def atomic_numbers(type_names: Sequence[str]) -> Tuple[float, ...]:
   """Atomic numbers of chemical symbols, as floats."""
   unknown = [name for name in type_names if name not in ELEMENTS]
   if unknown:
@@ -993,7 +1013,7 @@ def second_moment_scale(nonlinearity: str) -> float:
 
 
 def from_config(
-  key,
+  key: Any,
   type_names: Tuple[str, ...] = ('H', 'C', 'O'),
   *,
   hidden_irreps: str = '32x0e + 16x1o',

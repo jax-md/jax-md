@@ -50,6 +50,7 @@ from jax_md._nn.uma.nn.embedding import (
 from jax_md._nn.uma.nn.layer_norm import get_normalization_layer
 from jax_md._nn.uma.nn.activation import GateActivation, SeparableS2Activation
 from jax_md._nn.uma.nn.mole import MOLELinear, RoutingMLP
+from jax_md._nn.uma.pretrained import ConversionMetadata
 
 Array = jmd_util.Array
 
@@ -122,7 +123,7 @@ def merge_mole_params(params: Any, expert_coefficients: jnp.ndarray) -> Any:
   coeff = expert_coefficients[0]
   num_experts = coeff.shape[0]
 
-  def merge_leaf(key, value):
+  def merge_leaf(key: str, value: Any) -> Any:
     if (
       key == 'weights'
       and hasattr(value, 'ndim')
@@ -132,12 +133,12 @@ def merge_mole_params(params: Any, expert_coefficients: jnp.ndarray) -> Any:
       return jnp.einsum('e,eoi->oi', coeff, value)
     return value
 
-  def recurse(tree):
+  def recurse(tree: Any) -> Any:
     if isinstance(tree, dict):
       return {k: recurse_value(k, v) for k, v in tree.items()}
     return tree
 
-  def recurse_value(key, value):
+  def recurse_value(key: str, value: Any) -> Any:
     if isinstance(value, dict):
       return recurse(value)
     return merge_leaf(key, value)
@@ -558,18 +559,18 @@ class EdgewiseMoE(eqx.Module):
 
   def __call__(
     self,
-    x,
-    x_edge,
-    edge_index,
-    wigner_and_M_mapping,
-    wigner_and_M_mapping_inv,
-    wigner,
-    wigner_inv,
+    x: jnp.ndarray,
+    x_edge: jnp.ndarray,
+    edge_index: jnp.ndarray,
+    wigner_and_M_mapping: jnp.ndarray,
+    wigner_and_M_mapping_inv: jnp.ndarray,
+    wigner: jnp.ndarray | None,
+    wigner_inv: jnp.ndarray | None,
     edge_envelope,
-    expert_coefficients,
-    edge_batch,
-    node_offset=0,
-  ):
+    expert_coefficients: jnp.ndarray,
+    edge_batch: jnp.ndarray,
+    node_offset: int = 0,
+  ) -> jnp.ndarray:
     # Gather source/target node features and rotate to edge-aligned frames.
     if (
       self.use_kernels
@@ -705,19 +706,19 @@ class UMABlockMoE(eqx.Module):
 
   def __call__(
     self,
-    x,
-    x_edge,
-    edge_index,
-    wigner_and_M_mapping,
-    wigner_and_M_mapping_inv,
-    wigner,
-    wigner_inv,
-    edge_envelope,
-    expert_coefficients,
-    edge_batch,
-    sys_node_embedding=None,
-    node_offset=0,
-  ):
+    x: jnp.ndarray,
+    x_edge: jnp.ndarray,
+    edge_index: jnp.ndarray,
+    wigner_and_M_mapping: jnp.ndarray,
+    wigner_and_M_mapping_inv: jnp.ndarray,
+    wigner: jnp.ndarray | None,
+    wigner_inv: jnp.ndarray | None,
+    edge_envelope: jnp.ndarray,
+    expert_coefficients: jnp.ndarray,
+    edge_batch: jnp.ndarray,
+    sys_node_embedding: jnp.ndarray | None = None,
+    node_offset: int = 0,
+  ) -> jnp.ndarray:
     x_res = x
     x = self.norm_1(x)  # ty: ignore[call-non-callable]
 
@@ -924,15 +925,15 @@ class UMAMoEBackbone(eqx.Module):
 
   def __call__(
     self,
-    positions,
-    atomic_numbers,
-    batch,
-    edge_index,
-    edge_distance_vec,
-    charge,
-    spin,
-    dataset_idx=None,
-  ):
+    positions: jnp.ndarray,
+    atomic_numbers: jnp.ndarray,
+    batch: jnp.ndarray,
+    edge_index: jnp.ndarray,
+    edge_distance_vec: jnp.ndarray,
+    charge: jnp.ndarray,
+    spin: jnp.ndarray,
+    dataset_idx: jnp.ndarray | None = None,
+  ) -> Dict[str, jnp.ndarray]:
     cfg = self.config
     num_atoms = positions.shape[0]
 
@@ -1089,7 +1090,13 @@ class UMAMoEBackbone(eqx.Module):
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), 'checkpoints')
 
 
-def cache_native(model_name, config, params, metadata, ckpt):
+def cache_native(
+  model_name: str,
+  config: UMAMoEConfig,
+  params: Dict[str, Any],
+  metadata: ConversionMetadata,
+  ckpt: Any,
+) -> None:
   """Cache converted params as native .npz for fast future loading."""
   import json
 
@@ -1157,7 +1164,7 @@ def cache_native(model_name, config, params, metadata, ckpt):
 
 def load_native(
   model_name: str, head_dataset: str, directory: str = CHECKPOINT_DIR
-):
+) -> Tuple[UMAMoEConfig, Dict[str, Any], Dict[str, Any] | None] | None:
   """Load from pre-converted native .npz checkpoint (no torch needed)."""
   import json
 
@@ -1241,7 +1248,7 @@ def load_native(
         sorted_ds = sorted(config.dataset_list or [])
       ds_idx = sorted_ds.index(head_dataset) if head_dataset in sorted_ds else 0
 
-      def sel(key_base):
+      def sel(key_base: str) -> jnp.ndarray | None:
         for suffix in ['weights', 'weight']:
           k = f'{key_base}_{suffix}'
           if k in hd.files:
@@ -1470,7 +1477,7 @@ def load_pretrained(
 
       ds_idx = head_ds.index(head_dataset) if head_dataset in head_ds else 0
 
-      def select_expert(w):
+      def select_expert(w: jnp.ndarray | None) -> jnp.ndarray | None:
         if w is not None and w.ndim == 3:
           # w is [num_experts, out, in] — select expert and transpose to [in, out]
           return w[ds_idx].T

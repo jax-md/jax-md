@@ -343,7 +343,7 @@ def random_grid(
   pkeys = random.split(key, int(onp.prod(topology)))
   pkeys = np.reshape(pkeys, topology + (2,))
 
-  def create_instance_by_key(key):
+  def create_instance_by_key(key: Array) -> Array:
     pos_key, occ_key = random.split(key)
     grid = random.uniform(
       pos_key,
@@ -478,7 +478,7 @@ def accumulate_on_grid(
   return _accumulate_recursion(accum_fn, data_0, data, 0, grid)
 
 
-def mesh_and_axes(topology):
+def mesh_and_axes(topology: Tuple[int, ...]) -> Tuple[Mesh, P]:
   labels = ['X', 'Y', 'Z']
   n = len(topology)
   labels = labels[:n]
@@ -608,7 +608,7 @@ def nearest_valid_grid_size(
   max_grid_distance: int,
   factors: Tuple[int, ...] | None = None,
   dimension: int | None = None,
-):
+) -> onp.ndarray:
   if factors is None:
     if dimension is None:
       if isinstance(topology, tuple) and topology:
@@ -668,27 +668,27 @@ def pair_potential(fn: Callable, **kwargs) -> Tuple[GridFn, GridFn]:
   """
   e_fn = partial(fn, **kwargs)
 
-  def accum_fn(displacement, id_a, id_b):
+  def accum_fn(displacement: Array, id_a: Array, id_b: Array) -> Array:
     mask = (id_a > 0) & (id_b > 0) & (id_a != id_b)
     return e_fn(space.distance(displacement)) * mask
 
-  def per_particle_energy_fn(grid):
+  def per_particle_energy_fn(grid: TPUGrid) -> Array:
     accum_vec_fn = np.vectorize(accum_fn, signature='(m),(),()->()')
     return accumulate_on_grid(accum_vec_fn, grid)
 
-  def energy_fn(grid):
+  def energy_fn(grid: TPUGrid) -> Array:
     if grid.topology and len(grid.cell_data.shape) > grid.num_dims + 2:
       e = parallelize(per_particle_energy_fn, grid.topology)(grid)
       return np.sum(unfold_mesh(e, grid)) / 2.0
     return np.sum(per_particle_energy_fn(grid)) / 2.0
 
-  def grad_energy_fn(grid):
+  def grad_energy_fn(grid: TPUGrid) -> Array:
     g_accum_fn = grad(accum_fn)
     g_accum_vec_fn = np.vectorize(g_accum_fn, signature='(m),(),()->(m)')
     g = accumulate_on_grid(g_accum_vec_fn, grid)
     return g
 
-  def force_fn(grid):
+  def force_fn(grid: TPUGrid) -> Array:
     if grid.topology and len(grid.cell_data.shape) > grid.num_dims + 2:
       f = parallelize(grad_energy_fn, grid.topology)(grid)
     else:
@@ -736,14 +736,14 @@ class NVEState:
   force: Array
 
 
-def nve(force_fn: GridFn, dt: float) -> Simulator:
+def nve(force_fn: GridFn, dt: float) -> Simulator[NVEState]:
   """Performs constant energy simulation on TPU.
 
   See `jax_md.simulate.nve` for details about the simulation environment.
   """
   dt_2 = 0.5 * dt**2
 
-  def init_fn(key, grid: TPUGrid, kT: float) -> NVEState:
+  def init_fn(key: Array, grid: TPUGrid, kT: float) -> NVEState:
     position = grid.cell_data
     mask = position[..., [-1]] > 0
     v = np.sqrt(kT) * random.normal(
@@ -753,7 +753,7 @@ def nve(force_fn: GridFn, dt: float) -> Simulator:
       grid, v * mask, force_fn(grid)
     )  # pytype: disable=wrong-arg-count
 
-  def single_core_apply_fn(state):
+  def single_core_apply_fn(state: NVEState) -> NVEState:
     R = state.position
     V = state.velocity
     F = state.force
@@ -766,7 +766,7 @@ def nve(force_fn: GridFn, dt: float) -> Simulator:
 
     return NVEState(R, V, F_new)  # pytype: disable=wrong-arg-count
 
-  def apply_fn(state):
+  def apply_fn(state: NVEState) -> NVEState:
     grid = state.position
     if grid.topology and len(grid.cell_data.shape) > grid.num_dims + 2:
       return parallelize(single_core_apply_fn, grid.topology)(state)
@@ -802,7 +802,7 @@ def _grid_centers(
   return np.array(grid_centers)
 
 
-def cell_hash(cell_index, cells, num_dims):
+def cell_hash(cell_index: Array, cells: onp.ndarray, num_dims: int) -> Array:
   if num_dims == 1:
     return cell_index[:, 0]
   elif num_dims == 2:
@@ -885,7 +885,9 @@ def _settle_particle_locations(grid: TPUGrid) -> TPUGrid:
   # frustration. We do this rather than try to place particles directly in the
   # appropriate cells because otherwise some particles might end up in the same
   # cell.
-  def body_fn(grid_old_grid):
+  def body_fn(
+    grid_old_grid: Tuple[TPUGrid, TPUGrid],
+  ) -> Tuple[TPUGrid, TPUGrid]:
     grid, _ = grid_old_grid
 
     grid_data = _mesh_transport(grid.cell_data, grid)
@@ -894,14 +896,14 @@ def _settle_particle_locations(grid: TPUGrid) -> TPUGrid:
 
     return dataclasses.replace(grid, cell_data=grid_data), grid
 
-  def cond_fn(grid_old_grid):
+  def cond_fn(grid_old_grid: Tuple[TPUGrid, TPUGrid]) -> Array:
     grid, old_grid = grid_old_grid
     cond = np.any(np.abs(grid.cell_data - old_grid.cell_data) > 1e-8)
     cond = _psum(cond, grid.topology)
     return cond > 0
 
   @jit
-  def move_fn(grid):
+  def move_fn(grid: TPUGrid) -> TPUGrid:
     old_grid = dataclasses.replace(
       grid, cell_data=np.zeros_like(grid.cell_data)
     )
@@ -1292,7 +1294,7 @@ def _accumulate_recursion(
     # save memory by performing in serial, and recomputing gradient
     fn = lambda x: _accumulate_recursion(accum_fn, data_0, x, axis + 1, grid)
 
-    def f(i, accum):
+    def f(i: Array, accum: Array) -> Array:
       accum += fn(data[..., i, :])
       return accum
 
@@ -1682,8 +1684,11 @@ def _get_aux_spec(num_dims: int, aux: PyTree) -> Tuple[TreeDef, onp.ndarray]:
 
 
 def _outer_grid_size_to_inner_grid_size(
-  tiled_size, topology, factors, max_grid_distance
-):
+  tiled_size: Union[int, Tuple[int, ...]],
+  topology: Union[int, Tuple, None],
+  factors,
+  max_grid_distance: int,
+) -> onp.ndarray:
   if topology:
     unpadded_size = tiled_size / onp.array(topology)
     padded_size = unpadded_size + 2 * max_grid_distance
@@ -1694,8 +1699,11 @@ def _outer_grid_size_to_inner_grid_size(
 
 
 def _inner_grid_size_to_outer_grid_size(
-  folded_size, topology, factors, max_grid_distance
-):
+  folded_size: onp.ndarray,
+  topology: Union[int, Tuple, None],
+  factors,
+  max_grid_distance: int,
+) -> onp.ndarray:
   padded_size = folded_size * onp.array(factors)
   if topology:
     unpadded_size = padded_size - 2 * max_grid_distance
@@ -1708,7 +1716,7 @@ def _inner_grid_size_to_outer_grid_size(
 # Testing utilities.
 
 
-def test_nve(force_fn, dt):
+def test_nve(force_fn: GridFn, dt: float) -> Simulator[NVEState]:
   dt_2 = 0.5 * dt**2
 
   def init_fn(position: TPUGrid, velocity: Array, **kwargs) -> NVEState:
@@ -1716,7 +1724,7 @@ def test_nve(force_fn, dt):
       position, velocity, force_fn(position)
     )  # pytype: disable=wrong-arg-count
 
-  def apply_fn(state):
+  def apply_fn(state: NVEState) -> NVEState:
     R = state.position
     V = state.velocity
     F = state.force

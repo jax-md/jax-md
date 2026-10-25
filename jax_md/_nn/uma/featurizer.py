@@ -12,13 +12,13 @@ from typing import Callable, Dict
 import jax.numpy as jnp
 from jax import vmap
 
-from jax_md import partition
+from jax_md import custom_partition, partition
 
 
 def uma_featurizer(
   displacement_fn: Callable,
   cutoff: float = 5.0,
-) -> Callable:
+) -> Callable[..., Dict[str, jnp.ndarray]]:
   """Create a featurizer that converts JAX-MD data to UMA input format.
 
   Args:
@@ -33,7 +33,7 @@ def uma_featurizer(
   def featurize(
     atomic_numbers: jnp.ndarray,
     position: jnp.ndarray,
-    neighbor,
+    neighbor: partition.NeighborList,
     charge: jnp.ndarray | None = None,
     spin: jnp.ndarray | None = None,
     dataset_idx: jnp.ndarray | None = None,
@@ -125,7 +125,7 @@ def uma_featurizer(
 def uma_multi_image_featurizer(
   displacement_fn: Callable | None = None,
   cutoff: float = 5.0,
-) -> Callable:
+) -> Callable[..., Dict[str, jnp.ndarray]]:
   """Create a UMA featurizer for multi-image neighbor lists.
 
   ``custom_partition.neighbor_list_multi_image`` stores explicit lattice
@@ -148,7 +148,7 @@ def uma_multi_image_featurizer(
   def featurize(
     atomic_numbers: jnp.ndarray,
     position: jnp.ndarray,
-    neighbor,
+    neighbor: custom_partition.NeighborListMultiImage,
     charge: jnp.ndarray | None = None,
     spin: jnp.ndarray | None = None,
     dataset_idx: jnp.ndarray | None = None,

@@ -17,6 +17,8 @@ from typing import Any, Dict, List, Tuple
 import jax.numpy as jnp
 import numpy as np
 
+from jax_md._nn.uma.model import UMAConfig
+
 
 def load_pytorch_checkpoint(
   checkpoint_path: str,
@@ -392,7 +394,7 @@ def extract_config_from_checkpoint(
   return None
 
 
-def config_from_pytorch_checkpoint(checkpoint_path: str):
+def config_from_pytorch_checkpoint(checkpoint_path: str) -> UMAConfig:
   """Create UMAConfig from a PyTorch checkpoint.
 
   Args:

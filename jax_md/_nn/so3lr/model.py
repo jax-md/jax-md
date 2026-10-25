@@ -2,7 +2,7 @@ import json
 from functools import partial
 from importlib.resources import files
 from os import PathLike
-from typing import Any
+from typing import Any, Callable
 
 import equinox as eqx
 import jax
@@ -10,7 +10,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax import Array
 from jax.ops import segment_sum
-from jax_md import partition
+from jax_md import partition, space
 from jax_md._nn import weights
 
 jax.config.update('jax_default_matmul_precision', 'highest')
@@ -23,8 +23,12 @@ SO3LR_MODEL_PATHS = {
 }
 
 
-def neighbor_list_featurizer(displacement_fn):
-  def featurize(position, neighbor, **kwargs):
+def neighbor_list_featurizer(
+  displacement_fn: space.DisplacementFn,
+) -> Callable[..., tuple[Array, Array, Array]]:
+  def featurize(
+    position: Array, neighbor: partition.NeighborList, **kwargs
+  ) -> tuple[Array, Array, Array]:
     if not partition.is_sparse(neighbor.format):
       raise ValueError('SO3LR requires a JAX-MD sparse neighbor list.')
     idx_j, idx_i = jnp.asarray(neighbor.idx, dtype=jnp.int32)
@@ -42,21 +46,28 @@ def neighbor_list_featurizer(displacement_fn):
   return featurize
 
 
-def safe_mask(mask, fn, operand, placeholder=0.0):
+def safe_mask(
+  mask: Array,
+  fn: Callable[[Array], Array],
+  operand: Array,
+  placeholder: float = 0.0,
+) -> Array:
   masked = jnp.where(mask, operand, 0.0)
   return jnp.where(mask, fn(masked), placeholder)
 
 
-def safe_scale(x, scale, placeholder=0.0):
+def safe_scale(x: Array, scale: Array, placeholder: float = 0.0) -> Array:
   return safe_mask(scale != 0.0, lambda y: scale * y, x, placeholder)
 
 
-def safe_norm(x, axis=-1, placeholder=0.0):
+def safe_norm(x: Array, axis: int = -1, placeholder: float = 0.0) -> Array:
   y = jnp.sum(jnp.square(x), axis=axis)
   return safe_mask(y > 0.0, jnp.sqrt, y, placeholder)
 
 
-def bernstein_basis(r_ij, *, n_rbf: int, gamma: float = 0.9448630629184640):
+def bernstein_basis(
+  r_ij: Array, *, n_rbf: int, gamma: float = 0.9448630629184640
+) -> Array:
   log_factorial_n = sum(np.log(np.arange(1, n_rbf)))
   b = jnp.asarray(
     [
@@ -82,7 +93,7 @@ def bernstein_basis(r_ij, *, n_rbf: int, gamma: float = 0.9448630629184640):
   )
 
 
-def phys_cutoff(r, r_cut: float):
+def phys_cutoff(r: Array, r_cut: float) -> Array:
   return safe_mask(
     r < r_cut,
     lambda x: (
@@ -96,7 +107,7 @@ def phys_cutoff(r, r_cut: float):
   )
 
 
-def spherical_harmonics_1_to_4(r):
+def spherical_harmonics_1_to_4(r: Array) -> Array:
   x, y, z = jnp.split(r, 3, axis=-1)
   y1 = jnp.concatenate(
     [
@@ -148,7 +159,7 @@ def spherical_harmonics_1_to_4(r):
   return jnp.concatenate([y1, y2, y3, y4], axis=-1)
 
 
-def l0_contraction(ev):
+def l0_contraction(ev: Array) -> Array:
   return jnp.stack(
     [
       jnp.sum(ev[..., 0:3] ** 2, axis=-1)
@@ -164,15 +175,15 @@ def l0_contraction(ev):
 
 
 def electrostatic_energy(
-  partial_charges,
-  idx_i_lr,
-  idx_j_lr,
-  d_ij_lr,
+  partial_charges: Array,
+  idx_i_lr: Array,
+  idx_j_lr: Array,
+  d_ij_lr: Array,
   *,
-  cutoff_lr,
-  sigma,
-  coulomb_ev_angstrom,
-):
+  cutoff_lr: float,
+  sigma: float,
+  coulomb_ev_angstrom: float,
+) -> Array:
   pairwise = coulomb_erf_shifted_force_smooth(
     partial_charges,
     d_ij_lr,
@@ -187,21 +198,21 @@ def electrostatic_energy(
 
 
 def dispersion_energy(
-  atomic_numbers,
-  hirshfeld_ratios,
-  idx_i_lr,
-  idx_j_lr,
-  d_ij_lr,
+  atomic_numbers: Array,
+  hirshfeld_ratios: Array,
+  idx_i_lr: Array,
+  idx_j_lr: Array,
+  d_ij_lr: Array,
   *,
-  cutoff_lr,
-  cutoff_lr_damping,
-  dispersion_energy_scale,
-  fine_structure,
-  dispersion_alphas,
-  dispersion_c6,
-  bohr_angstrom,
-  hartree_ev,
-):
+  cutoff_lr: float,
+  cutoff_lr_damping: float,
+  dispersion_energy_scale: float,
+  fine_structure: float,
+  dispersion_alphas: Array,
+  dispersion_c6: Array,
+  bohr_angstrom: float,
+  hartree_ev: float,
+) -> Array:
   alpha_ij, c6_ij = dispersion_pair_parameters(
     atomic_numbers,
     idx_i_lr,
@@ -230,16 +241,16 @@ def dispersion_energy(
 
 
 def coulomb_erf_shifted_force_smooth(
-  q,
-  rij,
-  idx_i,
-  idx_j,
+  q: Array,
+  rij: Array,
+  idx_i: Array,
+  idx_j: Array,
   *,
-  ke,
-  sigma,
-  cutoff,
-  cuton,
-):
+  ke: float | Array,
+  sigma: float | Array,
+  cutoff: float | Array,
+  cuton: float | Array,
+) -> Array:
   # Real-space erf-damped shifted-force cutoff Coulomb matching upstream SO3LR
   # inference; intentionally not PME/Ewald, which upstream does not use here.
   dtype = rij.dtype
@@ -277,14 +288,14 @@ def coulomb_erf_shifted_force_smooth(
 
 
 def dispersion_pair_parameters(
-  atomic_numbers,
-  idx_i,
-  idx_j,
-  hirshfeld_ratios,
+  atomic_numbers: Array,
+  idx_i: Array,
+  idx_j: Array,
+  hirshfeld_ratios: Array,
   *,
-  dispersion_alphas,
-  dispersion_c6,
-):
+  dispersion_alphas: Array,
+  dispersion_c6: Array,
+) -> tuple[Array, Array]:
   dtype = hirshfeld_ratios.dtype
   zi = atomic_numbers[idx_i] - 1
   zj = atomic_numbers[idx_j] - 1
@@ -308,7 +319,7 @@ def dispersion_pair_parameters(
   return alpha_ij, c6_ij
 
 
-def gamma_cubic_fit(alpha, *, fine_structure):
+def gamma_cubic_fit(alpha: Array, *, fine_structure: float) -> Array:
   dtype = alpha.dtype
   vdw_radius = jnp.asarray(fine_structure, dtype=dtype) ** jnp.asarray(
     -4.0 / 21.0, dtype
@@ -322,8 +333,14 @@ def gamma_cubic_fit(alpha, *, fine_structure):
 
 
 def vdw_qdo_disp_damp(
-  distance, gamma, c6, alpha_ij, gamma_scale, *, hartree_ev
-):
+  distance: Array,
+  gamma: Array,
+  c6: Array,
+  alpha_ij: Array,
+  gamma_scale: float | Array,
+  *,
+  hartree_ev: float,
+) -> Array:
   dtype = distance.dtype
   half = jnp.asarray(0.5, dtype=dtype)
   c8 = 5.0 / gamma * c6
@@ -337,11 +354,11 @@ def vdw_qdo_disp_damp(
   return half * disp * jnp.asarray(hartree_ev, dtype=dtype)
 
 
-def sigma_switch(x):
+def sigma_switch(x: Array) -> Array:
   return safe_mask(x > 0.0, lambda u: jnp.exp(-1.0 / u), x, 0.0)
 
 
-def switching_fn(x, x_on, x_off):
+def switching_fn(x: Array, x_on: float | Array, x_off: float | Array) -> Array:
   c = (x - x_on) / (x_off - x_on)
   return sigma_switch(1.0 - c) / (sigma_switch(1.0 - c) + sigma_switch(c))
 
@@ -355,8 +372,8 @@ class Linear(eqx.Module):
     *,
     shape: tuple[int, int],
     use_bias: bool = True,
-    dtype=jnp.float32,
-  ):
+    dtype: Any = jnp.float32,
+  ) -> None:
     self.kernel = jnp.zeros(shape, dtype=dtype)
     self.bias = jnp.zeros(shape[-1], dtype=dtype) if use_bias else None
 
@@ -375,8 +392,8 @@ class MLP(eqx.Module):
     *,
     shapes: tuple[tuple[int, int], ...],
     biases: tuple[bool, ...],
-    dtype=jnp.float32,
-  ):
+    dtype: Any = jnp.float32,
+  ) -> None:
     self.layers = tuple(
       Linear(shape=shape, use_bias=use_bias, dtype=dtype)
       for shape, use_bias in zip(shapes, biases, strict=True)
@@ -408,8 +425,8 @@ class LayerNorm(eqx.Module):
     *,
     num_features: int,
     eps: float = 1.0e-6,
-    dtype=jnp.float32,
-  ):
+    dtype: Any = jnp.float32,
+  ) -> None:
     self.weight = jnp.zeros(num_features, dtype=dtype)
     self.bias = jnp.zeros(num_features, dtype=dtype)
     self.eps = float(eps)
@@ -432,8 +449,8 @@ class ChargeSpinEmbed(eqx.Module):
     *,
     num_species: int = 119,
     num_features: int = 128,
-    dtype=jnp.float32,
-  ):
+    dtype: Any = jnp.float32,
+  ) -> None:
     self.embed_0 = jnp.zeros((num_species, num_features), dtype=dtype)
     self.embed_1 = jnp.zeros((2, num_features), dtype=dtype)
     self.embed_2 = jnp.zeros((2, num_features), dtype=dtype)
@@ -480,8 +497,8 @@ class AttentionBlock(eqx.Module):
     num_radial_basis_fn: int = 32,
     num_features: int = 128,
     num_heads: int = 4,
-    dtype=jnp.float32,
-  ):
+    dtype: Any = jnp.float32,
+  ) -> None:
     head_features = num_features // num_heads
     radial_shapes = (
       (num_radial_basis_fn, num_features),
@@ -571,8 +588,8 @@ class ScalarEquivariantExchange(eqx.Module):
     *,
     num_features: int = 128,
     num_heads: int = 4,
-    dtype=jnp.float32,
-  ):
+    dtype: Any = jnp.float32,
+  ) -> None:
     combined_features = num_features + num_heads
     self.mlp_layer_2 = Linear(
       shape=(combined_features, combined_features), dtype=dtype
@@ -615,8 +632,8 @@ class SO3LRLayer(eqx.Module):
     num_radial_basis_fn: int = 32,
     num_features: int = 128,
     num_heads: int = 4,
-    dtype=jnp.float32,
-  ):
+    dtype: Any = jnp.float32,
+  ) -> None:
     self.attention_block = AttentionBlock(
       num_radial_basis_fn=num_radial_basis_fn,
       num_features=num_features,
@@ -684,8 +701,8 @@ class LocalEnergyHead(eqx.Module):
     *,
     num_species: int = 119,
     num_features: int = 128,
-    dtype=jnp.float32,
-  ):
+    dtype: Any = jnp.float32,
+  ) -> None:
     self.energy_offset = jnp.zeros(num_species, dtype=dtype)
     self.atomic_scales = jnp.zeros(num_species, dtype=dtype)
     self.energy_mlp = MLP(
@@ -723,8 +740,8 @@ class ZBLRepulsion(eqx.Module):
     self,
     *,
     coulomb_ev_angstrom: float,
-    dtype=jnp.float32,
-  ):
+    dtype: Any = jnp.float32,
+  ) -> None:
     self.coulomb_ev_angstrom = float(coulomb_ev_angstrom)
     empty = jnp.zeros(1, dtype=dtype)
     self.a1 = empty
@@ -784,8 +801,8 @@ class PartialChargesHead(eqx.Module):
     *,
     num_species: int = 100,
     num_features: int = 128,
-    dtype=jnp.float32,
-  ):
+    dtype: Any = jnp.float32,
+  ) -> None:
     self.embed_0 = jnp.zeros((num_species, 1), dtype=dtype)
     self.charge_mlp = MLP(
       shapes=((num_features, num_features), (num_features, 1)),
@@ -816,8 +833,8 @@ class HirshfeldRatiosHead(eqx.Module):
     num_species: int = 100,
     num_features: int = 128,
     latent_features: int = 64,
-    dtype=jnp.float32,
-  ):
+    dtype: Any = jnp.float32,
+  ) -> None:
     self.embed_0 = jnp.zeros((num_species, 1), dtype=dtype)
     self.embed_1 = jnp.zeros((num_species, latent_features), dtype=dtype)
     self.hirshfeld_mlp = MLP(
@@ -857,8 +874,8 @@ class EnergyHead(eqx.Module):
     bohr_angstrom: float,
     hartree_ev: float,
     coulomb_ev_angstrom: float,
-    dtype=jnp.float32,
-  ):
+    dtype: Any = jnp.float32,
+  ) -> None:
     self.bohr_angstrom = float(bohr_angstrom)
     self.hartree_ev = float(hartree_ev)
     self.coulomb_ev_angstrom = float(coulomb_ev_angstrom)
@@ -965,8 +982,8 @@ class SO3LR(eqx.Module):
     metadata: dict[str, Any],
     hyperparameters: dict[str, Any],
     *,
-    dtype=jnp.float32,
-  ):
+    dtype: Any = jnp.float32,
+  ) -> None:
     model_cfg = hyperparameters['model']
     data_cfg = hyperparameters['data']
 
@@ -1033,15 +1050,15 @@ class SO3LR(eqx.Module):
 
   def __call__(
     self,
-    positions,
-    species,
+    positions: Array,
+    species: Array,
     *,
-    displacement_fn=None,
-    neighbors=None,
-    neighbors_lr=None,
-    total_charge=0.0,
-    total_spin=0.0,
-  ):
+    displacement_fn: space.DisplacementFn | None = None,
+    neighbors: partition.NeighborList | None = None,
+    neighbors_lr: partition.NeighborList | None = None,
+    total_charge: float | Array = 0.0,
+    total_spin: float | Array = 0.0,
+  ) -> Array:
     if displacement_fn is None or neighbors is None or neighbors_lr is None:
       raise ValueError(
         'SO3LR requires a displacement_fn and short- and long-range neighbor '
@@ -1122,8 +1139,8 @@ def load_model(
   model: str = 'so3lr',
   *,
   model_path: str | PathLike | None = None,
-  dtype=None,
-):
+  dtype: Any = None,
+) -> SO3LR:
   if model_path is not None:
     path = weights.resolve_checkpoint(model_path, allow_cache=False)
   else:
