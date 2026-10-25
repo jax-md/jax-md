@@ -28,6 +28,7 @@ from typing import (
   Callable,
   Optional,
   Dict,
+  Iterator,
   Tuple,
   Union,
   Protocol,
@@ -123,7 +124,7 @@ class CellList:
     return self.update_fn(position, cl_data, **kwargs)
 
   @property
-  def kwarg_buffers(self):
+  def kwarg_buffers(self) -> Dict[str, Array]:
     logging.warning(
       'kwarg_buffers renamed to named_buffer. The name '
       'kwarg_buffers will be depricated.'
@@ -138,7 +139,7 @@ class CellListFns:
     dataclasses.static_field()
   )
 
-  def __iter__(self):
+  def __iter__(self) -> Iterator[Callable[..., CellList]]:
     return iter((self.allocate, self.update))
 
 
@@ -564,12 +565,12 @@ def _displacement_or_metric_to_metric_sq(
   )
 
 
-def _cell_size(box, minimum_cell_size) -> Array:
+def _cell_size(box: float | Array, minimum_cell_size) -> Array:
   cells_per_side = jnp.floor(box / minimum_cell_size)
   return box / cells_per_side
 
 
-def _fractional_cell_size(box, cutoff):
+def _fractional_cell_size(box, cutoff) -> Array | float:
   if jnp.isscalar(box) or box.ndim == 0:
     return cutoff / box
   elif box.ndim == 1:
@@ -640,7 +641,7 @@ def is_sparse(fmt: NeighborListFormat) -> bool:
   )
 
 
-def is_format_valid(fmt: NeighborListFormat):
+def is_format_valid(fmt: NeighborListFormat) -> None:
   if fmt not in list(NeighborListFormat):
     raise ValueError(
       (
@@ -762,7 +763,7 @@ class NeighborListFns:
       return self.allocate(position, extra_capacity, **kwargs)
     return self.update(position, neighbors, **kwargs)
 
-  def __iter__(self):
+  def __iter__(self) -> Iterator[Callable[..., NeighborList]]:
     return iter((self.allocate, self.update))
 
 
@@ -1299,20 +1300,20 @@ class PairedNeighborList:
   short: NeighborList
   long_range: NeighborList
 
-  def update(self, position, **kwargs):
+  def update(self, position: Array, **kwargs) -> 'PairedNeighborList':
     return PairedNeighborList(
       self.short.update(position, **kwargs),
       self.long_range.update(position, **kwargs),
     )
 
   @property
-  def did_buffer_overflow(self):
+  def did_buffer_overflow(self) -> Array:
     return self.short.did_buffer_overflow | self.long_range.did_buffer_overflow
 
 
 def paired_neighbor_list(
-  displacement_fn,
-  box,
+  displacement_fn: DisplacementOrMetricFn,
+  box: Box,
   short_cutoff: float,
   long_range_cutoff: float,
   *,
@@ -1332,13 +1333,13 @@ def paired_neighbor_list(
     displacement_fn, box, float(long_range_cutoff), **nl_kwargs
   )
 
-  def allocate(position, **kwargs):
+  def allocate(position: Array, **kwargs):
     return PairedNeighborList(
       short_fn.allocate(position, **kwargs),
       long_range_fn.allocate(position, **kwargs),
     )
 
-  def update(position, paired, **kwargs):
+  def update(position: Array, paired, **kwargs):
     return paired.update(position, **kwargs)
 
   return NeighborListFns(allocate, update)

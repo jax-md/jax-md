@@ -15,6 +15,7 @@
 """Kernel-side code for an IPython based visualization tool."""
 
 import base64
+from typing import Any, Dict, Sequence
 
 from google.colab import output
 
@@ -44,7 +45,7 @@ renderer_code = IPython.display.HTML(
 SIMULATION_IDX = 0
 
 
-def to_np(*xs):
+def to_np(*xs) -> list:
   return [np.array(x) if isinstance(x, jnp.ndarray) else x for x in xs]
 
 
@@ -68,7 +69,12 @@ class Disk:
   color: jnp.ndarray
   count: int = dataclasses.static_field()
 
-  def __init__(self, position, diameter=1.0, color=None):
+  def __init__(
+    self,
+    position: jnp.ndarray | np.ndarray,
+    diameter: float | jnp.ndarray | np.ndarray = 1.0,
+    color: jnp.ndarray | np.ndarray | None = None,
+  ):
     if color is None:
       color = jnp.array([0.8, 0.8, 1.0])
 
@@ -79,7 +85,7 @@ class Disk:
     object.__setattr__(self, 'color', color)
     object.__setattr__(self, 'count', position.shape[-2])
 
-  def __repr__(self):
+  def __repr__(self) -> str:
     return 'Disk'
 
 
@@ -103,7 +109,12 @@ class Sphere:
   color: jnp.ndarray
   count: int
 
-  def __init__(self, position, diameter=1.0, color=None):
+  def __init__(
+    self,
+    position: jnp.ndarray | np.ndarray,
+    diameter: float | jnp.ndarray | np.ndarray = 1.0,
+    color: jnp.ndarray | np.ndarray | None = None,
+  ):
     if color is None:
       color = jnp.array([0.8, 0.8, 1.0])
 
@@ -114,7 +125,7 @@ class Sphere:
     object.__setattr__(self, 'color', color)
     object.__setattr__(self, 'count', position.shape[-2])
 
-  def __repr__(self):
+  def __repr__(self) -> str:
     return 'Sphere'
 
 
@@ -142,7 +153,13 @@ class Bond:
   count: int
   max_neighbors: int
 
-  def __init__(self, reference_geometry, idx, diameter=None, color=None):
+  def __init__(
+    self,
+    reference_geometry: str,
+    idx: partition.NeighborList | jnp.ndarray | np.ndarray,
+    diameter: float | jnp.ndarray | np.ndarray | None = None,
+    color: jnp.ndarray | np.ndarray | None = None,
+  ):
     if color is None:
       color = np.array([0.8, 0.8, 1.0])
     if diameter is None:
@@ -162,7 +179,7 @@ class Bond:
     object.__setattr__(self, 'count', idx.shape[-2])
     object.__setattr__(self, 'max_neighbors', idx.shape[-1])
 
-  def __repr__(self):
+  def __repr__(self) -> str:
     return 'Bond'
 
 
@@ -175,7 +192,7 @@ TYPE_DIMENSIONS = {
 }
 
 
-def _encode(R):
+def _encode(R: np.ndarray) -> str:
   dtype = R.dtype
   if dtype == jnp.float64:
     dtype = jnp.float32
@@ -185,7 +202,7 @@ def _encode(R):
   return base64.b64encode(np.array(R, dtype).tobytes()).decode('utf-8')
 
 
-def _to_json(data):
+def _to_json(data: Dict[str, Any]) -> IPython.display.JSON:
   try:
     return IPython.display.JSON(data=data)
   except Exception:
@@ -193,14 +210,14 @@ def _to_json(data):
 
 
 def render(
-  box_size,
+  box_size: float | Sequence[float] | jnp.ndarray | np.ndarray,
   geometry,
-  buffer_size=None,
-  background_color=None,
-  resolution=None,
-  frame_rate=None,
-  verbose=False,
-):
+  buffer_size: int | None = None,
+  background_color: Sequence[float] | None = None,
+  resolution: Sequence[int] | None = None,
+  frame_rate: int | None = None,
+  verbose: bool = False,
+) -> None:
   """Creates a rendering front-end along with callbacks in the host program.
 
   Args:
@@ -253,7 +270,7 @@ def render(
       box_size,
     ] * dimension
 
-  def get_metadata():
+  def get_metadata() -> IPython.display.JSON:
     metadata = {
       'box_size': box_size,
       'dimension': dimension,
@@ -283,7 +300,7 @@ def render(
 
   output.register_callback('GetSimulationMetadata', get_metadata)
 
-  def get_dynamic_geometry_metadata(name):
+  def get_dynamic_geometry_metadata(name: str) -> IPython.display.JSON:
     assert name in geometry
 
     geom = geometry[name]
@@ -312,7 +329,9 @@ def render(
     f'GetGeometryMetadata{SIMULATION_IDX}', get_dynamic_geometry_metadata
   )
 
-  def get_array_chunk(name, field, offset, size):
+  def get_array_chunk(
+    name: str, field: str, offset: int, size: int
+  ) -> IPython.display.JSON:
     assert name in geometry
 
     geom = dataclasses.asdict(geometry[name])
@@ -325,7 +344,7 @@ def render(
 
   output.register_callback(f'GetArrayChunk{SIMULATION_IDX}', get_array_chunk)
 
-  def get_array(name, field):
+  def get_array(name: str, field: str) -> IPython.display.JSON:
     assert name in geometry
 
     geom = dataclasses.asdict(geometry[name])

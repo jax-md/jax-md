@@ -23,6 +23,7 @@ from jax_md import util
 
 # Types
 f64 = util.f64
+Array = util.Array
 
 # CODATA Recommended Values of the Fundamental Physical Constants: 2014
 # http://arxiv.org/pdf/1507.07956.pdf
@@ -65,7 +66,9 @@ BOHR_ANGSTROM = float(
 EV_TO_KJMOL = float(1.602176634e-19 * 6.02214076e23 / 1e3)
 
 
-def metal_unit_system(constants: Dict = constants_CONDATA_2014):
+def metal_unit_system(
+  constants: Dict = constants_CONDATA_2014,
+) -> Dict[str, Array]:
   """Metal unit system
 
   Args:
@@ -114,7 +117,9 @@ def metal_unit_system(constants: Dict = constants_CONDATA_2014):
   return metal_units
 
 
-def real_unit_system(constants: Dict = constants_CONDATA_2014):
+def real_unit_system(
+  constants: Dict = constants_CONDATA_2014,
+) -> Dict[str, Array]:
   """Real unit system
 
   Args:

@@ -16,7 +16,7 @@ warnings.filterwarnings(
 )
 
 
-def load_torch_model_from_foundations(source: str, model: str | None):
+def load_torch_model_from_foundations(source: str, model: str | None) -> Any:
   foundations_models = importlib.import_module(
     'mace.calculators.foundations_models'
   )
@@ -55,7 +55,7 @@ def load_torch_model_from_foundations(source: str, model: str | None):
 
 
 def maybe_update_hidden_irreps_from_torch(
-  torch_model, config: dict[str, Any]
+  torch_model: Any, config: dict[str, Any]
 ) -> None:
   from jax_md._nn.mace.model_builder import as_irreps
 
@@ -145,11 +145,11 @@ def serialize_for_json(value: Any) -> Any:
 
 
 def convert_model(
-  torch_model,
+  torch_model: Any,
   config: dict[str, Any],
   *,
   cueq_config: Any | None = None,
-):
+) -> tuple[Any, Any, dict[str, Any]]:
   """Convert a Torch MACE model to JAX (Flax NNX) weights.
 
   Returns:
@@ -193,7 +193,9 @@ def convert_model(
   return graphdef, state, config
 
 
-def save_model(state, config, path):
+def save_model(
+  state: Any, config: dict[str, Any], path: str | Path
+) -> tuple[Path, Path]:
   """Save converted MACE-JAX state and config to disk.
 
   Writes parameters to ``path`` (msgpack) and config to ``path.json``.
@@ -209,7 +211,7 @@ def save_model(state, config, path):
   return path, config_path
 
 
-def load_model(path):
+def load_model(path: str | Path) -> tuple[dict[str, Any], dict[str, Any]]:
   """Load a saved MACE-JAX model from disk.
 
   Returns ``(state_dict, config)`` where ``state_dict`` is the deserialized
@@ -225,7 +227,12 @@ def load_model(path):
   return state_dict, config
 
 
-def convert_foundation_model(source='mp', model=None, *, cueq_config=None):
+def convert_foundation_model(
+  source: str = 'mp',
+  model: str | None = None,
+  *,
+  cueq_config: Any | None = None,
+) -> tuple[Any, Any, dict[str, Any]]:
   """Download and convert a MACE foundation model to JAX in one call.
 
   Args:

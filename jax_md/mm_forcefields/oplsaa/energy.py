@@ -117,7 +117,7 @@ def energy(
 
     idx = topology.torsions
 
-    def compute_dihedral(p0, p1, p2, p3):
+    def compute_dihedral(p0: Array, p1: Array, p2: Array, p3: Array) -> Array:
       """Compute dihedral angle using cross products."""
       b0 = displacement_fn(p1, p0)
       b1 = displacement_fn(p2, p1)
@@ -153,7 +153,9 @@ def energy(
 
     idx = topology.impropers
 
-    def compute_dihedral_signed(p0, p1, p2, p3):
+    def compute_dihedral_signed(
+      p0: Array, p1: Array, p2: Array, p3: Array
+    ) -> Array:
       """Compute signed dihedral angle."""
       b0 = displacement_fn(p1, p0)
       b1 = displacement_fn(p2, p1)
@@ -216,7 +218,9 @@ def energy(
     epsilon_ij = jnp.sqrt(epsilon_i * epsilon_j)
 
     # LJ potential
-    def lj_potential(r_sq, r, sigma, epsilon):
+    def lj_potential(
+      r_sq: Array, r: Array, sigma: Array, epsilon: Array
+    ) -> Array:
       sr = sigma / jnp.sqrt(r_sq)
       sr6 = sr**6
       lj_val = 4.0 * epsilon * (sr6**2 - sr6)

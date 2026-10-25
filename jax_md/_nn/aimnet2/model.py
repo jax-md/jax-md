@@ -8,7 +8,7 @@ import math
 from functools import partial
 from importlib.resources import files
 from os import PathLike
-from typing import Any
+from typing import Any, Callable
 
 import equinox as eqx
 import jax
@@ -27,15 +27,19 @@ AIMNET2_MODEL_PATHS = {
 
 
 def safe_norm(
-  x: Array, *, axis=-1, keepdims: bool = False, eps: float = 1.0e-24
+  x: Array, *, axis: int = -1, keepdims: bool = False, eps: float = 1.0e-24
 ) -> Array:
   return jnp.sqrt(
     jnp.maximum(jnp.sum(x * x, axis=axis, keepdims=keepdims), eps)
   )
 
 
-def neighbor_list_featurizer(displacement_fn, *, cutoff: float):
-  def featurize(position, neighbor, **kwargs):
+def neighbor_list_featurizer(
+  displacement_fn: space.DisplacementFn, *, cutoff: float
+) -> Callable[..., tuple[Array, Array, Array]]:
+  def featurize(
+    position: Array, neighbor: partition.NeighborList, **kwargs
+  ) -> tuple[Array, Array, Array]:
     num_atoms = position.shape[0]
     atom_ids = jnp.arange(num_atoms, dtype=jnp.int32)
     idx = jnp.asarray(neighbor.idx, dtype=jnp.int32)
@@ -141,8 +145,8 @@ def short_range_coulomb_dense(
 def dsf_coulomb_dense(
   charges: Array,
   positions: Array,
-  neighbor,
-  displacement_fn,
+  neighbor: partition.NeighborList,
+  displacement_fn: space.DisplacementFn,
   *,
   cutoff: float,
   alpha: float,
@@ -196,7 +200,7 @@ class Linear(eqx.Module):
 
   def __init__(
     self, in_dim: int, out_dim: int, *, dtype: Any = jnp.float32, key: Array
-  ):
+  ) -> None:
     weight_key, bias_key = jax.random.split(key)
     lim = jnp.sqrt(1.0 / in_dim)
     self.weight = jax.random.uniform(
@@ -230,7 +234,7 @@ class MLP(eqx.Module):
 
   def __init__(
     self, sizes: tuple[int, ...], *, dtype: Any = jnp.float32, key: Array
-  ):
+  ) -> None:
     self.sizes = tuple(int(size) for size in sizes)
     keys = jax.random.split(key, len(sizes) - 1)
     self.layers = [
@@ -290,7 +294,7 @@ class AIMNet2Layer(eqx.Module):
     config: dict[str, Any],
     dtype: Any = jnp.float32,
     keys: Array,
-  ):
+  ) -> None:
     self.nfeature = int(config['nfeature'])
     self.nshifts = int(config['nshifts'])
     self.ncharge = int(config['ncharge'])
@@ -381,13 +385,13 @@ class AIMNet2Layer(eqx.Module):
 
   def __call__(
     self,
-    species,
-    unit_vectors,
-    g_ijs,
-    neighbors,
-    edge_mask,
-    total_charge,
-  ):
+    species: Array,
+    unit_vectors: Array,
+    g_ijs: Array,
+    neighbors: Array,
+    edge_mask: Array,
+    total_charge: Array | float,
+  ) -> tuple[Array, Array]:
     num_atoms = species.shape[0]
     nfeature, nshifts, ncharge = self.nfeature, self.nshifts, self.ncharge
 
@@ -494,7 +498,7 @@ class LocalEnergyHead(eqx.Module):
     config: dict[str, Any],
     dtype: Any = jnp.float32,
     key: Array,
-  ):
+  ) -> None:
     self.energy_mlp = MLP(config['energy_sizes'], dtype=dtype, key=key)
     # Self-energy shifts are large constants kept in f64; weights are f32.
     self.atomic_shifts = jnp.zeros(
@@ -544,7 +548,7 @@ class AIMNet2(eqx.Module):
     config: dict[str, Any],
     dtype: Any = jnp.float32,
     key: Array = jax.random.PRNGKey(0),
-  ):
+  ) -> None:
     keys = jax.random.split(key, 4)
     self.bohr_a = float(config['bohr_a'])
     self.coulomb_factor = float(config['coulomb_factor'])
@@ -595,8 +599,12 @@ class AIMNet2(eqx.Module):
     )
 
   def dispersion_energy(
-    self, positions, species_idx, neighbor, displacement_fn
-  ):
+    self,
+    positions: Array,
+    species_idx: Array,
+    neighbor: partition.NeighborList,
+    displacement_fn: space.DisplacementFn,
+  ) -> Array:
     featurize = neighbor_list_featurizer(
       displacement_fn, cutoff=float(self.lr_cutoff)
     )
@@ -630,15 +638,15 @@ class AIMNet2(eqx.Module):
 
   def coulomb_energy(
     self,
-    partial_charges,
-    positions,
-    r_ij,
-    neighbors,
-    edge_mask,
-    lr_neighbor,
-    displacement_fn,
-    periodic,
-  ):
+    partial_charges: Array,
+    positions: Array,
+    r_ij: Array,
+    neighbors: Array,
+    edge_mask: Array,
+    lr_neighbor: partition.NeighborList,
+    displacement_fn: space.DisplacementFn,
+    periodic: bool,
+  ) -> Array:
     partial_charges = partial_charges.squeeze(-1)
     local_coulomb = short_range_coulomb_dense(
       partial_charges,
@@ -672,8 +680,8 @@ class AIMNet2(eqx.Module):
     positions: Array,
     species: Array,
     *,
-    neighbor,
-    displacement_fn,
+    neighbor: partition.NeighborList,
+    displacement_fn: space.DisplacementFn,
     total_charge: Array | float = 0.0,
   ) -> tuple[Array, Array, Array, Array, Array]:
     """Return local node energies plus intermediates needed by global terms."""
@@ -714,9 +722,9 @@ class AIMNet2(eqx.Module):
     positions: Array,
     species: Array,
     *,
-    displacement_fn=None,
-    neighbors=None,
-    lr_neighbors=None,
+    displacement_fn: space.DisplacementFn | None = None,
+    neighbors: partition.NeighborList | None = None,
+    lr_neighbors: partition.NeighborList | None = None,
     periodic: bool = True,
     total_charge: Array | float = 0.0,
   ) -> Array:
@@ -765,7 +773,7 @@ def load_model(
   model: str = 'aimnet2-jax',
   *,
   model_path: str | PathLike | None = None,
-  dtype=None,
+  dtype: Any = None,
 ) -> AIMNet2:
   if model_path is not None:
     path = weights.resolve_checkpoint(model_path, allow_cache=False)

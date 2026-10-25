@@ -7,14 +7,14 @@ import json
 from functools import partial
 from importlib.resources import files
 from os import PathLike
-from typing import Any
+from typing import Any, Callable
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import Array
-from jax_md import partition
+from jax_md import partition, space
 from jax_md._nn import weights
 from jax_md.units import EV_TO_KJMOL
 
@@ -27,8 +27,12 @@ ORB_MODEL_PATHS = {
 }
 
 
-def neighbor_list_featurizer(displacement_fn, *, cutoff: float | None = None):
-  def featurize(position, neighbor, **kwargs):
+def neighbor_list_featurizer(
+  displacement_fn: space.DisplacementFn, *, cutoff: float | None = None
+) -> Callable[..., tuple[Array, Array, Array, Array]]:
+  def featurize(
+    position: Array, neighbor: partition.NeighborList, **kwargs
+  ) -> tuple[Array, Array, Array, Array]:
     num_atoms = position.shape[0]
     mask = partition.neighbor_list_mask(neighbor, True)
     if partition.is_sparse(neighbor.format):
@@ -58,7 +62,7 @@ def neighbor_list_featurizer(displacement_fn, *, cutoff: float | None = None):
 
 
 def safe_norm(
-  x: Array, *, axis=-1, keepdims: bool = False, eps: float = 1.0e-24
+  x: Array, *, axis: int = -1, keepdims: bool = False, eps: float = 1.0e-24
 ) -> Array:
   return jnp.sqrt(
     jnp.maximum(jnp.sum(x * x, axis=axis, keepdims=keepdims), eps)
@@ -549,8 +553,8 @@ class Orb(eqx.Module):
     total_charge: Array,
     total_spin: Array,
     *,
-    neighbors,
-    displacement_fn,
+    neighbors: partition.NeighborList,
+    displacement_fn: space.DisplacementFn,
   ) -> tuple[Array, Array, Array, Array, Array]:
     featurize = neighbor_list_featurizer(
       displacement_fn, cutoff=float(self.cutoff)
@@ -576,8 +580,8 @@ class Orb(eqx.Module):
     total_charge: Array,
     total_spin: Array,
     *,
-    displacement_fn=None,
-    neighbors=None,
+    displacement_fn: space.DisplacementFn | None = None,
+    neighbors: partition.NeighborList | None = None,
   ) -> Array:
     if displacement_fn is None or neighbors is None:
       raise ValueError(
@@ -610,7 +614,7 @@ def load_model(
   model: str = 'orb-jax-v3-conservative-omol',
   *,
   model_path: str | PathLike | None = None,
-  dtype=None,
+  dtype: Any = None,
 ) -> Orb:
   if model_path is not None:
     path = weights.resolve_checkpoint(model_path, allow_cache=False)

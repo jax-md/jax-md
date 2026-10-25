@@ -15,6 +15,8 @@
 # Demonstration of a2c method for the prediction of the crystallization products
 # of amorphous phases as described in https://arxiv.org/abs/2310.01117
 
+from typing import Callable, Dict, Sequence, Tuple
+
 import jax
 from jax import lax
 from jax import numpy as jnp
@@ -25,7 +27,7 @@ from collections import defaultdict
 from tqdm import tqdm
 
 from jax_md import space, energy, quantity, simulate
-from jax_md.minimize import fire_descent
+from jax_md.minimize import fire_descent, FireDescentState
 
 import pymatgen as mg
 import pymatgen.core
@@ -42,7 +44,9 @@ kb = 8.61733362e-5  # boltzmann constant in units of eV/K
 fs = 0.09822693530999717  # femtoseconds in units of mass, energy, length == 1
 
 
-def get_kt(step, equi_steps, cool_steps, T_high, T_low) -> float:
+def get_kt(
+  step: int, equi_steps: int, cool_steps: int, T_high: float, T_low: float
+) -> float:
   # Gives a typical melt-quench-equilibrate profile at each step..
   if jnp.greater(equi_steps, step):
     return kb * T_high
@@ -54,7 +58,7 @@ def get_kt(step, equi_steps, cool_steps, T_high, T_low) -> float:
     return kb * T_low
 
 
-def main(unused_argv):
+def main(unused_argv: Sequence[str]) -> None:
   # We will make a 64-atom amorphous Si phase by melt-quench NVT-MD
   composition = mg.core.Composition('Si64')
   box = jnp.array([[11.1, 0.0, 0.0], [0.0, 11.1, 0.0], [0.0, 0.0, 11.1]])
@@ -100,7 +104,10 @@ def main(unused_argv):
 
   state = jax.jit(init)(jax.random.PRNGKey(42), position, mass)
 
-  def step_fn(i, state_and_log):
+  def step_fn(
+    i: jnp.ndarray,
+    state_and_log: Tuple[simulate.NVTNoseHooverState, Dict[str, jnp.ndarray]],
+  ) -> Tuple[simulate.NVTNoseHooverState, Dict[str, jnp.ndarray]]:
     state, log = state_and_log
     T = quantity.temperature(velocity=state.velocity, mass=state.mass)
     log['kT'] = log['kT'].at[i].set(T)
@@ -155,7 +162,9 @@ def main(unused_argv):
     species=amorphous_structure.species,
   )
 
-  def get_energy_fn(box):
+  def get_energy_fn(
+    box: jnp.ndarray | np.ndarray,
+  ) -> Tuple[Callable[..., jnp.ndarray], space.ShiftFn]:
     # Get Stillinger Weber potential
     displacement, shift = space.periodic_general(
       box, fractional_coordinates=True, wrapped=False
@@ -164,7 +173,11 @@ def main(unused_argv):
     return jax.jit(energy_fn), shift
 
   # To relax the subcels, we apply fire_descent on atomic coordinates, and a basic gradient descent on the cell vectors.
-  def relax_structure(s, n_steps=500, alpha=0.05):
+  def relax_structure(
+    s: mg.core.Structure, n_steps: int = 500, alpha: float = 0.05
+  ) -> Tuple[
+    mg.core.Structure, Dict[str, jnp.ndarray], jnp.ndarray, jnp.ndarray
+  ]:
     R = s.frac_coords
     box = s.lattice.matrix.T
     energy_fn, shift = get_energy_fn(box)
@@ -175,7 +188,12 @@ def main(unused_argv):
     }
     state = fire_init(R)
 
-    def step_fn(i, state_box_log):
+    def step_fn(
+      i: jnp.ndarray,
+      state_box_log: Tuple[
+        FireDescentState, jnp.ndarray, Dict[str, jnp.ndarray]
+      ],
+    ) -> Tuple[FireDescentState, jnp.ndarray, Dict[str, jnp.ndarray]]:
       state, box, log = state_box_log
       energy_fn, shift = get_energy_fn(box)
       log['energy'] = log['energy'].at[i].set(energy_fn(state.position))

@@ -37,7 +37,9 @@ def safe_acos(x: jnp.ndarray) -> jnp.ndarray:
 
 
 @safe_acos.defjvp
-def _safe_acos_jvp(primals, tangents):
+def _safe_acos_jvp(
+  primals: Tuple[jnp.ndarray], tangents: Tuple[jnp.ndarray]
+) -> Tuple[jnp.ndarray, jnp.ndarray]:
   (x,) = primals
   (x_dot,) = tangents
   primal_out = safe_acos(x)
@@ -59,7 +61,10 @@ def safe_atan2(y: jnp.ndarray, x: jnp.ndarray) -> jnp.ndarray:
 
 
 @safe_atan2.defjvp
-def _safe_atan2_jvp(primals, tangents):
+def _safe_atan2_jvp(
+  primals: Tuple[jnp.ndarray, jnp.ndarray],
+  tangents: Tuple[jnp.ndarray, jnp.ndarray],
+) -> Tuple[jnp.ndarray, jnp.ndarray]:
   y, x = primals
   y_dot, x_dot = tangents
   primal_out = safe_atan2(y, x)

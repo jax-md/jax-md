@@ -26,12 +26,15 @@ Example:
 import os
 import pickle
 from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, TypeVar
 
+import equinox as eqx
 import jax.numpy as jnp
 import numpy as np
 
 from jax_md._nn.uma.model import UMAConfig
+
+T = TypeVar('T')
 
 
 # Available pretrained models on HuggingFace
@@ -290,7 +293,7 @@ def load_checkpoint_raw(checkpoint_path: str) -> Any:
       self.__dict__.update(kwargs)
 
   class StubUnpickler(pickle.Unpickler):
-    def find_class(self, module, name):
+    def find_class(self, module: str, name: str) -> Any:
       if module.startswith('fairchem'):
         return type(name, (Stub,), {'__module__': module})
       return super().find_class(module, name)
@@ -305,7 +308,7 @@ def load_checkpoint_raw(checkpoint_path: str) -> Any:
     )
 
 
-def extract_config(checkpoint) -> UMAConfig:
+def extract_config(checkpoint: Any) -> UMAConfig:
   """Extract UMAConfig from a loaded checkpoint.
 
   Args:
@@ -746,7 +749,7 @@ def print_conversion_report(metadata: ConversionMetadata) -> None:
     print(f'Head params: {len(metadata.head_params)} params')
 
 
-def load_params_into_module(params, module, strict=False):
+def load_params_into_module(params: Any, module: T, strict: bool = False) -> T:
   """Return *module* with its arrays taken from a linen-shaped params dict.
 
   Leaves are matched by path: a tuple field contributes ``name_i``, a dict
@@ -808,7 +811,7 @@ def load_params_into_module(params, module, strict=False):
   return jax.tree_util.tree_unflatten(treedef, out)
 
 
-def module_to_params(module):
+def module_to_params(module: eqx.Module) -> Dict[str, Any]:
   """Return the linen-shaped nested params dict for an equinox *module*.
 
   The inverse of :func:`load_params_into_module`.

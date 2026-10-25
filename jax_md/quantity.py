@@ -64,7 +64,7 @@ def force(energy_fn: EnergyFn) -> ForceFn:
 def clipped_force(energy_fn: EnergyFn, max_force: float) -> ForceFn:
   force_fn = force(energy_fn)
 
-  def wrapped_force_fn(R, *args, **kwargs):
+  def wrapped_force_fn(R: Array, *args, **kwargs) -> Array:
     force = force_fn(R, *args, **kwargs)
     force_norm = jnp.linalg.norm(force, axis=-1, keepdims=True)
     return jnp.where(
@@ -77,7 +77,7 @@ def clipped_force(energy_fn: EnergyFn, max_force: float) -> ForceFn:
 def canonicalize_force(energy_or_force_fn: Union[EnergyFn, ForceFn]) -> ForceFn:
   _force_fn = None
 
-  def force_fn(R, **kwargs):
+  def force_fn(R: PyTree, **kwargs) -> PyTree:
     nonlocal _force_fn
     if _force_fn is None:
       out_shaped = eval_shape(energy_or_force_fn, R, **kwargs)
@@ -236,7 +236,7 @@ def pressure(
   """
   dim = position.shape[1]
 
-  def U(eps):
+  def U(eps: Array | float) -> Array:
     try:
       return energy_fn(position, box=box, perturbation=(1 + eps), **kwargs)
     except space.UnexpectedBoxException:
@@ -278,7 +278,7 @@ def stress(
   zero = jnp.zeros((dim, dim), position.dtype)
   I = jnp.eye(dim, dtype=position.dtype)
 
-  def U(eps):
+  def U(eps: Array) -> Array:
     try:
       return energy_fn(position, box=box, perturbation=(I + eps), **kwargs)
     except space.UnexpectedBoxException:
@@ -452,7 +452,7 @@ def pair_correlation(
 
   inv_rad = 1 / (radii + eps)
 
-  def pairwise(dr, dim):
+  def pairwise(dr: Array, dim: int) -> Array:
     return jnp.exp(-f32(0.5) * (dr - radii) ** 2 / sigma**2) * inv_rad ** (
       dim - 1
     )
@@ -461,7 +461,7 @@ def pair_correlation(
 
   if species is None:
 
-    def g_fn(R):
+    def g_fn(R: Array) -> Array:
       dim = R.shape[-1]
       mask = 1 - jnp.eye(R.shape[0], dtype=R.dtype)
       g_R = jnp.sum(mask[:, :, jnp.newaxis] * pairwise(d(R, R), dim), axis=(1,))
@@ -473,7 +473,7 @@ def pair_correlation(
       raise TypeError('Malformed species; expecting array of integers.')
     species_types = jnp.unique(species)
 
-    def g_fn(R):
+    def g_fn(R: Array) -> PyTree:
       dim = R.shape[-1]
       g_R = []
       mask = 1 - jnp.eye(R.shape[0], dtype=R.dtype)
@@ -586,7 +586,7 @@ def pair_correlation_neighbor_list(
   metric = space.canonicalize_displacement_or_metric(displacement_or_metric)
   inv_rad = 1 / (radii + eps)
 
-  def pairwise(dr, dim):
+  def pairwise(dr: Array, dim: int) -> Array:
     return jnp.exp(-f32(0.5) * (dr - radii) ** 2 / sigma**2) * inv_rad ** (
       dim - 1
     )
@@ -601,7 +601,7 @@ def pair_correlation_neighbor_list(
 
   if species is None:
 
-    def g_fn(R, neighbor):
+    def g_fn(R: Array, neighbor: partition.NeighborList) -> Array:
       N, dim = R.shape
       mask = partition.neighbor_list_mask(neighbor)
       if neighbor.format is partition.Dense:
@@ -634,7 +634,7 @@ def pair_correlation_neighbor_list(
       raise TypeError('Malformed species; expecting array of integers.')
     species_types = jnp.unique(species)
 
-    def g_fn(R, neighbor):
+    def g_fn(R: Array, neighbor: partition.NeighborList) -> PyTree:
       N, dim = R.shape
       g_R = []
       mask = partition.neighbor_list_mask(neighbor)

@@ -206,7 +206,7 @@ def GraphMapFeatures(
   _edge_fn = vmap(vmap(edge_fn)) if edge_fn is not None else identity
   _global_fn = global_fn if global_fn is not None else identity
 
-  def embed_fn(graph):
+  def embed_fn(graph: GraphsTuple) -> GraphsTuple:
     return graph._replace(
       nodes=_node_fn(graph.nodes),
       edges=_edge_fn(graph.edges),

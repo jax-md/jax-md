@@ -8,6 +8,7 @@ import json
 from functools import partial
 from importlib.resources import files
 from os import PathLike
+from typing import Any, Callable
 
 import equinox as eqx
 import jax
@@ -27,8 +28,12 @@ ANI2X_MODEL_PATHS = {
 }
 
 
-def neighbor_list_featurizer(displacement_fn):
-  def featurize(position, neighbor, **kwargs):
+def neighbor_list_featurizer(
+  displacement_fn: space.DisplacementFn,
+) -> Callable[..., tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]]:
+  def featurize(
+    position: jnp.ndarray, neighbor: partition.NeighborList, **kwargs
+  ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     num_atoms = position.shape[0]
     atom_ids = jnp.arange(num_atoms, dtype=jnp.int32)
     idx = jnp.asarray(neighbor.idx, dtype=jnp.int32)
@@ -42,7 +47,7 @@ def neighbor_list_featurizer(displacement_fn):
   return featurize
 
 
-def cosine_cutoff(distance, cutoff: float):
+def cosine_cutoff(distance: jnp.ndarray, cutoff: float) -> jnp.ndarray:
   return 0.5 * jnp.cos(distance * jnp.pi / cutoff) + 0.5
 
 
@@ -69,7 +74,7 @@ class ANI2xCheckpoint(eqx.Module):
   layer_weights: list
   layer_biases: list
 
-  def __init__(self, config: dict):
+  def __init__(self, config: dict) -> None:
     num_species = len(config['species_order'])
     num_models = config['num_models']
     network_sizes = tuple(config['network_sizes'])
@@ -170,7 +175,7 @@ class ANI2x(eqx.Module):
     config: dict,
     checkpoint: ANI2xCheckpoint,
     active_species: tuple[int, ...] | None = None,
-  ):
+  ) -> None:
     self.radial_eta = config['radial_eta']
     self.angular_eta = config['angular_eta']
     self.zeta = config['zeta']
@@ -235,12 +240,12 @@ class ANI2x(eqx.Module):
 
   def local_node_energies(
     self,
-    positions,
-    species,
+    positions: jnp.ndarray,
+    species: jnp.ndarray,
     *,
-    neighbor,
-    displacement_fn,
-  ):
+    neighbor: partition.NeighborList,
+    displacement_fn: space.DisplacementFn,
+  ) -> jnp.ndarray:
     species = jnp.asarray(self.species_to_index, dtype=jnp.int32)[
       jnp.asarray(species, dtype=jnp.int32)
     ]
@@ -374,7 +379,7 @@ class ANI2x(eqx.Module):
       dtype=positions.dtype,
     )
 
-    def select_atom_species(values_by_species):
+    def select_atom_species(values_by_species: jnp.ndarray) -> jnp.ndarray:
       return jnp.einsum('ns,nmso->nmo', species_selector, values_by_species)
 
     radial_width = radial_aev.shape[-1]
@@ -406,12 +411,12 @@ class ANI2x(eqx.Module):
 
   def __call__(
     self,
-    positions,
-    species,
+    positions: jnp.ndarray,
+    species: jnp.ndarray,
     *,
-    displacement_fn=None,
-    neighbors=None,
-  ):
+    displacement_fn: space.DisplacementFn | None = None,
+    neighbors: partition.NeighborList | None = None,
+  ) -> jnp.ndarray:
     if displacement_fn is None or neighbors is None:
       raise ValueError(
         'ANI requires a displacement_fn and a neighbor list. Build them '
@@ -430,9 +435,9 @@ class ANI2x(eqx.Module):
 def load_model(
   model: str = 'ani2x-jax-ensemble',
   *,
-  atomic_numbers=None,
+  atomic_numbers: jnp.ndarray | np.ndarray | None = None,
   model_path: str | PathLike | None = None,
-  dtype=None,
+  dtype: Any = None,
 ) -> ANI2x:
   """Load an ANI-2x checkpoint, optionally specialized to a fixed atomic-number set."""
 

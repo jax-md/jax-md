@@ -176,7 +176,7 @@ class ForceField:
   par_35: Array  # ACKS2
 
   @classmethod
-  def init_from_arg_dict(cls, kwargs):
+  def init_from_arg_dict(cls, kwargs: dict) -> 'ForceField':
     field_set = {f.name for f in fields(cls) if f.init}
     filtered_kwargs = {k: v for k, v in kwargs.items() if k in field_set}
     if len(filtered_kwargs) != len(field_set):
@@ -186,7 +186,7 @@ class ForceField:
 
     return cls(**filtered_kwargs)
 
-  def fill_symm(force_field):
+  def fill_symm(force_field) -> 'ForceField':
     """
     Fills the parameter arrays based on the symmetries
     """
@@ -248,7 +248,7 @@ class ForceField:
 
     return force_field
 
-  def fill_off_diag(force_field):
+  def fill_off_diag(force_field) -> 'ForceField':
     """
     Fills the off-diagonal entries in the parameter arrays
     """

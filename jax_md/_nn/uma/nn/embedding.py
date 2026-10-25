@@ -6,7 +6,7 @@ and dataset identifiers.
 Ported from FairChem's UMA implementation.
 """
 
-from typing import List, Literal, Sequence, Tuple
+from typing import Callable, List, Literal, Sequence, Tuple
 
 import equinox as eqx
 import jax
@@ -26,11 +26,13 @@ DATASET_ALIASES = {
 }
 
 
-def symmetric_uniform(scale):
+def symmetric_uniform(scale: float) -> Callable[..., Array]:
   """Initializer producing values in [-scale, scale), matching PyTorch's
   ``nn.init.uniform_(-scale, scale)``."""
 
-  def init(key, shape, dtype=jnp.float32):
+  def init(
+    key: Array, shape: Sequence[int], dtype: jax.typing.DTypeLike = jnp.float32
+  ) -> Array:
     return jax.random.uniform(key, shape, dtype, minval=-scale, maxval=scale)
 
   return init

@@ -12,6 +12,7 @@ import os
 import sys
 import tempfile
 import urllib.request
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 WEIGHTS_RELEASE_TAG = 'weights-v1'
@@ -185,7 +186,9 @@ def download(filename: str, force: bool = False, progress: bool = True) -> Path:
   return fetch(f'{WEIGHTS_BASE_URL}/{filename}', dest, sha256, progress)
 
 
-def download_models(names, force: bool = False, progress: bool = True):
+def download_models(
+  names: Iterable[str], force: bool = False, progress: bool = True
+) -> list[Path]:
   """Download checkpoints for model families or filenames; returns paths."""
   filenames = []
   for name in names:
@@ -201,7 +204,7 @@ def download_models(names, force: bool = False, progress: bool = True):
   return [download(fn, force=force, progress=progress) for fn in filenames]
 
 
-def main(argv=None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
   import argparse
 
   parser = argparse.ArgumentParser(

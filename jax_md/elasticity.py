@@ -60,7 +60,7 @@ approximations.
 """
 
 from functools import partial
-from typing import Dict, Callable, Union
+from typing import Dict, Callable, Union, Any
 from absl import logging
 
 import jax
@@ -74,7 +74,7 @@ from jax_md.util import f32
 from jax_md.util import f64
 
 
-def _get_strain_tensor_list(dim, dtype) -> Array:
+def _get_strain_tensor_list(dim: int, dtype: Any) -> Array:
   if dim == 2:
     strain_tensors = jnp.array(
       [
@@ -253,17 +253,17 @@ def athermal_moduli(
 
     dim = R.shape[-1]
 
-    def setup_energy_fn_general(strain_tensor):
+    def setup_energy_fn_general(strain_tensor: Array) -> Callable[..., Array]:
       I = jnp.eye(dim, dtype=R.dtype)
 
       @jit
-      def energy_fn_general(R, gamma):
+      def energy_fn_general(R: Array, gamma: Array | float) -> Array:
         perturbation = I + gamma * strain_tensor
         return energy_fn(R, perturbation=perturbation, **kwargs)
 
       return energy_fn_general
 
-    def get_affine_response(strain_tensor):
+    def get_affine_response(strain_tensor: Array) -> tuple[Array, Array]:
       energy_fn_general = setup_energy_fn_general(strain_tensor)
       d2U_dRdgamma = jacfwd(jacrev(energy_fn_general, argnums=0), argnums=1)(
         R, 0.0
@@ -281,10 +281,14 @@ def athermal_moduli(
     # Solve the system of equations.
     energy_fn_Ronly = partial(energy_fn, **kwargs)
 
-    def hvp(f, primals, tangents):
+    def hvp(
+      f: Callable[..., Array],
+      primals: tuple[Array, ...],
+      tangents: tuple[Array, ...],
+    ) -> Array:
       return jvp(grad(f), primals, tangents)[1]
 
-    def hvp_specific_with_tether(v):
+    def hvp_specific_with_tether(v: Array) -> Array:
       return hvp(energy_fn_Ronly, (R,), (v,)) + tether_strength * v
 
     non_affine_response_all = jsp.sparse.linalg.cg(
@@ -329,7 +333,7 @@ def athermal_moduli(
   return calculate_emt
 
 
-def _get_mandel_mapping_weight(dim, dtype):
+def _get_mandel_mapping_weight(dim: int, dtype: Any) -> tuple[Array, Array]:
   if dim == 2:
     m_map = jnp.array([[0, 0], [1, 1], [0, 1]], dtype=jnp.int8)
     weight = jnp.array([1, 1, jnp.sqrt(2)], dtype=dtype)
@@ -442,7 +446,7 @@ def mandel_to_tensor(M: Array) -> Array:
   if not (rank == 1 or rank == 2):
     raise AssertionError('T must have rank 1 or 2')
 
-  def mandel_index(i, j):
+  def mandel_index(i: Array, j: Array) -> Array:
     return lax.cond(
       i == j, lambda ij: ij[0], lambda ij: mandel_dim - ij[0] - ij[1], (i, j)
     )
@@ -457,7 +461,7 @@ def mandel_to_tensor(M: Array) -> Array:
 
   if rank == 1:
 
-    def extract(i, j):
+    def extract(i: Array, j: Array) -> Array:
       idx = mandel_index(i, j)
       return M[idx] / weight[idx]
 
@@ -466,7 +470,7 @@ def mandel_to_tensor(M: Array) -> Array:
     )
   else:
 
-    def extract(i, j, k, l):
+    def extract(i: Array, j: Array, k: Array, l: Array) -> Array:
       idx0 = mandel_index(i, j)
       idx1 = mandel_index(k, l)
       return M[idx0, idx1] / (weight[idx0] * weight[idx1])
@@ -485,7 +489,7 @@ def mandel_to_tensor(M: Array) -> Array:
 
 
 @partial(jit, static_argnums=(1,))
-def _extract_elements(C, as_dict):
+def _extract_elements(C: Array, as_dict: bool) -> Array | Dict[str, Array]:
   if C.shape[0] == 2:
     indices = (
       [0, 1, 0, 0, 0, 0],

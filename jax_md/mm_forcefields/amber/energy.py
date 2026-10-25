@@ -479,7 +479,7 @@ def energy(
   def coulomb_fn(
     dr: Array,
     charge_sq: Array,
-    alpha: Array,
+    alpha: float | Array,
     use_erfc: bool,
     **unused_kwargs: Any,
   ) -> Array:
@@ -503,13 +503,20 @@ def energy(
       energy = 4.0 * lj2 * (idr12 - idr6)
     return energy
 
-  def fused_nb_fn_generator():
+  def fused_nb_fn_generator() -> Callable[..., Array]:
     lj_wrapped = vdw_cutoff_fn(jax.tree_util.Partial(lj_fn, use_ab=use_ab))
     coul_wrapped = ele_cutoff_fn(
       jax.tree_util.Partial(coulomb_fn, use_erfc=use_erfc)
     )
 
-    def _fused_fn(dr, lj1, lj2, charge_sq, alpha, **unused_kwargs):
+    def _fused_fn(
+      dr: Array,
+      lj1: Array,
+      lj2: Array,
+      charge_sq: Array,
+      alpha: float | Array,
+      **unused_kwargs: Any,
+    ) -> Array:
       dr = jnp.where(jnp.isclose(dr, 0.0), 1, dr)
       lj_energy = lj_wrapped(dr, lj1, lj2, **unused_kwargs)
       coul_energy = coul_wrapped(dr, charge_sq, alpha, **unused_kwargs)
