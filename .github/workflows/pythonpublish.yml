@@ -4,6 +4,9 @@ on:
   release:
     types: [published]
 
+permissions:
+  contents: read
+
 jobs:
   build:
     # The docs-notebooks release only holds executed example notebooks.

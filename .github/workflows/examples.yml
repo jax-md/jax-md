@@ -17,7 +17,7 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   list:
@@ -76,6 +76,7 @@ jobs:
         merge-multiple: true
     - name: Upload to the docs-notebooks release
       run: |
+        find executed -name '*.ipynb' | grep -q .
         tar -czf notebooks.tar.gz -C executed .
         notes="Executed from ${GITHUB_SHA}."
         gh release edit docs-notebooks --notes "$notes" || gh release create docs-notebooks --prerelease --notes "$notes"
