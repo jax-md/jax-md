@@ -705,6 +705,10 @@ class NeighborListTest(test_util.JAXMDTestCase):
     self.assertIsNotNone(nbrs.cell_list_fn)
     self.assertEqual(cell_pairs, exact_pairs)
 
+    update_fn = jit(lambda nbrs: nbrs.update(R))
+    update_fn(nbrs)
+    update_fn(pairs()[0])
+
   def test_neighbor_list_update_after_box_change(self):
     N = 400
     box = 12.0 * np.eye(3)

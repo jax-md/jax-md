@@ -678,8 +678,8 @@ class NeighborList:
       neighbor list. Changing this will invoke a recompilation.
     format: A NeighborListFormat enum specifying the format of the neighbor
       list.
-    cell_size: A float specifying the current minimum size of the cells used
-      in cell list construction.
+    cell_size: A float, or a tuple with one value per axis, specifying the
+      current minimum size of the cells used in cell list construction.
     cell_list_fn: The function used to construct the cell list.
     update_fn: A static python function used to update the neighbor list.
     reference_box: The box when the neighbor list was constructed, as a
@@ -694,7 +694,9 @@ class NeighborList:
   max_occupancy: int = dataclasses.static_field()
 
   format: NeighborListFormat = dataclasses.static_field()
-  cell_size: ArrayLike | None = dataclasses.static_field()
+  cell_size: ArrayLike | Tuple[ArrayLike, ...] | None = (
+    dataclasses.static_field()
+  )
   cell_list_fn: CellListFns | None = dataclasses.static_field()
   update_fn: Callable[[Array, 'NeighborList'], 'NeighborList'] = (
     dataclasses.static_field()
@@ -1042,6 +1044,8 @@ def neighbor_list(
           ):
             cl_fn = cell_list(_box, cell_size, capacity_multiplier)
             cl = cl_fn.allocate(position, extra_capacity=extra_capacity)
+          if jnp.ndim(cell_size) == 1:
+            cell_size = tuple(onp.asarray(cell_size))
         else:
           cell_size = neighbors.cell_size
           cl_fn = neighbors.cell_list_fn
@@ -1129,7 +1133,7 @@ def neighbor_list(
         )
       err = nbrs.error
       if nbrs.cell_list_fn is not None:
-        cur_cell_size = _cell_size(1.0, nbrs.cell_size)
+        cur_cell_size = _cell_size(1.0, jnp.asarray(nbrs.cell_size))
         new_cell_size = _cell_size(
           1.0, _fractional_cell_size(kwargs['box'], cutoff)
         )
