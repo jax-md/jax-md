@@ -5,9 +5,9 @@ name: Examples
 on:
   push:
     branches: [main]
-    paths: ['examples/**', '.github/workflows/examples.yml', '.github/execute_example.py']
+    paths: ['examples/**', 'jax_md/**', 'pyproject.toml', '.github/workflows/examples.yml', '.github/execute_example.py']
   pull_request:
-    paths: ['examples/**', '.github/workflows/examples.yml', '.github/execute_example.py']
+    paths: ['examples/**', 'jax_md/**', 'pyproject.toml', '.github/workflows/examples.yml', '.github/execute_example.py']
   schedule:
     - cron: '0 6 * * 1'
   workflow_dispatch:
