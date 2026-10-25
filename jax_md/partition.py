@@ -23,6 +23,7 @@ from collections import namedtuple
 from enum import Enum
 from enum import IntEnum
 
+from dataclasses import replace
 from typing import (
   Any,
   Callable,
@@ -131,6 +132,9 @@ class CellList:
     )
     return self.named_buffer
 
+  def set(self, **kwargs) -> 'CellList':
+    return replace(self, **kwargs)
+
 
 @dataclasses.dataclass
 class CellListFns:
@@ -141,6 +145,9 @@ class CellListFns:
 
   def __iter__(self) -> Iterator[Callable[..., CellList]]:
     return iter((self.allocate, self.update))
+
+  def set(self, **kwargs) -> 'CellListFns':
+    return replace(self, **kwargs)
 
 
 def _cell_dimensions(
@@ -538,6 +545,9 @@ class PartitionError:
 
   __repr__ = __str__
 
+  def set(self, **kwargs) -> 'PartitionError':
+    return replace(self, **kwargs)
+
 
 def _displacement_or_metric_to_metric_sq(
   displacement_or_metric: DisplacementOrMetricFn,
@@ -720,6 +730,9 @@ class NeighborList:
   def malformed_box(self) -> Array:
     return self.error.code & PEC.MALFORMED_BOX
 
+  def set(self, **kwargs) -> 'NeighborList':
+    return replace(self, **kwargs)
+
 
 @dataclasses.dataclass
 class NeighborListFns:
@@ -733,9 +746,7 @@ class NeighborListFns:
   """
 
   allocate: Callable[..., NeighborList] = dataclasses.static_field()
-  update: Callable[[Array, NeighborList], NeighborList] = (
-    dataclasses.static_field()
-  )
+  update: Callable[..., NeighborList] = dataclasses.static_field()
 
   def __call__(
     self,
@@ -767,6 +778,9 @@ class NeighborListFns:
 
   def __iter__(self) -> Iterator[Callable[..., NeighborList]]:
     return iter((self.allocate, self.update))
+
+  def set(self, **kwargs) -> 'NeighborListFns':
+    return replace(self, **kwargs)
 
 
 class NeighborFn(Protocol):
@@ -888,7 +902,7 @@ def neighbor_list(
   metric_sq = _displacement_or_metric_to_metric_sq(displacement_or_metric)
 
   @partial(jit, static_argnums=0)
-  def candidate_fn(positionShape) -> Array:
+  def candidate_fn(positionShape: Tuple[int, ...]) -> Array:
     candidates = jnp.arange(positionShape[0], dtype=i32)
     return jnp.broadcast_to(
       candidates[None, :], (positionShape[0], positionShape[0])
@@ -896,11 +910,11 @@ def neighbor_list(
 
   @partial(jit, static_argnums=2)
   def cell_list_candidate_fn(
-    cl_id_buffer,
-    particle_cell_id,
-    positionShape,
-    position,
-    position_buffer,
+    cl_id_buffer: Array,
+    particle_cell_id: Array,
+    positionShape: Tuple[int, ...],
+    position: Array,
+    position_buffer: Array,
     **metric_kwargs,
   ) -> Array:
     N, dim = positionShape
@@ -1022,7 +1036,10 @@ def neighbor_list(
   def neighbor_list_fn(
     position: Array, neighbors=None, extra_capacity: int = 0, **kwargs
   ) -> NeighborList:
-    def neighbor_fn(position_and_error, max_occupancy=None):
+    def neighbor_fn(
+      position_and_error: Tuple[Array, PartitionError],
+      max_occupancy: int | None = None,
+    ) -> NeighborList:
       position, err = position_and_error
       N = position.shape[0]
 
@@ -1175,10 +1192,14 @@ def neighbor_list(
       lambda x: x,
     )
 
-  def allocate_fn(position: Array, extra_capacity: int = 0, **kwargs):
+  def allocate_fn(
+    position: Array, extra_capacity: int = 0, **kwargs
+  ) -> NeighborList:
     return neighbor_list_fn(position, extra_capacity=extra_capacity, **kwargs)
 
-  def update_fn(position: Array, neighbors, **kwargs):
+  def update_fn(
+    position: Array, neighbors: NeighborList, **kwargs
+  ) -> NeighborList:
     return neighbor_list_fn(position, neighbors, **kwargs)
 
   return NeighborListFns(
@@ -1314,6 +1335,9 @@ class PairedNeighborList:
   @property
   def did_buffer_overflow(self) -> Array:
     return self.short.did_buffer_overflow | self.long_range.did_buffer_overflow
+
+  def set(self, **kwargs) -> 'PairedNeighborList':
+    return replace(self, **kwargs)
 
 
 def paired_neighbor_list(

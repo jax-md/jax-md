@@ -72,7 +72,7 @@ def read_force_field(
   hbond_close_cutoff: float = 0.01,
   hbond_far_cutoff: float = 7.5,
   dtype: Any = jnp.float32,
-):
+) -> ForceField | None:
   # to store all arguments together before creating the class
   FF_field_dict = {f.name: None for f in fields(ForceField) if f.init}
   FF_param_to_index = {}

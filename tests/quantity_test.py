@@ -14,6 +14,7 @@
 
 """Tests for google3.third_party.py.jax_md.energy."""
 
+from typing import Any
 from absl.testing import absltest
 from absl.testing import parameterized
 
@@ -44,7 +45,7 @@ NEIGHBOR_LIST_FORMAT = [
   partition.OrderedSparse,
 ]
 
-DTYPES = [f32, f64] if util.x64_enabled() else [f32]
+DTYPES: list[Any] = [f32, f64] if util.x64_enabled() else [f32]
 COORDS = ['fractional', 'real']
 
 

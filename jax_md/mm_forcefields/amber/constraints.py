@@ -17,6 +17,7 @@ SETTLE and CCMA are based off OpenMM implementation
 in ReferenceSETTLEAlgorithm.cpp and ReferenceCCMAAlgorithm.cpp
 """
 
+from dataclasses import replace
 from typing import Callable, Optional, Tuple
 
 import jax
@@ -104,6 +105,9 @@ class SettleData:
   distance1: Array
   distance2: Array
 
+  def set(self, **kwargs) -> 'SettleData':
+    return replace(self, **kwargs)
+
 
 @dataclasses.dataclass
 class CCMAData:
@@ -122,6 +126,9 @@ class CCMAData:
 
   idx: Array
   dist: Array
+
+  def set(self, **kwargs) -> 'CCMAData':
+    return replace(self, **kwargs)
 
 
 def prepare_settle_ccma(

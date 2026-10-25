@@ -15,6 +15,7 @@
 """Kernel-side code for an IPython based visualization tool."""
 
 import base64
+from dataclasses import replace
 from typing import Any, Dict, Sequence
 
 from google.colab import output
@@ -45,7 +46,7 @@ renderer_code = IPython.display.HTML(
 SIMULATION_IDX = 0
 
 
-def to_np(*xs) -> list:
+def to_np(*xs: Any) -> list:
   return [np.array(x) if isinstance(x, jnp.ndarray) else x for x in xs]
 
 
@@ -88,6 +89,9 @@ class Disk:
   def __repr__(self) -> str:
     return 'Disk'
 
+  def set(self, **kwargs) -> 'Disk':
+    return replace(self, **kwargs)
+
 
 @dataclasses.dataclass
 class Sphere:
@@ -127,6 +131,9 @@ class Sphere:
 
   def __repr__(self) -> str:
     return 'Sphere'
+
+  def set(self, **kwargs) -> 'Sphere':
+    return replace(self, **kwargs)
 
 
 @dataclasses.dataclass
@@ -182,6 +189,9 @@ class Bond:
   def __repr__(self) -> str:
     return 'Bond'
 
+  def set(self, **kwargs) -> 'Bond':
+    return replace(self, **kwargs)
+
 
 TYPE_DIMENSIONS = {
   'position': 2,
@@ -211,7 +221,7 @@ def _to_json(data: Dict[str, Any]) -> IPython.display.JSON:
 
 def render(
   box_size: float | Sequence[float] | jnp.ndarray | np.ndarray,
-  geometry,
+  geometry: Any,
   buffer_size: int | None = None,
   background_color: Sequence[float] | None = None,
   resolution: Sequence[int] | None = None,

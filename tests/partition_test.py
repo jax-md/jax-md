@@ -14,6 +14,7 @@
 
 """Tests for google3.third_party.py.jax_md.mapping."""
 
+from typing import Any
 from typing import Callable
 
 from absl.testing import absltest
@@ -42,6 +43,7 @@ PARTICLE_COUNT = 1000
 STOCHASTIC_SAMPLES = 10
 SPATIAL_DIMENSION = [2, 3]
 
+POSITION_DTYPE: list[Any]
 if util.x64_enabled():
   POSITION_DTYPE = [f32, f64]
 else:

@@ -12,21 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from jax_md import space
-from jax_md import energy
-from jax_md import minimize
-from jax_md import simulate
-from jax_md import smap
-from jax_md import partition
-from jax_md import elasticity
-from jax_md import dataclasses
-from jax_md import nn
-from jax_md import interpolate
-from jax_md import util
-from jax_md import rigid_body
+from jax_md import space as space
+from jax_md import energy as energy
+from jax_md import minimize as minimize
+from jax_md import simulate as simulate
+from jax_md import smap as smap
+from jax_md import partition as partition
+from jax_md import elasticity as elasticity
+from jax_md import dataclasses as dataclasses
+from jax_md import nn as nn
+from jax_md import interpolate as interpolate
+from jax_md import util as util
+from jax_md import rigid_body as rigid_body
 
 try:
   # Attempt to load colab_tools if IPython is installed.
-  from jax_md import colab_tools
+  from jax_md import colab_tools as colab_tools
 except Exception:
   pass

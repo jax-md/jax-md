@@ -31,7 +31,8 @@ i32 = jnp.int32
 
 def pair_neighbor_list_multi_image(
   pair_fn: Callable[..., Array],
-  displacement_fn=None,  # Ignored; always uses space.free() internally
+  displacement_fn: space.DisplacementFn
+  | None = None,  # Ignored; always uses space.free() internally
   species: Array | None = None,  # [N] or None
   reduce_axis: Tuple[int, ...] | None = None,
   ignore_unused_parameters: bool = False,  # For API compatibility

@@ -14,6 +14,7 @@
 
 """Tests for google3.third_party.py.jax_md.mapping."""
 
+from typing import Any
 from absl.testing import absltest
 from absl.testing import parameterized
 
@@ -46,6 +47,7 @@ NEIGHBOR_LIST_FORMAT = [
 
 NEIGHBOR_LIST_PARTICLE_COUNT = 100
 
+POSITION_DTYPE: list[Any]
 if util.x64_enabled():
   POSITION_DTYPE = [f32, f64]
 else:

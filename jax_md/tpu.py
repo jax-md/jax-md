@@ -36,6 +36,7 @@ import functools
 
 import math
 
+from dataclasses import replace
 from typing import Optional, Union, Any, Tuple, Callable
 
 import einops
@@ -127,6 +128,9 @@ class TPUGrid:
   cell_size: float = dataclasses.static_field()
   max_grid_distance: int = dataclasses.static_field()
   num_dims: int = dataclasses.static_field()
+
+  def set(self, **kwargs) -> 'TPUGrid':
+    return replace(self, **kwargs)
 
 
 # Core Public API
@@ -734,6 +738,9 @@ class NVEState:
   position: TPUGrid
   velocity: Array
   force: Array
+
+  def set(self, **kwargs) -> 'NVEState':
+    return replace(self, **kwargs)
 
 
 def nve(force_fn: GridFn, dt: float) -> Simulator[NVEState]:
@@ -1686,7 +1693,7 @@ def _get_aux_spec(num_dims: int, aux: PyTree) -> Tuple[TreeDef, onp.ndarray]:
 def _outer_grid_size_to_inner_grid_size(
   tiled_size: Union[int, Tuple[int, ...]],
   topology: Union[int, Tuple, None],
-  factors,
+  factors: Tuple[int, ...],
   max_grid_distance: int,
 ) -> onp.ndarray:
   if topology:
@@ -1701,7 +1708,7 @@ def _outer_grid_size_to_inner_grid_size(
 def _inner_grid_size_to_outer_grid_size(
   folded_size: onp.ndarray,
   topology: Union[int, Tuple, None],
-  factors,
+  factors: Tuple[int, ...],
   max_grid_distance: int,
 ) -> onp.ndarray:
   padded_size = folded_size * onp.array(factors)

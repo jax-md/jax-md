@@ -5,7 +5,8 @@ import jax.numpy as jnp
 import jraph
 import numpy as onp
 from jax_md import dataclasses, partition, space, util
-from jax_md.partition import NeighborListFormat
+from jax_md.partition import NeighborListFormat as NeighborListFormat
+from dataclasses import replace
 from typing import Callable, Iterator, Tuple, Union
 
 # Type aliases
@@ -114,12 +115,15 @@ class NeighborListMultiImage:
     """Number of atoms (for to_jraph compatibility)."""
     return len(self.reference_position)
 
+  def set(self, **kwargs) -> 'NeighborListMultiImage':
+    return replace(self, **kwargs)
+
 
 # Type alias for neighbor list functions
 # AllocateFn: (position: Array[N, dim], **kwargs) -> NeighborListMultiImage
 # UpdateFn: (position: Array[N, dim], neighbors: NeighborListMultiImage, **kwargs) -> NeighborListMultiImage
 AllocateFn = Callable[..., NeighborListMultiImage]
-UpdateFn = Callable[[Array, NeighborListMultiImage], NeighborListMultiImage]
+UpdateFn = Callable[..., NeighborListMultiImage]
 
 
 @dataclasses.dataclass
@@ -143,6 +147,9 @@ class NeighborListMultiImageFns:
   def __iter__(self) -> Iterator[Callable[..., NeighborListMultiImage]]:
     """Allow unpacking: allocate_fn, update_fn = neighbor_fn."""
     return iter((self.allocate, self.update))
+
+  def set(self, **kwargs) -> 'NeighborListMultiImageFns':
+    return replace(self, **kwargs)
 
 
 def _compute_shift_ranges(
@@ -799,7 +806,8 @@ def estimate_max_neighbors_from_box(
 
 
 def neighbor_list_multi_image(
-  displacement_or_metric,  # Ignored, for API compatibility
+  displacement_or_metric: space.DisplacementOrMetricFn
+  | None,  # Ignored, for API compatibility
   box: util.ArrayLike,  # [dim, dim]
   r_cutoff: util.ArrayLike,
   dr_threshold: float = 0.0,

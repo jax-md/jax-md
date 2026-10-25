@@ -16,6 +16,7 @@
 
 from functools import reduce, partial
 
+from dataclasses import replace
 from typing import Dict, Callable, List, Tuple, Union, Optional, Any
 
 import math
@@ -91,6 +92,9 @@ class ParameterTree:
 
   tree: PyTree
   mapping: ParameterTreeMapping = dataclasses.static_field()
+
+  def set(self, **kwargs) -> 'ParameterTree':
+    return replace(self, **kwargs)
 
 
 Parameter = Union[ParameterTree, Array, float]

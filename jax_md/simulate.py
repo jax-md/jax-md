@@ -35,7 +35,18 @@ can be used for testing purposes, but is not often used otherwise.
 
 from collections import namedtuple
 
-from typing import Any, Callable, TypeVar, Union, Tuple, Dict
+from dataclasses import replace
+from typing import (
+  Any,
+  Callable,
+  Dict,
+  Generic,
+  ParamSpec,
+  Tuple,
+  TypeVar,
+  Union,
+  cast,
+)
 
 import functools
 
@@ -68,7 +79,9 @@ Box = space.Box
 
 ShiftFn = space.ShiftFn
 
-T = TypeVar('T')
+T = TypeVar('T', bound=util.PyTree)
+DispatchArgs = ParamSpec('DispatchArgs')
+DispatchOut = TypeVar('DispatchOut')
 InitFn = Callable[..., T]
 ApplyFn = Callable[..., T]
 Simulator = Tuple[InitFn[T], ApplyFn[T]]
@@ -97,17 +110,20 @@ momentum step for deterministic and stochastic simulations or the
 """
 
 
-class dispatch_by_state:
+class dispatch_by_state(Generic[DispatchArgs, DispatchOut]):
   """Wrap a function and dispatch based on the type of positions."""
 
-  def __init__(self, fn: Callable):
+  def __init__(self, fn: Callable[DispatchArgs, DispatchOut]):
     self._fn = fn
     self._registry = {}
 
-  def __call__(self, state: Any, *args, **kwargs) -> Any:
+  def __call__(
+    self, *args: DispatchArgs.args, **kwargs: DispatchArgs.kwargs
+  ) -> DispatchOut:
+    state: Any = args[0] if args else kwargs['state']
     if type(state.position) in self._registry:
-      return self._registry[type(state.position)](state, *args, **kwargs)
-    return self._fn(state, *args, **kwargs)
+      return self._registry[type(state.position)](*args, **kwargs)
+    return self._fn(*args, **kwargs)
 
   def register(self, oftype: type) -> Callable[[Callable], None]:
     def register_fn(fn: Callable) -> None:
@@ -121,7 +137,7 @@ def canonicalize_mass(state: T) -> T:
   """Reshape mass vector for broadcasting with positions."""
 
   def canonicalize_fn(mass: Array | float) -> Array | float:
-    if isinstance(mass, float):
+    if isinstance(mass, (int, float)):
       return mass
     if mass.ndim == 2 and mass.shape[1] == 1:
       return mass
@@ -297,10 +313,10 @@ class NVEState:
       particles.
   """
 
-  position: Array
-  momentum: Array
-  force: Array
-  mass: Array | float
+  position: util.PyTree
+  momentum: util.PyTree
+  force: util.PyTree
+  mass: util.PyTree
   fix_center_of_mass: bool = dataclasses.static_field(
     default=False, kw_only=True
   )
@@ -308,6 +324,9 @@ class NVEState:
   @property
   def velocity(self) -> Array:
     return self.momentum / self.mass
+
+  def set(self, **kwargs) -> 'NVEState':
+    return replace(self, **kwargs)
 
 
 # pylint: disable=invalid-name
@@ -317,7 +336,7 @@ def nve(
   dt: float | Array = 1e-3,
   fix_center_of_mass: bool = False,
   **sim_kwargs,
-) -> Simulator:
+) -> Simulator[NVEState]:
   """Simulates a system in the NVE ensemble.
 
   Samples from the microcanonical ensemble in which the number of particles
@@ -423,12 +442,18 @@ class NoseHooverChain:
   kinetic_energy: Array
   degrees_of_freedom: int = dataclasses.static_field()
 
+  def set(self, **kwargs) -> 'NoseHooverChain':
+    return replace(self, **kwargs)
+
 
 @dataclasses.dataclass
 class NoseHooverChainFns:
   initialize: Callable[..., NoseHooverChain]
   half_step: Callable[..., Tuple[Array, NoseHooverChain]]
   update_mass: Callable[..., NoseHooverChain]
+
+  def set(self, **kwargs) -> 'NoseHooverChainFns':
+    return replace(self, **kwargs)
 
 
 def nose_hoover_chain(
@@ -493,7 +518,7 @@ def nose_hoover_chain(
     xi = jnp.zeros(chain_length, KE.dtype)
     p_xi = jnp.zeros(chain_length, KE.dtype)
 
-    Q = kT * tau ** f32(2) * jnp.ones(chain_length, dtype=f32)
+    Q = cast(Array, kT * tau ** f32(2) * jnp.ones(chain_length, dtype=f32))
     Q = Q.at[0].multiply(degrees_of_freedom)
     return NoseHooverChain(xi, p_xi, Q, tau, KE, degrees_of_freedom)
 
@@ -615,10 +640,10 @@ class NVTNoseHooverState:
     chain: The variables describing the Nose-Hoover chain.
   """
 
-  position: Array
-  momentum: Array
-  force: Array
-  mass: Array | float
+  position: util.PyTree
+  momentum: util.PyTree
+  force: util.PyTree
+  mass: util.PyTree
   chain: NoseHooverChain
   fix_center_of_mass: bool = dataclasses.static_field(
     default=False, kw_only=True
@@ -627,6 +652,9 @@ class NVTNoseHooverState:
   @property
   def velocity(self) -> Array:
     return self.momentum / self.mass
+
+  def set(self, **kwargs) -> 'NVTNoseHooverState':
+    return replace(self, **kwargs)
 
 
 def nvt_nose_hoover(
@@ -640,7 +668,7 @@ def nvt_nose_hoover(
   tau: float | Array | None = None,
   fix_center_of_mass: bool = False,
   **sim_kwargs,
-) -> Simulator:
+) -> Simulator[NVTNoseHooverState]:
   """Simulation in the NVT ensemble using a Nose Hoover Chain thermostat.
 
   Samples from the canonical ensemble in which the number of particles (N),
@@ -850,6 +878,9 @@ class NPTNoseHooverState:
     V = V_0 * jnp.exp(dim * self.box_position)
     return (V / V_0) ** (1 / dim) * ref
 
+  def set(self, **kwargs) -> 'NPTNoseHooverState':
+    return replace(self, **kwargs)
+
 
 def sinhx_x(x: Array) -> Array:
   """Taylor series for sinh(x) / x as x -> 0."""
@@ -971,7 +1002,7 @@ def npt_nose_hoover(
     box_mass = dim * (N + 1) * kT * barostat_kwargs['tau'] ** 2 * one
     KE_box = quantity.kinetic_energy(momentum=box_momentum, mass=box_mass)
 
-    if jnp.isscalar(box) or box.ndim == 0:
+    if jnp.isscalar(box) or jnp.ndim(box) == 0:
       # TODO(schsam): This is necessary because of JAX issue #5849.
       box = jnp.eye(R.shape[-1]) * box
 
@@ -1193,6 +1224,9 @@ class Normal:
       - 1 / (2 * self.var) * (x - self.mean) ** 2
     )
 
+  def set(self, **kwargs) -> 'Normal':
+    return replace(self, **kwargs)
+
 
 @dataclasses.dataclass
 class NVTLangevinState:
@@ -1210,10 +1244,10 @@ class NVTLangevinState:
     rng: The current state of the random number generator.
   """
 
-  position: Array
-  momentum: Array
-  force: Array
-  mass: Array | float
+  position: util.PyTree
+  momentum: util.PyTree
+  force: util.PyTree
+  mass: util.PyTree
   rng: Array
   fix_center_of_mass: bool = dataclasses.static_field(
     default=False, kw_only=True
@@ -1223,14 +1257,17 @@ class NVTLangevinState:
   def velocity(self) -> Array:
     return self.momentum / self.mass
 
+  def set(self, **kwargs) -> 'NVTLangevinState':
+    return replace(self, **kwargs)
+
 
 @dispatch_by_state
 def stochastic_step(
-  state: NVTLangevinState,
+  state: T,
   dt: float | Array,
   kT: ArrayLike,
-  gamma: float | Array,
-) -> NVTLangevinState:
+  gamma: float | util.PyTree,
+) -> T:
   """A single stochastic step (the `O` step)."""
   if getattr(state, 'fix_center_of_mass', False) and jnp.ndim(gamma) != 0:
     raise ValueError(
@@ -1254,7 +1291,7 @@ def nvt_langevin(
   center_velocity: bool = True,
   fix_center_of_mass: bool = False,
   **sim_kwargs,
-) -> Simulator:
+) -> Simulator[NVTLangevinState]:
   """Simulation in the NVT ensemble using the BAOAB Langevin thermostat.
 
   Samples from the canonical ensemble in which the number of particles (N),
@@ -1353,6 +1390,9 @@ class BrownianState:
   position: Array
   mass: Array | float
   rng: Array
+
+  def set(self, **kwargs) -> 'BrownianState':
+    return replace(self, **kwargs)
 
 
 def brownian(
@@ -1461,6 +1501,9 @@ class NPTCSVRState:
     V_0 = quantity.volume(dim, ref)
     V = V_0 * jnp.exp(dim * self.box_position)
     return (V / V_0) ** (1 / dim) * ref
+
+  def set(self, **kwargs) -> 'NPTCSVRState':
+    return replace(self, **kwargs)
 
 
 def npt_csvr(
@@ -1572,7 +1615,7 @@ def npt_csvr(
     _kT = kwargs.pop('kT', kT)
     _pressure = kwargs.pop('pressure', pressure)
 
-    if jnp.isscalar(box) or box.ndim == 0:
+    if jnp.isscalar(box) or jnp.ndim(box) == 0:
       # TODO(schsam): This is necessary because of JAX issue #5849.
       box = jnp.eye(dim, dtype=R.dtype) * box
 
@@ -1789,6 +1832,9 @@ class NPTLangevinState:
     V = V_0 * jnp.exp(dim * self.box_position)
     return (V / V_0) ** (1 / dim) * ref
 
+  def set(self, **kwargs) -> 'NPTLangevinState':
+    return replace(self, **kwargs)
+
 
 def npt_langevin(
   energy_fn: Callable[..., Array],
@@ -1888,7 +1934,7 @@ def npt_langevin(
     _kT = kwargs.pop('kT', kT)
     _pressure = kwargs.pop('pressure', pressure)
 
-    if jnp.isscalar(box) or box.ndim == 0:
+    if jnp.isscalar(box) or jnp.ndim(box) == 0:
       # TODO(schsam): This is necessary because of JAX issue #5849.
       box = jnp.eye(dim, dtype=R.dtype) * box
 
@@ -2075,6 +2121,9 @@ class SwapMCState:
   key: Array
   neighbor: partition.NeighborList
 
+  def set(self, **kwargs) -> 'SwapMCState':
+    return replace(self, **kwargs)
+
 
 # pytype: disable=wrong-arg-count
 # pytype: disable=wrong-keyword-args
@@ -2227,7 +2276,7 @@ def temp_rescale(
   fraction: float,
   fix_center_of_mass: bool = False,
   **sim_kwargs,
-) -> Simulator:
+) -> Simulator[NVEState]:
   """Simulation using explicit velocity rescaling.
 
   Rescale the velocities of atoms explicitly so that the desired temperature is
@@ -2316,7 +2365,7 @@ def temp_berendsen(
   tau: float | Array,
   fix_center_of_mass: bool = False,
   **sim_kwargs,
-) -> Simulator:
+) -> Simulator[NVEState]:
   """Simulation using the Berendsen thermostat.
 
   Berendsen (weak coupling) thermostat rescales the velocities of atoms such
@@ -2401,7 +2450,7 @@ def nvk(
   kT: ArrayLike,
   fix_center_of_mass: bool = False,
   **sim_kwargs,
-) -> Simulator:
+) -> Simulator[NVEState]:
   """Simulation in the NVK (isokinetic) ensemble using the Gaussian thermostat.
 
   Samples from the isokinetic ensemble in which the number of particles (N),
@@ -2534,7 +2583,7 @@ def temp_csvr(
   tau: float | Array,
   fix_center_of_mass: bool = False,
   **sim_kwargs,
-) -> Simulator:
+) -> Simulator[NVTLangevinState]:
   """Simulation using the canonical sampling through velocity rescaling (CSVR) thermostat.
 
   Samples from the canonical ensemble in which the number of particles (N),

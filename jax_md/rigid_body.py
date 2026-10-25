@@ -51,6 +51,7 @@ without neighbor lists and yields a function that computes the total energy on
 a system of rigid bodies.
 """
 
+from dataclasses import replace
 from typing import Optional, Tuple, Any, Union, Callable, TypeVar
 
 from absl import logging
@@ -78,7 +79,7 @@ f32 = util.f32
 KeyArray = jax.Array
 NeighborListFns = partition.NeighborListFns
 ShiftFn = space.ShiftFn
-T = TypeVar('T')
+T = TypeVar('T', bound=util.PyTree)
 
 
 """Quaternion Utilities.
@@ -227,6 +228,9 @@ class Quaternion:
       )
     return Quaternion(self.vec[idx])
 
+  def set(self, **kwargs) -> 'Quaternion':
+    return replace(self, **kwargs)
+
 
 def quaternion_rotate(q: Quaternion, v: Array) -> Array:
   """Rotates a vector by a given quaternion."""
@@ -314,6 +318,9 @@ class RigidBody:
         'Cannot index a RigidBody whose center or orientation is a scalar.'
       )
     return RigidBody(center[idx], orientation[idx])
+
+  def set(self, **kwargs) -> 'RigidBody':
+    return replace(self, **kwargs)
 
 
 util.register_custom_simulation_type(RigidBody)
@@ -637,7 +644,11 @@ def _rigid_body_2d_position_step(
 
 @simulate.position_step.register(RigidBody)
 def _(
-  state: T, shift_fn: ShiftFn, dt: float | Array, m_rot: int = 1, **kwargs
+  state: T,
+  shift_fn: ShiftFn,
+  dt: float | Array,
+  m_rot: int = 1,
+  **kwargs,
 ) -> T:
   if isinstance(state.position.orientation, Quaternion):
     return _rigid_body_3d_position_step(
@@ -648,7 +659,7 @@ def _(
 
 
 @simulate.stochastic_step.register(RigidBody)
-def _(state, dt: float, kT: float, gamma: 'RigidBody'):
+def _(state: T, dt: float, kT: float, gamma: 'RigidBody') -> T:
   key, center_key, orientation_key = random.split(state.rng, 3)
 
   rest, center, orientation = split_center_and_orientation(state)
@@ -874,6 +885,9 @@ class RigidPointUnion:
       None if self.point_species is None else self.point_species[start:end],
     )
 
+  def set(self, **kwargs) -> 'RigidPointUnion':
+    return replace(self, **kwargs)
+
 
 def _transform_to_diagonal_frame(shape: RigidPointUnion) -> RigidPointUnion:
   """Transform points to zero center of mass and diagonal moment of inertia."""
@@ -929,7 +943,7 @@ def point_union_shape(
   return _transform_to_diagonal_frame(shape)
 
 
-def concatenate_shapes(*shapes) -> RigidPointUnion:
+def concatenate_shapes(*shapes: RigidPointUnion) -> RigidPointUnion:
   """Concatenate a list of RigidPointUnions into a single RigidPointUnion."""
   shape_tuples = zip(*[dataclasses.astuple(s) for s in shapes])
   points, masses, point_count, point_offset, point_species, _ = shape_tuples

@@ -14,6 +14,7 @@
 
 """Tests for google3.third_party.py.jax_md.elasticity."""
 
+from typing import Any
 import numpy as onp
 
 from absl.testing import absltest
@@ -42,6 +43,7 @@ NUM_SAMPLES = 2
 SPATIAL_DIMENSION = [2, 3]
 LOWPRESSURE = [True, False]
 
+DTYPE: list[Any]
 if util.x64_enabled():
   DTYPE = [f32, f64]
 else:

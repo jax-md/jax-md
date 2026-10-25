@@ -19,6 +19,7 @@ from absl.testing import parameterized
 
 import os
 
+from dataclasses import replace
 from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
 import netCDF4 as nc
@@ -362,6 +363,9 @@ class JammedTestState:
   energy: jnp.ndarray
   pressure: jnp.ndarray
 
+  def set(self, **kwargs) -> 'JammedTestState':
+    return replace(self, **kwargs)
+
 
 def _load_jammed_state(filename: str, dtype: Any) -> JammedTestState:
   filename = FLAGS.test_srcdir + filename
@@ -445,7 +449,9 @@ def load_lammps_stress_data(
     )
 
 
-def load_lammps_npt_test_case(dtype: Any):
+def load_lammps_npt_test_case(
+  dtype: Any,
+) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
   def parse_state(
     filename: str,
   ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:

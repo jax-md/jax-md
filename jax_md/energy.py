@@ -17,7 +17,17 @@
 from functools import wraps, partial
 from os import PathLike
 
-from typing import Callable, Tuple, TextIO, Dict, Any, Optional
+from typing import (
+  TYPE_CHECKING,
+  Any,
+  Callable,
+  Dict,
+  Optional,
+  TextIO,
+  Tuple,
+  cast,
+  overload,
+)
 
 import re
 
@@ -42,17 +52,22 @@ from jax_md import (
   util,
 )
 
+if TYPE_CHECKING:
+  from jax_md._nn.uma.model import UMAConfig
+
 
 # Electrostatics
 
 
-from jax_md._energy.electrostatics import coulomb_direct_pair
-from jax_md._energy.electrostatics import coulomb_direct_neighbor_list
-from jax_md._energy.electrostatics import coulomb_recip_ewald
-from jax_md._energy.electrostatics import coulomb_recip_pme
-from jax_md._energy.electrostatics import coulomb_ewald_neighbor_list
-from jax_md._energy.electrostatics import coulomb
-from jax_md._energy.electrostatics import coulomb_neighbor_list
+from jax_md._energy.electrostatics import (
+  coulomb_direct_pair as coulomb_direct_pair,
+  coulomb_direct_neighbor_list as coulomb_direct_neighbor_list,
+  coulomb_recip_ewald as coulomb_recip_ewald,
+  coulomb_recip_pme as coulomb_recip_pme,
+  coulomb_ewald_neighbor_list as coulomb_ewald_neighbor_list,
+  coulomb as coulomb,
+  coulomb_neighbor_list as coulomb_neighbor_list,
+)
 
 
 # Define aliases different neural network primitives.
@@ -107,7 +122,7 @@ def simple_spring_bond(
   length: Array | float = 1,
   epsilon: Array | float = 1,
   alpha: Array | float = 2,
-) -> Callable[[Array], Array]:
+) -> Callable[..., Array]:
   """Convenience wrapper to compute energy of particles bonded by springs."""
   length = maybe_downcast(length)
   epsilon = maybe_downcast(epsilon)
@@ -182,7 +197,7 @@ def soft_sphere_pair(
   epsilon: Array | float = 1.0,
   alpha: Array | float = 2.0,
   per_particle: bool = False,
-) -> Callable[[Array], Array]:
+) -> Callable[..., Array]:
   """Convenience wrapper to compute :ref:`soft sphere energy <soft-sphere>` over a system."""
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
@@ -206,7 +221,7 @@ def soft_sphere_neighbor_list(
   sigma: Array | float = 1.0,
   epsilon: Array | float = 1.0,
   alpha: Array | float = 2.0,
-  dr_threshold: float = 0.2,
+  dr_threshold: Array | float = 0.2,
   per_particle: bool = False,
   fractional_coordinates: bool = False,
   format: NeighborListFormat = partition.OrderedSparse,
@@ -282,7 +297,7 @@ def lennard_jones_pair(
   r_onset: Array | float = 2.0,
   r_cutoff: Array | float = 2.5,
   per_particle: bool = False,
-) -> Callable[[Array], Array]:
+) -> Callable[..., Array]:
   """Convenience wrapper to compute :ref:`Lennard-Jones energy <lj-pot>` over a system."""
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
@@ -305,9 +320,9 @@ def lennard_jones_neighbor_list(
   species: Array | None = None,
   sigma: Array | float = 1.0,
   epsilon: Array | float = 1.0,
-  r_onset: float = 2.0,
-  r_cutoff: float = 2.5,
-  dr_threshold: float = 0.5,
+  r_onset: Array | float = 2.0,
+  r_cutoff: Array | float = 2.5,
+  dr_threshold: Array | float = 0.5,
   per_particle: bool = False,
   fractional_coordinates: bool = False,
   format: partition.NeighborListFormat = partition.OrderedSparse,
@@ -382,7 +397,7 @@ def morse_pair(
   r_onset: float = 2.0,
   r_cutoff: float = 2.5,
   per_particle: bool = False,
-) -> Callable[[Array], Array]:
+) -> Callable[..., Array]:
   """Convenience wrapper to compute :ref:`Morse energy <morse-pot>` over a system."""
   sigma = maybe_downcast(sigma)
   epsilon = maybe_downcast(epsilon)
@@ -406,9 +421,9 @@ def morse_neighbor_list(
   sigma: Array | float = 1.0,
   epsilon: Array | float = 5.0,
   alpha: Array | float = 5.0,
-  r_onset: float = 2.0,
-  r_cutoff: float = 2.5,
-  dr_threshold: float = 0.5,
+  r_onset: Array | float = 2.0,
+  r_cutoff: Array | float = 2.5,
+  dr_threshold: Array | float = 0.5,
   per_particle: bool = False,
   fractional_coordinates: bool = False,
   format: partition.NeighborListFormat = partition.OrderedSparse,
@@ -532,7 +547,7 @@ GUPTA_GOLD55_DICT = {
 
 def gupta_gold55(
   displacement: DisplacementFn, cutoff: float = 8.0
-) -> Callable[[Array], Array]:
+) -> Callable[..., Array]:
   gupta_gold_fn = gupta_potential(
     displacement, cutoff=cutoff, **GUPTA_GOLD55_DICT
   )
@@ -690,7 +705,7 @@ def bks_pair(
   repulsive_coeff: ArrayLike | list,
   coulomb_alpha: ArrayLike,
   cutoff: float,
-) -> Callable[[Array], Array]:
+) -> Callable[..., Array]:
   """Convenience wrapper to compute :ref:`BKS energy <bks-pot>` over a system."""
   Q_sq = maybe_downcast(Q_sq)
   exp_coeff = maybe_downcast(exp_coeff)
@@ -724,7 +739,7 @@ def bks_neighbor_list(
   repulsive_coeff: ArrayLike | list,
   coulomb_alpha: ArrayLike,
   cutoff: float,
-  dr_threshold: float = 0.8,
+  dr_threshold: Array | float = 0.8,
   fractional_coordinates: bool = False,
   format: partition.NeighborListFormat = partition.OrderedSparse,
   neighbor_list_fn: Callable = partition.neighbor_list,
@@ -805,7 +820,7 @@ def bks_silica_pair(
   displacement_or_metric: DisplacementOrMetricFn,
   species: Array,
   cutoff: float = 8.0,
-) -> Callable[[Array], Array]:
+) -> Callable[..., Array]:
   """Convenience wrapper to compute :ref:`BKS energy <bks-pot>` for SiO2."""
   bks_pair_fn = bks_pair(
     displacement_or_metric, species, cutoff=cutoff, **BKS_SILICA_DICT
@@ -933,7 +948,7 @@ def stillinger_weber(
   epsilon: float = 2.16826,
   three_body_strength: float = 1.0,
   cutoff: float = 3.77118,
-) -> Callable[[Array], Array]:
+) -> Callable[..., Array]:
   """.. _sw-pot:
 
   Computes the Stillinger-Weber potential.
@@ -1281,7 +1296,7 @@ def tersoff(
   displacement: DisplacementFn,
   params: list[Dict[str, Any]],
   species: Array | None = None,
-) -> Callable[[Array], Array]:
+) -> Callable[..., Array]:
   """Computes the Tersoff potential.
 
   The Tersoff potential [1] which is commonly used to model
@@ -1351,7 +1366,7 @@ def tersoff(
 def tersoff_from_lammps_parameters(
   displacement: DisplacementFn,
   f: TextIO,
-) -> Callable[[Array], Array]:
+) -> Callable[..., Array]:
   """Convenience wrapper to compute Tersoff energy with LAMMPS parameters."""
   return tersoff(displacement, load_lammps_tersoff_parameters(f))
 
@@ -1569,7 +1584,7 @@ def edip(
   sigma: float = 0.5774108,
   c: float = 2.5609104,
   cutoff: float = 3.1213820,
-) -> Callable[[Array], Array]:
+) -> Callable[..., Array]:
   """
   Computes the the Environment-dependent interatomic potential (EDIP).
   The parameter values are for bulk Silicon [1,2]. The EDIP potential is a bond
@@ -1806,7 +1821,7 @@ def eam(
   embedding_fn: Callable[[Array], Array],
   pairwise_fn: Callable[[Array], Array],
   axis: Tuple[int, ...] | None = None,
-) -> Callable[[Array], Array]:
+) -> Callable[..., Array]:
   """.. _eam-pot:
 
   Interatomic potential as approximated by embedded atom model (EAM).
@@ -1876,7 +1891,7 @@ def eam(
 
 def eam_from_lammps_parameters(
   displacement: DisplacementFn, f: TextIO
-) -> Callable[[Array], Array]:
+) -> Callable[..., Array]:
   """Convenience wrapper to compute :ref:`EAM energy <eam-pot>` with LAMMPS parameters."""
   return eam(displacement, *load_lammps_eam_parameters(f)[:-1])
 
@@ -2029,7 +2044,7 @@ def behler_parrinello(
   per_particle: bool = False,
   spatial_dimension: int = 3,
   activation: Callable = jnp.tanh,
-) -> Callable[..., Array]:
+) -> Any:
   """Build a Behler-Parrinello symmetry-function energy model.
 
   Args:
@@ -2084,7 +2099,7 @@ def behler_parrinello_neighbor_list(
   neighbor_list_fn: Callable = partition.neighbor_list,
   activation: Callable = jnp.tanh,
   **neighbor_kwargs,
-) -> Tuple[NeighborListFns, Callable[..., Array]]:
+) -> Tuple[NeighborListFns, Any]:
   """Build a Behler-Parrinello energy model with neighbor lists.
 
   Args:
@@ -2284,6 +2299,14 @@ class EnergyGraphNet(eqx.Module):
     return output
 
 
+@overload
+def canonicalize_node_state(nodes: Array) -> Array: ...
+
+
+@overload
+def canonicalize_node_state(nodes: None) -> None: ...
+
+
 def canonicalize_node_state(nodes: Array | None) -> Array | None:
   if nodes is None:
     return nodes
@@ -2383,7 +2406,7 @@ def graph_network(
   n_recurrences: int = 2,
   mlp_sizes: Tuple[int, ...] = (64, 64),
   **model_kwargs,
-) -> Callable[..., Array]:
+) -> Any:
   """Convenience wrapper around EnergyGraphNet model.
 
   Args:
@@ -2443,7 +2466,7 @@ def graph_network_neighbor_list(
   format: partition.NeighborListFormat = partition.Sparse,
   neighbor_list_fn: Callable = partition.neighbor_list,
   **neighbor_kwargs,
-) -> Tuple[NeighborListFns, Callable[..., Array]]:
+) -> Tuple[NeighborListFns, Any]:
   """Convenience wrapper around EnergyGraphNet model using neighbor lists.
 
   Args:
@@ -2525,7 +2548,7 @@ def graph_network_neighbor_list(
 
 
 def nequip_neighbor_list(
-  displacement_fn,
+  displacement_fn: DisplacementFn | None,
   box: Box,
   config: Dict[str, Any] | None = None,
   species: Array | None = None,
@@ -2599,6 +2622,7 @@ def nequip_neighbor_list(
     if featurizer is None:
       graph = partition.to_jraph(neighbor)
       mask = partition.neighbor_list_mask(neighbor, True)
+      assert displacement_fn is not None
       d = vmap(partial(displacement_fn, **kwargs))
       edge_vector = d(position[graph.senders], position[graph.receivers])
     else:
@@ -3289,7 +3313,7 @@ def bending_potential(
 def uma_neighbor_list(
   displacement_fn: DisplacementFn,
   box: Box,
-  cfg=None,
+  cfg: 'UMAConfig | None' = None,
   atoms: Array | None = None,
   checkpoint_path: str | None = None,
   head_type: str = 'mlp',
@@ -3300,7 +3324,7 @@ def uma_neighbor_list(
   dataset_idx: Array | None = None,
   head_dataset: str = 'omat',
   apply_atom_refs: bool = True,
-  atom_refs=None,
+  atom_refs: Array | Dict[str, Any] | None = None,
   use_kernels: bool | None = True,
   merge_mole: bool | None = None,
   so2_block_gemm: bool | None = None,
@@ -3467,7 +3491,7 @@ def uma_neighbor_list(
         energy_mean = 0.0
         energy_rmsd = 1.0
     elif isinstance(atom_refs, dict):
-      correction = atom_refs
+      correction = cast(Dict[str, Any], atom_refs)
       atom_refs = correction.get('element_refs', correction.get('atom_refs'))
       energy_mean = correction.get('mean', 0.0)
       energy_rmsd = correction.get('rmsd', 1.0)

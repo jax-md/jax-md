@@ -13,3 +13,5 @@
 # limitations under the License.
 
 from jax_md.colab_tools import renderer
+
+__all__ = ['renderer']

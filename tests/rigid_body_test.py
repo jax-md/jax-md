@@ -14,6 +14,7 @@
 
 """Tests for google3.third_party.py.jax_md.ensemble."""
 
+from typing import Any
 import functools
 
 from absl.testing import absltest
@@ -61,7 +62,7 @@ LANGEVIN_DYNAMICS_STEPS = 8000
 BROWNIAN_PARTICLE_COUNT = 8000
 BROWNIAN_DYNAMICS_STEPS = 8000
 
-DTYPE = [f32]
+DTYPE: list[Any] = [f32]
 if util.x64_enabled():
   DTYPE += [f64]
 

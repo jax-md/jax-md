@@ -14,7 +14,7 @@
 
 """Defines utility functions."""
 
-from typing import Iterable, Sequence, Union, Optional, Any, Callable
+from typing import Iterable, Iterator, Sequence, Union, Optional, Any, Callable
 
 from typing_extensions import TypeIs
 
@@ -55,7 +55,7 @@ def check_custom_simulation_type(x: Any) -> None:
     raise ValueError()
 
 
-def static_cast(*xs):
+def static_cast(*xs: ArrayLike) -> Iterator[Array]:
   """Function to cast a value to the lowest dtype that can express it."""
   # NOTE(schsam): static_cast is so named because it cannot be jit.
   if get_backend().platform == 'tpu':
@@ -113,7 +113,7 @@ def high_precision_sum(
   )
 
 
-def maybe_downcast(x):
+def maybe_downcast(x: ArrayLike | Sequence[Any]) -> Array:
   if isinstance(x, jnp.ndarray) and x.dtype is jnp.dtype('float64'):
     return x
   return jnp.array(x, f32)

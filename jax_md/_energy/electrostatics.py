@@ -60,7 +60,7 @@ def coulomb_direct_pair(
   charge: Array,
   species: Array | None = None,
   alpha: float = 0.35,
-) -> Callable[[Array], Array]:
+) -> Callable[..., Array]:
   return smap.pair(
     coulomb_direct,
     space.canonicalize_displacement_or_metric(displacement_fn),
@@ -106,7 +106,7 @@ def coulomb_direct_neighbor_list(
 
 def coulomb_recip_ewald(
   charge: Array, side_length: Array, alpha: float, g_max: float
-) -> Callable[[Array], Array]:
+) -> Callable[..., Array]:
 
   @partial(jax.jit, static_argnums=(1,))
   def two_stage_safe_mask(
@@ -144,7 +144,7 @@ def coulomb_recip_pme(
   grid_points: Array | int,
   fractional_coordinates: bool = False,
   alpha: float = 0.34,
-) -> Callable[[Array], Array]:
+) -> Callable[..., Array]:
   _ibox = space.inverse(box)
 
   def energy_fn(R: Array, **kwargs) -> Array:
@@ -212,7 +212,7 @@ def coulomb(
   species: Array | None = None,
   alpha: float = 0.34,
   fractional_coordinates: bool = False,
-) -> Callable[[Array], Array]:
+) -> Callable[..., Array]:
   direct_fn = coulomb_direct_pair(
     displacement_fn, charge, species=species, alpha=alpha
   )

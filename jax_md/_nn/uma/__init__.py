@@ -41,3 +41,26 @@ from jax_md._nn.uma.pretrained import (
   print_conversion_report,
   PRETRAINED_MODELS,
 )
+
+__all__ = [
+  'UMABackbone',
+  'UMAConfig',
+  'default_config',
+  'UMAMoEBackbone',
+  'UMAMoEConfig',
+  'load_pretrained',
+  'UMABlock',
+  'MLPEnergyHead',
+  'LinearEnergyHead',
+  'LinearForceHead',
+  'uma_featurizer',
+  'load_pytorch_checkpoint',
+  'convert_pytorch_state_dict',
+  'config_from_pytorch_checkpoint',
+  'dataset_names_to_indices',
+  'download_pretrained',
+  'convert_checkpoint',
+  'load_checkpoint_raw',
+  'print_conversion_report',
+  'PRETRAINED_MODELS',
+]

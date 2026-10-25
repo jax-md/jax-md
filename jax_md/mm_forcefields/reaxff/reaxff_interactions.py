@@ -11,6 +11,7 @@ from jax_md.mm_forcefields.reaxff.reaxff_energy import (
   calculate_reaxff_energy,
 )
 from jax_md.mm_forcefields.reaxff.reaxff_forcefield import ForceField
+from dataclasses import replace
 from typing import Callable, Any, Iterator, Tuple
 import jax
 import jax.numpy as jnp
@@ -42,6 +43,9 @@ class ReaxFFNeighborListFns:
 
   def __iter__(self) -> Iterator[Callable]:
     return iter((self.allocate, self.update))
+
+  def set(self, **kwargs) -> 'ReaxFFNeighborListFns':
+    return replace(self, **kwargs)
 
 
 @dataclasses.dataclass
@@ -183,6 +187,9 @@ class Filtration:
       did_buffer_overflow,
     )
 
+  def set(self, **kwargs) -> 'Filtration':
+    return replace(self, **kwargs)
+
 
 def filtration(
   candidate_fn: CandidateFn, mask_fn: MaskFn, is_dense: bool = False
@@ -195,7 +202,7 @@ def filtration(
 
 def calculate_all_angles_and_distances(
   R: Array,
-  nbr_lists,
+  nbr_lists: 'ReaxFFNeighborLists',
   map_metric: DisplacementOrMetricFn,
   map_disp: DisplacementOrMetricFn,
 ) -> Tuple[Array, Array, Array, Array, Array]:
@@ -212,6 +219,7 @@ def calculate_all_angles_and_distances(
 
   close_nbr_disps = map_disp(R, R[filtered_close_idx])
 
+  assert nbr_lists.filter3.idx is not None
   center = nbr_lists.filter3.idx[:, 0]
   neigh1_lcl = nbr_lists.filter3.idx[:, 1]
   neigh2_lcl = nbr_lists.filter3.idx[:, 2]
@@ -225,12 +233,14 @@ def calculate_all_angles_and_distances(
     body_3_cos_angles,
   ).astype(far_nbr_dist.dtype)
 
+  assert nbr_lists.filter4.idx is not None
   body_4_angles = calculate_all_4_body_angles(
     nbr_lists.filter4.idx, filtered_close_idx, close_nbr_disps
   )
 
   if nbr_lists.filter_hb is not None:
     hb_inds = nbr_lists.filter_hb.idx
+    assert hb_inds is not None
     far_nbr_disps = map_disp(R, R[nbr_lists.far_nbrs.idx])
     hb_ang_dist = calculate_all_hbond_angles_and_dists(
       hb_inds, close_nbr_disps, far_nbr_disps
@@ -281,6 +291,9 @@ class ReaxFFNeighborLists:
         self.did_buffer_overflow,
       )
     )
+
+  def set(self, **kwargs) -> 'ReaxFFNeighborLists':
+    return replace(self, **kwargs)
 
 
 def calculate_angle(disp12: Array, disp32: Array) -> Array:

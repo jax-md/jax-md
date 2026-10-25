@@ -16,6 +16,7 @@
 
 from collections.abc import Iterator
 from itertools import count
+from dataclasses import replace
 from typing import Any, Callable, Dict, Tuple
 
 import equinox as eqx
@@ -31,9 +32,9 @@ from functools import partial
 
 import jraph
 
-from ._nn import behler_parrinello
-from ._nn import nequip
-from ._nn import gnome
+from ._nn import behler_parrinello as behler_parrinello
+from ._nn import nequip as nequip
+from ._nn import gnome as gnome
 
 # Typing
 
@@ -177,6 +178,9 @@ class GraphsTuple:
   edge_idx: jnp.ndarray
 
   _replace = dataclasses.replace
+
+  def set(self, **kwargs) -> 'GraphsTuple':
+    return replace(self, **kwargs)
 
 
 def concatenate_graph_features(graphs: Tuple[GraphsTuple, ...]) -> GraphsTuple:

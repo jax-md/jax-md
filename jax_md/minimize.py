@@ -31,6 +31,7 @@ apply_fn:
   step of optimization.
 """
 
+from dataclasses import replace
 from typing import TypeVar, Callable, Tuple, Union, Any
 
 import jax
@@ -122,17 +123,20 @@ class FireDescentState:
   alpha: Array | float
   n_pos: Array | int
 
+  def set(self, **kwargs) -> 'FireDescentState':
+    return replace(self, **kwargs)
+
 
 def fire_descent(
   energy_or_force: Callable[..., Array],
   shift_fn: ShiftFn,
-  dt_start: float = 0.1,
-  dt_max: float = 0.4,
-  n_min: float = 5,
-  f_inc: float = 1.1,
-  f_dec: float = 0.5,
-  alpha_start: float = 0.1,
-  f_alpha: float = 0.99,
+  dt_start: Array | float = 0.1,
+  dt_max: Array | float = 0.4,
+  n_min: Array | float = 5,
+  f_inc: Array | float = 1.1,
+  f_dec: Array | float = 0.5,
+  alpha_start: Array | float = 0.1,
+  f_alpha: Array | float = 0.99,
 ) -> Minimizer[FireDescentState]:
   """Defines FIRE minimization.
 
@@ -184,8 +188,9 @@ def fire_descent(
     return simulate.canonicalize_mass(state)
 
   def apply_fn(state: FireDescentState, **kwargs) -> FireDescentState:
-    state = nve_step_fn(state, dt=state.dt, **kwargs)
-    R, P, F, M, dt, alpha, n_pos = dataclasses.unpack(state)
+    R, P, F, M, dt, alpha, n_pos = dataclasses.unpack(
+      nve_step_fn(state, dt=state.dt, **kwargs)
+    )
 
     F_norm_sq = tree_reduce(lambda accum, f: accum + jnp.sum(f**2), F, 0.0)
     F_norm = jnp.sqrt(jnp.where(F_norm_sq > 0, F_norm_sq, 1))
@@ -262,6 +267,9 @@ class PreconFireDescentState:
   @property
   def momentum(self) -> Array:
     return self.velocity
+
+  def set(self, **kwargs) -> 'PreconFireDescentState':
+    return replace(self, **kwargs)
 
 
 def exp_preconditioner(
@@ -814,17 +822,20 @@ class FireBoxDescentState:
   alpha: Array | float
   n_pos: Array | int
 
+  def set(self, **kwargs) -> 'FireBoxDescentState':
+    return replace(self, **kwargs)
+
 
 def fire_descent_box(
   energy_fn: Callable[..., Array],
   shift_fn: ShiftFn,
-  dt_start: float = 0.1,
-  dt_max: float = 0.4,
-  n_min: float = 5,
-  f_inc: float = 1.1,
-  f_dec: float = 0.5,
-  alpha_start: float = 0.1,
-  f_alpha: float = 0.99,
+  dt_start: Array | float = 0.1,
+  dt_max: Array | float = 0.4,
+  n_min: Array | float = 5,
+  f_inc: Array | float = 1.1,
+  f_dec: Array | float = 0.5,
+  alpha_start: Array | float = 0.1,
+  f_alpha: Array | float = 0.99,
   scalar_pressure: float = 0.0,
   hydrostatic_strain: bool = False,
   constant_volume: bool = False,
@@ -1059,6 +1070,9 @@ class PreconFireBoxDescentState:
   @property
   def box_momentum(self) -> Array:
     return self.box_velocity
+
+  def set(self, **kwargs) -> 'PreconFireBoxDescentState':
+    return replace(self, **kwargs)
 
 
 def precon_fire_descent_box(
