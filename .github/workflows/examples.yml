@@ -1,0 +1,87 @@
+name: Examples
+
+# Runs the examples as notebooks. On main they go to the docs-notebooks release,
+# which Read the Docs renders without executing them again.
+on:
+  push:
+    branches: [main]
+    paths: ['examples/**', 'jax_md/**', 'pyproject.toml', '.github/workflows/examples.yml', '.github/execute_example.py']
+  pull_request:
+    paths: ['examples/**', 'jax_md/**', 'pyproject.toml', '.github/workflows/examples.yml', '.github/execute_example.py']
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  list:
+    runs-on: ubuntu-latest
+    outputs:
+      examples: ${{ steps.list.outputs.examples }}
+    steps:
+    - uses: actions/checkout@v4
+    - id: list
+      run: echo "examples=$(cd examples && ls *.py units/*.py tutorial/*.py | sed 's/\.py$//' | jq -R -s -c 'split("\n")[:-1]')" >> "$GITHUB_OUTPUT"
+
+  run:
+    needs: list
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        example: ${{ fromJson(needs.list.outputs.examples) }}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+        cache-dependency-glob: pyproject.toml
+    - run: uv sync --python 3.12 --no-default-groups --group docs
+    - name: Execute
+      timeout-minutes: 20
+      env:
+        EXAMPLE: ${{ matrix.example }}
+        # The examples' smoke-test switch, as on Read the Docs.
+        READTHEDOCS: '1'
+      run: uv run --no-sync python .github/execute_example.py "$EXAMPLE" executed
+    - if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: notebook-${{ strategy.job-index }}
+        path: executed/
+        retention-days: 7
+
+  publish:
+    needs: [list, run]
+    if: ${{ !cancelled() && needs.list.result == 'success' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      RTD_TOKEN: ${{ secrets.RTD_TOKEN }}
+    steps:
+    - uses: actions/download-artifact@v4
+      with:
+        pattern: notebook-*
+        path: executed
+        merge-multiple: true
+    - name: Upload to the docs-notebooks release
+      run: |
+        find executed -name '*.ipynb' | grep -q .
+        tar -czf notebooks.tar.gz -C executed .
+        notes="Executed from ${GITHUB_SHA}."
+        gh release edit docs-notebooks --notes "$notes" || gh release create docs-notebooks --prerelease --notes "$notes"
+        gh release upload docs-notebooks notebooks.tar.gz --clobber
+    - name: Rebuild the docs
+      if: env.RTD_TOKEN != ''
+      run: |
+        curl -fsS -X POST -H "Authorization: Token $RTD_TOKEN" https://readthedocs.org/api/v3/projects/jax-md/versions/main/builds/

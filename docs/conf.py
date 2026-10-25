@@ -63,7 +63,7 @@ extensions = [
 ]
 
 # nbsphinx configuration
-nbsphinx_execute = 'always'
+nbsphinx_execute = 'auto'
 nbsphinx_allow_errors = True
 nbsphinx_timeout = 3600
 
