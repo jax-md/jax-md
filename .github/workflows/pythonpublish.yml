@@ -6,6 +6,8 @@ on:
 
 jobs:
   build:
+    # The docs-notebooks release only holds executed example notebooks.
+    if: github.event.release.tag_name != 'docs-notebooks'
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4

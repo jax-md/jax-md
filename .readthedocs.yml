@@ -28,12 +28,16 @@ build:
       - UV_PROJECT_ENVIRONMENT=$READTHEDOCS_VIRTUALENV_PATH uv sync --group docs
     pre_build:
       - cp -r examples docs/
-      - uv run jupytext --to notebook docs/examples/*.py
-      - uv run jupytext --to notebook docs/examples/units/*.py
+      # Notebooks executed by the Examples workflow; pull request builds execute their own.
+      - 'if [ "$READTHEDOCS_VERSION_TYPE" != "external" ] && curl -fsSL -o notebooks.tar.gz https://github.com/jax-md/jax-md/releases/download/docs-notebooks/notebooks.tar.gz; then tar -xzf notebooks.tar.gz -C docs/examples; fi'
+      - 'for f in docs/examples/*.py docs/examples/units/*.py docs/examples/tutorial/*.py; do [ -f "${f%.py}.ipynb" ] || uv run jupytext --to notebook "$f"; done'
       - rm docs/examples/*.py
       - rm docs/examples/units/*.py
+      - rm docs/examples/tutorial/*.py
     post_build:
       - mkdir -p $READTHEDOCS_OUTPUT/html/notebooks
       - mkdir -p $READTHEDOCS_OUTPUT/html/notebooks/units
+      - mkdir -p $READTHEDOCS_OUTPUT/html/notebooks/tutorial
       - cp docs/examples/*.ipynb $READTHEDOCS_OUTPUT/html/notebooks/
       - cp docs/examples/units/*.ipynb $READTHEDOCS_OUTPUT/html/notebooks/units/
+      - cp docs/examples/tutorial/*.ipynb $READTHEDOCS_OUTPUT/html/notebooks/tutorial/
