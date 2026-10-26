@@ -1585,10 +1585,12 @@ def edip(
   c: float = 2.5609104,
   cutoff: float = 3.1213820,
 ) -> Callable[..., Array]:
-  """
-  Computes the the Environment-dependent interatomic potential (EDIP).
-  The parameter values are for bulk Silicon [1,2]. The EDIP potential is a bond
-  order potential which depends on the local coordination number of the atom.
+  """.. _edip-pot:
+
+  Computes the Environment-dependent interatomic potential (EDIP).
+  The parameter values are for bulk Silicon [#bazant97]_ [#justo98]_. The EDIP
+  potential is a bond order potential which depends on the local coordination
+  number of the atom.
 
   :param displacement: displacement function for the space.
   :param u1: parameter for the three-body bond order function tau(Z) (pure number)
@@ -1610,13 +1612,13 @@ def edip(
   :param cutoff: outer cutoff (a) for the cutoff function f(r) (Angstrom)
   :return: A function that computes the potential energy.
 
-  References:
-  [1] - Martin Z. Bazant, Efthimios Kaxiras, and J. F. Justo.
-        "Environment-dependent interatomic potential for bulk silicon".
-        Phys. Rev. B 56, 8542 (1997).
-  [2] - João F. Justo, Martin Z. Bazant, Efthimios Kaxiras, V. V. Bulatov,
-        and Sidney Yip. "Interatomic potential for silicon defects and
-        disordered phases". Phys. Rev. B 58, 2539 (1998).
+  .. rubric:: References
+  .. [#bazant97] Martin Z. Bazant, Efthimios Kaxiras, and J. F. Justo.
+    "Environment-dependent interatomic potential for bulk silicon".
+    Phys. Rev. B 56, 8542 (1997).
+  .. [#justo98] João F. Justo, Martin Z. Bazant, Efthimios Kaxiras, V. V. Bulatov,
+    and Sidney Yip. "Interatomic potential for silicon defects and
+    disordered phases". Phys. Rev. B 58, 2539 (1998).
   """
   two_body_fn = partial(
     _edip_radial_interaction, A, B, rho, sigma, c, alpha, beta, cutoff
@@ -1679,6 +1681,7 @@ def edip_neighbor_list(
   neighbor_list_fn: Callable = partition.neighbor_list,
   **neighbor_kwargs,
 ) -> Tuple[NeighborListFns, Callable[..., Array]]:
+  """Convenience wrapper to compute :ref:`EDIP <edip-pot>` using a neighbor list."""
   two_body_fn = partial(
     _edip_radial_interaction, A, B, rho, sigma, c, alpha, beta, cutoff
   )
@@ -1765,7 +1768,7 @@ def load_lammps_eam_parameters(
   https://sites.google.com/a/ncsu.edu/cjobrien/tutorials-and-guides/eam
 
   Args:
-    f: File handle for the EAM parameters text file.
+    file: File handle for the EAM parameters text file.
 
   Returns:
     A tuple containing three functions and a cutoff distance.
@@ -1843,11 +1846,11 @@ def eam(
   including neural networks.
 
   Args:
-    displacement: A function that produces an ndarray of shape `[n, m,
-      spatial_dimension]` of particle displacements from particle positions
-      specified as an ndarray of shape `[n, spatial_dimension]` and `[m,
-      spatial_dimension]` respectively.
-    box_size: The size of the simulation box.
+    displacement_or_metric: A function that produces an ndarray of shape
+      `[n, m, spatial_dimension]` of particle displacements from particle
+      positions specified as an ndarray of shape `[n, spatial_dimension]` and
+      `[m, spatial_dimension]` respectively, or a metric that produces the
+      distances between them.
     charge_fn: A function that takes an ndarray of shape `[n, m]` of distances
       between particles and returns a matrix of charge contributions.
     embedding_fn: Function that takes an ndarray of shape `[n]` of charges and
@@ -1855,17 +1858,11 @@ def eam(
       into the charge.
     pairwise_fn: A function that takes an ndarray of shape `[n, m]` of distances
       and returns an ndarray of shape `[n, m]` of pairwise energies.
-    cutoff: A float specifying the maximum interaction distance.
-    dr_threshold: A float specifying the halo in the neighbor list.
     axis: Specifies which axis the total energy should be summed over.
-    fractional_coordinates: A boolean specifying whether or not the coordinates
-      will be in the unit cube.
-    format: The format of the neighbor list.
 
   Returns:
-    A tuple containing a function to build the neighbor list and function that
-    computes the EAM energy of a set of atoms with positions given by an
-    `[n, spatial_dimension]` ndarray.
+    A function that computes the EAM energy of a set of atoms with positions
+    given by an `[n, spatial_dimension]` ndarray.
 
   .. rubric:: References
   .. [#mishin] Y. Mishin, D. Farkas, M.J. Mehl, DA Papaconstantopoulos, "Interatomic
@@ -3125,25 +3122,23 @@ def triangle_area_potential(
   A_0: Array,
   k: Array,
 ) -> Array:
-  """.. _triangle_area_potential
+  """Local area conservation of the triangles in a vesicle discretization.
 
-  Local area conservation of  the triangles in the vesicle discretization as
-  proposed by Vutukuri HR et al. (Gompper Group)
+  As proposed by Vutukuri HR et al. (Gompper Group),
   https://doi.org/10.1038/s41586-020-2730-x
 
   Args:
-      R_mem (Array, shape: (N, spatial dim)): Positions of the membrane
-          vertices. (R_mem is allowed to contain non-membrane particles too,
-          only particles with indices in 'triangles' are considered in the
-          calculation)
-      triangles (Array, shape: (2(N-1), 3)): Array of triangles storing the indices
-          of the vertices that comprise the triangle
-      displacement_fn (DisplacementOrMetricFn): _description_
-      A_0 (Array): desired triangle area
-      k (Array): local-area conservation coefficient
+    R_mem: Positions of the membrane vertices, shape `(N, spatial_dimension)`.
+      `R_mem` can contain other particles too; only the vertices indexed by
+      `triangles` enter the calculation.
+    triangles: Vertex indices of each triangle, shape `(n_triangles, 3)`.
+    displacement_fn: A function that computes the displacement between two
+      positions.
+    A_0: The target triangle area.
+    k: The local area conservation coefficient.
 
   Returns:
-      energy contribution due to local area conservation
+    The energy contribution due to local area conservation.
   """
   areas = _calc_triangle_areas(R_mem, triangles, displacement_fn)
   energy = 0.5 * k * util.high_precision_sum((areas - A_0) ** 2 / A_0)
@@ -3184,27 +3179,26 @@ def _calc_triangle_areas(
 def volume_potential(
   R_mem: Array, triangles: Array, V_0: float, k: float
 ) -> Array:
-  """.. _volume_potential
-  Global volume conservation of the vesicle as used by Vutukuri HR et al.
-  (Gompper Group) https://doi.org/10.1038/s41586-020-2730-x
+  """Global volume conservation of a vesicle.
+
+  As used by Vutukuri HR et al. (Gompper Group),
+  https://doi.org/10.1038/s41586-020-2730-x
 
   Args:
-      R_mem (Array, shape: (N, spatial dim)): Positions of the membrane
-          vertices. (R_mem is allowed to contain non-membrane particles too,
-          only particles with indices in 'triangles' are considered in the
-          calculation)
-      triangles (Array, shape: (2(N-1), 3)): Array of triangles storing the indices
-          of the vertices that comprise the triangle
-      V_0 (float): desired vesicle volume
-      k (float): volume stiffness
+    R_mem: Positions of the membrane vertices, shape `(N, spatial_dimension)`.
+      `R_mem` can contain other particles too; only the vertices indexed by
+      `triangles` enter the calculation.
+    triangles: Vertex indices of each triangle, shape `(n_triangles, 3)`.
+    V_0: The target vesicle volume.
+    k: The volume stiffness.
 
   Returns:
-      energy contribution due to global volume conservation
+    The energy contribution due to global volume conservation.
 
   Note:
-      This calculation assumes the membrane vertices are in a single unwrapped
-      coordinate frame. Wrapped periodic coordinates are not supported because
-      the enclosed volume is a global surface property.
+    This calculation assumes the membrane vertices are in a single unwrapped
+    coordinate frame. Wrapped periodic coordinates are not supported because
+    the enclosed volume is a global surface property.
   """
   V = _calc_volume(R_mem, triangles)
   return k * (V - V_0) ** 2 / (2 * V_0)
@@ -3246,20 +3240,19 @@ def bending_potential(
   displacement_fn: DisplacementOrMetricFn,
   kappa: Array,
 ) -> Array:
-  """.. _bending_potential
-  Calculates the bending potential of an triangulated surface,
-  based on discretization by Gompper: https://doi.org/10.1051/jp1:1996246
+  """Calculates the bending potential of a triangulated surface.
+
+  Based on the discretization by Gompper, https://doi.org/10.1051/jp1:1996246
 
   Args:
-      R_mem (Array, shape: (N, spatial dim)): Positions of the membrane
-          vertices
-      triangles (Array, shape: (N, 3)): Array of triangles storing the indices
-          of the vertices that comprise the triangle
-      displacement_fn (DisplacementOrMetricFn): _description_
-      kappa (Array, scalar): Bending rigidity
+    R_mem: Positions of the membrane vertices, shape `(N, spatial_dimension)`.
+    triangles: Vertex indices of each triangle, shape `(n_triangles, 3)`.
+    displacement_fn: A function that computes the displacement between two
+      positions.
+    kappa: The bending rigidity.
 
   Returns:
-      Energy of the membrane conformation due to the bending potential
+    The energy of the membrane conformation due to the bending potential.
   """
   displacement_fn = vmap(displacement_fn)
   cos = vmap(quantity.cosine_angle_between_two_vectors)

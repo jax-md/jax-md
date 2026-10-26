@@ -1,6 +1,48 @@
-"""Run a small Lennard-Jones liquid at two NPT state points using CSVR."""
+# ---
+# jupyter:
+#   jupytext:
+#     formats: py:percent,ipynb
+#     text_representation:
+#       extension: .py
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.18.1
+#   kernelspec:
+#     display_name: Python 3
+#     language: python
+#     name: python3
+# ---
 
+# %% [markdown]
+# [![Download Notebook](https://img.shields.io/badge/Download-Notebook-blue?style=for-the-badge&logo=jupyter)](https://jax-md.readthedocs.io/en/main/notebooks/npt_csvr.ipynb)
+# [![Download Python Script](https://img.shields.io/badge/Download-Python_Script-green?style=for-the-badge&logo=python)](https://raw.githubusercontent.com/google/jax-md/main/examples/npt_csvr.py)
+
+# %% [markdown]
+# # Isothermal-Isobaric Ensemble (NPT) - CSVR
+#
+# This example runs a small Lennard-Jones liquid at two NPT state points with `simulate.npt_csvr`. The particle momenta and the barostat piston share one stochastic velocity-rescaling thermostat. Each run prints the mean temperature, pressure and volume over its second half.
+
+# %% [markdown]
+# ## Imports
+
+# %%
 import os
+
+IN_COLAB = 'COLAB_RELEASE_TAG' in os.environ
+if IN_COLAB:
+  import subprocess
+  import sys
+
+  subprocess.run(
+    [
+      sys.executable,
+      '-m',
+      'pip',
+      'install',
+      '-q',
+      'git+https://github.com/jax-md/jax-md.git',
+    ]
+  )
 
 import jax
 import jax.numpy as jnp
@@ -14,6 +56,10 @@ from jax_md import space
 
 jax.config.update('jax_enable_x64', True)
 
+# %% [markdown]
+# ## Setup
+
+# %%
 SMOKE_TEST = os.environ.get('READTHEDOCS', False)
 NSTEPS_SIM = 1000 if SMOKE_TEST else 50000
 WRITE_EVERY = 100
@@ -28,6 +74,10 @@ energy_fn = energy.lennard_jones_pair(
   displacement, sigma=1.0, epsilon=1.0, r_onset=1.8, r_cutoff=2.0
 )
 
+# %% [markdown]
+# ## Simulation
+
+# %%
 for index, (temperature, pressure) in enumerate(STATE_POINTS):
   init_fn, apply_fn = simulate.npt_csvr(
     energy_fn,

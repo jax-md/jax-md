@@ -25,8 +25,8 @@ arbitrary number of types of atoms (Note that most applications of BP-NN limit
 their systems to 1 to 3 types of atoms). We also present a convenience wrapper
 that returns radial and angular symmetry functions with symmetry function
 parameters that should work reasonably for most systems (the symmetry functions
-are taken from reference [2]). Please see references [1, 2] for details about
-how the BP-NN works.
+are taken from [#nongnuch13]_). Please see [#behler07]_ [#nongnuch13]_ for
+details about how the BP-NN works.
 
 .. rubric:: References
 
@@ -61,14 +61,26 @@ outgoing / incoming edges.
 
 We provide two components:
 
-  1) A GraphIndependent layer that applies a neural network separately to the
+  1) A `GraphMapFeatures` layer that applies a neural network separately to the
      node states, the edge states, and the globals. This is often used as an
      encoding or decoding step.
      
-  2) A GraphNetwork layer that transforms the nodes, edges, and globals using
-     neural networks following Battaglia et al. (). Here, we use
+  2) A `GraphNetwork` layer that transforms the nodes, edges, and globals using
+     neural networks following Battaglia et al. [#battaglia18]_. Here, we use
      sum-message-aggregation.
+
+.. rubric:: References
+
+.. [#battaglia18] Battaglia, Peter W., et al. "Relational inductive biases, deep learning, and graph networks." arXiv preprint arXiv:1806.01261 (2018).
 
 .. autoclass:: GraphMapFeatures
 .. autoclass:: GraphNetwork
 .. autoclass:: GraphsTuple
+.. autoclass:: GraphNetEncoder
+.. autofunction:: concatenate_graph_features
+
+Layers
+-------
+
+.. autoclass:: MLP
+.. autoclass:: Linear

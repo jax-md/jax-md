@@ -116,6 +116,7 @@ class dispatch_by_state(Generic[DispatchArgs, DispatchOut]):
   def __init__(self, fn: Callable[DispatchArgs, DispatchOut]):
     self._fn = fn
     self._registry = {}
+    functools.update_wrapper(self, fn)
 
   def __call__(
     self, *args: DispatchArgs.args, **kwargs: DispatchArgs.kwargs
@@ -344,8 +345,8 @@ def nve(
   standard velocity Verlet integration scheme.
 
   Args:
-    energy_or_force: A function that produces either an energy or a force from
-      a set of particle positions specified as an ndarray of shape
+    energy_or_force_fn: A function that produces either an energy or a force
+      from a set of particle positions specified as an ndarray of shape
       `[n, spatial_dimension]`.
     shift_fn: A function that displaces positions, `R`, by an amount `dR`.
       Both `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
@@ -679,8 +680,8 @@ def nvt_nose_hoover(
   at that paper as a reference.
 
   Args:
-    energy_or_force: A function that produces either an energy or a force from
-      a set of particle positions specified as an ndarray of shape
+    energy_or_force_fn: A function that produces either an energy or a force
+      from a set of particle positions specified as an ndarray of shape
       `[n, spatial_dimension]`.
     shift_fn: A function that displaces positions, `R`, by an amount `dR`.
       Both `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
@@ -1302,12 +1303,12 @@ def nvt_langevin(
   stochastic ODE described by a friction coefficient and noise of a given
   covariance.
 
-  Our implementation follows the paper [#davidcheck] by Davidchack, Ouldridge,
-  and Tretyakov.
+  Our implementation follows the paper [#davidchack2015]_ by Davidchack,
+  Ouldridge, and Tretyakov.
 
   Args:
-    energy_or_force: A function that produces either an energy or a force from
-      a set of particle positions specified as an ndarray of shape
+    energy_or_force_fn: A function that produces either an energy or a force
+      from a set of particle positions specified as an ndarray of shape
       `[n, spatial_dimension]`.
     shift_fn: A function that displaces positions, `R`, by an amount `dR`. Both
       `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
@@ -1325,7 +1326,7 @@ def nvt_langevin(
     See above.
 
   .. rubric:: References
-  .. [#carlon] R. L. Davidchack, T. E. Ouldridge, and M. V. Tretyakov.
+  .. [#davidchack2015] R. L. Davidchack, T. E. Ouldridge, and M. V. Tretyakov.
     "New Langevin and gradient thermostats for rigid body dynamics."
     The Journal of Chemical Physics 142, 144114 (2015)
   """
@@ -1407,14 +1408,14 @@ def brownian(
   Simulates Brownian dynamics which are synonymous with the overdamped
   regime of Langevin dynamics. However, in this case we don't need to take into
   account velocity information and the dynamics simplify. Consequently, when
-  Brownian dynamics can be used they will be faster than Langevin. As in the
-  case of Langevin dynamics our implementation follows Carlon et al. [#carlon]_
+  Brownian dynamics can be used they will be faster than Langevin. Our
+  implementation follows Carlon et al. [#carlon]_.
 
   Args:
     energy_or_force: A function that produces either an energy or a force from
       a set of particle positions specified as an ndarray of shape
       `[n, spatial_dimension]`.
-    shift_fn: A function that displaces positions, `R`, by an amount `dR`.
+    shift: A function that displaces positions, `R`, by an amount `dR`.
       Both `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
     dt: Floating point number specifying the timescale (step size) of the
       simulation.
@@ -1422,12 +1423,16 @@ def brownian(
       constant. To update the temperature dynamically during a simulation one
       should pass `kT` as a keyword argument to the step function.
     gamma: A float specifying the friction coefficient between the particles
-      and the solvent. The gamma here is the friction coeifficient divided by
-      the mass. For example, when the particles are 3 diemsional spheres
-      gamma = 6 pi eta R/mass. See quantity.gamma_from_stokes_law for detail.
+      and the solvent. The gamma here is the friction coefficient divided by
+      the mass. For example, when the particles are 3 dimensional spheres
+      gamma = 6 pi eta R/mass. See quantity.gamma_from_stokes_law_3d for detail.
 
   Returns:
     See above.
+
+  .. rubric:: References
+  .. [#carlon] E. Carlon, M. Laleman, S. Nomidis.
+    "Molecular Dynamics Simulation." Lecture notes, KU Leuven, 2015.
   """
 
   force_fn = quantity.canonicalize_force(energy_or_force)
@@ -1848,7 +1853,7 @@ def npt_langevin(
   """Simulation in the unconstrained-COM NPT ensemble using Langevin.
 
   This combines the isotropic Bussi-Zykova-Timan-Parrinello NPH propagator
-  [#bzp2009]_ with independent Langevin updates of the particle and piston
+  [#bussi2009]_ with independent Langevin updates of the particle and piston
   momenta. The particle center of mass and total momentum are unconstrained.
 
   ``energy_fn`` must return a scalar potential energy and accept ``box`` and
@@ -1876,7 +1881,7 @@ def npt_langevin(
     An ``(init_fn, apply_fn)`` pair.
 
   .. rubric:: References
-  .. [#bzp2009] G. Bussi, T. Zykova-Timan, and M. Parrinello,
+  .. [#bussi2009] G. Bussi, T. Zykova-Timan, and M. Parrinello,
     "Isothermal-isobaric molecular dynamics using stochastic velocity
     rescaling," *J. Chem. Phys.* 130, 074101 (2009).
   """
@@ -2280,11 +2285,11 @@ def temp_rescale(
   """Simulation using explicit velocity rescaling.
 
   Rescale the velocities of atoms explicitly so that the desired temperature is
-  reached.
+  reached [#woodcock71]_.
 
   Args:
-    energy_or_force: A function that produces either an energy or a force from
-      a set of particle positions specified as an ndarray of shape
+    energy_or_force_fn: A function that produces either an energy or a force
+      from a set of particle positions specified as an ndarray of shape
       `[n, spatial_dimension]`.
     shift_fn: A function that displaces positions, `R`, by an amount `dR`.
       Both `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
@@ -2302,7 +2307,7 @@ def temp_rescale(
     See above.
 
   .. rubric:: References
-  .. [#berendsen84] Woodcock, L. V.
+  .. [#woodcock71] Woodcock, L. V.
     "ISOTHERMAL MOLECULAR DYNAMICS CALCULATIONS FOR LIQUID SALTS."
     Chem. Phys. Lett. 1971, 10, 257–261.
   """
@@ -2374,8 +2379,8 @@ def temp_berendsen(
   Eq.10 Berendsen et al. [#berendsen84]_.
 
   Args:
-    energy_or_force: A function that produces either an energy or a force from
-      a set of particle positions specified as an ndarray of shape
+    energy_or_force_fn: A function that produces either an energy or a force
+      from a set of particle positions specified as an ndarray of shape
       `[n, spatial_dimension]`.
     shift_fn: A function that displaces positions, `R`, by an amount `dR`.
       Both `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
@@ -2461,8 +2466,8 @@ def nvk(
   4.12-4.17 in [#minary2003]_ for detailed description.
 
   Args:
-    energy_or_force: A function that produces either an energy or a force from
-      a set of particle positions specified as an ndarray of shape
+    energy_or_force_fn: A function that produces either an energy or a force
+      from a set of particle positions specified as an ndarray of shape
       `[n, spatial_dimension]`.
     shift_fn: A function that displaces positions, `R`, by an amount `dR`.
       Both `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.
@@ -2587,17 +2592,17 @@ def temp_csvr(
   """Simulation using the canonical sampling through velocity rescaling (CSVR) thermostat.
 
   Samples from the canonical ensemble in which the number of particles (N),
-  the system volume (V), and the temperature (T) are held constant. CSVR
-  algorithmn samples the canonical distribution by rescaling the velocities
-  by a appropritely chosen random factor. At each timestep (dt) the rescaling
-  takes place and the rescaling factor is calculated using
-  A7 Bussi et al. [#bussi2007]_. CSVR updates to the velocity are stochastic in
+  the system volume (V), and the temperature (T) are held constant. The CSVR
+  algorithm samples the canonical distribution by rescaling the velocities
+  by an appropriately chosen random factor. At each timestep (dt) the rescaling
+  takes place and the rescaling factor is calculated using Eq. A7 of
+  Bussi et al. [#bussi2007]_. CSVR updates to the velocity are stochastic in
   nature and unlike the Berendsen thermostat it samples the true canonical
   distribution [#Braun2018]_.
 
   Args:
-    energy_or_force: A function that produces either an energy or a force from
-      a set of particle positions specified as an ndarray of shape
+    energy_or_force_fn: A function that produces either an energy or a force
+      from a set of particle positions specified as an ndarray of shape
       `[n, spatial_dimension]`.
     shift_fn: A function that displaces positions, `R`, by an amount `dR`.
       Both `R` and `dR` should be ndarrays of shape `[n, spatial_dimension]`.

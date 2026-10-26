@@ -107,6 +107,7 @@ def high_precision_sum(
     dtyp = jnp.complex128
   else:
     dtyp = jnp.float64
+  dtyp = jax.dtypes.canonicalize_dtype(dtyp)
 
   return jnp.array(
     jnp.sum(X, axis=axis, dtype=dtyp, keepdims=keepdims), dtype=X.dtype

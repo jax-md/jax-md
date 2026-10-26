@@ -6,6 +6,19 @@ JAX. Different parts of the JAX MD tooling are designed to work independently
 and so you should feel free to pick and choose which ones you use for your
 particular problem.
 
+Simulations are written in JAX, so they compile to XLA, run on CPU, GPU or TPU,
+and are differentiable end to end. JAX MD is a functional and data driven
+library: data is stored in arrays or tuples of arrays, and functions transform
+data from one state to another. To get started, see :doc:`installation` and
+:doc:`examples/getting_started`.
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Getting Started
+
+   installation
+   examples/getting_started
+
 .. toctree::
    :maxdepth: 2
    :caption: Examples
@@ -26,13 +39,17 @@ particular problem.
    jax_md.simulate
    jax_md.nn
    jax_md.quantity
+   jax_md.units
    jax_md.elasticity
    jax_md.rigid_body
    jax_md.smap
    jax_md.custom_smap
    jax_md.interpolate
    jax_md.dataclasses
+   jax_md.mm_forcefields
    jax_md.reaxff
+   jax_md.a2c
+   jax_md.tpu
 
 Indices and tables
 ==================

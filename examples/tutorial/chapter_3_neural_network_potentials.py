@@ -131,7 +131,11 @@ f64 = jnp.float64
 # %%
 # @title Data Utilities
 def read_lipo(filename):
-  return tree_map(lambda x: x.astype(f64), dict(np.load(filename)))
+  data = tree_map(lambda x: x.astype(f64), dict(np.load(filename)))
+  if SMOKE_TEST:
+    frames = ('position', 'force', 'energy')
+    data = {k: v[:20] if k in frames else v for k, v in data.items()}
+  return data
 
 
 # %% [markdown]

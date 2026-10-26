@@ -4,12 +4,15 @@ Rigid Body Simulations
 .. default-role:: code
 .. automodule:: jax_md.rigid_body
 
-Quaternion Utilities
----------------------
+Orientation Utilities
+----------------------
 
 .. autoclass:: Quaternion
 .. autofunction:: quaternion_rotate
 .. autofunction:: random_quaternion
+.. autofunction:: space_to_body_rotation
+.. autofunction:: rotation2d
+.. autofunction:: tree_map_no_quat
 
 Rigid Body Simulation
 ----------------------
@@ -19,6 +22,7 @@ Rigid Body Simulation
 .. autofunction:: temperature
 .. autofunction:: angular_momentum_to_conjugate_momentum
 .. autofunction:: conjugate_momentum_to_angular_momentum
+.. autofunction:: canonicalize_momentum
 
 Rigid Collections of Points
 ----------------------------

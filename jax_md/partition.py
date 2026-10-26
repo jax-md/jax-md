@@ -852,8 +852,8 @@ def neighbor_list(
          step += 1
 
   Args:
-    displacement: A function `d(R_a, R_b)` that computes the displacement
-      between pairs of points.
+    displacement_or_metric: A function `d(R_a, R_b)` that computes the
+      displacement or distance between pairs of points.
     box: Either a float specifying the size of the box, an array of
       shape `[spatial_dim]` specifying the box size for a cubic box in each
       spatial dimension, or a matrix of shape `[spatial_dim, spatial_dim]` that

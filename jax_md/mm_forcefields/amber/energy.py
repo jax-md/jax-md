@@ -1237,6 +1237,7 @@ def cmap_setup(cmap_maps: Array) -> tuple[Array, Array, int]:
   Precompute OpenMM style bicubic CMAP coefficients
 
   This follows the same structure as OpenMM's CMAPTorsionForceImpl
+
   - compute dE/dphi at knots by fitting a periodic cubic spline along phi
   - compute dE/dpsi at knots by fitting a periodic cubic spline along psi
   - compute d^2E/(dphi dpsi) by fitting a periodic spline to dE/dpsi along phi

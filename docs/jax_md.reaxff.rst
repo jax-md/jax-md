@@ -1,5 +1,5 @@
-jax\_md.mm\_forcefields.reaxff package
-=======================================
+ReaxFF Force Field
+===================
 
 .. automodule:: jax_md.mm_forcefields.reaxff
    :members:
@@ -39,4 +39,9 @@ jax\_md.mm\_forcefields.reaxff.reaxff\_interactions module
 .. automodule:: jax_md.mm_forcefields.reaxff.reaxff_interactions
    :members:
    :undoc-members:
+   :show-inheritance:
+   :exclude-members: Filtration
+
+.. autoclass:: Filtration
+   :members:
    :show-inheritance:

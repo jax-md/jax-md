@@ -368,10 +368,10 @@ def _scatter_to_sparse(
   write_mask = valid_flat & (cumsum < capacity)
 
   senders = senders.at[write_idx].set(
-    jnp.where(write_mask, j_flat, N), mode='drop'
+    jnp.where(write_mask, j_flat, N).astype(senders.dtype), mode='drop'
   )
   receivers = receivers.at[write_idx].set(
-    jnp.where(write_mask, i_flat, N), mode='drop'
+    jnp.where(write_mask, i_flat, N).astype(receivers.dtype), mode='drop'
   )
 
   shift_vals = shifts[s_flat]  # [num_shifts * N * N, dim]
@@ -1152,7 +1152,7 @@ def graph_featurizer(
       If None, defaults to ``space.free()[0]``.
 
   Returns:
-    featurize(atoms, positions, neighbor, **kwargs) -> GraphsTuple
+    ``featurize(atoms, positions, neighbor, **kwargs) -> GraphsTuple``
 
   Example:
     >>> from jax_md import space

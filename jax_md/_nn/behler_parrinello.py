@@ -96,7 +96,7 @@ def radial_symmetry_functions(
 
 
   Args:
-    displacement: A function that produces an `[N_atoms, M_atoms,
+    displacement_or_metric: A function that produces an `[N_atoms, M_atoms,
       spatial_dimension]` of particle displacements from particle positions
       specified as an `[N_atoms, spatial_dimension] and `[M_atoms,
       spatial_dimension]` respectively.
@@ -157,7 +157,7 @@ def radial_symmetry_functions_neighbor_list(
 
 
   Args:
-    displacement: A function that produces an `[N_atoms, M_atoms,
+    displacement_or_metric: A function that produces an `[N_atoms, M_atoms,
       spatial_dimension]` of particle displacements from particle positions
       specified as an `[N_atoms, spatial_dimension] and `[M_atoms,
       spatial_dimension]` respectively.
@@ -271,10 +271,12 @@ def angular_symmetry_functions(
       specified as an `[N_atoms, spatial_dimension] and `[M_atoms,
       spatial_dimension]` respectively.
     species: An `[N_atoms]` that contains the species of each particle.
-    eta: Parameter of angular symmetry function that controls the spatial
-      extension.
-    lam:
-    zeta:
+    etas: List of angular symmetry function parameters that control the
+      spatial extension.
+    lambdas: List of signs, +1 or -1, of the cosine term, one per entry of
+      `etas`.
+    zetas: List of exponents of the cosine term that control the angular
+      resolution, one per entry of `etas`.
     cutoff_distance: Neighbors whose distance is larger than `cutoff_distance` do
       not contribute to each others symmetry functions. The contribution of a
       neighbor to the symmetry function and its derivative goes to zero at this
@@ -345,10 +347,12 @@ def angular_symmetry_functions_neighbor_list(
       specified as an `[N_atoms, spatial_dimension] and `[M_atoms,
       spatial_dimension]` respectively.
     species: An `[N_atoms]` that contains the species of each particle.
-    eta: Parameter of angular symmetry function that controls the spatial
-      extension.
-    lam:
-    zeta:
+    etas: List of angular symmetry function parameters that control the
+      spatial extension.
+    lambdas: List of signs, +1 or -1, of the cosine term, one per entry of
+      `etas`.
+    zetas: List of exponents of the cosine term that control the angular
+      resolution, one per entry of `etas`.
     cutoff_distance: Neighbors whose distance is larger than `cutoff_distance` do
       not contribute to each others symmetry functions. The contribution of a
       neighbor to the symmetry function and its derivative goes to zero at this

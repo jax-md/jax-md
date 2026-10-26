@@ -29,7 +29,7 @@ from pymatgen.core.structure import Structure
 
 
 def get_diameter(composition: Composition) -> float:
-  """Auto diamater tries to calculate min separation from radii."""
+  """Auto diameter tries to calculate min separation from radii."""
   if len(composition.elements) > 1:
     diameter = onp.array(
       list(
