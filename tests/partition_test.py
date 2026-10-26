@@ -689,7 +689,7 @@ class NeighborListTest(test_util.JAXMDTestCase):
       nbrs = partition.neighbor_list(
         displacement,
         box,
-        2.5,
+        jnp.asarray(2.5),
         0.2,
         format=format,
         fractional_coordinates=fractional,
@@ -709,7 +709,9 @@ class NeighborListTest(test_util.JAXMDTestCase):
 
     update_fn = jit(lambda nbrs: nbrs.update(R))
     update_fn(nbrs)
-    update_fn(pairs()[0])
+    other = pairs()[0]
+    update_fn(other)
+    jit(lambda: update_fn(other).idx)()
 
   def test_neighbor_list_update_after_box_change(self):
     N = 400
