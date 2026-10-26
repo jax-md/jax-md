@@ -1063,6 +1063,8 @@ def neighbor_list(
             cl = cl_fn.allocate(position, extra_capacity=extra_capacity)
           if jnp.ndim(cell_size) == 1:
             cell_size = tuple(onp.asarray(cell_size))
+          elif isinstance(cell_size, jnp.ndarray):
+            cell_size = onp.asarray(cell_size)[()]
         else:
           cell_size = neighbors.cell_size
           cl_fn = neighbors.cell_list_fn
