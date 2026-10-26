@@ -4,7 +4,7 @@ This module provides a complete implementation of the OPLSAA forcefield
 for molecular dynamics simulations in JAX.
 
 Example usage:
-    >>> from jax_md.mm import oplsaa
+    >>> from jax_md.mm_forcefields import oplsaa
     >>> from jax_md.mm_forcefields.nonbonded.electrostatics import PMECoulomb
     >>> from jax_md.mm_forcefields.base import NonbondedOptions
     >>> import jax.numpy as jnp

@@ -57,6 +57,9 @@ Deterministic Simulation Environments
 .. autofunction:: nve
 .. autofunction:: nvt_nose_hoover
 .. autofunction:: npt_nose_hoover
+.. autofunction:: temp_rescale
+.. autofunction:: temp_berendsen
+.. autofunction:: nvk
 
 Stochastic Simulation Environments
 --------------------------------------
@@ -64,6 +67,7 @@ Stochastic Simulation Environments
 .. autofunction:: brownian
 .. autofunction:: npt_csvr
 .. autofunction:: npt_langevin
+.. autofunction:: temp_csvr
 .. autofunction:: hybrid_swap_mc
 
 Helper Functions
@@ -72,6 +76,16 @@ Helper Functions
 .. autofunction:: nose_hoover_chain
 .. autofunction:: npt_box
 .. autofunction:: sinhx_x
+
+Overloadable Functions
+-----------------------
+.. autofunction:: kinetic_energy
+.. autofunction:: temperature
+.. autofunction:: initialize_momenta
+.. autofunction:: momentum_step
+.. autofunction:: position_step
+.. autofunction:: stochastic_step
+.. autofunction:: canonicalize_mass
 
 Testing Functions
 ------------------
@@ -88,3 +102,4 @@ Data Types
 .. autoclass:: BrownianState
 .. autoclass:: NPTCSVRState
 .. autoclass:: NPTLangevinState
+.. autoclass:: SwapMCState

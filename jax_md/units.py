@@ -12,14 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Defines a units system and returns a dictionary of conversion factors.
+Units are defined similar to https://docs.lammps.org/units.html
+"""
+
 import math
 import jax.numpy as jnp
 from typing import Dict
 from jax_md import util
-
-"""Defines a units system and returns a dictionary of conversion factors.
-   Units are defined similar to https://docs.lammps.org/units.html
-"""
 
 # Types
 f64 = util.f64
@@ -107,10 +107,10 @@ def metal_unit_system(
     'energy': f64(eV),
     'velocity': f64(Angstrom / picosecond),
     'force': f64(eV / Angstrom),
-    'torque ': f64(eV),
+    'torque': f64(eV),
     'temperature': f64(kB),  # JAX MD uses kT
     'pressure': f64(bar),
-    'charge ': f64(charge),
+    'charge': f64(charge),
     'electric field': f64(charge * Angstrom),
   }
 
@@ -166,10 +166,10 @@ def real_unit_system(
     'energy': f64(Kcal_per_mol),
     'velocity': f64(Angstrom / femtosecond),
     'force': f64(Kcal_per_mol / Angstrom),
-    'torque ': f64(Kcal_per_mol),
+    'torque': f64(Kcal_per_mol),
     'temperature': f64(kB),  # JAX MD uses kT
     'pressure': f64(atm),
-    'charge ': f64(charge),
+    'charge': f64(charge),
     'electric field': f64(charge * Angstrom),
   }
 

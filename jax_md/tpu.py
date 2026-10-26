@@ -16,12 +16,13 @@
 This code implements an approach to molecular dynamics that can be run on TPU
 and scale to multiple TPUs. To accomplish this, there are several notable
 features:
+
   1) Particles are stored in pixel / voxel cells where each cell stores the
-     the offset of the particle from the center and the ID of the particle.
+     offset of the particle from the center and the ID of the particle.
 
   2) Displacements from each particle to its neighbor are computed using
-     either convolutions or seperable convolutions depending on the use case.
-     Seperable convolutions have significantly better memory footprints, but
+     either convolutions or separable convolutions depending on the use case.
+     Separable convolutions have significantly better memory footprints, but
      involve more operations and can be unfriendly for some computations.
 
   3) During simulations, particles move by switching which cell they are in when
@@ -299,24 +300,26 @@ def random_grid(
   max_interaction_distance: float,
   topology: Tuple[int, ...] | None = None,
 ) -> TPUGrid:
-  """Place particles, and optionally auxiliary data, into a TPUGrid.
+  """Build a TPUGrid with randomly placed particles directly on the TPU mesh.
+
+  Each cell is occupied with probability `density`, and an occupied cell holds
+  one particle at a uniformly random offset from the cell center.
 
   Args:
-    positions: An `(N, spatial_dimension)` array of particle positions.
-    box_size: A float specifying the size of the simulation volume.
+    key: A JAX PRNG key.
+    density: The probability that a cell holds a particle.
+    box_size_in_cells: The size of the simulation volume in cells, as an int
+      or a tuple with one entry per spatial dimension.
     cell_size: A float specifying the pixel / voxel discretization size.
     max_interaction_distance: The maximum range of the interactions that will be
       considered. This will be used to compute how many cells need to be
       considered when computing nearest neighbor distances.
     topology: The topology of the TPU mesh. Must be a tuple of length
-      `spatial_dimensions`.
-    aux: A PyTree of auxiliary data that we would also like to add to the grid.
+      `spatial_dimensions`. This is required.
 
   Returns:
     A TPUGrid object containing the state of the system (see the TPUGrid
-    documentation for more information). If `aux` is set, then it will also
-    return a PyTree with the same strucutre as `aux` with each leaf array placed
-    into the grid.
+    documentation for more information).
   """
   if topology is None:
     raise ValueError('random_grid requires a TPU mesh topology.')
@@ -613,6 +616,12 @@ def nearest_valid_grid_size(
   factors: Tuple[int, ...] | None = None,
   dimension: int | None = None,
 ) -> onp.ndarray:
+  """Rounds a box size in cells to the nearest size the TPU grid supports.
+
+  The box is split over `topology`, each tile is padded by `max_grid_distance`
+  cells on each side, and the result is folded by `factors`. The folded size is
+  rounded to an even integer of at least `max_grid_distance + 1`.
+  """
   if factors is None:
     if dimension is None:
       if isinstance(topology, tuple) and topology:
@@ -735,6 +744,14 @@ def lennard_jones(
 
 @dataclasses.dataclass
 class NVEState:
+  """A struct containing the state of an NVE simulation on TPU.
+
+  Attributes:
+    position: The particle positions stored on a `TPUGrid`.
+    velocity: The particle velocities in the layout of the grid.
+    force: The forces on the particles in the layout of the grid.
+  """
+
   position: TPUGrid
   velocity: Array
   force: Array
@@ -783,6 +800,7 @@ def nve(force_fn: GridFn, dt: float) -> Simulator[NVEState]:
 
 
 def kinetic_energy(state: NVEState) -> Array:
+  """Kinetic energy of a TPU NVE state, assuming unit mass."""
   grid = state.position
   if grid.topology and len(grid.cell_data.shape) > grid.num_dims + 2:
     return 0.5 * np.sum(unfold_mesh(state.velocity, grid) ** 2)

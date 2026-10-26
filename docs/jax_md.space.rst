@@ -22,7 +22,10 @@ Helper Functions
 ------------------
 
 .. autofunction:: transform
+.. autofunction:: raw_transform
+.. autofunction:: inverse
 .. autofunction:: square_distance
 .. autofunction:: distance
 .. autofunction:: pairwise_displacement
+.. autofunction:: periodic_displacement
 .. autofunction:: periodic_shift

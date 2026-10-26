@@ -209,11 +209,11 @@ def bond(
       of shape `[n, m]` or `[n, m, d_in]` respectively as well as kwargs
       specifying parameters for the function. `fn` returns an ndarray of
       evaluations of shape `[n, m, d_out]`.
-    metric: A function that takes two ndarray of positions of shape
-      `[spatial_dimension]` and `[spatial_dimension]` respectively and returns
-      an ndarray of distances or displacements of shape `[]` or `[d_in]`
-      respectively. The metric can optionally take a floating point time as a
-      third argument.
+    displacement_or_metric: A function that takes two ndarray of positions of
+      shape `[spatial_dimension]` and `[spatial_dimension]` respectively and
+      returns an ndarray of distances or displacements of shape `[]` or
+      `[d_in]` respectively. The metric can optionally take a floating point
+      time as a third argument.
     static_bonds: An ndarray of integer pairs wth shape `[b, 2]` where each
       pair specifies a bond. `static_bonds` are baked into the returned compute
       function statically and cannot be changed after the fact.
@@ -569,11 +569,11 @@ def pair(
       of shape `[n, m]` or `[n, m, d_in]` respectively as well as kwargs
       specifying parameters for the function. fn returns an ndarray of
       evaluations of shape `[n, m, d_out]`.
-    metric: A function that takes two ndarray of positions of shape
-      `[spatial_dimension]` and `[spatial_dimension]` respectively and returns
-      an ndarray of distances or displacements of shape `[]` or `[d_in]`
-      respectively. The metric can optionally take a floating point time as a
-      third argument.
+    displacement_or_metric: A function that takes two ndarray of positions of
+      shape `[spatial_dimension]` and `[spatial_dimension]` respectively and
+      returns an ndarray of distances or displacements of shape `[]` or
+      `[d_in]` respectively. The metric can optionally take a floating point
+      time as a third argument.
     species: A list of species for the different particles. This should either
       be None (in which case it is assumed that all the particles have the same
       species), an integer ndarray of shape `[n]` with species data, or an
@@ -863,11 +863,11 @@ def pair_neighbor_list(
       of shape `[n, m]` or `[n, m, d_in]` respectively as well as kwargs
       specifying parameters for the function. fn returns an ndarray of
       evaluations of shape `[n, m, d_out]`.
-    metric: A function that takes two ndarray of positions of shape
-      `[spatial_dimension]` and `[spatial_dimension]` respectively and returns
-      an ndarray of distances or displacements of shape `[]` or `[d_in]`
-      respectively. The metric can optionally take a floating point time as a
-      third argument.
+    displacement_or_metric: A function that takes two ndarray of positions of
+      shape `[spatial_dimension]` and `[spatial_dimension]` respectively and
+      returns an ndarray of distances or displacements of shape `[]` or
+      `[d_in]` respectively. The metric can optionally take a floating point
+      time as a third argument.
     species: Species information for the different particles. Should either
       be None (in which case it is assumed that all the particles have the same
       species), an integer array of shape `[n]` with species data. Note that
@@ -994,9 +994,9 @@ def triplet(
     fn: A function that takes an ndarray of two distances or displacements
         from a central atom, both of shape `[n, m]` or `[n, m, d_in]`
         respectively, as well as kwargs specifying parameters for the function.
-    metric: A function that takes two ndarray of positions of shape
-        `[spatial_dimensions]` and `[spatial_dimensions]` respectively and
-        returns an ndarray of distances or displacements of shape `[]` or
+    displacement_or_metric: A function that takes two ndarray of positions of
+        shape `[spatial_dimensions]` and `[spatial_dimensions]` respectively
+        and returns an ndarray of distances or displacements of shape `[]` or
         `[d_in]` respectively.
     species: A list of species for the different particles. This should either
       be None (in which case it is assumed that all the particles have the same

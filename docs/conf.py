@@ -97,15 +97,15 @@ autosummary_generate = True
 
 intersphinx_mapping = {
     'python': ('https://docs.python.org/3/', None),
-    'numpy': ('https://docs.scipy.org/doc/numpy/', None),
-    'scipy': ('https://docs.scipy.org/doc/scipy/reference/', None),
+    'numpy': ('https://numpy.org/doc/stable/', None),
+    'scipy': ('https://docs.scipy.org/doc/scipy/', None),
 }
 
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = None
 
 autosummary_generate = True
-napolean_use_rtype = False
+napoleon_use_rtype = False
 
 # -- Options for HTML output -------------------------------------------------
 

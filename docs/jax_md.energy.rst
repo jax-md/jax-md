@@ -33,11 +33,17 @@ Classical Potentials
 .. autofunction:: bks_silica_pair
 .. autofunction:: bks_silica_neighbor_list
 
+.. autofunction:: dsf_coulomb
+
 .. autofunction:: stillinger_weber
 .. autofunction:: stillinger_weber_neighbor_list
 
+.. autofunction:: edip
+.. autofunction:: edip_neighbor_list
+
 .. autofunction:: load_lammps_tersoff_parameters
 .. autofunction:: tersoff
+.. autofunction:: tersoff_from_lammps_parameters
 .. autofunction:: tersoff_neighbor_list
 .. autofunction:: tersoff_from_lammps_parameters_neighbor_list
 
@@ -56,7 +62,23 @@ Neural Network Potentials
 .. autofunction:: graph_network
 .. autofunction:: graph_network_neighbor_list
 
+.. autofunction:: nequip_neighbor_list
+.. autofunction:: orb_neighbor_list
+.. autofunction:: aceff_neighbor_list
+.. autofunction:: ani_neighbor_list
+.. autofunction:: vivace_neighbor_list
+.. autofunction:: so3lr_neighbor_list
+.. autofunction:: aimnet2_neighbor_list
+.. autofunction:: uma_neighbor_list
+.. autofunction:: mace_neighbor_list
+
+Membrane Potentials
+--------------------
+
+.. autofunction:: triangle_area_potential
+.. autofunction:: volume_potential
+.. autofunction:: bending_potential
+
 Helper Functions
 -----------------
 .. autofunction:: multiplicative_isotropic_cutoff
-.. autofunction:: load_lammps_eam_parameters

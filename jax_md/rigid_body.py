@@ -747,9 +747,7 @@ and it would be interesting to explore other possibilities.
 
 @dataclasses.dataclass
 class RigidPointUnion:
-  """.. _rigid_body_union:
-
-  Defines a rigid collection of point-like masses glued together.
+  """Defines a rigid collection of point-like masses glued together.
 
   This class describes a rigid body as a collection of point-like particles
   rigidly arranged in space. These points can have variable masses. Rigid
@@ -920,7 +918,7 @@ def point_union_shape(
 ) -> RigidPointUnion:
   """Construct a rigid body out of points and masses.
 
-  See :ref:`rigid_body_union` for details.
+  See :class:`RigidPointUnion` for details.
 
   Arguments:
     points: An array point point positions.

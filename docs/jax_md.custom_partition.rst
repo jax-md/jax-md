@@ -18,7 +18,6 @@ Data Structures
 ----------------
 .. autoclass:: NeighborListMultiImage
    :members:
-   :undoc-members:
 
 .. autoclass:: NeighborListMultiImageFns
    :members:

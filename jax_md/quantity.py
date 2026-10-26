@@ -63,6 +63,7 @@ def force(energy_fn: EnergyFn) -> ForceFn:
 
 
 def clipped_force(energy_fn: EnergyFn, max_force: float) -> ForceFn:
+  """Force function with each particle's force norm capped at `max_force`."""
   force_fn = force(energy_fn)
 
   def wrapped_force_fn(R: Array, *args, **kwargs) -> Array:
@@ -120,6 +121,7 @@ def count_dof(position: Array, fix_center_of_mass: bool = False) -> int:
 
 
 def volume(dimension: int, box: Box) -> Array:
+  """Volume of a box given as a side length, side lengths, or a box matrix."""
   box = jnp.asarray(box)
   if jnp.isscalar(box) or not box.ndim:
     return box**dimension
@@ -297,6 +299,7 @@ def stress(
 
 
 def cosine_angle_between_two_vectors(dR_12: Array, dR_13: Array) -> Array:
+  """Cosine of the angle between two vectors, clipped to [-1, 1]."""
   dr_12 = space.distance(dR_12) + 1e-7
   dr_13 = space.distance(dR_13) + 1e-7
   cos_angle = jnp.dot(dR_12, dR_13) / dr_12 / dr_13
@@ -744,12 +747,14 @@ def box_size_at_volume_fraction(
 def box_size_at_number_density(
   particle_count: int, number_density: float | Array, spatial_dimension: int
 ) -> Array:
+  """Side length of a box with the given particle count and number density."""
   return jnp.power(particle_count / number_density, 1 / spatial_dimension)
 
 
 def box_from_parameters(
   a: float, b: float, c: float, alpha: float, beta: float, gamma: float
 ) -> Array:
+  """Upper-triangular box matrix from lattice lengths and angles in degrees."""
   alpha = alpha * jnp.pi / 180
   beta = beta * jnp.pi / 180
   gamma = gamma * jnp.pi / 180
@@ -762,6 +767,7 @@ def box_from_parameters(
 
 
 def bulk_modulus(elastic_tensor: Array) -> Array:
+  """Voigt bulk modulus, the mean of ``C_iijj`` over ``i`` and ``j``."""
   return jnp.einsum('iijj->', elastic_tensor) / elastic_tensor.shape[0] ** 2
 
 

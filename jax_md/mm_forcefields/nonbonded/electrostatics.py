@@ -553,7 +553,7 @@ class PMECoulomb(CoulombHandler):
   def B(mx: Array, my: Array, mz: Array, n: int = 4) -> Array:
     """Compute the B factors from Essmann et al. equation 4.7.
 
-    Uses OpenMM's fix for tiny moduli: if |A|^2 < 1e-7, replace with the
+    Uses OpenMM's fix for tiny moduli: if ``|A|^2 < 1e-7``, replace with the
     average of neighboring values before inverting.
     """
     # mx/my/mz come from meshgrid(..., indexing='ij') so:

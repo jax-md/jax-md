@@ -151,6 +151,8 @@ class VirtualSiteData(NamedTuple):
 
 # TODO consider if this can be cleaned up or if using Optional/Any is good practice
 class OpenMMSystem(NamedTuple):
+  """Arrays and parameters that ``convert_openmm_system`` builds from OpenMM."""
+
   positions: Array
   topology: Topology
   params: Parameters
@@ -237,6 +239,7 @@ def load_charmm_system(
   sys_info: str | None = None,
   **kwargs: Any,
 ) -> tuple[Any, Any, Any, Any]:
+  """Load CHARMM inputs and build an OpenMM System."""
   # param_paths is list of files with extensions such as par, prm, top, rtf, inp, and str
   _maybe_import_omm()
   crd_extension = os.path.splitext(crd_path)[-1]
@@ -267,6 +270,7 @@ def load_gromacs_system(
   nb_method: NonbondedMethod | None = None,
   **kwargs: Any,
 ) -> tuple[Any, Any, Any, Any]:
+  """Load GROMACS inputs and build an OpenMM System."""
   _maybe_import_omm()
   gro = app.GromacsGroFile(gro_path)
   positions = gro.getPositions(asNumpy=True)

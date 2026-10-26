@@ -35,13 +35,14 @@ def energy(
       nb_options: Nonbonded interaction options.
 
   Returns:
-      energy_fn: Function that computes energy given positions and neighbor list.
-          Signature: energy_fn(positions, nlist) -> energy_dict
-      neighbor_fn: Function to build/update neighbor lists.
-      displacement_fn: Displacement function for the given box.
+      A tuple ``(energy_fn, neighbor_fn, displacement_fn)``. ``energy_fn``
+      computes a dictionary of energy terms from positions and a neighbor
+      list, ``energy_fn(positions, nlist) -> energy_dict``. ``neighbor_fn``
+      builds and updates neighbor lists, and ``displacement_fn`` is the
+      displacement function for the given box.
 
   Example:
-      >>> from jax_md.mm import oplsaa
+      >>> from jax_md.mm_forcefields import oplsaa
       >>> from jax_md.mm_forcefields.nonbonded.electrostatics import PMECoulomb
       >>>
       >>> top = oplsaa.Topology(...)
