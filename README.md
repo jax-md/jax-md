@@ -1,5 +1,7 @@
 # JAX, M.D.
 
+> **Note:** this `master` branch is frozen at its 2021 state and kept so links from the JAX MD paper keep working; its code may not run with current JAX. Development happens on [`main`](https://github.com/jax-md/jax-md/tree/main).
+
 ### Accelerated, Differentiable, Molecular Dynamics
 [**Quickstart**](#getting-started)
 | [**Reference docs**](https://jax-md.readthedocs.io/en/latest/)
