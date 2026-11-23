@@ -557,7 +557,7 @@ def body_34_candidate_fn(
   neigh2_types = species[neigh2_glb]
   my_param_mask = param_mask[neigh1_types, cent_types, neigh2_types].flatten()
   pot_mult = (
-    neigh_bo[center, neigh1_lcl] * nbr_inds[center, neigh2_lcl]
+    neigh_bo[center, neigh1_lcl] * neigh_bo[center, neigh2_lcl]
   ) > cutoff2
 
   return body_3_inds, my_param_mask & pot_mult.flatten()

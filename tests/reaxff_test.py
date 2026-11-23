@@ -18,6 +18,7 @@ def read_atoms(path) -> Atoms:
 from jax_md import space
 from jax_md.mm_forcefields.reaxff.reaxff_interactions import reaxff_inter_list
 from jax_md.mm_forcefields.reaxff.reaxff_interactions import (
+  body_34_candidate_fn,
   calculate_all_angles_and_distances,
 )
 from jax_md.mm_forcefields.reaxff.reaxff_helper import read_force_field
@@ -400,6 +401,29 @@ class ReaxFFEnergyTest(JAXMDTestCase):
     self.assertAllClose(
       tor_conj, TEST_DATA[i]['results']['E_conj'], atol=ATOL * N, rtol=RTOL
     )
+
+  def test_body_34_filter_uses_bond_orders(self):
+    # The 3-body items that seed the 4-body (torsion) list must be selected
+    # by bond orders only, never by the global index of a neighbor.
+    cutoff2 = 0.001
+    # Atom 1 is bonded to atoms 2 and 0 (in this local order); atom 3 is
+    # bonded to atoms 1 and 2, the first bond being very weak.
+    nbr_inds = jnp.array([[1, 4], [2, 0], [1, 3], [1, 2]], dtype=jnp.int32)
+    neigh_bo = jnp.array(
+      [[0.9, 0.0], [0.8, 0.9], [0.8, 0.9], [0.01, 0.01]], dtype=jnp.float64
+    )
+    species = jnp.zeros(4, dtype=jnp.int32)
+    param_mask = jnp.ones((1, 1, 1), dtype=bool)
+    # (center, local index of neighbor 1, local index of neighbor 2)
+    body_3_inds = jnp.array([[1, 0, 1], [3, 0, 1]], dtype=jnp.int32)
+    _, mask = body_34_candidate_fn(
+      body_3_inds, nbr_inds, neigh_bo, species, cutoff2, param_mask
+    )
+    # Strong bonds, second neighbor is atom 0: has to be kept.
+    self.assertTrue(bool(mask[0]))
+    # Bond order product 1e-4 is below the cutoff: has to be dropped, even
+    # though the second neighbor has a large index.
+    self.assertFalse(bool(mask[1]))
 
   @parameterized.parameters(
     [(i, TEST_DATA[i]['name']) for i in range(len(TEST_DATA))]
